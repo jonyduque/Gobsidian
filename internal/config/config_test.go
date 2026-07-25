@@ -201,7 +201,12 @@ func TestLoadCacheDir(t *testing.T) {
 			t.Fatalf("Load() error = %v", err)
 		}
 		rel, err := filepath.Rel(c.VaultPath, c.CacheDir)
-		if err == nil && !strings.HasPrefix(rel, "..") {
+		if err != nil {
+			// filepath.Rel error means the paths are on different volumes (common on Windows),
+			// which satisfies the "cache outside vault" property.
+			return
+		}
+		if !strings.HasPrefix(rel, "..") {
 			t.Errorf("CacheDir %q esta dentro do cofre %q (rel = %q)", c.CacheDir, c.VaultPath, rel)
 		}
 	})
