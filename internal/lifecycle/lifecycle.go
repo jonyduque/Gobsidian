@@ -80,7 +80,13 @@ func (l *Lifecycle) Reason() string {
 	return l.reason
 }
 
-// Wait bloqueia ate todas as goroutines do lifecycle terminarem.
+// Wait bloqueia ate todas as goroutines do lifecycle que podem ser
+// desenroladas terminarem — hoje o handler de sinais (Task 4) e a vigilia
+// do processo pai (Task 5). Deliberadamente NAO espera pela goroutine de
+// stdin: uma leitura bloqueada em io.Reader nao tem saida por cancelamento
+// de context, entao inclui-la no WaitGroup faria Wait() travar sempre que
+// outro mecanismo disparasse o desligamento primeiro e stdin permanecesse
+// aberto. Ver o comentario de watchStdin em stdin.go.
 func (l *Lifecycle) Wait() { l.wg.Wait() }
 
 // ParentPID devolve o PID do processo pai no momento da chamada.

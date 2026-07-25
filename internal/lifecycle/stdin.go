@@ -9,11 +9,18 @@ import (
 // watchStdin encerra o processo quando o host MCP fecha o stdin do filho.
 // E o mecanismo primario e o mais confiavel no Windows: o sistema operacional
 // fecha os handles de um processo morto, inclusive apos taskkill /F.
+//
+// Esta goroutine e deliberadamente NAO registrada no WaitGroup. Read bloqueia
+// e nao ha forma portavel de interromper uma leitura bloqueada num io.Reader
+// arbitrario via cancelamento de context — ctx aqui so existe para consistencia
+// de assinatura, nao e observado dentro do loop. Se ela estivesse no
+// WaitGroup, o dia em que sinais (Task 4) ou vigilia do pai (Task 5)
+// disparassem o desligamento primeiro, Wait() bloquearia para sempre esperando
+// uma leitura que nunca retorna enquanto stdin permanecer aberto. A saida
+// documentada desta goroutine e o encerramento do processo, nao um retorno
+// de funcao aguardado por alguem.
 func (l *Lifecycle) watchStdin(ctx context.Context, r io.Reader) {
-	l.wg.Add(1)
 	go func() {
-		defer l.wg.Done()
-
 		buf := make([]byte, 4096)
 		for {
 			_, err := r.Read(buf)
