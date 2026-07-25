@@ -125,7 +125,7 @@ gobsidian search --vault "C:\caminho\do\cofre" --query "usucapiao extraordinaria
 gobsidian inspect --vault "C:\caminho\do\cofre" --note "Civil/PONTO 03.md" --json
 ```
 
-`gobsidian doctor` é o primeiro comando a rodar quando algo não funciona. Ele verifica o que costuma quebrar antes de qualquer outra coisa — gobsidian inexistente, permissões, arquivos OneDrive somente-nuvem, caminhos acima de 260 caracteres, colisões de casing entre pastas.
+`gobsidian doctor` é o primeiro comando a rodar quando algo não funciona. Ele verifica o que costuma quebrar antes de qualquer outra coisa — cofre inexistente, permissões, arquivos OneDrive somente-nuvem, caminhos acima de 260 caracteres, colisões de casing entre pastas.
 
 ---
 
