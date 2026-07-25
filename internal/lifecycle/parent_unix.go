@@ -27,6 +27,13 @@ type identity struct {
 	ppid int
 }
 
+// Precondicao: pid deve ser o PID do pai real deste processo no momento da
+// chamada (tipicamente lifecycle.ParentPID(), isto e, os.Getppid() capturado
+// no startup). A identidade aqui e construida a partir de os.Getppid() —
+// o proprio pai do processo watcher — e nao de nada derivado do argumento
+// pid. Se pid nao for de fato o pai do processo, a comparacao de ppid ainda
+// roda, mas so deteta reparentamento do watcher, nao morte do pid informado;
+// ela degrada silenciosamente para checagem de mera existencia via Signal(0).
 func parentIdentity(pid int) (identity, error) {
 	proc, err := os.FindProcess(pid)
 	if err != nil {
