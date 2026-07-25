@@ -1,0 +1,5 @@
+bin/
+coverage.out
+*.exe
+gobsidian-debug.log
+.superpowers/
