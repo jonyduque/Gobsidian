@@ -238,7 +238,7 @@ Testes de parser comparam contra golden files em JSON, regeneráveis com `go tes
 ```
 module github.com/jonyd/gobsidian
 
-go 1.24
+go 1.25
 
 require (
     github.com/modelcontextprotocol/go-sdk v1.5.0
@@ -251,6 +251,8 @@ require (
     gopkg.in/yaml.v3                     v3.0.1
 )
 ```
+
+A diretiva `go 1.25` é o piso mínimo, não a versão do toolchain instalado — ela é imposta pelo próprio `go-sdk@v1.5.0`, cujo `go.mod` declara `go 1.25.0`, e as regras de grafo de módulos do Go exigem que o módulo principal declare pelo menos essa versão; não é uma escolha por recurso de linguagem que precisemos.
 
 As versões acima são o ponto de partida; fixe o que `go mod tidy` resolver e não use `latest` em nenhuma delas. O SDK de MCP em particular fica em `v1.5.0`, que é a versão com suporte pleno ao protocolo `2025-11-25` (PRD D6).
 
@@ -298,10 +300,27 @@ golangci-lint run
 go test ./internal/parser -update
 
 # Verificar que nenhum pacote NOSSO importa rede (RNF-30)
+$ModulePath = go list -m 2>$null
+if ($LASTEXITCODE -ne 0 -or -not $ModulePath) {
+    Write-Warning "[!] 'go list -m' falhou; nao foi possivel determinar o modulo"
+    exit 1
+}
+
 $Rows = go list -f '{{.ImportPath}}|{{join .Imports ","}}' ./...
+if ($LASTEXITCODE -ne 0 -or -not $Rows) {
+    Write-Warning "[!] 'go list ./...' falhou ou nao retornou pacotes; verificacao nao executada"
+    exit 1
+}
+
+$Scoped = $Rows | Where-Object {
+    $Pkg = ($_ -split "\|", 2)[0]
+    $Pkg -eq "$ModulePath/internal" -or $Pkg -like "$ModulePath/internal/*" -or
+    $Pkg -eq "$ModulePath/cmd" -or $Pkg -like "$ModulePath/cmd/*"
+}
+
 $Offenders = @()
 
-foreach ($Row in $Rows) {
+foreach ($Row in $Scoped) {
     $Parts = $Row -split "\|", 2
     $Pkg = $Parts[0]
 
@@ -320,7 +339,7 @@ if ($Offenders) {
 Write-Output "[OK] Nenhum pacote de internal/ ou cmd/ importa rede"
 ```
 
-A última verificação vira um passo do CI. RNF-30 só tem valor se for continuamente verificado.
+A última verificação vira um passo do CI. RNF-30 só tem valor se for continuamente verificado. O script falha alto (`[!]` e `exit 1`) se `go list` não conseguir rodar ou devolver nada — um gate que não consegue distinguir "nada para checar" de "nada errado" não é gate. A varredura roda sobre todos os pacotes do módulo, mas os candidatos a ofensor são filtrados para os que vivem sob `internal/` e `cmd/`, que é o escopo real da garantia — não todo `./...`.
 
 **Por que `./...` e não `-deps`.** A verificação óbvia — `go list -deps ./cmd/gobsidian` e falhar se aparecer qualquer `net/*` — falharia sempre e em poucos dias estaria comentada. O SDK de MCP importa `net/http` para o transporte HTTP/SSE, e essa importação entra no fechamento transitivo mesmo construindo apenas stdio.
 

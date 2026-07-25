@@ -1,7 +1,7 @@
 # PRD — gobsidian
 
 **Produto:** servidor MCP para cofres locais do Obsidian
-**Linguagem:** Go 1.24+
+**Linguagem:** Go 1.25+
 **Status:** rascunho para implementação
 **Última revisão:** 2026-07-25
 

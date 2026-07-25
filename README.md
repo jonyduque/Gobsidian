@@ -50,7 +50,7 @@ Protocolo MCP alvo: `2025-11-25`.
 
 ### A partir do código-fonte
 
-Requer Go 1.24+.
+Requer Go 1.25+.
 
 ```powershell
 go install github.com/jonyd/gobsidian/cmd/gobsidian@latest
