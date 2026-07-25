@@ -13,12 +13,22 @@ import (
 
 // Flags espelha exatamente o que a CLI aceita. cobra preenche esta struct
 // e nada mais; a traducao para Config acontece em Load.
+//
+// ReadOnlySet e DebounceMSSet indicam se a flag correspondente foi
+// explicitamente fornecida na linha de comando. Sem isso, um bool ou int
+// no valor zero fica indistinguivel de "flag omitida", o que torna a
+// direcao "flag desliga o que o env ligou" da precedencia flag > env >
+// default inalcancavel. cobra preenche os campos de valor via BoolVar /
+// IntVar; os campos *Set sao preenchidos depois do parse, lendo
+// cmd.Flags().Changed(nome).
 type Flags struct {
-	VaultPath  string
-	LogLevel   string
-	ReadOnly   bool
-	DebounceMS int
-	CacheDir   string
+	VaultPath     string
+	LogLevel      string
+	ReadOnly      bool
+	ReadOnlySet   bool
+	DebounceMS    int
+	DebounceMSSet bool
+	CacheDir      string
 }
 
 type Config struct {
@@ -59,20 +69,27 @@ func Load(f Flags) (Config, error) {
 	}
 
 	if v := os.Getenv("GOBSIDIAN_READ_ONLY"); v != "" {
-		cfg.ReadOnly = v == "1" || strings.EqualFold(v, "true")
+		b, err := parseReadOnly(v)
+		if err != nil {
+			return Config{}, fmt.Errorf("GOBSIDIAN_READ_ONLY: %w", err)
+		}
+		cfg.ReadOnly = b
 	}
-	if f.ReadOnly {
-		cfg.ReadOnly = true
+	if f.ReadOnlySet {
+		cfg.ReadOnly = f.ReadOnly
 	}
 
 	if v := os.Getenv("GOBSIDIAN_DEBOUNCE_MS"); v != "" {
-		n, err := strconv.Atoi(v)
-		if err != nil || n < 0 {
-			return Config{}, fmt.Errorf("GOBSIDIAN_DEBOUNCE_MS invalido: %q", v)
+		n, err := parseDebounceMS(v)
+		if err != nil {
+			return Config{}, fmt.Errorf("GOBSIDIAN_DEBOUNCE_MS: %w", err)
 		}
 		cfg.DebounceMS = n
 	}
-	if f.DebounceMS > 0 {
+	if f.DebounceMSSet {
+		if err := validateDebounceMS(f.DebounceMS); err != nil {
+			return Config{}, fmt.Errorf("--debounce-ms: %w", err)
+		}
 		cfg.DebounceMS = f.DebounceMS
 	}
 
@@ -97,6 +114,44 @@ func parseLevel(s string) (slog.Level, error) {
 	default:
 		return 0, fmt.Errorf("nivel de log desconhecido: %q (use debug, info, warn ou error)", s)
 	}
+}
+
+// parseReadOnly aceita um conjunto explicito de grafias verdadeiras/falsas,
+// case-insensitive, e rejeita qualquer outra coisa em vez de silenciosamente
+// coagir para false (um "ture" digitado errado nao pode desligar o modo
+// somente-leitura de alguem sem aviso).
+func parseReadOnly(s string) (bool, error) {
+	switch strings.ToLower(strings.TrimSpace(s)) {
+	case "1", "true", "t", "yes", "y":
+		return true, nil
+	case "0", "false", "f", "no", "n":
+		return false, nil
+	default:
+		return false, fmt.Errorf("valor desconhecido: %q (use 1, true, t, yes, y, 0, false, f, no ou n)", s)
+	}
+}
+
+// parseDebounceMS converte e valida um valor de debounce vindo de texto
+// (variavel de ambiente). O erro do strconv.Atoi e preservado com %w.
+func parseDebounceMS(v string) (int, error) {
+	n, err := strconv.Atoi(v)
+	if err != nil {
+		return 0, fmt.Errorf("valor invalido %q (use um inteiro >= 0): %w", v, err)
+	}
+	if err := validateDebounceMS(n); err != nil {
+		return 0, err
+	}
+	return n, nil
+}
+
+// validateDebounceMS aplica a mesma regra de aceitacao independente da
+// origem do valor (flag ou env): qualquer inteiro >= 0 e valido, incluindo
+// zero (que significa "sem debounce").
+func validateDebounceMS(n int) error {
+	if n < 0 {
+		return fmt.Errorf("valor invalido %d (use um inteiro >= 0)", n)
+	}
+	return nil
 }
 
 // defaultCacheDir deriva o diretorio de cache de um hash do caminho absoluto
