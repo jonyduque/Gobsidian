@@ -191,7 +191,9 @@ Um arquivo chamado `helpers.go` ou `utils.go` é sinal de que uma preocupação 
 
 ### Contexto
 
-Toda função que faz I/O ou pode bloquear recebe `ctx context.Context` como primeiro parâmetro e o respeita. O context raiz vem de `lifecycle`; cancelá-lo derruba tudo em cascata. Isso é o que faz o shutdown funcionar de verdade em vez de apenas parecer funcionar.
+Toda função que pode **bloquear** recebe `ctx context.Context` como primeiro parâmetro e o respeita: leitura e escrita de arquivo, varredura do cofre, worker pool, watcher, chamadas MCP. O context raiz vem de `lifecycle`; cancelá-lo derruba tudo em cascata. Isso é o que faz o shutdown funcionar de verdade em vez de apenas parecer funcionar.
+
+O critério é espera real, não contato com o sistema operacional. Consulta de variável de ambiente, resolução de caminho e cálculo em memória não recebem `ctx`, porque não há nada a cancelar. Um `ctx` que nenhum corpo de função verifica é pior que ausente: ensina o revisor a não olhar para `ctx`, e o parâmetro perde o significado justamente onde ele importa.
 
 ### Erros
 
