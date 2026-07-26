@@ -47,7 +47,7 @@ func (e *Error) Unwrap() error { return e.Err }
 // identifica a categoria do erro para quem chama.
 func (e *Error) Is(target error) bool {
 	t, ok := target.(*Error)
-	if !ok {
+	if !ok || t == nil {
 		return false
 	}
 	return e.Code == t.Code

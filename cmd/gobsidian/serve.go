@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"io"
 	"log/slog"
 	"os"
@@ -85,6 +86,14 @@ func runServe(parent context.Context, cfg config.Config) error {
 	serveReturned := false
 	var loopErr error
 
+	// A etapa in-flight roda na goroutine que lifecycle.Shutdown lanca para
+	// ela, e pode ficar orfa se o orcamento estourar antes dela terminar —
+	// "abandonada" quer dizer exatamente isso. Se ela escrevesse direto em
+	// loopErr, essa escrita correria com a leitura da goroutine principal
+	// logo depois de lc.Wait(). Um canal com buffer 1 carrega a garantia de
+	// happens-before que uma variavel compartilhada nao tem.
+	lateErr := make(chan error, 1)
+
 	select {
 	case err := <-serveErr:
 		serveReturned = true
@@ -102,7 +111,7 @@ func runServe(parent context.Context, cfg config.Config) error {
 			}
 			select {
 			case err := <-serveErr:
-				loopErr = err
+				lateErr <- err
 			case <-ctx.Done():
 				return ctx.Err()
 			}
@@ -113,8 +122,23 @@ func runServe(parent context.Context, cfg config.Config) error {
 		}},
 	)
 
+	select {
+	case err := <-lateErr:
+		if loopErr == nil {
+			loopErr = err
+		}
+	default:
+	}
+
 	lc.Wait()
-	if loopErr != nil {
+
+	// ctx cancelado e o encerramento normal deste servidor: o lifecycle o
+	// cancela quando o host fecha o stdin, quando chega um sinal, ou quando o
+	// processo pai morre. Tratar isso como falha faria um host supervisor ver
+	// erro aleatorio a cada desconexao limpa, porque a corrida entre a
+	// deteccao de EOF do SDK e a do lifecycle decide qual dos dois valores
+	// chega aqui.
+	if loopErr != nil && !errors.Is(loopErr, context.Canceled) {
 		os.Exit(1)
 	}
 	os.Exit(0)
@@ -126,17 +150,24 @@ func runServe(parent context.Context, cfg config.Config) error {
 // do lifecycle — io.TeeReader nao serve aqui porque so copia bytes, e EOF nao
 // e um byte.
 type mirrorReader struct {
-	src io.Reader
-	dst *io.PipeWriter
+	src    io.Reader
+	dst    *io.PipeWriter
+	broken bool // espelho desistiu; a leitura principal segue intacta
 }
 
 func (m *mirrorReader) Read(p []byte) (int, error) {
 	n, err := m.src.Read(p)
-	if n > 0 {
+
+	// O espelho e auxiliar: existe so para o lifecycle enxergar o EOF. Se a
+	// escrita nele falhar, o JSON-RPC continua — devolver o erro da escrita
+	// no lugar do resultado da leitura injetaria uma falha inventada em uma
+	// sessao saudavel, e o cliente veria a conexao morrer sem motivo.
+	if n > 0 && !m.broken {
 		if _, werr := m.dst.Write(p[:n]); werr != nil {
-			return n, werr
+			m.broken = true
 		}
 	}
+
 	if err != nil {
 		_ = m.dst.CloseWithError(err)
 	}

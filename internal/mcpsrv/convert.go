@@ -16,5 +16,5 @@ const codeInternal = service.CodeInternal
 // como a versao anterior fazia, deixava structuredContent com um objeto
 // zerado indistinguivel de um cofre legitimamente vazio.
 func toolErr(err error) error {
-	return fmt.Errorf("%s: %s", service.CodeOf(err), err.Error())
+	return fmt.Errorf("%s: %w", service.CodeOf(err), err)
 }
