@@ -69,47 +69,42 @@ func Resolve(root, input string) (string, CanonicalPath, error) {
 
 // validateLocal rejeita as formas que a comparacao por componente nao enxerga.
 //
-// Tres classes, cada uma descoberta em revisao com prova empirica:
-//
-//  1. Nomes de dispositivo do Windows. `Resolve(root, "NUL")` produz um
-//     caminho lexicamente interno ao cofre, e o sistema operacional o resolve
-//     para o dispositivo NUL. `COM1` aceita escrita em porta serial; `CON` le
-//     o console, que em um servidor stdio e o proprio transporte. Nenhum
-//     desses caminhos contem `..`, entao a checagem por componente passa.
-//
-//  2. Caminhos com letra de drive que sobrevivem ao Clean. `./C:/Windows`
-//     vira `C:/Windows` depois de path.Clean, e uma checagem que so olha os
-//     dois primeiros bytes da entrada crua nao ve isso.
-//
-//  3. Componentes terminados em ponto ou espaco. O Win32 os remove ao abrir,
-//     entao `A.md.`, `A.md ` e `A.md` sao o mesmo arquivo — mas tres chaves
-//     canonicas distintas. Como CanonicalPath e a identidade da nota no
-//     indice, isso da a um arquivo mais de uma identidade, e qualquer
-//     verificacao chaveada nela pode ser contornada acrescentando um ponto.
-//
-// filepath.IsLocal cobre 1 e 2 e substitui a checagem manual de letra de
-// drive. A classe 3 ele considera local, e precisa de rejeicao explicita.
+// A ordem das checagens define qual sentinela o cliente recebe, e as tres
+// significam coisas diferentes para quem esta do outro lado do MCP:
+// travessia e um caminho que precisa ser corrigido, caminho absoluto e um
+// mal-entendido sobre a convencao, e caminho malformado e entrada invalida.
+// Colapsar as tres em uma faria a mensagem ser a unica informacao util.
 func validateLocal(cleaned string) error {
 	if strings.ContainsRune(cleaned, 0) {
 		return fmt.Errorf("%w: caminho contem byte nulo", ErrInvalidPath)
 	}
 
-	if !filepath.IsLocal(filepath.FromSlash(cleaned)) {
+	// Travessia primeiro. Depois do Clean, subir acima da raiz sobrevive
+	// apenas como ".." inicial — e essa e a forma que precisa ser reportada
+	// como travessia, nao como caminho absoluto.
+	if cleaned == ".." || strings.HasPrefix(cleaned, "../") {
+		return fmt.Errorf("%w: %q sobe acima da raiz do cofre", ErrOutsideVault, cleaned)
+	}
+
+	native := filepath.FromSlash(cleaned)
+
+	// Caminho enraizado, em qualquer das formas. VolumeName cobre "C:algo",
+	// que nao e absoluto mas tambem nao e relativo a raiz do cofre.
+	if path.IsAbs(cleaned) || filepath.IsAbs(native) || filepath.VolumeName(native) != "" {
 		return fmt.Errorf("%w: %q", ErrAbsolutePath, cleaned)
 	}
 
-	for _, part := range strings.Split(cleaned, "/") {
-		if part == "" {
-			continue
-		}
-		if last := part[len(part)-1]; last == '.' || last == ' ' {
-			return fmt.Errorf(
-				"%w: componente %q termina em ponto ou espaco, o que o Windows remove ao abrir e faria o mesmo arquivo ter mais de um caminho canonico",
-				ErrInvalidPath, part)
-		}
+	// O que sobra e o que o sistema operacional resolve para fora do sistema
+	// de arquivos sem nunca produzir um "..": no Windows, os nomes de
+	// dispositivo. `Resolve(root, "NUL")` produz um caminho lexicamente
+	// interno ao cofre, e o SO o resolve para o dispositivo NUL; COM1 aceita
+	// escrita em porta serial; CON le o console, que em um servidor stdio e o
+	// proprio transporte.
+	if !filepath.IsLocal(native) {
+		return fmt.Errorf("%w: %q nao e um caminho local", ErrInvalidPath, cleaned)
 	}
 
-	return nil
+	return validatePlatformPath(cleaned)
 }
 
 // Canonicalize converte um caminho absoluto em CanonicalPath, verificando o

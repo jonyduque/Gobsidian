@@ -41,30 +41,30 @@ func TestResolveConfinement(t *testing.T) {
 		// corromperia nomes reais.
 		{name: "barra invertida", input: `Civil\PONTO 03.md`, want: "Civil/PONTO 03.md", windowsOnly: true},
 
-		{name: "escapa do cofre", input: "../outro/A.md", wantErr: vault.ErrAbsolutePath},
-		{name: "escapa com muitos niveis", input: "a/b/../../../fora.md", wantErr: vault.ErrAbsolutePath},
-		{name: "duplo ponto sozinho", input: "..", wantErr: vault.ErrAbsolutePath},
+		{name: "escapa do cofre", input: "../outro/A.md", wantErr: vault.ErrOutsideVault},
+		{name: "escapa com muitos niveis", input: "a/b/../../../fora.md", wantErr: vault.ErrOutsideVault},
+		{name: "duplo ponto sozinho", input: "..", wantErr: vault.ErrOutsideVault},
 		{name: "absoluto unix rejeitado", input: "/etc/passwd", wantErr: vault.ErrAbsolutePath},
 		{name: "vazio rejeitado", input: "", wantErr: vault.ErrEmptyPath},
 		{name: "so separadores", input: "/", wantErr: vault.ErrAbsolutePath},
 
 		// Letra de drive que sobrevive ao Clean. Uma checagem que olha apenas
 		// os dois primeiros bytes da entrada crua nao ve esta forma.
-		{name: "drive apos ponto inicial", input: "./C:/Windows/win.ini", wantErr: vault.ErrAbsolutePath},
-		{name: "absoluto com drive", input: "C:/cofre/A.md", wantErr: vault.ErrAbsolutePath},
+		{name: "drive apos ponto inicial", input: "./C:/Windows/win.ini", wantErr: vault.ErrAbsolutePath, windowsOnly: true},
+		{name: "absoluto com drive", input: "C:/cofre/A.md", wantErr: vault.ErrAbsolutePath, windowsOnly: true},
 
 		// Nomes de dispositivo. Nenhum contem "..", entao a comparacao por
 		// componente os aceita — e o sistema operacional os resolve para fora
 		// do sistema de arquivos.
-		{name: "dispositivo NUL", input: "NUL", wantErr: vault.ErrAbsolutePath, windowsOnly: true},
-		{name: "dispositivo em subpasta", input: "Civil/NUL", wantErr: vault.ErrAbsolutePath, windowsOnly: true},
-		{name: "dispositivo COM1", input: "COM1", wantErr: vault.ErrAbsolutePath, windowsOnly: true},
-		{name: "dispositivo CON", input: "CON", wantErr: vault.ErrAbsolutePath, windowsOnly: true},
+		{name: "dispositivo NUL", input: "NUL", wantErr: vault.ErrInvalidPath, windowsOnly: true},
+		{name: "dispositivo em subpasta", input: "Civil/NUL", wantErr: vault.ErrInvalidPath, windowsOnly: true},
+		{name: "dispositivo COM1", input: "COM1", wantErr: vault.ErrInvalidPath, windowsOnly: true},
+		{name: "dispositivo CON", input: "CON", wantErr: vault.ErrInvalidPath, windowsOnly: true},
 
 		// Identidade canonica unica por arquivo.
-		{name: "componente termina em ponto", input: "Civil/A.md.", wantErr: vault.ErrInvalidPath},
-		{name: "componente termina em espaco", input: "Civil/A.md ", wantErr: vault.ErrInvalidPath},
-		{name: "pasta termina em ponto", input: "Civil./A.md", wantErr: vault.ErrInvalidPath},
+		{name: "componente termina em ponto", input: "Civil/A.md.", wantErr: vault.ErrInvalidPath, windowsOnly: true},
+		{name: "componente termina em espaco", input: "Civil/A.md ", wantErr: vault.ErrInvalidPath, windowsOnly: true},
+		{name: "pasta termina em ponto", input: "Civil./A.md", wantErr: vault.ErrInvalidPath, windowsOnly: true},
 
 		{name: "byte nulo", input: "Civil/\x00A.md", wantErr: vault.ErrInvalidPath},
 	}
@@ -114,9 +114,10 @@ func TestCanonicalizeRejectsStandalone(t *testing.T) {
 	root := testRoot()
 
 	tests := []struct {
-		name    string
-		abs     string
-		wantErr error
+		name        string
+		abs         string
+		wantErr     error
+		windowsOnly bool
 	}{
 		{
 			name:    "irmao com prefixo compartilhado",
@@ -134,14 +135,21 @@ func TestCanonicalizeRejectsStandalone(t *testing.T) {
 			wantErr: vault.ErrInvalidPath,
 		},
 		{
-			name:    "letra de drive dentro da raiz",
-			abs:     filepath.Join(root, "C:Windows", "win.ini"),
-			wantErr: vault.ErrAbsolutePath,
+			// Em Unix, "C:Windows" e um nome de diretorio comum e o caminho
+			// continua dentro do cofre — aceita-lo la e o comportamento certo.
+			name:        "letra de drive dentro da raiz",
+			abs:         filepath.Join(root, "C:Windows", "win.ini"),
+			wantErr:     vault.ErrAbsolutePath,
+			windowsOnly: true,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			if tt.windowsOnly && runtime.GOOS != "windows" {
+				t.Skip("comportamento especifico do Windows")
+			}
+
 			canon, err := vault.Canonicalize(root, tt.abs)
 			if err == nil {
 				t.Fatalf("Canonicalize(%q) = %q, quer erro %v", tt.abs, canon, tt.wantErr)
@@ -165,8 +173,8 @@ func TestCanonicalizeRejectsStandalone(t *testing.T) {
 func TestResolveRejectsSiblingWithSharedPrefix(t *testing.T) {
 	root := testRoot()
 	_, _, err := vault.Resolve(root, "../cofre-outro/A.md")
-	if err == nil {
-		t.Fatal("irmao com prefixo compartilhado foi aceito")
+	if !errors.Is(err, vault.ErrOutsideVault) {
+		t.Fatalf("erro = %v, quer ErrOutsideVault", err)
 	}
 }
 
