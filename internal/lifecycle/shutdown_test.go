@@ -64,7 +64,11 @@ func TestShutdownStepExceedingBudgetDoesNotBlockNext(t *testing.T) {
 	if elapsed > time.Second {
 		t.Errorf("shutdown levou %v, deveria abandonar a etapa lenta em ~100ms", elapsed)
 	}
-	if !strings.Contains(buf.String(), "lenta") {
+	// A assercao precisa mirar uma palavra que so aparece no ramo de abandono.
+	// O nome da etapa nao serve: ele e registrado tanto no abandono quanto na
+	// falha, entao "lenta" no buffer provaria apenas que a etapa foi
+	// mencionada em algum lugar, que nunca esteve em duvida.
+	if !strings.Contains(buf.String(), "abandonada") {
 		t.Errorf("o abandono da etapa nao foi registrado; log = %q", buf.String())
 	}
 }

@@ -18,11 +18,21 @@ type Step struct {
 
 // Shutdown executa as etapas em ordem, cada uma com seu proprio relogio.
 //
-// Nao devolve codigo de saida, e a ausencia e deliberada. Falha de etapa e
-// registrada, nunca fatal: o cache de indice que nao gravou custa alguns
-// segundos no proximo boot, e transformar isso em codigo de erro faria o host
-// reportar falha de um encerramento que deu certo. O unico caminho que sai
-// com codigo diferente de zero e o guarda-chuva abaixo.
+// Nao devolve codigo de saida, e a ausencia e deliberada. Uma etapa que
+// devolve erro e registrada, nunca fatal: o cache de indice que nao gravou
+// custa alguns segundos no proximo boot, e transformar isso em codigo de erro
+// faria o host reportar falha de um encerramento que deu certo. Um panic
+// dentro de uma etapa NAO esta coberto por essa garantia — derruba o processo,
+// como em qualquer goroutine do pacote. Nao ha recover aqui de proposito: o
+// processo ja esta encerrando, e um panic durante o encerramento e um bug que
+// deve aparecer inteiro no stderr, nao ser engolido.
+//
+// Shutdown bloqueia mas nao recebe ctx, e essa e a unica excecao consciente a
+// regra do projeto. O context raiz ja esta cancelado quando Shutdown roda —
+// e o cancelamento dele que traz o processo ate aqui. Derivar os orcamentos
+// desse context faria toda etapa comecar expirada e nenhuma rodar. Os
+// orcamentos por etapa e o guarda-chuva abaixo sao o mecanismo de limite
+// aqui, no lugar do context.
 //
 // hardLimit arma esse guarda-chuva: se qualquer etapa travar de um jeito que o
 // orcamento dela nao previu, o processo morre mesmo assim. Encerrar com codigo
