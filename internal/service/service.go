@@ -63,7 +63,7 @@ func (s *Service) VaultStats(ctx context.Context, req StatsRequest) (StatsResult
 		return nil
 	})
 	if err != nil {
-		return StatsResult{}, Wrap(CodeVaultUnavailable, err, "varrendo o cofre: %v", err)
+		return StatsResult{}, Wrap(CodeVaultUnavailable, err, "varrendo o cofre")
 	}
 	return out, nil
 }

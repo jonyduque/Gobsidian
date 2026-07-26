@@ -42,6 +42,17 @@ type Error struct {
 func (e *Error) Error() string { return e.Message }
 func (e *Error) Unwrap() error { return e.Err }
 
+// Is permite errors.Is(err, &service.Error{Code: service.CodeNoteNotFound})
+// sem exigir mensagem ou causa identicas — o codigo e o unico campo que
+// identifica a categoria do erro para quem chama.
+func (e *Error) Is(target error) bool {
+	t, ok := target.(*Error)
+	if !ok {
+		return false
+	}
+	return e.Code == t.Code
+}
+
 func Errorf(code Code, format string, args ...any) *Error {
 	return &Error{Code: code, Message: sprintf(format, args...)}
 }

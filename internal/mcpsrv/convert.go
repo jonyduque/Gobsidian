@@ -1,25 +1,20 @@
 package mcpsrv
 
 import (
+	"fmt"
+
 	"github.com/jonyd/gobsidian/internal/service"
-	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
 const codeInternal = service.CodeInternal
 
-// errorResult monta o resultado de erro no formato que o host entende, com
-// codigo legivel por maquina no inicio da mensagem.
-func errorResult(code, message string) *mcp.CallToolResult {
-	return &mcp.CallToolResult{
-		IsError: true,
-		Content: []mcp.Content{
-			&mcp.TextContent{Text: code + ": " + message},
-		},
-	}
-}
-
-// toolError traduz um erro de dominio em resultado MCP. Erros nunca sobem
-// como erro de protocolo: o cliente precisa poder ler a mensagem e se corrigir.
-func toolError(err error) *mcp.CallToolResult {
-	return errorResult(string(service.CodeOf(err)), err.Error())
+// toolErr traduz um erro de dominio em um erro Go cujo texto comeca com o
+// codigo legivel por maquina. Devolvido como error (nao como resultado), para
+// que o SDK monte o CallToolResult de erro sozinho e nao serialize o valor
+// zero de Out em StructuredContent — o SDK so pula StructuredContent quando o
+// handler devolve um error Go nao-nulo. Sintetizar o resultado manualmente,
+// como a versao anterior fazia, deixava structuredContent com um objeto
+// zerado indistinguivel de um cofre legitimamente vazio.
+func toolErr(err error) error {
+	return fmt.Errorf("%s: %s", service.CodeOf(err), err.Error())
 }

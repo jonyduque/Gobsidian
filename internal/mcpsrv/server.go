@@ -59,7 +59,7 @@ func (s *Server) registerReadTools() {
 					IncludeRuntime: in.IncludeRuntime,
 				})
 				if err != nil {
-					return toolError(err), service.StatsResult{}, nil
+					return nil, service.StatsResult{}, toolErr(err)
 				}
 				return nil, out, nil
 			}),

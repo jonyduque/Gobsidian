@@ -2,6 +2,7 @@ package mcpsrv_test
 
 import (
 	"context"
+	"encoding/json"
 	"io"
 	"log/slog"
 	"os"
@@ -101,6 +102,22 @@ func TestVaultStatsCountsNotes(t *testing.T) {
 	}
 	if res.IsError {
 		t.Fatalf("vault_stats devolveu erro: %+v", res.Content)
+	}
+
+	raw, err := json.Marshal(res.StructuredContent)
+	if err != nil {
+		t.Fatalf("marshal StructuredContent: %v", err)
+	}
+	var stats service.StatsResult
+	if err := json.Unmarshal(raw, &stats); err != nil {
+		t.Fatalf("unmarshal StructuredContent: %v", err)
+	}
+
+	if stats.Notes != 2 {
+		t.Errorf("Notes = %d, want 2", stats.Notes)
+	}
+	if stats.Assets != 0 {
+		t.Errorf("Assets = %d, want 0", stats.Assets)
 	}
 }
 

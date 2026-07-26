@@ -25,8 +25,9 @@ func guard[In, Out any](
 					"tool", name,
 					"panic", fmt.Sprint(r),
 					"stack", string(debug.Stack()))
-				res = errorResult(string(codeInternal), "falha interna em "+name+"; detalhes registrados em stderr")
-				err = nil
+				res = nil
+				out = *new(Out)
+				err = fmt.Errorf("%s: falha interna em %s; detalhes registrados em stderr", codeInternal, name)
 			}
 		}()
 		return fn(ctx, req, in)

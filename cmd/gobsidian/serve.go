@@ -57,10 +57,9 @@ func runServe(parent context.Context, cfg config.Config) error {
 	}
 
 	// O monitor de stdin consome bytes, e o stdin aqui pertence ao JSON-RPC.
-	// A saida e espelhar: o SDK le do TeeReader, e o lifecycle observa a copia.
-	// Quando o host fecha o stdin, ambos veem EOF.
+	// A saida e espelhar: o SDK le do espelho, e o lifecycle observa a copia.
 	pr, pw := io.Pipe()
-	teed := io.TeeReader(os.Stdin, pw)
+	teed := &mirrorReader{src: os.Stdin, dst: pw}
 
 	ctx, lc := lifecycle.New(parent, lifecycle.Options{
 		Stdin:     pr,
@@ -79,8 +78,17 @@ func runServe(parent context.Context, cfg config.Config) error {
 	serveErr := make(chan error, 1)
 	go func() { serveErr <- srv.Serve(ctx, teed, os.Stdout) }()
 
+	// serveErr tem capacidade 1 e recebe exatamente um valor. Se o select
+	// abaixo ja o consumiu, a etapa in-flight nao pode tentar le-lo de novo —
+	// ficaria bloqueada ate estourar o orcamento, atrasando todo encerramento
+	// normal em 3 segundos e registrando uma falha que nao aconteceu.
+	serveReturned := false
+	var loopErr error
+
 	select {
 	case err := <-serveErr:
+		serveReturned = true
+		loopErr = err
 		if err != nil {
 			log.Error("servidor encerrou com erro", "err", err)
 		}
@@ -89,8 +97,12 @@ func runServe(parent context.Context, cfg config.Config) error {
 
 	lifecycle.Shutdown(log, 6*time.Second,
 		lifecycle.Step{Name: "in-flight", Budget: 3 * time.Second, Fn: func(ctx context.Context) error {
+			if serveReturned {
+				return nil
+			}
 			select {
-			case <-serveErr:
+			case err := <-serveErr:
+				loopErr = err
 			case <-ctx.Done():
 				return ctx.Err()
 			}
@@ -102,6 +114,31 @@ func runServe(parent context.Context, cfg config.Config) error {
 	)
 
 	lc.Wait()
+	if loopErr != nil {
+		os.Exit(1)
+	}
 	os.Exit(0)
 	return nil
+}
+
+// mirrorReader espelha o que le para dst e, crucialmente, propaga o fim da
+// leitura fechando dst. E o que faz o EOF do host chegar ao monitor de stdin
+// do lifecycle — io.TeeReader nao serve aqui porque so copia bytes, e EOF nao
+// e um byte.
+type mirrorReader struct {
+	src io.Reader
+	dst *io.PipeWriter
+}
+
+func (m *mirrorReader) Read(p []byte) (int, error) {
+	n, err := m.src.Read(p)
+	if n > 0 {
+		if _, werr := m.dst.Write(p[:n]); werr != nil {
+			return n, werr
+		}
+	}
+	if err != nil {
+		_ = m.dst.CloseWithError(err)
+	}
+	return n, err
 }
