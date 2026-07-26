@@ -374,7 +374,17 @@ $VaultPath = "C:\caminho\do\cofre"
 
 # 2. Handshake MCP manual
 $InitRequest = '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-11-25","capabilities":{},"clientInfo":{"name":"manual","version":"1.0"}}}'
-$InitRequest | & $BinaryPath serve --vault $VaultPath
+
+# O Start-Sleep nao e decorativo: mantem o stdin aberto tempo suficiente para
+# a resposta ser escrita. Sem ele o pipe fecha no mesmo instante em que a
+# requisicao entra, o servidor ve EOF, comeca a encerrar, e a resposta corre
+# contra o encerramento — o resultado e stdout vazio e a conclusao errada de
+# que o servidor esta quebrado. Um host MCP real mantem o stdin aberto pela
+# sessao inteira, entao a condicao so aparece neste teste manual.
+& {
+    $InitRequest
+    Start-Sleep -Seconds 2
+} | & $BinaryPath serve --vault $VaultPath
 
 # 3. Log de nivel debug para stderr
 & $BinaryPath serve --vault $VaultPath --log-level debug 2> "gobsidian-debug.log"
