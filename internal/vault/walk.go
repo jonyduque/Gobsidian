@@ -2,6 +2,7 @@ package vault
 
 import (
 	"context"
+	"fmt"
 	"io/fs"
 	"path/filepath"
 	"strings"
@@ -57,13 +58,27 @@ func isNoise(name string) bool {
 // Walk percorre o cofre aplicando as exclusoes e classificando cada arquivo
 // como nota ou anexo. Arquivos que nao sao nem um nem outro sao ignorados.
 func (v *Vault) Walk(ctx context.Context, fn func(Entry) error) error {
-	return filepath.WalkDir(v.root, func(abs string, d fs.DirEntry, err error) error {
+	return filepath.WalkDir(v.walkRoot, func(abs string, d fs.DirEntry, err error) error {
 		if err != nil {
+			// d == nil significa que a falha foi na propria raiz: WalkDir nao
+			// conseguiu nem fazer Lstat nela. Isso acontece quando o cofre
+			// some entre New e Walk — unidade removivel desconectada, pasta
+			// sincronizada que o cliente de nuvem moveu, share de rede caido.
+			//
+			// Engolir esse erro faria Walk devolver sucesso com zero entradas,
+			// e o servidor reportaria com confianca que o cofre esta vazio.
+			// Um cofre inacessivel e um erro; um cofre vazio e um fato. As
+			// duas coisas nao podem produzir a mesma resposta.
+			if d == nil {
+				return fmt.Errorf("varrendo a raiz do cofre %q: %w", v.root, err)
+			}
 			// Um diretorio ilegivel nao derruba a varredura inteira. O cofre
 			// e do usuario, e uma pasta com ACL estranha e problema local.
-			if d != nil && d.IsDir() {
+			if d.IsDir() {
+				v.recordSkip(abs, err)
 				return fs.SkipDir
 			}
+			v.recordSkip(abs, err)
 			return nil
 		}
 		if ctxErr := ctx.Err(); ctxErr != nil {
@@ -73,7 +88,7 @@ func (v *Vault) Walk(ctx context.Context, fn func(Entry) error) error {
 		name := d.Name()
 
 		if d.IsDir() {
-			if abs == v.root {
+			if abs == v.walkRoot {
 				return nil
 			}
 			if excludedDirs[strings.ToLower(name)] {
@@ -93,12 +108,14 @@ func (v *Vault) Walk(ctx context.Context, fn func(Entry) error) error {
 			return nil
 		}
 
-		canon, cErr := Canonicalize(v.root, abs)
+		canon, cErr := Canonicalize(v.walkRoot, abs)
 		if cErr != nil {
+			v.recordSkip(abs, cErr)
 			return nil
 		}
 		info, iErr := d.Info()
 		if iErr != nil {
+			v.recordSkip(abs, iErr)
 			return nil
 		}
 

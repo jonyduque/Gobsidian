@@ -6,10 +6,63 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"sync"
+	"sync/atomic"
 )
 
 type Vault struct {
 	root string
+
+	// walkRoot e a raiz ja preparada para chamadas do sistema: no Windows,
+	// prefixada com \\?\ quando longa. A varredura precisa dela porque e a
+	// operacao com mais chance de encostar em MAX_PATH — um cofre corporativo
+	// no OneDrive gasta boa parte do orcamento de 260 caracteres antes de
+	// qualquer nota existir. Canonicalize e chamada contra walkRoot, nao
+	// contra root, para que filepath.Rel compare formas iguais.
+	walkRoot string
+
+	// Entradas descartadas durante a varredura. Uma nota que existe no disco
+	// mas nao entra no indice fica inalcancavel; sem contador, fica tambem
+	// indiagnosticavel — o usuario ve uma nota sumida e nao tem por onde
+	// comecar. O contador e cumulativo entre varreduras, de proposito: e um
+	// sinal de saude, nao um valor por operacao.
+	skipped        atomic.Int64
+	skippedMu      sync.Mutex
+	skippedSamples []string
+}
+
+// maxSkippedSamples limita quantos caminhos descartados sao guardados. O
+// contador diz quantos; a amostra diz quais, o suficiente para diagnosticar
+// sem crescer sem limite em um cofre com milhares de nomes problematicos.
+const maxSkippedSamples = 50
+
+// maxReadRangeBytes e o teto de alocacao de uma unica chamada a ReadRange.
+// Sem ele, um `end` absurdo (por erro do chamador ou por um offset corrompido
+// vindo do indice) aloca antes de qualquer I/O acontecer — o processo pode
+// estourar memoria so por causa de dois numeros, nunca por causa do que esta
+// no disco.
+const maxReadRangeBytes = 64 << 20 // 64 MiB
+
+func (v *Vault) recordSkip(abs string, cause error) {
+	v.skipped.Add(1)
+
+	v.skippedMu.Lock()
+	defer v.skippedMu.Unlock()
+	if len(v.skippedSamples) < maxSkippedSamples {
+		v.skippedSamples = append(v.skippedSamples, fmt.Sprintf("%s: %v", abs, cause))
+	}
+}
+
+// SkippedEntries devolve quantas entradas foram descartadas e uma amostra dos
+// motivos. Exposto em vault_stats, e o que transforma "sumiu uma nota" em um
+// diagnostico.
+func (v *Vault) SkippedEntries() (int64, []string) {
+	v.skippedMu.Lock()
+	defer v.skippedMu.Unlock()
+
+	out := make([]string, len(v.skippedSamples))
+	copy(out, v.skippedSamples)
+	return v.skipped.Load(), out
 }
 
 func New(root string) (*Vault, error) {
@@ -24,7 +77,7 @@ func New(root string) (*Vault, error) {
 	if !info.IsDir() {
 		return nil, fmt.Errorf("raiz do cofre nao e diretorio: %q", abs)
 	}
-	return &Vault{root: abs}, nil
+	return &Vault{root: abs, walkRoot: LongPath(abs)}, nil
 }
 
 func (v *Vault) Root() string { return v.root }
@@ -51,6 +104,9 @@ func (v *Vault) ReadRange(ctx context.Context, p CanonicalPath, start, end int64
 	}
 	if end < start {
 		return nil, fmt.Errorf("faixa invalida em %q: %d..%d", p, start, end)
+	}
+	if end-start > maxReadRangeBytes {
+		return nil, fmt.Errorf("faixa grande demais em %q: %d..%d excede o teto de %d bytes", p, start, end, int64(maxReadRangeBytes))
 	}
 
 	f, err := v.Open(p)

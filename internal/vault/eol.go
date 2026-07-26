@@ -29,6 +29,12 @@ var bom = []byte{0xEF, 0xBB, 0xBF}
 // DetectEOL devolve o estilo predominante do arquivo. Arquivos com mistura
 // existem, e converter o arquivo inteiro para um estilo so seria reescrever
 // o que o usuario nao pediu — a escrita normaliza apenas o conteudo novo.
+//
+// CR solto (Mac classico, pre-OS X) nao tem representacao em EOLStyle: como
+// o tipo so modela LF e CRLF, um arquivo sem nenhum "\r\n" nem "\n" conta
+// zero quebras dos dois tipos e cai no default, EOLLF. Isso e consequencia
+// direta do desenho de dois valores, nao um bug — e o conteudo antigo em CR
+// solto nunca e reescrito, porque NormalizeEOL so processa o texto novo.
 func DetectEOL(data []byte) EOLStyle {
 	crlf := bytes.Count(data, []byte("\r\n"))
 	lf := bytes.Count(data, []byte("\n")) - crlf
