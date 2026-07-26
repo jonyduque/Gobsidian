@@ -3,12 +3,10 @@
 package doctor
 
 import (
-	"context"
 	"fmt"
 	"path/filepath"
 	"strings"
 
-	"github.com/jonyd/gobsidian/internal/config"
 	"github.com/jonyd/gobsidian/internal/vault"
 	"golang.org/x/sys/windows"
 	"golang.org/x/sys/windows/registry"
@@ -18,11 +16,12 @@ import (
 // caminhos longos exigem opt-in do sistema operacional, arquivos
 // somente-nuvem sao um mecanismo de OneDrive/atributo NTFS, e colisao de
 // casing so importa porque o sistema de arquivos e insensivel a maiusculas.
-func platformChecks() []check {
-	return []check{
-		checkLongPathsEnabled,
-		checkCloudOnlyFiles,
-		checkCasingCollisions,
+// Todas leem de scan em vez de varrer o cofre de novo.
+func platformChecks(scan vaultScan) []Result {
+	return []Result{
+		checkLongPathsEnabled(scan),
+		checkCloudOnlyFiles(scan),
+		checkCasingCollisions(scan),
 	}
 }
 
@@ -30,14 +29,13 @@ func platformChecks() []check {
 // registro nao tem o opt-in de caminhos longos do Windows ligado. Sem os
 // dois, e apenas informativo: caminho curto nao precisa do opt-in, e opt-in
 // ligado ja resolve o caminho longo.
-func checkLongPathsEnabled(ctx context.Context, cfg config.Config) Result {
+func checkLongPathsEnabled(scan vaultScan) Result {
 	const name = "caminhos longos habilitados"
 
-	length, longest, err := longestVaultPath(ctx, cfg)
-	if err != nil {
-		return Result{Name: name, Status: StatusWarn, Detail: fmt.Sprintf("varredura interrompida: %v", err)}
+	if scan.err != nil {
+		return Result{Name: name, Status: StatusWarn, Detail: fmt.Sprintf("varredura interrompida: %v", scan.err)}
 	}
-	if length <= longPathThreshold {
+	if scan.longestPathLen <= longPathThreshold {
 		return Result{Name: name, Status: StatusOK}
 	}
 
@@ -45,7 +43,7 @@ func checkLongPathsEnabled(ctx context.Context, cfg config.Config) Result {
 		return Result{
 			Name:   name,
 			Status: StatusWarn,
-			Detail: fmt.Sprintf("LongPathsEnabled != 1 no registro e ha caminho de %d caracteres: %s", length, longest),
+			Detail: fmt.Sprintf("LongPathsEnabled != 1 no registro e ha caminho de %d caracteres: %s", scan.longestPathLen, scan.longestPath),
 		}
 	}
 	return Result{Name: name, Status: StatusOK}
@@ -70,26 +68,20 @@ func longPathsEnabled() bool {
 
 // checkCloudOnlyFiles avisa quando alguma nota ainda nao foi baixada pelo
 // sincronizador de nuvem (OneDrive Files On-Demand e equivalentes). A
-// deteccao e por atributo de arquivo (vault.IsCloudOnly, via vault.Walk) —
-// nunca abre o arquivo, que e exatamente o que dispararia a hidratacao que
-// esta verificacao existe para evitar.
-func checkCloudOnlyFiles(ctx context.Context, cfg config.Config) Result {
+// deteccao e por atributo de arquivo (vault.IsCloudOnly, coletado por
+// scanVault via vault.Walk) — nunca abre o arquivo, que e exatamente o que
+// dispararia a hidratacao que esta verificacao existe para evitar.
+func checkCloudOnlyFiles(scan vaultScan) Result {
 	const name = "arquivos somente-nuvem"
 
-	var count int
-	err := walkVault(ctx, cfg, func(e vault.Entry) {
-		if e.IsNote && e.CloudOnly {
-			count++
-		}
-	})
-	if err != nil {
-		return Result{Name: name, Status: StatusWarn, Detail: fmt.Sprintf("varredura interrompida: %v", err)}
+	if scan.err != nil {
+		return Result{Name: name, Status: StatusWarn, Detail: fmt.Sprintf("varredura interrompida: %v", scan.err)}
 	}
-	if count > 0 {
+	if scan.cloudOnlyCount > 0 {
 		return Result{
 			Name:   name,
 			Status: StatusWarn,
-			Detail: fmt.Sprintf("%d nota(s) ainda nao baixada(s) pelo sincronizador de nuvem", count),
+			Detail: fmt.Sprintf("%d nota(s) ainda nao baixada(s) pelo sincronizador de nuvem", scan.cloudOnlyCount),
 		}
 	}
 	return Result{Name: name, Status: StatusOK}
@@ -99,32 +91,17 @@ func checkCloudOnlyFiles(ctx context.Context, cfg config.Config) Result {
 // mesmo caminho ao comparar em minusculas. NTFS e insensivel a maiusculas por
 // padrao, mas preserva a grafia — duas notas assim colidem de formas sutis em
 // qualquer ferramenta que normalize o caminho antes de usar como chave.
-func checkCasingCollisions(ctx context.Context, cfg config.Config) Result {
+func checkCasingCollisions(scan vaultScan) Result {
 	const name = "colisoes de casing"
 
-	seen := make(map[string]string)
-	var collisions []string
-	err := walkVault(ctx, cfg, func(e vault.Entry) {
-		if !e.IsNote {
-			return
-		}
-		key := strings.ToLower(string(e.Path))
-		if prev, ok := seen[key]; ok {
-			if prev != string(e.Path) {
-				collisions = append(collisions, fmt.Sprintf("%s <-> %s", prev, e.Path))
-			}
-			return
-		}
-		seen[key] = string(e.Path)
-	})
-	if err != nil {
-		return Result{Name: name, Status: StatusWarn, Detail: fmt.Sprintf("varredura interrompida: %v", err)}
+	if scan.err != nil {
+		return Result{Name: name, Status: StatusWarn, Detail: fmt.Sprintf("varredura interrompida: %v", scan.err)}
 	}
-	if len(collisions) > 0 {
+	if len(scan.casingCollisions) > 0 {
 		return Result{
 			Name:   name,
 			Status: StatusWarn,
-			Detail: fmt.Sprintf("%d colisao(oes): %s", len(collisions), strings.Join(collisions, "; ")),
+			Detail: fmt.Sprintf("%d colisao(oes): %s", len(scan.casingCollisions), strings.Join(scan.casingCollisions, "; ")),
 		}
 	}
 	return Result{Name: name, Status: StatusOK}

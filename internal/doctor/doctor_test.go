@@ -22,6 +22,20 @@ func TestRunFlagsMissingVault(t *testing.T) {
 	if !hasFailure(results, "raiz do cofre") {
 		t.Errorf("nenhuma verificacao de raiz falhou: %+v", results)
 	}
+
+	// A verificacao de raiz e "halting": sua falha deve impedir toda e
+	// qualquer verificacao seguinte de rodar, nao apenas marca-las como
+	// derivadas. Sem raiz nenhuma outra verificacao tem informacao nova a
+	// acrescentar, e o mecanismo de halt existe exatamente para nao produzir
+	// ruido nesse caso. Testado aqui diretamente (contagem de resultados) em
+	// vez de com uma raiz existente-mas-ilegivel: nao foi possivel tornar um
+	// diretorio ilegivel neste ambiente (Windows, conta com privilegios de
+	// administrador/dono) nem com chmod nem com icacls /deny — a ACL de
+	// permissao explicita e sobrescrita pelas ACEs herdadas de Full Control do
+	// dono, entao os.ReadDir e os.Stat continuam enxergando o diretorio.
+	if len(results) != 1 {
+		t.Errorf("raiz inexistente deveria parar a execucao apos 1 resultado, obteve %d: %+v", len(results), results)
+	}
 }
 
 func TestRunWarnsWithoutObsidianDir(t *testing.T) {

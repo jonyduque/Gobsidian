@@ -2,7 +2,9 @@ package doctor
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -32,8 +34,15 @@ const (
 // checkRootExists verifica que a raiz do cofre existe e e um diretorio. E a
 // unica verificacao cuja falha interrompe as demais: sem raiz acessivel, todo
 // resultado subsequente seria derivado e o relatorio viraria ruido.
-func checkRootExists(_ context.Context, cfg config.Config) Result {
+func checkRootExists(ctx context.Context, cfg config.Config) Result {
 	const name = "raiz do cofre existe"
+
+	// os.Stat bloqueia em um share de rede parado ou um mount de nuvem sem
+	// resposta. Nao da para interromper o syscall ja em voo, mas dá para nao
+	// nem comecar quando o chamador ja desistiu.
+	if err := ctx.Err(); err != nil {
+		return Result{Name: name, Status: StatusWarn, Detail: fmt.Sprintf("varredura interrompida: %v", err)}
+	}
 
 	info, err := os.Stat(vault.LongPath(cfg.VaultPath))
 	if err != nil {
@@ -54,8 +63,12 @@ func checkRootExists(_ context.Context, cfg config.Config) Result {
 }
 
 // checkReadable verifica que o processo consegue listar a raiz do cofre.
-func checkReadable(_ context.Context, cfg config.Config) Result {
+func checkReadable(ctx context.Context, cfg config.Config) Result {
 	const name = "permissao de leitura"
+
+	if err := ctx.Err(); err != nil {
+		return Result{Name: name, Status: StatusWarn, Detail: fmt.Sprintf("varredura interrompida: %v", err)}
+	}
 
 	entries, err := os.ReadDir(vault.LongPath(cfg.VaultPath))
 	if err != nil {
@@ -73,8 +86,12 @@ func checkReadable(_ context.Context, cfg config.Config) Result {
 // a falha aconteceria, o que muda apenas a gravidade do resultado: falha
 // bloqueante quando o produto precisa escrever, aviso quando o usuario ja
 // pediu para nao escrever e portanto a resposta nao importa para o exit code.
-func checkWritable(_ context.Context, cfg config.Config) Result {
+func checkWritable(ctx context.Context, cfg config.Config) Result {
 	const name = "permissao de escrita"
+
+	if err := ctx.Err(); err != nil {
+		return Result{Name: name, Status: StatusWarn, Detail: fmt.Sprintf("varredura interrompida: %v", err)}
+	}
 
 	root := vault.LongPath(cfg.VaultPath)
 	f, err := os.CreateTemp(root, ".gobsidian-doctor-*.tmp")
@@ -102,67 +119,88 @@ func checkWritable(_ context.Context, cfg config.Config) Result {
 
 // checkObsidianDir avisa quando a pasta .obsidian/ nao existe. Nunca falha: o
 // produto funciona sobre qualquer pasta de Markdown, e exigir .obsidian/ seria
-// arbitrario.
-func checkObsidianDir(_ context.Context, cfg config.Config) Result {
+// arbitrario. Nao-existe e distinguido de outros erros (permissao, por
+// exemplo): uma .obsidian/ que existe mas nao pode ser lida nao e a mesma
+// situacao que uma .obsidian/ que nunca existiu, e reportar as duas como
+// "ausente" esconderia um problema de permissao real.
+func checkObsidianDir(ctx context.Context, cfg config.Config) Result {
 	const name = ".obsidian presente"
 
-	info, err := os.Stat(vault.LongPath(filepath.Join(cfg.VaultPath, ".obsidian")))
-	if err != nil || !info.IsDir() {
+	if err := ctx.Err(); err != nil {
+		return Result{Name: name, Status: StatusWarn, Detail: fmt.Sprintf("varredura interrompida: %v", err)}
+	}
+
+	path := filepath.Join(cfg.VaultPath, ".obsidian")
+	info, err := os.Stat(vault.LongPath(path))
+	switch {
+	case errors.Is(err, fs.ErrNotExist):
 		return Result{
 			Name:   name,
 			Status: StatusWarn,
 			Detail: "pasta .obsidian ausente: configuracoes, temas e plugins do Obsidian nao serao detectados",
 		}
+	case err != nil:
+		return Result{
+			Name:   name,
+			Status: StatusWarn,
+			Detail: fmt.Sprintf("nao foi possivel verificar %q: %v", path, err),
+		}
+	case !info.IsDir():
+		return Result{
+			Name:   name,
+			Status: StatusWarn,
+			Detail: fmt.Sprintf("%q existe mas nao e um diretorio", path),
+		}
+	default:
+		return Result{Name: name, Status: StatusOK}
 	}
-	return Result{Name: name, Status: StatusOK}
 }
 
 // checkNoteCount conta as notas .md do cofre. Nunca falha; zero notas e
-// aviso, nao erro — um cofre vazio e um fato, nao uma quebra.
-func checkNoteCount(ctx context.Context, cfg config.Config) Result {
+// aviso, nao erro — um cofre vazio e um fato, nao uma quebra. Le do resultado
+// de scanVault em vez de varrer o cofre de novo.
+func checkNoteCount(scan vaultScan) Result {
 	const name = "contagem de notas"
 
-	var count int
-	err := walkVault(ctx, cfg, func(e vault.Entry) {
-		if e.IsNote {
-			count++
-		}
-	})
-	if err != nil {
-		return Result{Name: name, Status: StatusWarn, Detail: fmt.Sprintf("varredura interrompida: %v", err)}
+	if scan.err != nil {
+		return Result{Name: name, Status: StatusWarn, Detail: fmt.Sprintf("varredura interrompida: %v", scan.err)}
 	}
-	if count == 0 {
+	if scan.noteCount == 0 {
 		return Result{Name: name, Status: StatusWarn, Detail: "nenhuma nota .md encontrada"}
 	}
-	return Result{Name: name, Status: StatusOK, Detail: fmt.Sprintf("%d notas", count)}
+	return Result{Name: name, Status: StatusOK, Detail: fmt.Sprintf("%d notas", scan.noteCount)}
 }
 
 // checkLongestPath mede o maior caminho absoluto entre as entradas do cofre,
 // na forma tradicional (sem o prefixo \\?\ que internal/vault usa
 // internamente nas suas proprias chamadas de sistema). E essa forma tradicional
 // que o Explorer, clientes de sincronizacao de nuvem e outras ferramentas
-// externas recebem, e por isso o limiar existe: o MAX_PATH de 260 delas.
-func checkLongestPath(ctx context.Context, cfg config.Config) Result {
+// externas recebem, e por isso o limiar existe: o MAX_PATH de 260 delas. Le do
+// resultado de scanVault em vez de varrer o cofre de novo.
+func checkLongestPath(scan vaultScan) Result {
 	const name = "comprimento de caminho"
 
-	length, longest, err := longestVaultPath(ctx, cfg)
-	if err != nil {
-		return Result{Name: name, Status: StatusWarn, Detail: fmt.Sprintf("varredura interrompida: %v", err)}
+	if scan.err != nil {
+		return Result{Name: name, Status: StatusWarn, Detail: fmt.Sprintf("varredura interrompida: %v", scan.err)}
 	}
-	if length > longPathThreshold {
+	if scan.longestPathLen > longPathThreshold {
 		return Result{
 			Name:   name,
 			Status: StatusWarn,
-			Detail: fmt.Sprintf("%d caracteres, acima do limiar de %d: %s", length, longPathThreshold, longest),
+			Detail: fmt.Sprintf("%d caracteres, acima do limiar de %d: %s", scan.longestPathLen, longPathThreshold, scan.longestPath),
 		}
 	}
-	return Result{Name: name, Status: StatusOK, Detail: fmt.Sprintf("maior caminho: %d caracteres", length)}
+	return Result{Name: name, Status: StatusOK, Detail: fmt.Sprintf("maior caminho: %d caracteres", scan.longestPathLen)}
 }
 
 // checkCacheDir verifica que o diretorio de cache pode ser criado. Nunca
 // falha: sem cache o produto reindexação do zero, mais lento, mas funcional.
-func checkCacheDir(_ context.Context, cfg config.Config) Result {
+func checkCacheDir(ctx context.Context, cfg config.Config) Result {
 	const name = "diretorio de cache"
+
+	if err := ctx.Err(); err != nil {
+		return Result{Name: name, Status: StatusWarn, Detail: fmt.Sprintf("varredura interrompida: %v", err)}
+	}
 
 	if strings.TrimSpace(cfg.CacheDir) == "" {
 		// So acontece quando o chamador monta Config fora de config.Load
@@ -184,8 +222,12 @@ func checkCacheDir(_ context.Context, cfg config.Config) Result {
 // checkFreeSpace verifica o espaco livre no volume que contem a raiz do
 // cofre. Falha (bloqueante) abaixo de 10 MB, porque escritas atomicas podem
 // comecar a falhar; aviso abaixo de 100 MB.
-func checkFreeSpace(_ context.Context, cfg config.Config) Result {
+func checkFreeSpace(ctx context.Context, cfg config.Config) Result {
 	const name = "espaco em disco"
+
+	if err := ctx.Err(); err != nil {
+		return Result{Name: name, Status: StatusWarn, Detail: fmt.Sprintf("varredura interrompida: %v", err)}
+	}
 
 	free, err := diskFreeBytes(cfg.VaultPath)
 	if err != nil {
@@ -203,10 +245,70 @@ func checkFreeSpace(_ context.Context, cfg config.Config) Result {
 	}
 }
 
+// vaultScan e o resultado de uma unica varredura do cofre, usado por todo
+// check que precisa de dados por arquivo (contagem de notas, caminho mais
+// longo, arquivos somente-nuvem, colisoes de casing). Sem isso, cada um desses
+// checks abriria o cofre e chamaria vault.Walk por conta propria — no cofre de
+// 20 mil notas que o produto tem como alvo, cinco varreduras completas (quatro
+// aqui mais o registro de caminhos longos do Windows) em vez de uma.
+//
+// err e nao-nulo quando a varredura foi interrompida (contexto cancelado,
+// cofre que sumiu entre checkReadable e aqui, etc.) — os checks que consomem
+// o scan reportam isso como aviso de "varredura interrompida", nunca como
+// "zero encontrado", que seria uma resposta enganosa.
+type vaultScan struct {
+	noteCount        int
+	longestPathLen   int
+	longestPath      string
+	cloudOnlyCount   int
+	casingCollisions []string
+	err              error
+}
+
+// scanVault varre o cofre uma unica vez e coleta tudo que os checks acima
+// precisam. So e chamada depois que os checks bloqueantes (raiz existe, raiz
+// legivel) passam: varrer um cofre cuja raiz nao pode ser lida so produziria
+// mais um erro derivado do mesmo problema ja sinalizado.
+func scanVault(ctx context.Context, cfg config.Config) vaultScan {
+	var scan vaultScan
+	seen := make(map[string]string)
+
+	scan.err = walkVault(ctx, cfg, func(e vault.Entry) {
+		if e.IsNote {
+			scan.noteCount++
+		}
+
+		abs := filepath.Join(cfg.VaultPath, filepath.FromSlash(string(e.Path)))
+		if n := len(abs); n > scan.longestPathLen {
+			scan.longestPathLen = n
+			scan.longestPath = abs
+		}
+
+		if !e.IsNote {
+			return
+		}
+
+		if e.CloudOnly {
+			scan.cloudOnlyCount++
+		}
+
+		key := strings.ToLower(string(e.Path))
+		if prev, ok := seen[key]; ok {
+			if prev != string(e.Path) {
+				scan.casingCollisions = append(scan.casingCollisions, fmt.Sprintf("%s <-> %s", prev, e.Path))
+			}
+			return
+		}
+		seen[key] = string(e.Path)
+	})
+
+	return scan
+}
+
 // walkVault varre o cofre chamando fn para cada entrada (nota ou anexo). E o
-// unico ponto que abre um vault.Vault a partir de cfg — cada verificacao que
-// precisa varrer chama esta funcao, e nao abre arquivos: vault.Walk ja evita
-// tocar em placeholders de nuvem.
+// unico ponto que abre um vault.Vault a partir de cfg — scanVault e a unica
+// chamadora, e nao abre arquivos: vault.Walk ja evita tocar em placeholders
+// de nuvem.
 func walkVault(ctx context.Context, cfg config.Config, fn func(vault.Entry)) error {
 	v, err := vault.New(cfg.VaultPath)
 	if err != nil {
@@ -216,22 +318,4 @@ func walkVault(ctx context.Context, cfg config.Config, fn func(vault.Entry)) err
 		fn(e)
 		return nil
 	})
-}
-
-// longestVaultPath devolve o comprimento e o valor do maior caminho absoluto
-// tradicional (sem prefixo \\?\) entre as entradas do cofre. Compartilhada
-// entre checkLongestPath e a verificacao de caminhos longos do Windows, que
-// precisa do mesmo dado para decidir se o registro importa.
-func longestVaultPath(ctx context.Context, cfg config.Config) (length int, longest string, err error) {
-	walkErr := walkVault(ctx, cfg, func(e vault.Entry) {
-		abs := filepath.Join(cfg.VaultPath, filepath.FromSlash(string(e.Path)))
-		if n := len(abs); n > length {
-			length = n
-			longest = abs
-		}
-	})
-	if walkErr != nil {
-		return length, longest, walkErr
-	}
-	return length, longest, nil
 }

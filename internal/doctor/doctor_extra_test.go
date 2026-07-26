@@ -18,6 +18,84 @@ import (
 	"github.com/jonyd/gobsidian/internal/doctor"
 )
 
+// TestStatusMarkerDistinctPerStatus fixa os tres marcadores em valores
+// distintos. Sem este teste, uma regressao que faca StatusWarn e StatusFail
+// devolverem a mesma string (o bug original desta revisao) passaria
+// silenciosamente: nenhum outro teste compara os tres valores de Marker()
+// entre si, so verifica presenca de substring em Detail/Name.
+func TestStatusMarkerDistinctPerStatus(t *testing.T) {
+	ok := doctor.StatusOK.Marker()
+	warn := doctor.StatusWarn.Marker()
+	fail := doctor.StatusFail.Marker()
+
+	if ok == warn || ok == fail || warn == fail {
+		t.Fatalf("marcadores devem ser distintos: OK=%q Warn=%q Fail=%q", ok, warn, fail)
+	}
+	if ok != "[OK]" {
+		t.Errorf("StatusOK.Marker() = %q, esperava [OK]", ok)
+	}
+	if warn != "[*]" {
+		t.Errorf("StatusWarn.Marker() = %q, esperava [*]", warn)
+	}
+	if fail != "[!]" {
+		t.Errorf("StatusFail.Marker() = %q, esperava [!]", fail)
+	}
+}
+
+// TestCheckCacheDirCreatable confirma o ramo real de sucesso: um CacheDir
+// nao-vazio que pode ser criado reporta [OK]. Sem este teste, todo teste do
+// pacote monta cfg via config.Defaults(), que deixa CacheDir vazio e so
+// exercita o retorno defensivo antecipado — os ramos que de fato criam o
+// diretorio nunca rodam.
+func TestCheckCacheDirCreatable(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "A.md"), []byte("# A\n"), 0o644); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+
+	cfg := config.Defaults()
+	cfg.VaultPath = root
+	cfg.CacheDir = filepath.Join(t.TempDir(), "cache", "nested")
+
+	results := doctor.Run(context.Background(), cfg)
+
+	if !hasStatus(results, "diretorio de cache", doctor.StatusOK) {
+		t.Errorf("esperava [OK] para diretorio de cache criavel: %+v", results)
+	}
+	if _, err := os.Stat(cfg.CacheDir); err != nil {
+		t.Errorf("diretorio de cache deveria ter sido criado: %v", err)
+	}
+}
+
+// TestCheckCacheDirUncreatable confirma o ramo de aviso: um CacheDir cujo
+// caminho tem um arquivo regular como ancestral nao pode ser criado por
+// MkdirAll em nenhum sistema operacional, e o check deve reportar aviso (nao
+// falha bloqueante nem panico).
+func TestCheckCacheDirUncreatable(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "A.md"), []byte("# A\n"), 0o644); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+
+	blocker := filepath.Join(t.TempDir(), "nao-e-diretorio")
+	if err := os.WriteFile(blocker, []byte("bloqueia MkdirAll"), 0o644); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+
+	cfg := config.Defaults()
+	cfg.VaultPath = root
+	cfg.CacheDir = filepath.Join(blocker, "cache")
+
+	results := doctor.Run(context.Background(), cfg)
+
+	if !hasStatus(results, "diretorio de cache", doctor.StatusWarn) {
+		t.Errorf("esperava aviso para diretorio de cache nao-criavel: %+v", results)
+	}
+	if doctor.ExitCode(results) != 0 {
+		t.Errorf("diretorio de cache nao-criavel nao deveria ser falha bloqueante: %+v", results)
+	}
+}
+
 func TestExitCodeEmptyResults(t *testing.T) {
 	if code := doctor.ExitCode(nil); code != 0 {
 		t.Errorf("ExitCode(nil) = %d, esperava 0", code)

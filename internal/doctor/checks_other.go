@@ -12,7 +12,7 @@ import (
 // opt-in de registro que so existe la, arquivos somente-nuvem sao detectados
 // por atributo NTFS especifico do OneDrive, e colisao de casing so importa
 // em sistema de arquivos insensivel a maiusculas.
-func platformChecks() []check {
+func platformChecks(vaultScan) []Result {
 	return nil
 }
 
