@@ -2,23 +2,55 @@ package main
 
 import (
 	"fmt"
+	"os"
 
+	"github.com/jonyd/gobsidian/internal/config"
+	"github.com/jonyd/gobsidian/internal/doctor"
 	"github.com/spf13/cobra"
 )
 
-// newDoctorCmd e um placeholder ate a Task 10 implementar o diagnostico de
-// verdade. Ele so precisa existir para o binario compilar e para
-// "gobsidian doctor" nao ser um comando desconhecido do cobra; o
-// comportamento real (checar vault, cache, permissoes) fica fora do escopo
-// da Task 9. Ao contrario de serve, doctor e um comando CLI comum, entao
-// escrever em stdout aqui e correto.
 func newDoctorCmd() *cobra.Command {
-	return &cobra.Command{
+	var flags config.Flags
+
+	cmd := &cobra.Command{
 		Use:   "doctor",
-		Short: "Diagnostica o ambiente (placeholder ate a Task 10)",
+		Short: "Diagnostica o ambiente: permissoes, OneDrive, MAX_PATH, casing",
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			fmt.Fprintln(cmd.OutOrStdout(), "doctor: ainda nao implementado (ver Task 10)")
+			// Sem esta linha, --read-only nao chega a Config e a verificacao
+			// de permissao de escrita roda mesmo quando o usuario pediu para
+			// nao rodar. Toda chamada a config.Load precisa preencher os
+			// companheiros das flags que o comando expoe.
+			flags.ReadOnlySet = cmd.Flags().Changed("read-only")
+
+			cfg, err := config.Load(flags)
+			if err != nil {
+				return err
+			}
+
+			results := doctor.Run(cmd.Context(), cfg)
+
+			// doctor imprime em stdout de proposito: e um comando de CLI,
+			// nao um servidor. Nenhum JSON-RPC trafega aqui.
+			out := cmd.OutOrStdout()
+			for _, r := range results {
+				fmt.Fprintf(out, "%s %s\n", r.Status.Marker(), r.Name)
+				if r.Detail != "" {
+					fmt.Fprintf(out, "     %s\n", r.Detail)
+				}
+			}
+
+			code := doctor.ExitCode(results)
+			if code != 0 {
+				fmt.Fprintln(out, "[!] Ha falhas bloqueantes acima")
+				os.Exit(code)
+			}
+			fmt.Fprintln(out, "[OK] Ambiente apto")
 			return nil
 		},
 	}
+
+	cmd.Flags().StringVar(&flags.VaultPath, "vault", "", "caminho da raiz do cofre (obrigatorio)")
+	cmd.Flags().BoolVar(&flags.ReadOnly, "read-only", false, "nao verifica permissao de escrita")
+
+	return cmd
 }
