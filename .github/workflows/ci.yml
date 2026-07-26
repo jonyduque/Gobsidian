@@ -38,3 +38,23 @@ jobs:
         with:
           go-version: '1.25'
       - uses: golangci/golangci-lint-action@v6
+
+  orphans:
+    # Gate de liberacao do M0: zero processos gobsidian.exe orfaos apos
+    # encerramento abrupto do host, em 100 ciclos. So faz sentido no Windows
+    # — os tres mecanismos de encerramento (stdin EOF via pipe, sinais,
+    # vigilia do processo pai) tem sua parte especifica de plataforma
+    # exercitada aqui, e o defeito que este gate existe para pegar (parent
+    # watch comparando so pid+creation time) e exclusivo de parent_windows.go.
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.25'
+      - name: compilar
+        shell: pwsh
+        run: ./scripts/build.ps1
+      - name: 100 ciclos de encerramento abrupto
+        shell: pwsh
+        run: ./scripts/test_orphans.ps1 -Cycles 100

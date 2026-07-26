@@ -38,3 +38,19 @@ func TestSameProcessRejectsRecycledPID(t *testing.T) {
 		t.Error("PID diferente aceito como mesmo processo")
 	}
 }
+
+// TestSameProcessRejectsExited pina o defeito real encontrado no teste de
+// ponta a ponta: o Windows mantem PID e creation time consultaveis muito
+// depois de o processo morrer, entao (pid, created) sozinhos nunca percebem
+// a morte. exited e o unico sinal que muda quando o processo termina, e
+// sameProcess precisa recusar a identidade "atual" sempre que ela vier com
+// exited=true, mesmo que pid e created batam exatamente com a identidade
+// inicial.
+func TestSameProcessRejectsExited(t *testing.T) {
+	base := identity{pid: 4242, created: windows.Filetime{HighDateTime: 31, LowDateTime: 1000}}
+
+	exited := identity{pid: 4242, created: windows.Filetime{HighDateTime: 31, LowDateTime: 1000}, exited: true}
+	if sameProcess(base, exited) {
+		t.Error("identidade com exited=true aceita como mesmo processo — pai morto nunca seria detectado")
+	}
+}
