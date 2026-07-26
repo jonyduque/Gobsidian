@@ -56,6 +56,11 @@ func (v *Vault) recordSkip(abs string, cause error) {
 // SkippedEntries devolve quantas entradas foram descartadas e uma amostra dos
 // motivos. Exposto em vault_stats, e o que transforma "sumiu uma nota" em um
 // diagnostico.
+//
+// O contador e cumulativo entre chamadas de Walk — nunca reseta sozinho.
+// Isso e proposital: e um sinal de saude do cofre ao longo do tempo, nao o
+// resultado de uma unica varredura. Um chamador que precisa do descarte de
+// uma varredura especifica tem que ler o valor antes e depois e subtrair.
 func (v *Vault) SkippedEntries() (int64, []string) {
 	v.skippedMu.Lock()
 	defer v.skippedMu.Unlock()
@@ -101,6 +106,17 @@ func (v *Vault) Open(p CanonicalPath) (*os.File, error) {
 func (v *Vault) ReadRange(ctx context.Context, p CanonicalPath, start, end int64) ([]byte, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
+	}
+	// start negativo precisa ser rejeitado antes de qualquer subtracao.
+	// end-start so pode estourar o int64 quando start e suficientemente
+	// negativo (o caso patologico e start=math.MinInt64, end=math.MaxInt64:
+	// a diferenca matematica excede o range de int64 e o resultado
+	// envolve para um numero negativo, que passa pelo teto abaixo sem ser
+	// pego e derruba make() com um tamanho negativo). Com start >= 0
+	// garantido aqui e end >= start garantido a seguir, end-start fica em
+	// [0, math.MaxInt64] sempre — nunca estoura.
+	if start < 0 {
+		return nil, fmt.Errorf("faixa invalida em %q: start negativo (%d)", p, start)
 	}
 	if end < start {
 		return nil, fmt.Errorf("faixa invalida em %q: %d..%d", p, start, end)

@@ -45,8 +45,17 @@ func isNoise(name string) bool {
 		return true
 	case strings.HasPrefix(lower, ".~lock."):
 		return true
+	// desktop.ini, Thumbs.db e .DS_Store sao nomes fixos cuja extensao nunca
+	// e ".md" nem uma extensao de assetExts (".ini", ".db" ou nenhuma
+	// extensao, respectivamente). O filtro de extensao logo abaixo ja os
+	// descartaria de qualquer forma, com ou sem este ramo — defensivo
+	// (belt-and-braces), nao alcancavel por efeito. Nao existe fixture capaz
+	// de provar este ramo sem inventar um nome que o Windows nunca produz.
 	case lower == "desktop.ini", lower == "thumbs.db", lower == ".ds_store":
 		return true
+	// *.tmp: ".tmp" nao esta em assetExts, entao qualquer arquivo que caia
+	// aqui ja seria descartado pelo filtro de extensao mesmo sem isNoise.
+	// Defensivo pelo mesmo motivo do ramo acima, nao alcancavel por efeito.
 	case strings.HasSuffix(lower, ".tmp"):
 		return true
 	case strings.HasPrefix(name, ".gobsidian-tmp-"):
