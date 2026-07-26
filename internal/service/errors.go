@@ -1,0 +1,62 @@
+// Package service e a fachada unica sobre os subsistemas. Cada tool MCP
+// corresponde a um metodo aqui. Nenhum tipo do SDK de MCP atravessa esta
+// fronteira: o pacote fala Go de dominio, e a traducao acontece em mcpsrv.
+package service
+
+import (
+	"errors"
+	"fmt"
+)
+
+// Code e o codigo legivel por maquina devolvido ao cliente. A tabela completa
+// esta em docs/TOOLS.md.
+type Code string
+
+const (
+	CodePathOutsideVault Code = "PATH_OUTSIDE_VAULT"
+	CodeNoteNotFound     Code = "NOTE_NOT_FOUND"
+	CodeNoteExists       Code = "NOTE_ALREADY_EXISTS"
+	CodeAmbiguousPath    Code = "AMBIGUOUS_PATH"
+	CodeHeadingNotFound  Code = "HEADING_NOT_FOUND"
+	CodeAmbiguousHeading Code = "AMBIGUOUS_HEADING"
+	CodeBlockNotFound    Code = "BLOCK_NOT_FOUND"
+	CodeHashMismatch     Code = "HASH_MISMATCH"
+	CodeFileLocked       Code = "FILE_LOCKED"
+	CodeCloudOnlyFile    Code = "CLOUD_ONLY_FILE"
+	CodePathTooLong      Code = "PATH_TOO_LONG"
+	CodeReadOnlyMode     Code = "READ_ONLY_MODE"
+	CodeVaultUnavailable Code = "VAULT_UNAVAILABLE"
+	CodeInternal         Code = "INTERNAL"
+)
+
+// Error carrega codigo e mensagem acionavel. A mensagem e lida por um modelo
+// de linguagem que precisa decidir o que fazer em seguida: "heading nao
+// encontrado" gera uma rodada extra de chamadas, enquanto a mesma mensagem
+// listando os headings disponiveis permite que o cliente se corrija sozinho.
+type Error struct {
+	Code    Code
+	Message string
+	Err     error
+}
+
+func (e *Error) Error() string { return e.Message }
+func (e *Error) Unwrap() error { return e.Err }
+
+func Errorf(code Code, format string, args ...any) *Error {
+	return &Error{Code: code, Message: sprintf(format, args...)}
+}
+
+func Wrap(code Code, err error, format string, args ...any) *Error {
+	return &Error{Code: code, Message: sprintf(format, args...), Err: err}
+}
+
+// CodeOf extrai o codigo de um erro, ou INTERNAL se ele nao carregar um.
+func CodeOf(err error) Code {
+	var e *Error
+	if errors.As(err, &e) {
+		return e.Code
+	}
+	return CodeInternal
+}
+
+func sprintf(format string, args ...any) string { return fmt.Sprintf(format, args...) }
