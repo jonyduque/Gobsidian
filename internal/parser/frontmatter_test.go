@@ -103,7 +103,7 @@ func TestSplitFrontmatter(t *testing.T) {
 			if string(body) != tt.wantBody {
 				t.Errorf("body = %q, quer %q", body, tt.wantBody)
 			}
-			// Sem guarda de `!= 0`: zero e a resposta CERTA em tres destes casos,
+			// Sem guarda de `!= 0`: zero e a resposta CERTA em quatro destes casos,
 			// e pular a asercao neles deixa passar um bug que devolve zero
 			// sempre. bodyOffset e o que mapeia posicao no corpo de volta para
 			// posicao no arquivo — errado aqui, todo offset de heading, bloco e
