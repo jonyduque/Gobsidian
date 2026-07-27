@@ -174,13 +174,25 @@ func runServe(parent context.Context, cfg config.Config) error {
 	return nil
 }
 
+// mirrorDst e o subconjunto de *io.PipeWriter que mirrorReader usa. Extrair
+// para interface nao muda nada em producao — pw continua sendo um
+// *io.PipeWriter de verdade — mas deixa o teste trocar o espelho por um
+// dublê que conta tentativas de escrita. Sem isso nao ha como observar, de
+// fora, que a guarda !m.broken impediu uma segunda escrita: o retorno de
+// Read e o mesmo com ou sem a guarda, so o numero de chamadas ao espelho
+// difere.
+type mirrorDst interface {
+	io.Writer
+	CloseWithError(error) error
+}
+
 // mirrorReader espelha o que le para dst e, crucialmente, propaga o fim da
 // leitura fechando dst. E o que faz o EOF do host chegar ao monitor de stdin
 // do lifecycle — io.TeeReader nao serve aqui porque so copia bytes, e EOF nao
 // e um byte.
 type mirrorReader struct {
 	src    io.Reader
-	dst    *io.PipeWriter
+	dst    mirrorDst
 	broken bool // espelho desistiu; a leitura principal segue intacta
 }
 
