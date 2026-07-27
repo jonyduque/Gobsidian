@@ -80,27 +80,113 @@ func TestExtractHeadingsCRLF(t *testing.T) {
 	}
 }
 
-// TestExtractHeadingsFenceClosingLengthMismatch pins a known gap rather than
-// blessing it as correct: the fence tracker toggles on any line with a
-// three-or-more backtick run, without checking that a closing fence is at
-// least as long as the opener. CommonMark requires the closer to be >= the
-// opener's length. A fence opened with four backticks should only close on
-// four-or-more backticks; a bare "```" inside it is ordinary fenced content.
-// Here it closes early on the inner "```" line, so everything after —
-// including "## After" — is misread and the heading never appears. Recorded
-// so an accidental change to this behavior gets caught, and flagged in the
-// task report as a real gap for follow-up, not fixed in this task.
-func TestExtractHeadingsFenceClosingLengthMismatch(t *testing.T) {
-	body := "# Before\n````go\ncode\n```\nstill in fence?\n````\n## After\n"
+// TestExtractHeadingsFenceRequiresMatchingCloseLength asserts the
+// CommonMark-correct guarantee: a closing fence must have at least as many
+// characters as the opener. A fence opened with four backticks is NOT closed
+// by a bare three-backtick line inside it — that line is ordinary fenced
+// content, since a note documenting Markdown routinely nests a shorter fence
+// example inside a longer one. "# After" therefore stays inside the block
+// and must not be extracted as a heading.
+//
+// closesFence compares n >= open.count rather than n == open.count on
+// purpose: CommonMark only requires the closer to be at least as long as the
+// opener, not exactly as long. A five-backtick line must still close a
+// four-backtick fence.
+//
+// "After" is level 1, same as "Before": that makes closeSections end
+// "Before"'s section exactly at "After"'s Start, so a truncated End (the
+// bug this guards) is directly observable instead of hidden behind a
+// level-nesting rule.
+func TestExtractHeadingsFenceRequiresMatchingCloseLength(t *testing.T) {
+	body := "# Before\n````go\ncode\n```\nstill in fence?\n````\n# After\n"
 
 	hs := parser.ExtractHeadings([]byte(body), 0)
 
-	// Known-wrong under CommonMark: "## After" should be a heading here but
-	// is swallowed because the tracker closes the fence on the inner ``` line.
-	if len(hs) != 1 {
-		t.Fatalf("headings = %d, quer 1 (comportamento atual, com lacuna conhecida): %+v", len(hs), hs)
+	// The inner ``` does not close the ```` fence, so "# After" is still
+	// inside the block and must not be read as structure.
+	if len(hs) != 2 {
+		t.Fatalf("headings = %d, quer 2: %+v", len(hs), hs)
 	}
 	if hs[0].Text != "Before" {
 		t.Errorf("hs[0].Text = %q", hs[0].Text)
 	}
+	if hs[1].Text != "After" {
+		t.Errorf("hs[1].Text = %q", hs[1].Text)
+	}
+
+	// The section-offset consequence matters as much as the count: "Before"
+	// must span the whole fenced block, including the inner ``` line, up to
+	// where "## After" actually starts. A correct heading count with a
+	// truncated End is still a broken note_read.
+	afterStart := hs[1].Start
+	if hs[0].End != afterStart {
+		t.Errorf("Before.End = %d, quer %d (inicio de After — cerca inteira incluida)", hs[0].End, afterStart)
+	}
+}
+
+// TestExtractHeadingsUnterminatedFenceSwallowsRestOfBuffer covers a fence
+// that opens and never closes before the buffer ends: everything after the
+// opener, including any headings, stays inside the (still open) block and
+// must not be extracted.
+func TestExtractHeadingsUnterminatedFenceSwallowsRestOfBuffer(t *testing.T) {
+	body := "# Before\n```\ncode\n## Not a heading\nmore code\n"
+
+	hs := parser.ExtractHeadings([]byte(body), 0)
+
+	if len(hs) != 1 {
+		t.Fatalf("headings = %d, quer 1: %+v", len(hs), hs)
+	}
+	if hs[0].Text != "Before" {
+		t.Errorf("hs[0].Text = %q", hs[0].Text)
+	}
+	if hs[0].End != int64(len(body)) {
+		t.Errorf("Before.End = %d, quer %d (fim do buffer, cerca nunca fechou)", hs[0].End, len(body))
+	}
+}
+
+// TestExtractHeadingsFenceClosesOnBarePlainFence covers a fence opened with
+// a language tag: the info string is only checked at open time, so a plain
+// closing line with no tag still closes it.
+func TestExtractHeadingsFenceClosesOnBarePlainFence(t *testing.T) {
+	body := "# Before\n```go\ncode\n```\n## After\n"
+
+	hs := parser.ExtractHeadings([]byte(body), 0)
+
+	if len(hs) != 2 {
+		t.Fatalf("headings = %d, quer 2: %+v", len(hs), hs)
+	}
+	if hs[1].Text != "After" {
+		t.Errorf("hs[1].Text = %q", hs[1].Text)
+	}
+}
+
+// TestExtractHeadingsFenceCharactersDoNotCrossClose covers the two fence
+// characters not closing each other: a "~~~" line inside a "```" block is
+// ordinary content, and vice versa.
+func TestExtractHeadingsFenceCharactersDoNotCrossClose(t *testing.T) {
+	t.Run("tilde dentro de crase", func(t *testing.T) {
+		body := "# Before\n```\n~~~\nstill fenced\n```\n## After\n"
+
+		hs := parser.ExtractHeadings([]byte(body), 0)
+
+		if len(hs) != 2 {
+			t.Fatalf("headings = %d, quer 2: %+v", len(hs), hs)
+		}
+		if hs[1].Text != "After" {
+			t.Errorf("hs[1].Text = %q", hs[1].Text)
+		}
+	})
+
+	t.Run("crase dentro de til", func(t *testing.T) {
+		body := "# Before\n~~~\n```\nstill fenced\n~~~\n## After\n"
+
+		hs := parser.ExtractHeadings([]byte(body), 0)
+
+		if len(hs) != 2 {
+			t.Fatalf("headings = %d, quer 2: %+v", len(hs), hs)
+		}
+		if hs[1].Text != "After" {
+			t.Errorf("hs[1].Text = %q", hs[1].Text)
+		}
+	})
 }
