@@ -162,8 +162,8 @@ func checkObsidianDir(ctx context.Context, cfg config.Config) Result {
 func checkNoteCount(scan vaultScan) Result {
 	const name = "contagem de notas"
 
-	if scan.err != nil {
-		return Result{Name: name, Status: StatusWarn, Detail: fmt.Sprintf("varredura interrompida: %v", scan.err)}
+	if res, failed := scanStatus(scan, name); failed {
+		return res
 	}
 	if scan.noteCount == 0 {
 		return Result{Name: name, Status: StatusWarn, Detail: "nenhuma nota .md encontrada"}
@@ -180,8 +180,8 @@ func checkNoteCount(scan vaultScan) Result {
 func checkLongestPath(scan vaultScan) Result {
 	const name = "comprimento de caminho"
 
-	if scan.err != nil {
-		return Result{Name: name, Status: StatusWarn, Detail: fmt.Sprintf("varredura interrompida: %v", scan.err)}
+	if res, failed := scanStatus(scan, name); failed {
+		return res
 	}
 	if scan.longestPathLen > longPathThreshold {
 		return Result{
@@ -209,7 +209,7 @@ func checkCacheDir(ctx context.Context, cfg config.Config) Result {
 		return Result{Name: name, Status: StatusOK, Detail: "nenhum diretorio de cache configurado"}
 	}
 
-	if err := os.MkdirAll(cfg.CacheDir, 0o755); err != nil {
+	if err := os.MkdirAll(vault.LongPath(cfg.CacheDir), 0o755); err != nil {
 		return Result{
 			Name:   name,
 			Status: StatusWarn,
@@ -263,6 +263,39 @@ type vaultScan struct {
 	cloudOnlyCount   int
 	casingCollisions []string
 	err              error
+}
+
+// scanStatus traduz o erro de uma varredura interrompida em Result, e e o
+// unico ponto onde essa traducao acontece — os seis checks que consomem
+// vaultScan chamam este helper em vez de montar o Result cada um.
+//
+// A distincao e o ponto todo. Cancelamento veio de quem chamou: o usuario deu
+// Ctrl-C, ou o comando de cima desistiu. Nao e problema do ambiente e nao
+// deve virar codigo de saida nao-zero. Qualquer outro erro veio do cofre —
+// vault.Walk so o produz quando falha na propria raiz, que significa unidade
+// desconectada, share caido ou pasta movida pelo cliente de nuvem. Reportar
+// isso como aviso faz doctor sair 0 sobre um cofre que o servidor nao
+// conseguira abrir, que e exatamente a confusao que este comando existe para
+// desfazer.
+//
+// O bool devolvido e "houve erro": false significa que o chamador segue com
+// os dados do scan.
+func scanStatus(scan vaultScan, name string) (Result, bool) {
+	if scan.err == nil {
+		return Result{}, false
+	}
+	if errors.Is(scan.err, context.Canceled) || errors.Is(scan.err, context.DeadlineExceeded) {
+		return Result{
+			Name:   name,
+			Status: StatusWarn,
+			Detail: fmt.Sprintf("varredura interrompida: %v", scan.err),
+		}, true
+	}
+	return Result{
+		Name:   name,
+		Status: StatusFail,
+		Detail: fmt.Sprintf("cofre inacessivel durante a varredura: %v", scan.err),
+	}, true
 }
 
 // scanVault varre o cofre uma unica vez e coleta tudo que os checks acima

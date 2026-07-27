@@ -109,6 +109,13 @@ func TestExitCodeEmptyResults(t *testing.T) {
 // impede as verificacoes que varrem o cofre de completar a varredura. Sem
 // isso, um cofre grande sincronizado na nuvem faria doctor travar em vez de
 // respeitar o cancelamento do chamador.
+//
+// ExitCode continuar zero aqui e proposital, nao uma omissao: cancelamento
+// veio de quem chamou doctor (Ctrl-C, ou o processo de cima desistindo), nao
+// e um fato sobre o ambiente, e nao deve gatear um script de setup. Contraste
+// com TestRunFailsWhenVaultVanishesMidRun abaixo, onde o mesmo scan.err
+// nao-nulo vem de vault.Walk falhando na propria raiz — cofre desmontado, nao
+// cancelamento — e por isso precisa continuar codigo de saida nao-zero.
 func TestRunContextCancelledStopsWalk(t *testing.T) {
 	root := t.TempDir()
 	for _, name := range []string{"A.md", "B.md", "C.md", "D.md", "E.md"} {

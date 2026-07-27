@@ -32,8 +32,8 @@ func platformChecks(scan vaultScan) []Result {
 func checkLongPathsEnabled(scan vaultScan) Result {
 	const name = "caminhos longos habilitados"
 
-	if scan.err != nil {
-		return Result{Name: name, Status: StatusWarn, Detail: fmt.Sprintf("varredura interrompida: %v", scan.err)}
+	if res, failed := scanStatus(scan, name); failed {
+		return res
 	}
 	if scan.longestPathLen <= longPathThreshold {
 		return Result{Name: name, Status: StatusOK}
@@ -74,8 +74,8 @@ func longPathsEnabled() bool {
 func checkCloudOnlyFiles(scan vaultScan) Result {
 	const name = "arquivos somente-nuvem"
 
-	if scan.err != nil {
-		return Result{Name: name, Status: StatusWarn, Detail: fmt.Sprintf("varredura interrompida: %v", scan.err)}
+	if res, failed := scanStatus(scan, name); failed {
+		return res
 	}
 	if scan.cloudOnlyCount > 0 {
 		return Result{
@@ -94,8 +94,8 @@ func checkCloudOnlyFiles(scan vaultScan) Result {
 func checkCasingCollisions(scan vaultScan) Result {
 	const name = "colisoes de casing"
 
-	if scan.err != nil {
-		return Result{Name: name, Status: StatusWarn, Detail: fmt.Sprintf("varredura interrompida: %v", scan.err)}
+	if res, failed := scanStatus(scan, name); failed {
+		return res
 	}
 	if len(scan.casingCollisions) > 0 {
 		return Result{
