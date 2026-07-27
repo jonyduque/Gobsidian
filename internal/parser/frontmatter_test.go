@@ -2,6 +2,7 @@ package parser_test
 
 import (
 	"testing"
+	"time"
 
 	"github.com/jonyd/gobsidian/internal/parser"
 )
@@ -22,28 +23,32 @@ func TestSplitFrontmatter(t *testing.T) {
 			wantOffset: 17,
 		},
 		{
-			name:     "ausente",
-			in:       "# Corpo\n",
-			wantFM:   "",
-			wantBody: "# Corpo\n",
+			name:       "ausente",
+			in:         "# Corpo\n",
+			wantFM:     "",
+			wantBody:   "# Corpo\n",
+			wantOffset: 0,
 		},
 		{
-			name:     "tres tracos no meio nao conta",
-			in:       "# Corpo\n---\nnao e frontmatter\n",
-			wantFM:   "",
-			wantBody: "# Corpo\n---\nnao e frontmatter\n",
+			name:       "tres tracos no meio nao conta",
+			in:         "# Corpo\n---\nnao e frontmatter\n",
+			wantFM:     "",
+			wantBody:   "# Corpo\n---\nnao e frontmatter\n",
+			wantOffset: 0,
 		},
 		{
-			name:     "delimitador nao fechado",
-			in:       "---\ntitle: A\n# Corpo\n",
-			wantFM:   "",
-			wantBody: "---\ntitle: A\n# Corpo\n",
+			name:       "delimitador nao fechado",
+			in:         "---\ntitle: A\n# Corpo\n",
+			wantFM:     "",
+			wantBody:   "---\ntitle: A\n# Corpo\n",
+			wantOffset: 0,
 		},
 		{
-			name:     "frontmatter vazio",
-			in:       "---\n---\n# Corpo\n",
-			wantFM:   "",
-			wantBody: "# Corpo\n",
+			name:       "frontmatter vazio",
+			in:         "---\n---\n# Corpo\n",
+			wantFM:     "",
+			wantBody:   "# Corpo\n",
+			wantOffset: 8,
 		},
 	}
 
@@ -56,7 +61,12 @@ func TestSplitFrontmatter(t *testing.T) {
 			if string(body) != tt.wantBody {
 				t.Errorf("body = %q, quer %q", body, tt.wantBody)
 			}
-			if tt.wantOffset != 0 && off != tt.wantOffset {
+			// Sem guarda de `!= 0`: zero e a resposta CERTA em tres destes casos,
+			// e pular a asercao neles deixa passar um bug que devolve zero
+			// sempre. bodyOffset e o que mapeia posicao no corpo de volta para
+			// posicao no arquivo — errado aqui, todo offset de heading, bloco e
+			// link do produto inteiro sai deslocado.
+			if off != tt.wantOffset {
 				t.Errorf("offset = %d, quer %d", off, tt.wantOffset)
 			}
 		})
@@ -85,6 +95,13 @@ func TestDecodeFrontmatterPreservesTypes(t *testing.T) {
 	}
 	if aliases, ok := got["aliases"].([]any); !ok || len(aliases) != 2 {
 		t.Errorf("aliases = %v (%T), quer lista de 2", got["aliases"], got["aliases"])
+	}
+	// A data e o tipo mais facil de perder: yaml.v3 devolve time.Time, e
+	// qualquer camada que "normalize" para string quebra comparacao de
+	// intervalo em M3 sem nenhum teste reclamar. O fixture ja carregava a
+	// data desde o inicio; faltava conferir.
+	if d, ok := got["data"].(time.Time); !ok || d.Format("2006-01-02") != "2026-07-25" {
+		t.Errorf("data = %v (%T), quer time.Time 2026-07-25", got["data"], got["data"])
 	}
 }
 
