@@ -4,6 +4,16 @@ MCP server em Go. Expõe cofre local Obsidian a hosts MCP, roda como subprocesso
 
 Spec vive em `docs/`: `PRD.md` (requisitos + decisões fechadas D1–D13), `ARCHITECTURE.md` (camadas + AD-01–AD-09), `ESTRUTURA.md` (árvore + convenções), `TOOLS.md` (contrato de cada tool), `WINDOWS.md` (OneDrive, MAX_PATH, casing). Plano de implementação em `docs/superpowers/plans/2026-07-25-gobsidian-v01.md` — fonte de onde código é transcrito. Plano e código não podem divergir.
 
+**Docs em português. Ferramenta que reescreve `.md` pode gravar em cp1252.** `caveman-compress` fez isso com este arquivo: prosa saiu cp1252, bloco de código saiu UTF-8 — arquivo misto, `Expõe` virou `Exp\xf5e`. Nada se perde (cp1252 é reversível, ao contrário de `U+FFFD`), mas transcodificar o arquivo inteiro de uma vez duplica os acentos das regiões que já eram UTF-8.
+
+Depois de qualquer ferramenta que reescreva um `.md`, confira:
+
+```bash
+python -c "open('CLAUDE.md',encoding='utf-8').read()" && echo "[OK] UTF-8 valido"
+```
+
+Reparo de arquivo misto: decodificar byte a byte, tentando sequência UTF-8 válida primeiro e caindo pra cp1252 onde falhar. Conferir palavras-sonda acentuadas depois, inclusive uma dentro de código inline.
+
 ## Comandos
 
 ```bash
