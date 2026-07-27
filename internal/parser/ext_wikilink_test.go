@@ -24,6 +24,10 @@ func TestWikilinkForms(t *testing.T) {
 		{"embed", "![[nota]]", "nota", "", "", parser.LinkEmbed},
 		{"embed de imagem", "![[diagrama.png]]", "diagrama.png", "", "", parser.LinkEmbed},
 		{"embed de secao", "![[nota#Cap 1]]", "nota", "", "Cap 1", parser.LinkEmbed},
+		// Espacos interiores: prova que Raw e byte-exato. Sem esta linha, uma
+		// implementacao que reconstruisse Raw a partir das partes passaria — e
+		// note_move reescreveria o link normalizando o texto do usuario.
+		{"espacos interiores", "[[ nota ]]", "nota", "", "", parser.LinkWiki},
 	}
 
 	for _, tt := range tests {
@@ -69,6 +73,20 @@ func TestWikilinkSuppressedInCode(t *testing.T) {
 		{"escapado", "\\[\\[nao e link\\]\\]\n"},
 		{"colchete literal simples", "isto [nao] e link\n"},
 		{"til cercado", "~~~\n[[nao e link]]\n~~~\n"},
+		// Formas degeneradas: sem elas os guardas correspondentes do parser
+		// sobrevivem a mutacao sem nenhum teste reprovar.
+		{"alvo vazio", "[[]]\n"},
+		{"alvo so espacos", "[[   ]]\n"},
+		{"so alias, sem alvo", "[[|apenas]]\n"},
+		// "[[" aninhado cujo "]]" mais proximo fecha um alvo vazio: sem o
+		// guarda de aninhamento, o "[[" externo captura "x[[" como alvo
+		// (nao-vazio, entao o guarda de alvo vazio nao pega) e produz um
+		// link espurio. As duas outras formas de "[[" aninhado nao servem
+		// pra este teste porque o goldmark reoferece o gatilho um byte
+		// adiante e acha um "[[...]]" valido de qualquer forma — o guarda
+		// so e observavel quando a estrutura obriga ambas as tentativas a
+		// zero links.
+		{"colchete duplo aninhado antes do fechamento", "[[x[[]]\n"},
 	}
 
 	for _, tt := range tests {

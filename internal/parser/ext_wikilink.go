@@ -2,6 +2,7 @@ package parser
 
 import (
 	"bytes"
+	"strings"
 
 	"github.com/yuin/goldmark"
 	gast "github.com/yuin/goldmark/ast"
@@ -10,7 +11,7 @@ import (
 	"github.com/yuin/goldmark/util"
 )
 
-var KindWikilink = gast.NewNodeKind("Wikilink")
+var kindWikilink = gast.NewNodeKind("Wikilink")
 
 // WikilinkNode e o no de AST para "[[alvo]]" e "![[alvo]]". LinkKind guarda
 // wiki vs. embed; o nome nao pode ser "Kind" porque gast.Node ja exige um
@@ -28,14 +29,15 @@ type WikilinkNode struct {
 	End      int64
 }
 
-func (n *WikilinkNode) Kind() gast.NodeKind { return KindWikilink }
+func (n *WikilinkNode) Kind() gast.NodeKind { return kindWikilink }
 
 func (n *WikilinkNode) Dump(src []byte, level int) {
 	gast.DumpHelper(n, src, level, map[string]string{
-		"Target": n.Target,
-		"Alias":  n.Alias,
-		"Anchor": n.Anchor,
-		"Raw":    n.Raw,
+		"Target":   n.Target,
+		"Alias":    n.Alias,
+		"Anchor":   n.Anchor,
+		"LinkKind": n.LinkKind.String(),
+		"Raw":      n.Raw,
 	}, nil)
 }
 
@@ -55,6 +57,19 @@ func (p *wikilinkParser) Parse(_ gast.Node, block text.Reader, _ gparser.Context
 		offset = 1
 	}
 	if len(line) < offset+4 || line[offset] != '[' || line[offset+1] != '[' {
+		return nil
+	}
+
+	// Um terceiro colchete significa que nao sabemos onde o wikilink comeca, e
+	// chutar destroi um link vizinho. Em "[[[a]] b](d.md)" o parser dispara na
+	// posicao 0, consome "[[[a]]", e o link Markdown para d.md desaparece — um
+	// link real perdido, sob qualquer leitura. Recusar aqui faz o goldmark
+	// reoferecer o gatilho um byte adiante, e ali a analise e inequivoca.
+	//
+	// O que "[[[x]]]" deve produzir — link para "x" ou nenhum link — e questao
+	// de paridade para a Task 25. Recusar da a resposta certa para o caso que
+	// nao tem ambiguidade e uma base correta para apertar depois.
+	if line[offset+2] == '[' {
 		return nil
 	}
 
@@ -97,18 +112,16 @@ func (p *wikilinkParser) Parse(_ gast.Node, block text.Reader, _ gparser.Context
 // splitWikilink reparte "alvo#ancora|alias" nas tres partes. A ordem importa:
 // o alias e sempre o ultimo, e a ancora vem antes dele.
 func splitWikilink(inner string) (target, anchor, alias string) {
-	if i := bytes.IndexByte([]byte(inner), '|'); i >= 0 {
+	if i := strings.IndexByte(inner, '|'); i >= 0 {
 		alias = inner[i+1:]
 		inner = inner[:i]
 	}
-	if i := bytes.IndexByte([]byte(inner), '#'); i >= 0 {
+	if i := strings.IndexByte(inner, '#'); i >= 0 {
 		anchor = inner[i+1:]
 		inner = inner[:i]
 	}
-	return trimSpace(inner), trimSpace(anchor), trimSpace(alias)
+	return strings.TrimSpace(inner), strings.TrimSpace(anchor), strings.TrimSpace(alias)
 }
-
-func trimSpace(s string) string { return string(bytes.TrimSpace([]byte(s))) }
 
 // WikilinkExtension registra o inline parser no goldmark.
 type WikilinkExtension struct{}

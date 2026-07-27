@@ -27,6 +27,20 @@ func collect(doc gast.Node, body []byte, bodyOffset int64, note *ParsedNote) {
 				End:    bodyOffset + node.End,
 			})
 
+		case *gast.Image:
+			// A grafia Markdown de um embed. Sem este caso,
+			// "![alt](diagrama.png)" fica invisivel para o grafo enquanto
+			// "![[diagrama.png]]" e visto — a mesma nota perde metade dos
+			// anexos dependendo de como foram escritos.
+			note.Links = append(note.Links, Link{
+				Raw:    string(node.Destination),
+				Target: string(node.Destination),
+				Alias:  string(node.Text(body)),
+				Kind:   LinkEmbed,
+				Start:  offsetUnknown,
+				End:    offsetUnknown,
+			})
+
 		case *gast.Link:
 			// Link Markdown padrao. So interessa quando aponta para dentro do
 			// cofre; a decisao de o que e interno cabe ao indice, entao aqui
@@ -36,6 +50,8 @@ func collect(doc gast.Node, body []byte, bodyOffset int64, note *ParsedNote) {
 				Target: string(node.Destination),
 				Alias:  string(node.Text(body)),
 				Kind:   LinkMarkdown,
+				Start:  offsetUnknown,
+				End:    offsetUnknown,
 			})
 
 		case *BlockIDNode:

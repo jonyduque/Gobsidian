@@ -59,6 +59,10 @@ type Block struct {
 	End   int64  `json:"end"`
 }
 
+// offsetUnknown marca um offset que o parser nao conseguiu determinar. Ver o
+// comentario de Link.Start.
+const offsetUnknown int64 = -1
+
 // Link e uma referencia a outra nota ou a um recurso, na sintaxe wikilink,
 // embed ou markdown.
 type Link struct {
@@ -71,10 +75,17 @@ type Link struct {
 	// Start e End delimitam o link no buffer, com bodyOffset ja somado.
 	//
 	// ATENCAO: hoje so sao preenchidos para LinkWiki e LinkEmbed. Para
-	// LinkMarkdown ficam ZERADOS, porque a AST do goldmark nao entrega o span
-	// completo de "[texto](destino)" num unico no. Quem for reescrever um link
-	// PRECISA checar Kind antes: reescrever a partir de Start=0 num link
-	// Markdown sobrescreveria o inicio da nota.
+	// LinkMarkdown e para embeds em grafia Markdown ("![alt](x.png)") ficam no
+	// valor sentinela offsetUnknown (-1), porque a AST do goldmark nao entrega
+	// o span completo de "[texto](destino)" num unico no. Quem for reescrever
+	// um link PRECISA checar Kind antes: reescrever a partir de Start=0 num
+	// link Markdown sobrescreveria o inicio da nota.
+	//
+	// O sentinela e -1, nao zero. Zero e uma posicao legitima — o primeiro
+	// byte do buffer — entao usa-lo para "nao sei" repete o erro que
+	// config.Flags corrigiu com ReadOnlySet: um valor que nao distingue
+	// ausencia de zero. Com -1 um fatiamento estoura alto em vez de
+	// sobrescrever o inicio da nota em silencio.
 	//
 	// Fechar essa lacuna e trabalho de M5 (note_move), que e quem precisa dos
 	// offsets. Ate la, Kind e o unico discriminador confiavel.
