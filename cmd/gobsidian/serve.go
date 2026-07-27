@@ -47,6 +47,32 @@ func newServeCmd() *cobra.Command {
 	return cmd
 }
 
+// shutdownExitCode traduz o erro final do serve loop em codigo de saida.
+//
+// Existe como funcao separada porque e a unica parte de runServe que da para
+// testar sem levantar um processo: runServe termina em os.Exit por desenho, e
+// os.Exit nao volta.
+//
+// Os tres erros tratados como encerramento normal sao os que aparecem quando
+// o host simplesmente vai embora. context.Canceled vem do proprio lifecycle,
+// que cancela o contexto quando o stdin fecha, um sinal chega ou o pai morre.
+// io.EOF e io.ErrClosedPipe podem vir do SDK, que detecta o fim do stdin por
+// conta propria — as duas deteccoes correm, e qual delas vence decide qual
+// valor chega aqui. Tratar qualquer uma como falha faz um host supervisor ver
+// erro aleatorio a cada desconexao limpa.
+func shutdownExitCode(err error) int {
+	switch {
+	case err == nil:
+		return 0
+	case errors.Is(err, context.Canceled),
+		errors.Is(err, io.EOF),
+		errors.Is(err, io.ErrClosedPipe):
+		return 0
+	default:
+		return 1
+	}
+}
+
 func runServe(parent context.Context, cfg config.Config) error {
 	// stderr, sempre. stdout carrega o JSON-RPC e um unico byte estranho
 	// corrompe a sessao.
@@ -122,6 +148,16 @@ func runServe(parent context.Context, cfg config.Config) error {
 		}},
 	)
 
+	lc.Wait()
+
+	// Depois de Wait, nao antes: a etapa in-flight pode ter sido abandonada
+	// por estouro de orcamento, e sua goroutine ainda estar a caminho do
+	// canal. Wait e o ultimo ponto em que esperar por ela e de graca.
+	//
+	// A drenagem continua nao-bloqueante. Se mesmo assim nao houver valor, o
+	// erro tardio e descartado de proposito: o encerramento ja estourou o
+	// orcamento, e travar aqui trocaria um exit code impreciso por um
+	// servidor que nao encerra.
 	select {
 	case err := <-lateErr:
 		if loopErr == nil {
@@ -130,18 +166,11 @@ func runServe(parent context.Context, cfg config.Config) error {
 	default:
 	}
 
-	lc.Wait()
-
-	// ctx cancelado e o encerramento normal deste servidor: o lifecycle o
-	// cancela quando o host fecha o stdin, quando chega um sinal, ou quando o
-	// processo pai morre. Tratar isso como falha faria um host supervisor ver
-	// erro aleatorio a cada desconexao limpa, porque a corrida entre a
-	// deteccao de EOF do SDK e a do lifecycle decide qual dos dois valores
-	// chega aqui.
-	if loopErr != nil && !errors.Is(loopErr, context.Canceled) {
-		os.Exit(1)
-	}
-	os.Exit(0)
+	// runServe nao retorna: termina o processo aqui para que o codigo de saida
+	// seja o desta decisao e nao o que cobra derivaria de um error. O return
+	// abaixo e inalcancavel e existe so para satisfazer a assinatura que RunE
+	// exige.
+	os.Exit(shutdownExitCode(loopErr))
 	return nil
 }
 
