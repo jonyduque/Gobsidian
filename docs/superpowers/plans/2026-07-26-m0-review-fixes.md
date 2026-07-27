@@ -584,10 +584,12 @@ can surface when it wins the detection race.
 
 ### Task R4: CI — rodar os checks que o projeto diz que valem
 
-**Achado:** T11-5 (Minor).
+**Achado:** T11-5 (Minor), mais a causa raiz do falso positivo de `gofmt`
+registrada no ledger durante a execução do R2.
 
 **Files:**
 - Modify: `.github/workflows/ci.yml`
+- Create: `.gitattributes`
 
 **O defeito:** o CI roda `go vet` e `go test -race` na matriz e o
 golangci-lint só no ubuntu. Três checks que o CLAUDE.md lista como
@@ -655,10 +657,59 @@ Adicione um segundo job de lint em windows-latest:
       - uses: golangci/golangci-lint-action@v6
 ```
 
-- [ ] **Step 3: Verificar localmente**
+- [ ] **Step 3: `.gitattributes` — impedir que `gofmt` falseie no Windows**
+
+O repositório não tem `.gitattributes`, e `core.autocrlf` está em `true` na
+máquina de desenvolvimento. A combinação faz o Git re-materializar qualquer
+arquivo em CRLF ao dar checkout nele, e `gofmt` considera CRLF fora de formato.
+Resultado: `gofmt -l .` — comando que o CLAUDE.md lista como obrigatório —
+acusa arquivos que estão perfeitamente formatados.
+
+Não é hipótese: aconteceu durante a execução deste plano. O revisor da Task R1
+reverteu sua prova de mutação com `git checkout internal/doctor/checks.go`, o
+arquivo voltou em CRLF, e o implementador seguinte reportou `gofmt -l .`
+acusando um arquivo que ele não havia tocado. O blob commitado estava — e
+está — LF-limpo; só a cópia de trabalho divergiu.
+
+O job `fmt` do Step 1 roda em ubuntu, onde os arquivos chegam em LF, então o
+CI **não** pega isso. Quem paga é a pessoa no Windows, com um comando
+obrigatório que mente.
+
+```
+# Sem isto, core.autocrlf=true re-materializa os arquivos em CRLF a cada
+# checkout, e gofmt passa a acusar arquivo que esta perfeitamente formatado.
+# O CI roda em ubuntu e nao pega — quem paga e quem desenvolve no Windows.
+* text=auto
+
+*.go   text eol=lf
+*.mod  text eol=lf
+*.sum  text eol=lf
+*.md   text eol=lf
+*.yml  text eol=lf
+
+# Os scripts de PowerShell ficam em CRLF: e o que o Windows espera, e sao
+# executados la e so la.
+*.ps1  text eol=crlf
+```
+
+Depois de criar o arquivo, normalize o que já está no disco e confirme que
+nada de conteúdo mudou:
+
+```bash
+git add --renormalize .
+git status --short
+git diff --cached --numstat
+```
+
+`--numstat` precisa sair vazio para os arquivos `.go`: se aparecer contagem de
+linhas, alguma coisa além de fim de linha mudou, e aí pare e investigue antes
+de commitar. Registre a saída dos três comandos no relatório.
+
+- [ ] **Step 4: Verificar localmente**
 
 ```bash
 gofmt -l .
+go test -race ./... && go vet ./...
 GOOS=linux go vet ./... && GOOS=darwin go vet ./... && GOOS=windows go vet ./...
 ```
 
@@ -666,15 +717,20 @@ As três precisam sair limpas. Não dá para executar o workflow localmente;
 confira o YAML com `python -c "import yaml,sys; yaml.safe_load(open('.github/workflows/ci.yml'))"`
 ou equivalente, e registre a saída no relatório.
 
-- [ ] **Step 4: Commit**
+- [ ] **Step 5: Commit**
 
 ```
-ci: run gofmt, cross-target vet, and lint the Windows-tagged files
+ci: run gofmt, cross-target vet, and pin line endings
 
 CLAUDE.md lists gofmt and GOOS=linux/darwin vet as required checks and CI ran
 neither. golangci-lint ran only on ubuntu, so every //go:build windows file --
 including parent_windows.go, where the defect that left 5 of 5 orphans lived
 -- was never linted.
+
+Add .gitattributes too: with core.autocrlf on and no attributes file, checking
+out a .go file re-materialises it as CRLF and gofmt reports a correctly
+formatted file as unformatted. That happened during this plan's own execution.
+CI runs on ubuntu and never sees it; the cost lands entirely on Windows.
 ```
 
 ---
