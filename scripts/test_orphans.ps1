@@ -2,7 +2,10 @@ param(
     [int]$Cycles = 100,
     [string]$VaultPath,
     [int]$PidTimeoutMs = 5000,
-    [int]$SettleMs = 2000
+    # 8s > o guarda-chuva de 6s de lifecycle.Shutdown. Esperar menos que o
+    # orcamento que o proprio codigo se da conta encerramento lento como
+    # orfao. Se este numero mudar, o de la mudou primeiro.
+    [int]$SettleMs = 8000
 )
 
 Set-StrictMode -Version Latest
@@ -34,6 +37,7 @@ Write-Output "[i] logs e PIDs em $WorkDir"
 $Survivors = 0
 $LaunchFailures = 0
 $KillFailures = 0
+$LaunchedPids = @()
 
 for ($i = 1; $i -le $Cycles; $i++) {
     $PidFile = Join-Path $WorkDir "cycle_$i.pid"
@@ -91,6 +95,8 @@ for ($i = 1; $i -le $Cycles; $i++) {
         continue
     }
 
+    $LaunchedPids += $ServerPid
+
     # Mata o host, NAO o filho, e sem /T. E a morte do host que deve fechar
     # o pipe e disparar o EOF (ou, na falta desse mecanismo, a vigilia do
     # processo pai). Matar a arvore inteira provaria so que taskkill sabe
@@ -113,40 +119,54 @@ for ($i = 1; $i -le $Cycles; $i++) {
     if ($i % 10 -eq 0) { Write-Output "[i] $i/$Cycles" }
 }
 
-# Varredura final: nenhum gobsidian.exe pode sobreviver ao script, sob pena
-# de "zero orfaos" ser mentira por causa de um PID que escapou da contagem
-# por-ciclo (por exemplo, um host morto entre o poll do PID e o taskkill).
-$Remaining = @(Get-Process -Name "gobsidian" -ErrorAction SilentlyContinue)
+# Restrito aos PIDs que ESTE script lancou. Varrer por nome mataria um
+# "gobsidian serve" que o desenvolvedor deixou aberto noutro terminal e o
+# contaria como orfao — rodada vermelha por um processo que ninguem pediu
+# para medir.
+$Remaining = @($LaunchedPids | ForEach-Object {
+    Get-Process -Id $_ -ErrorAction SilentlyContinue
+} | Where-Object { $_ })
+
 if ($Remaining.Count -gt 0) {
-    Write-Warning "[!] $($Remaining.Count) processo(s) gobsidian.exe ainda em execucao"
+    Write-Warning "[!] $($Remaining.Count) processo(s) gobsidian lancado(s) por este script ainda em execucao"
     $Remaining | ForEach-Object { Stop-Process -Id $_.Id -Force -ErrorAction SilentlyContinue }
     $Survivors += $Remaining.Count
 }
 
-# Amostra dos motivos observados nos logs de debug (reason=...), para
-# diagnostico humano de qual mecanismo efetivamente disparou.
-$LogFiles = @(Get-ChildItem -Path $WorkDir -Filter "*.log" -ErrorAction SilentlyContinue)
+# Cada ciclo tem seu proprio log. Um ciclo sem "reason=" e um ciclo em que
+# nenhum mecanismo de encerramento disparou — o filho morreu por outro
+# motivo, ou nao chegou a viver. Contar o agregado nao basta: 100 motivos
+# vindos de 50 ciclos passaria despercebido.
+$CyclesWithReason = 0
 $Reasons = @()
-if ($LogFiles.Count -gt 0) {
-    # @(...) e obrigatorio aqui: se nenhum log tiver "reason=" (por exemplo,
-    # quando o mecanismo sob teste esta quebrado e nada dispara a tempo), o
-    # pipeline devolve $null em vez de uma colecao vazia, e sob
-    # Set-StrictMode ler .Count em $null e erro fatal — o que faria o
-    # proprio diagnostico de uma falha mascarar a falha original.
-    $Reasons = @(Select-String -Path $LogFiles.FullName -Pattern 'reason=(\S+)' -ErrorAction SilentlyContinue |
-        ForEach-Object { $_.Matches[0].Groups[1].Value } |
-        Group-Object |
-        Sort-Object Count -Descending)
+
+foreach ($Log in @(Get-ChildItem -Path $WorkDir -Filter "cycle_*.log" -ErrorAction SilentlyContinue)) {
+    # @(...) e obrigatorio: sem correspondencia o pipeline devolve $null, e
+    # sob Set-StrictMode ler .Count em $null e erro fatal — o proprio
+    # diagnostico da falha mascararia a falha original.
+    $Found = @(Select-String -Path $Log.FullName -Pattern 'reason=(\S+)' -ErrorAction SilentlyContinue |
+        ForEach-Object { $_.Matches[0].Groups[1].Value })
+    if ($Found.Count -gt 0) {
+        $CyclesWithReason++
+        $Reasons += $Found
+    }
 }
+
+$MeasuredCycles = $Cycles - $LaunchFailures
+$ReasonlessCycles = $MeasuredCycles - $CyclesWithReason
 
 if ($Reasons.Count -gt 0) {
     Write-Output "[i] motivos observados nos logs de debug:"
-    $Reasons | ForEach-Object { Write-Output ("    {0}: {1}x" -f $_.Name, $_.Count) }
-} else {
-    Write-Warning "[!] nenhum 'reason=' encontrado nos logs de debug"
+    $Reasons | Group-Object | Sort-Object Count -Descending | ForEach-Object {
+        Write-Output ("    {0}: {1}x" -f $_.Name, $_.Count)
+    }
 }
 
-$Failed = ($Survivors -gt 0) -or ($LaunchFailures -gt 0) -or ($KillFailures -gt 0)
+if ($ReasonlessCycles -gt 0) {
+    Write-Warning "[!] FALHA: $ReasonlessCycles de $MeasuredCycles ciclo(s) encerraram sem registrar 'reason=' - nenhum mecanismo de encerramento disparou, e zero orfaos nao prova nada nesse caso"
+}
+
+$Failed = ($Survivors -gt 0) -or ($LaunchFailures -gt 0) -or ($KillFailures -gt 0) -or ($ReasonlessCycles -gt 0)
 
 if ($Failed) {
     Write-Output "[i] work dir preservado para inspecao: $WorkDir"
