@@ -113,9 +113,14 @@ func TestExitCodeEmptyResults(t *testing.T) {
 // ExitCode continuar zero aqui e proposital, nao uma omissao: cancelamento
 // veio de quem chamou doctor (Ctrl-C, ou o processo de cima desistindo), nao
 // e um fato sobre o ambiente, e nao deve gatear um script de setup. Contraste
-// com TestRunFailsWhenVaultVanishesMidRun abaixo, onde o mesmo scan.err
-// nao-nulo vem de vault.Walk falhando na propria raiz — cofre desmontado, nao
-// cancelamento — e por isso precisa continuar codigo de saida nao-zero.
+// com TestScanStatusDistinguishesCancelamentoDeFalha, em
+// checks_internal_test.go, onde o mesmo scan.err nao-nulo vem de vault.Walk
+// falhando na propria raiz — cofre desmontado, nao cancelamento — e por isso
+// precisa continuar codigo de saida nao-zero. A forma de integracao (derrubar
+// o cofre de verdade no meio de um Run) foi rejeitada no Step 5 da Task R1:
+// no Windows, ACEs de Full Control herdadas sobrepoem o deny explicito,
+// entao tornar um diretorio ilegivel para o proprio processo nao e encenavel
+// sem privilegio elevado.
 func TestRunContextCancelledStopsWalk(t *testing.T) {
 	root := t.TempDir()
 	for _, name := range []string{"A.md", "B.md", "C.md", "D.md", "E.md"} {
