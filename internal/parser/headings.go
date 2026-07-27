@@ -57,16 +57,14 @@ func ExtractHeadings(body []byte, bodyOffset int64) []Heading {
 			continue
 		}
 
-		if !inFence {
-			if level, title, ok := parseATXHeading(text); ok {
-				out = append(out, Heading{
-					Level:     level,
-					Text:      title,
-					Slug:      Slug(title),
-					Start:     bodyOffset + pos,
-					BodyStart: bodyOffset + pos + advance,
-				})
-			}
+		if level, title, ok := parseATXHeading(text); ok {
+			out = append(out, Heading{
+				Level:     level,
+				Text:      title,
+				Slug:      Slug(title),
+				Start:     bodyOffset + pos,
+				BodyStart: bodyOffset + pos + advance,
+			})
 		}
 
 		pos += advance
@@ -111,8 +109,19 @@ func parseATXHeading(line string) (int, string, bool) {
 	}
 
 	title := strings.TrimSpace(trimmed[level:])
-	// Fechamento opcional: "## Titulo ##".
-	title = strings.TrimRight(title, "#")
+
+	// Sequencia de fechamento opcional: "## Titulo ##". O CommonMark so a
+	// remove quando vem precedida de espaco ou quando e todo o conteudo.
+	// Remover incondicionalmente transforma "# Notas sobre C#" em
+	// "Notas sobre C", e um heading que termina em '#' deixa de ser
+	// enderecavel por note_read, por note_patch e por ancora de wikilink.
+	if closing := len(title) - len(strings.TrimRight(title, "#")); closing > 0 {
+		rest := title[:len(title)-closing]
+		if rest == "" || strings.HasSuffix(rest, " ") || strings.HasSuffix(rest, "\t") {
+			title = rest
+		}
+	}
+
 	return level, strings.TrimSpace(title), true
 }
 

@@ -68,7 +68,14 @@ func TestExtractHeadingsIgnoresCodeBlocks(t *testing.T) {
 }
 
 func TestExtractHeadingsCRLF(t *testing.T) {
-	body := "# A\r\ntexto\r\n## B\r\n"
+	// B is level 1, same as A: closeSections only ends A's section at a
+	// heading of level <= A's own (verified in
+	// TestExtractHeadingsSectionBoundaries). A level-2 "## B" would be a
+	// subsection of A, so A.End would legitimately run to the buffer's end
+	// instead of B's Start — same-level siblings are what makes A.End land
+	// exactly at B.Start observable here, mirroring the choice made in
+	// TestExtractHeadingsFenceRequiresMatchingCloseLength.
+	body := "# A\r\ntexto\r\n# B\r\n"
 
 	hs := parser.ExtractHeadings([]byte(body), 0)
 
@@ -76,7 +83,68 @@ func TestExtractHeadingsCRLF(t *testing.T) {
 		t.Fatalf("headings = %d, quer 2", len(hs))
 	}
 	if hs[0].Text != "A" || hs[1].Text != "B" {
-		t.Errorf("textos = %q, %q — CR nao foi removido", hs[0].Text, hs[1].Text)
+		t.Errorf("textos = %q, %q", hs[0].Text, hs[1].Text)
+	}
+
+	// Os offsets sao o que importa aqui, e o que uma assercao so de texto nao
+	// pega: TrimSpace dentro de parseATXHeading ja come o CR, entao remover o
+	// TrimRight nao muda o texto e muda todas as posicoes. Foi exatamente esta
+	// classe de omissao que a revisao da Task 12 encontrou.
+	if hs[0].BodyStart != 5 {
+		t.Errorf("A.BodyStart = %d, quer 5", hs[0].BodyStart)
+	}
+	if hs[1].Start != 12 {
+		t.Errorf("B.Start = %d, quer 12", hs[1].Start)
+	}
+	if hs[0].End != hs[1].Start {
+		t.Errorf("A.End = %d, quer %d (inicio de B)", hs[0].End, hs[1].Start)
+	}
+	if got := body[hs[0].BodyStart:hs[0].End]; got != "texto\r\n" {
+		t.Errorf("corpo de A = %q", got)
+	}
+}
+
+// As regras abaixo sobreviviam a mutacao sem nenhum teste reprovar: o
+// comprimento minimo da cerca de fechamento, a info string, os limites de
+// indentacao e cada regra de parseATXHeading. Uma regra que nenhuma mutacao
+// reprova nao esta verificada, esta apenas escrita.
+func TestExtractHeadingsRules(t *testing.T) {
+	tests := []struct {
+		name string
+		body string
+		want []string
+	}{
+		{"fechamento mais longo que a abertura fecha", "````\ncodigo\n`````\n# Depois\n", []string{"Depois"}},
+		{"fechamento mais curto nao fecha", "````\n```\n# Dentro\n````\n# Depois\n", []string{"Depois"}},
+		{"til nao fecha crase", "```\n~~~\n# Dentro\n```\n# Depois\n", []string{"Depois"}},
+		{"crase nao fecha til", "~~~\n```\n# Dentro\n~~~\n# Depois\n", []string{"Depois"}},
+		{"info string no fechamento nao fecha", "```\n``` go\n# Dentro\n```\n# Depois\n", []string{"Depois"}},
+		{"abertura com linguagem fecha com cerca simples", "```go\ncodigo\n```\n# Depois\n", []string{"Depois"}},
+		{"crase na info string nao abre cerca", "```x``` y\n# Depois\n", []string{"Depois"}},
+		{"cerca indentada com quatro espacos nao abre", "    ```\n# Depois\n", []string{"Depois"}},
+		{"cerca indentada com tres espacos abre", "   ```\n# Dentro\n   ```\n# Depois\n", []string{"Depois"}},
+		{"heading indentado com tres espacos vale", "   # A\n", []string{"A"}},
+		{"heading indentado com quatro espacos nao vale", "    # A\n", nil},
+		{"sete cerquilhas nao e heading", "####### A\n", nil},
+		{"sem espaco depois da cerquilha nao e heading", "#A\n", nil},
+		{"cerquilhas sozinhas viram heading de texto vazio", "##\n", []string{""}},
+		{"fechamento com cerquilhas e removido", "## Titulo ##\n", []string{"Titulo"}},
+		{"cerquilha colada ao texto NAO e fechamento", "# Notas sobre C#\n", []string{"Notas sobre C#"}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			hs := parser.ExtractHeadings([]byte(tt.body), 0)
+
+			if len(hs) != len(tt.want) {
+				t.Fatalf("headings = %d (%+v), quer %d %v", len(hs), hs, len(tt.want), tt.want)
+			}
+			for i, w := range tt.want {
+				if hs[i].Text != w {
+					t.Errorf("headings[%d].Text = %q, quer %q", i, hs[i].Text, w)
+				}
+			}
+		})
 	}
 }
 

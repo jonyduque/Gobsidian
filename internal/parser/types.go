@@ -33,10 +33,14 @@ type Heading struct {
 	Level int    `json:"level"`
 	Text  string `json:"text"`
 	Slug  string `json:"slug"`
-	// Start e o offset do '#', relativo ao mesmo buffer que SplitFrontmatter
-	// recebeu — ja com o bodyOffset somado por Parse. End e o offset do fim da
-	// secao: o inicio do proximo heading de nivel menor ou igual, ou o fim do
-	// buffer. Block.Start e Link.Start seguem a mesma origem.
+	// Start e o offset do inicio da LINHA do heading, nao do '#'. Um heading
+	// aceita ate tres espacos de indentacao, e replace_heading_and_section
+	// precisa consumi-los junto — substituir a partir do '#' deixaria a
+	// indentacao orfa antes do conteudo novo. Relativo ao mesmo buffer que
+	// SplitFrontmatter recebeu, ja com o bodyOffset somado por Parse. End e o
+	// offset do fim da secao: o inicio do proximo heading de nivel menor ou
+	// igual, ou o fim do buffer. Block.Start e Link.Start seguem a mesma
+	// origem.
 	//
 	// A origem precisa estar escrita aqui porque um ParsedNote sozinho nao
 	// permite descobri-la: quem so recebe a struct nao tem como saber se os
