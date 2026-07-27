@@ -3,11 +3,15 @@
 # O CI roda em ubuntu e nao pega — quem paga e quem desenvolve no Windows.
 * text=auto
 
-*.go   text eol=lf
-*.mod  text eol=lf
-*.sum  text eol=lf
-*.md   text eol=lf
-*.yml  text eol=lf
+*.go       text eol=lf
+*.mod      text eol=lf
+*.sum      text eol=lf
+*.md       text eol=lf
+*.yml      text eol=lf
+*.yaml     text eol=lf
+*.json     text eol=lf
+*.txt      text eol=lf
+Makefile   text eol=lf
 
 # Os scripts de PowerShell ficam em CRLF: e o que o Windows espera, e sao
 # executados la e so la.
