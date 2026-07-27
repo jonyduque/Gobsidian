@@ -42,7 +42,7 @@ Piso é `go 1.25.0`, não 1.24. Forçado por `go-sdk@v1.5.0`, que declara 1.25.0
 
 **Nenhum tipo do SDK MCP cruza pra fora de `internal/mcpsrv`.** `internal/service` fala tipos de domínio, não importa SDK. Torna migração de protocolo mudança de um pacote só — e protocolo já quebrou compat várias vezes.
 
-**`ctx` onde há espera real.** Funções que podem **bloquear** recebem `ctx` e respeitam: I/O de arquivo, varredura, worker pool, watcher, chamadas MCP. Leitura de env var, resolução de caminho, cálculo em memória não recebem. `ctx` que nenhum corpo verifica ensina revisor a ignorar `ctx`. Exceção única e documentada: `lifecycle.Shutdown` bloqueia e não recebe — context raiz já cancelado quando ela roda.
+**`ctx` onde há espera real.** Funções que podem **bloquear** recebem `ctx` e respeitam: I/O de arquivo, varredura, worker pool, watcher, chamadas MCP. Leitura de env var, resolução de caminho, cálculo em memória não recebem. `ctx` que nenhum corpo verifica ensina revisor a ignorar `ctx` — quando o parâmetro existe só por consistência de assinatura, nomeie-o `_`, como em `watchStdin`. **Não há mais exceção à regra.** `lifecycle.Shutdown` recebe `ctx` e descarta o cancelamento via `context.WithoutCancel`: o context raiz já está cancelado quando ela roda, então derivar os orçamentos dele faria toda etapa nascer expirada. `WithoutCancel` preserva os valores e joga fora só o cancelamento. Quem limita tempo ali são os orçamentos por etapa e o `hardLimit`.
 
 **Código de plataforma atrás de build tag, em arquivo separado.** Nunca `if runtime.GOOS ==` dentro de lógica compartilhada. Em teste, `runtime.GOOS` aceitável pra pular casos.
 
@@ -78,6 +78,10 @@ Cada uma passou por revisão e só apareceu depois. Estão aqui pra não voltare
 
 M0 completa, etiquetada `m0-lifecycle`: ciclo de vida, `internal/vault`, servidor MCP mínimo com `vault_stats`, `doctor`, e 100 ciclos de encerramento abrupto com zero órfãos.
 
-Próximo é M1 (Task 12 em diante): parser, índice e as cinco tools de leitura, que fecham a v0.1.
+Dívida de revisão de M0 **paga**. Tasks 9, 10 e 11 haviam fechado sem revisão fresca; a revisão que faltava rodou e virou trabalho (plano `docs/superpowers/plans/2026-07-26-m0-review-fixes.md`). Três defeitos reais que os gates existentes não pegavam: `doctor` saindo 0 com cofre inacessível; o gate de órfãos não gateando em `reason=`, de modo que servidor morrendo sozinho dava rodada verde sem mecanismo nenhum disparar; e `cmd/gobsidian` sem teste algum.
 
-Lacuna registrada pra M6: no harness de órfãos atual `stdin-eof` sempre vence, então vigília do pai e sinais seguem sem verificação ponta a ponta. Falta cenário em que stdin fica aberto e pai morre.
+Lint limpo nos três alvos (`GOOS=linux/darwin/windows`), depois de 39 achados que estavam vermelhos desde o commit de bootstrap. CI ganhou `fmt` (gofmt + vet cruzado) e `lint-windows`, sem o qual todo arquivo `//go:build windows` ficava sem análise.
+
+Próximo é M1 (Task 12 em diante): parser, índice e as cinco tools de leitura, que fecham a v0.1. Task 25 precisa de uma rodada manual do plugin do Obsidian para gerar a referência de paridade — vale agendar antes de chegar nela.
+
+Lacuna registrada pra M6: no harness de órfãos atual `stdin-eof` sempre vence (100/100 nas duas últimas rodadas), então vigília do pai e sinais seguem sem verificação ponta a ponta. Falta cenário em que stdin fica aberto e pai morre.

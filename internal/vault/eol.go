@@ -2,8 +2,13 @@ package vault
 
 import "bytes"
 
+// EOLStyle e a convencao de fim de linha de uma nota. O produto preserva a
+// que encontrou: reescrever uma nota inteira so porque ela usava CRLF gera
+// um diff que o usuario nao pediu e que polui o historico do cofre dele.
 type EOLStyle int
 
+// LF e o zero deliberadamente: e o default para nota nova e para arquivo
+// onde nao ha CRLF que indique o contrario.
 const (
 	EOLLF EOLStyle = iota
 	EOLCRLF

@@ -1,3 +1,10 @@
+// Package main e o binario do gobsidian: `serve` levanta o servidor MCP
+// sobre stdio, `doctor` diagnostica o ambiente e `version` imprime a
+// identificacao do build.
+//
+// A divisao entre quem escreve em stdout e quem nao escreve vive aqui e e
+// load-bearing: `serve` cede stdout inteiro ao JSON-RPC, enquanto `doctor` e
+// `version` sao comandos de CLI e imprimem la de proposito.
 package main
 
 import (
@@ -42,7 +49,7 @@ func newVersionCmd() *cobra.Command {
 		Use:   "version",
 		Short: "Imprime versao, commit e data de build",
 		Run: func(cmd *cobra.Command, _ []string) {
-			fmt.Fprintf(cmd.OutOrStdout(), "gobsidian %s (%s) %s\n", version, commit, buildDate)
+			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "gobsidian %s (%s) %s\n", version, commit, buildDate)
 		},
 	}
 }

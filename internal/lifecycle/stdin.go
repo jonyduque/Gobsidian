@@ -12,14 +12,15 @@ import (
 //
 // Esta goroutine e deliberadamente NAO registrada no WaitGroup. Read bloqueia
 // e nao ha forma portavel de interromper uma leitura bloqueada num io.Reader
-// arbitrario via cancelamento de context — ctx aqui so existe para consistencia
-// de assinatura, nao e observado dentro do loop. Se ela estivesse no
+// arbitrario via cancelamento de context. O parametro fica como `_` justamente
+// por isso: um ctx nomeado que nenhum corpo verifica ensina revisor a ignorar
+// ctx no resto do pacote, onde ele e load-bearing. Se ela estivesse no
 // WaitGroup, o dia em que sinais (Task 4) ou vigilia do pai (Task 5)
 // disparassem o desligamento primeiro, Wait() bloquearia para sempre esperando
 // uma leitura que nunca retorna enquanto stdin permanecer aberto. A saida
 // documentada desta goroutine e o encerramento do processo, nao um retorno
 // de funcao aguardado por alguem.
-func (l *Lifecycle) watchStdin(ctx context.Context, r io.Reader) {
+func (l *Lifecycle) watchStdin(_ context.Context, r io.Reader) {
 	go func() {
 		buf := make([]byte, 4096)
 		for {

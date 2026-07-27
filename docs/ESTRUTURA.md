@@ -193,7 +193,9 @@ Um arquivo chamado `helpers.go` ou `utils.go` é sinal de que uma preocupação 
 
 Toda função que pode **bloquear** recebe `ctx context.Context` como primeiro parâmetro e o respeita: leitura e escrita de arquivo, varredura do cofre, worker pool, watcher, chamadas MCP. O context raiz vem de `lifecycle`; cancelá-lo derruba tudo em cascata. Isso é o que faz o shutdown funcionar de verdade em vez de apenas parecer funcionar.
 
-O critério é espera real, não contato com o sistema operacional. Consulta de variável de ambiente, resolução de caminho e cálculo em memória não recebem `ctx`, porque não há nada a cancelar. Um `ctx` que nenhum corpo de função verifica é pior que ausente: ensina o revisor a não olhar para `ctx`, e o parâmetro perde o significado justamente onde ele importa.
+O critério é espera real, não contato com o sistema operacional. Consulta de variável de ambiente, resolução de caminho e cálculo em memória não recebem `ctx`, porque não há nada a cancelar. Um `ctx` que nenhum corpo de função verifica é pior que ausente: ensina o revisor a não olhar para `ctx`, e o parâmetro perde o significado justamente onde ele importa. Quando o parâmetro existe só por consistência de assinatura — o caso de `watchStdin`, presa num `Read` que cancelamento nenhum desenrola — nomeie-o `_`.
+
+Há um caso que parece exceção e não é. `lifecycle.Shutdown` recebe `ctx` e descarta o **cancelamento** dele com `context.WithoutCancel`, porque o context raiz já está cancelado quando ela roda: é o cancelamento dele que traz o processo até ali, e derivar os orçamentos das etapas desse context faria cada uma nascer expirada. `WithoutCancel` preserva os valores e joga fora só o cancelamento; quem limita tempo ali são os orçamentos por etapa e o `hardLimit`. A regra continua valendo sem exceção — o que muda é que respeitar um context nem sempre significa observar o cancelamento dele.
 
 ### Erros
 

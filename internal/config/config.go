@@ -1,3 +1,6 @@
+// Package config resolve a configuracao efetiva do produto a partir de tres
+// fontes, na precedencia flag > variavel de ambiente > default. E o unico
+// lugar onde essa precedencia e decidida.
 package config
 
 import (
@@ -31,6 +34,9 @@ type Flags struct {
 	CacheDir      string
 }
 
+// Config e a configuracao ja resolvida, do jeito que o resto do produto a
+// consome. Ninguem abaixo desta camada volta a olhar flag ou variavel de
+// ambiente: se um valor nao esta aqui, ele nao existe.
 type Config struct {
 	VaultPath  string
 	LogLevel   slog.Level

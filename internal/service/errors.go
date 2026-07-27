@@ -12,6 +12,10 @@ import (
 // esta em docs/TOOLS.md.
 type Code string
 
+// A tabela de codigos. Sao contrato publico: o cliente ramifica em cima
+// deles, entao renomear um e quebra de compatibilidade, nao refatoracao.
+// A tabela completa, com o que cada um significa para quem chama, esta em
+// docs/TOOLS.md.
 const (
 	CodePathOutsideVault Code = "PATH_OUTSIDE_VAULT"
 	CodeNoteNotFound     Code = "NOTE_NOT_FOUND"
@@ -53,10 +57,16 @@ func (e *Error) Is(target error) bool {
 	return e.Code == t.Code
 }
 
+// Errorf monta um Error sem causa subjacente, para a falha que se origina
+// aqui mesmo. Quando houver um erro a preservar, use Wrap.
 func Errorf(code Code, format string, args ...any) *Error {
 	return &Error{Code: code, Message: sprintf(format, args...)}
 }
 
+// Wrap monta um Error preservando a causa, que fica alcancavel por
+// errors.Is e errors.As. A mensagem e lida por um modelo de linguagem que
+// precisa decidir o proximo passo, entao ela deve dizer o que fazer, nao so
+// o que falhou.
 func Wrap(code Code, err error, format string, args ...any) *Error {
 	return &Error{Code: code, Message: sprintf(format, args...), Err: err}
 }

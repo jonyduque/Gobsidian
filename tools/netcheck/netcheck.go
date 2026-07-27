@@ -8,6 +8,9 @@ import (
 	"golang.org/x/tools/go/analysis"
 )
 
+// Analyzer e o analisador plugavel em go/analysis. Ele inspeciona os pacotes
+// do produto, nao o fecho transitivo: net/http e x/oauth2 chegam pelo SDK de
+// MCP, e isso e esperado. A garantia e sobre o que nos escrevemos.
 var Analyzer = &analysis.Analyzer{
 	Name: "netcheck",
 	Doc:  "reporta importacao de pacotes de rede em codigo do produto",

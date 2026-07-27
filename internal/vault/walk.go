@@ -9,6 +9,13 @@ import (
 	"time"
 )
 
+// Entry e uma nota ou anexo encontrado na varredura. Path ja vem com a
+// grafia real do disco — esta e a camada que a produz, porque CanonicalPath
+// sozinho preserva a grafia que o chamador passou, nao a que existe.
+//
+// CloudOnly marca o arquivo que o sincronizador ainda nao baixou. E lido do
+// atributo, nunca abrindo o arquivo: abrir dispara a hidratacao que o campo
+// existe para evitar.
 type Entry struct {
 	Path      CanonicalPath
 	Size      int64

@@ -10,6 +10,9 @@ const (
 	MaxResultsCeiling = 500
 )
 
+// Defaults devolve a Config antes de qualquer flag ou variavel de ambiente
+// ser aplicada. VaultPath fica vazio de proposito: ele nao tem default
+// defensavel, e Load exige que alguem o forneca.
 func Defaults() Config {
 	return Config{
 		LogLevel:   slog.LevelInfo,

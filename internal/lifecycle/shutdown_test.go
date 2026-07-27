@@ -25,7 +25,7 @@ func TestShutdownRunsStepsInOrder(t *testing.T) {
 	log, _ := capturingLogger()
 	var order []string
 
-	lifecycle.Shutdown(log, 5*time.Second,
+	lifecycle.Shutdown(context.Background(), log, 5*time.Second,
 		lifecycle.Step{Name: "a", Budget: time.Second, Fn: func(context.Context) error {
 			order = append(order, "a")
 			return nil
@@ -46,7 +46,7 @@ func TestShutdownStepExceedingBudgetDoesNotBlockNext(t *testing.T) {
 	ran := false
 
 	start := time.Now()
-	lifecycle.Shutdown(log, 5*time.Second,
+	lifecycle.Shutdown(context.Background(), log, 5*time.Second,
 		lifecycle.Step{Name: "lenta", Budget: 100 * time.Millisecond, Fn: func(ctx context.Context) error {
 			<-ctx.Done()
 			return ctx.Err()
@@ -80,7 +80,7 @@ func TestShutdownLogsStepErrorAndContinues(t *testing.T) {
 	log, buf := capturingLogger()
 	ran := false
 
-	lifecycle.Shutdown(log, 5*time.Second,
+	lifecycle.Shutdown(context.Background(), log, 5*time.Second,
 		lifecycle.Step{Name: "falha", Budget: time.Second, Fn: func(context.Context) error {
 			return errors.New("boom")
 		}},
@@ -96,5 +96,45 @@ func TestShutdownLogsStepErrorAndContinues(t *testing.T) {
 	logged := buf.String()
 	if !strings.Contains(logged, "falha") || !strings.Contains(logged, "boom") {
 		t.Errorf("a falha da etapa nao foi registrada com nome e causa; log = %q", logged)
+	}
+}
+
+// TestShutdownIgnoresParentCancellation trava a razao de Shutdown usar
+// context.WithoutCancel. O context raiz JA esta cancelado toda vez que
+// Shutdown roda de verdade — e o cancelamento dele que traz o processo ate
+// aqui. Derivar os orcamentos das etapas desse context faria cada etapa nascer
+// expirada e ser abandonada antes de terminar, e o encerramento ordenado
+// (gravar cache, drenar chamadas em voo) nunca aconteceria.
+//
+// A etapa precisa DEMORAR para o teste valer: step.Fn e lancada
+// incondicionalmente numa goroutine, entao "a etapa rodou" e verdade mesmo com
+// o orcamento expirado. O que muda e se Shutdown ESPERA por ela ou a abandona.
+func TestShutdownIgnoresParentCancellation(t *testing.T) {
+	var buf bytes.Buffer
+	log := slog.New(slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelDebug}))
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel() // raiz ja cancelada, como em producao
+
+	concluiu := false
+	start := time.Now()
+
+	lifecycle.Shutdown(ctx, log, 5*time.Second,
+		lifecycle.Step{Name: "lenta", Budget: 2 * time.Second, Fn: func(context.Context) error {
+			time.Sleep(200 * time.Millisecond)
+			concluiu = true
+			return nil
+		}},
+	)
+	elapsed := time.Since(start)
+
+	if strings.Contains(buf.String(), "abandonada") {
+		t.Fatalf("etapa abandonada sob raiz cancelada: o orcamento nasceu expirado; log = %q", buf.String())
+	}
+	if !concluiu {
+		t.Error("Shutdown nao esperou a etapa terminar")
+	}
+	if elapsed < 150*time.Millisecond {
+		t.Errorf("Shutdown retornou em %v, antes da etapa de 200ms terminar", elapsed)
 	}
 }

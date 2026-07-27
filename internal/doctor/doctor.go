@@ -8,8 +8,14 @@ import (
 	"github.com/jonyd/gobsidian/internal/config"
 )
 
+// Status e a gravidade de uma verificacao. A ordem importa: so StatusFail
+// altera o codigo de saida, e so ele interrompe as verificacoes seguintes
+// quando marcado como halting.
 type Status int
 
+// Os tres status que uma verificacao pode produzir. StatusWarn existe para o
+// caso comum de um ambiente que funciona de forma incompleta — cofre sem
+// .obsidian, arquivo ainda na nuvem — e que nao deve reprovar um setup.
 const (
 	StatusOK Status = iota
 	StatusWarn
@@ -31,6 +37,9 @@ func (s Status) Marker() string {
 	}
 }
 
+// Result e uma linha do relatorio. Detail e opcional e carrega o numero ou o
+// caminho que torna o resultado acionavel; sem ele, "permissao de escrita
+// [!]" nao diz a ninguem o que fazer em seguida.
 type Result struct {
 	Name   string
 	Status Status

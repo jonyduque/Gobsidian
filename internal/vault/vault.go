@@ -1,7 +1,12 @@
+// Package vault e a unica camada que toca o sistema de arquivos do cofre.
+// Todo caminho que entra aqui passa por confinamento em duas etapas antes
+// de virar chamada de sistema, e e essa fronteira que garante que o
+// servidor nao consegue ler nem escrever fora da raiz.
 package vault
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -10,6 +15,9 @@ import (
 	"sync/atomic"
 )
 
+// Vault e a raiz aberta do cofre. Construir um nao valida o conteudo, so o
+// caminho: um cofre vazio e legitimo, um inacessivel e erro, e distinguir
+// os dois e responsabilidade de quem varre.
 type Vault struct {
 	root string
 
@@ -70,6 +78,9 @@ func (v *Vault) SkippedEntries() (int64, []string) {
 	return v.skipped.Load(), out
 }
 
+// New abre o cofre em root. Falha se o caminho nao resolve; nao verifica se
+// existe nem se e legivel, porque quem diagnostica ambiente e o doctor, e
+// um servidor que se recusa a subir nao consegue reportar o proprio motivo.
 func New(root string) (*Vault, error) {
 	abs, err := filepath.Abs(root)
 	if err != nil {
@@ -85,6 +96,9 @@ func New(root string) (*Vault, error) {
 	return &Vault{root: abs, walkRoot: LongPath(abs)}, nil
 }
 
+// Root devolve a raiz na forma tradicional, sem o prefixo \\?\ que as
+// chamadas de sistema usam internamente. E a forma que aparece em log e em
+// mensagem de erro, porque e a que o usuario reconhece.
 func (v *Vault) Root() string { return v.root }
 
 // Abs devolve o caminho absoluto de um caminho canonico, ja preparado para
@@ -93,6 +107,9 @@ func (v *Vault) Abs(p CanonicalPath) string {
 	return LongPath(filepath.Join(v.root, filepath.FromSlash(string(p))))
 }
 
+// Open abre uma nota para leitura. Recebe CanonicalPath, nao string: o tipo
+// e a prova de que o confinamento ja rodou, e nao ha caminho para chegar
+// aqui sem passar por ele.
 func (v *Vault) Open(p CanonicalPath) (*os.File, error) {
 	f, err := os.Open(v.Abs(p))
 	if err != nil {
@@ -133,12 +150,15 @@ func (v *Vault) ReadRange(ctx context.Context, p CanonicalPath, start, end int64
 
 	buf := make([]byte, end-start)
 	n, err := f.ReadAt(buf, start)
-	if err != nil && err != io.EOF {
+	if err != nil && !errors.Is(err, io.EOF) {
 		return nil, fmt.Errorf("lendo %q em %d..%d: %w", p, start, end, err)
 	}
 	return buf[:n], nil
 }
 
+// ReadAll le a nota inteira. Recebe ctx porque leitura de arquivo bloqueia
+// de verdade — em cofre sincronizado na nuvem, indefinidamente enquanto o
+// cliente hidrata o placeholder.
 func (v *Vault) ReadAll(ctx context.Context, p CanonicalPath) ([]byte, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err

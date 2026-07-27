@@ -13,6 +13,9 @@ import (
 	"time"
 )
 
+// Options configura os tres mecanismos de encerramento. Cada campo zerado
+// desliga o mecanismo correspondente, o que existe para os testes poderem
+// isolar um mecanismo de cada vez.
 type Options struct {
 	// Stdin e a fonte cujo EOF encerra o processo. os.Stdin em producao;
 	// um io.Reader controlado nos testes.
@@ -22,11 +25,19 @@ type Options struct {
 	// a vigilia.
 	ParentPID int
 
+	// ParentCheckInterval e o intervalo entre consultas ao pai. Zero usa o
+	// default do pacote.
 	ParentCheckInterval time.Duration
 
+	// Logger recebe os eventos de encerramento. Nulo vira um logger que
+	// descarta — nunca stdout, que pertence ao JSON-RPC.
 	Logger *slog.Logger
 }
 
+// Lifecycle coordena os mecanismos de encerramento e guarda qual deles
+// disparou. So o primeiro a disparar fica registrado: os demais chegam
+// depois, em cima de um context ja cancelado, e sobrescrever o motivo
+// apagaria a informacao de diagnostico que interessa.
 type Lifecycle struct {
 	cancel context.CancelFunc
 	wg     sync.WaitGroup
@@ -74,6 +85,10 @@ func (l *Lifecycle) trigger(reason string) {
 	l.cancel()
 }
 
+// Reason devolve o mecanismo que pediu o encerramento — "stdin-eof",
+// "signal" ou "parent-gone" — ou string vazia se nada pediu ainda. E o que
+// o harness de orfaos le nos logs para provar que algum mecanismo disparou:
+// zero orfaos sem motivo registrado nao prova nada.
 func (l *Lifecycle) Reason() string {
 	l.mu.Lock()
 	defer l.mu.Unlock()

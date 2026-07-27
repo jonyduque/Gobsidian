@@ -130,7 +130,7 @@ func runServe(parent context.Context, cfg config.Config) error {
 	case <-ctx.Done():
 	}
 
-	lifecycle.Shutdown(log, 6*time.Second,
+	lifecycle.Shutdown(ctx, log, 6*time.Second,
 		lifecycle.Step{Name: "in-flight", Budget: 3 * time.Second, Fn: func(ctx context.Context) error {
 			if serveReturned {
 				return nil

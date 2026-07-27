@@ -20,6 +20,9 @@ import (
 // desenvolvimento.
 var Version = "dev"
 
+// Server e o adaptador entre o SDK de MCP e o servico de dominio. Ele detem
+// o unico *mcp.Server do processo e e o unico ponto onde tipos do SDK
+// aparecem.
 type Server struct {
 	mcp *mcp.Server
 	svc *service.Service
@@ -27,6 +30,10 @@ type Server struct {
 	log *slog.Logger
 }
 
+// New monta o servidor e registra as tools. Com cfg.ReadOnly ligado, as
+// tools de escrita nao sao registradas — e nao apenas recusadas na chamada:
+// um host que ve a tool anunciada vai tentar usa-la, e a recusa vira uma
+// rodada desperdicada (PRD RF-55).
 func New(svc *service.Service, cfg config.Config, log *slog.Logger) *Server {
 	s := &Server{
 		mcp: mcp.NewServer(&mcp.Implementation{Name: "gobsidian", Version: Version}, nil),

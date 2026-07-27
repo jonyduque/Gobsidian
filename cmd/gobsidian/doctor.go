@@ -31,20 +31,24 @@ func newDoctorCmd() *cobra.Command {
 
 			// doctor imprime em stdout de proposito: e um comando de CLI,
 			// nao um servidor. Nenhum JSON-RPC trafega aqui.
+			//
+			// O erro de escrita e descartado explicitamente, e nao por
+			// esquecimento: se o proprio relatorio nao sai, nao sobra canal
+			// para reclamar disso.
 			out := cmd.OutOrStdout()
 			for _, r := range results {
-				fmt.Fprintf(out, "%s %s\n", r.Status.Marker(), r.Name)
+				_, _ = fmt.Fprintf(out, "%s %s\n", r.Status.Marker(), r.Name)
 				if r.Detail != "" {
-					fmt.Fprintf(out, "     %s\n", r.Detail)
+					_, _ = fmt.Fprintf(out, "     %s\n", r.Detail)
 				}
 			}
 
 			code := doctor.ExitCode(results)
 			if code != 0 {
-				fmt.Fprintln(out, "[!] Ha falhas bloqueantes acima")
+				_, _ = fmt.Fprintln(out, "[!] Ha falhas bloqueantes acima")
 				os.Exit(code)
 			}
-			fmt.Fprintln(out, "[OK] Ambiente apto")
+			_, _ = fmt.Fprintln(out, "[OK] Ambiente apto")
 			return nil
 		},
 	}
