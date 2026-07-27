@@ -57,7 +57,7 @@ func longPathsEnabled() bool {
 	if err != nil {
 		return false
 	}
-	defer k.Close()
+	defer func() { _ = k.Close() }()
 
 	val, _, err := k.GetIntegerValue("LongPathsEnabled")
 	if err != nil {
