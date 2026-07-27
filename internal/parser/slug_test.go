@@ -16,6 +16,11 @@ func TestSlug(t *testing.T) {
 		{"Ação & Reação", "acao reacao"},
 		{"Art. 1.234 — CPC", "art 1234 cpc"},
 		{"", ""},
+		// Entrada nao vazia que reduz a slug vazia. Duas headings so de
+		// pontuacao colidem na mesma slug, e a Task 13 precisa decidir o
+		// desempate — este caso documenta a decisao e impede que uma mudanca
+		// futura para "pontuacao vira espaco" passe em silencio.
+		{"!!!", ""},
 	}
 
 	for _, tt := range tests {

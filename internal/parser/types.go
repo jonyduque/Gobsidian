@@ -33,8 +33,14 @@ type Heading struct {
 	Level int    `json:"level"`
 	Text  string `json:"text"`
 	Slug  string `json:"slug"`
-	// Start e o offset do '#'. End e o offset do fim da secao — o inicio do
-	// proximo heading de nivel menor ou igual, ou o fim do arquivo.
+	// Start e o offset do '#', relativo ao mesmo buffer que SplitFrontmatter
+	// recebeu — ja com o bodyOffset somado por Parse. End e o offset do fim da
+	// secao: o inicio do proximo heading de nivel menor ou igual, ou o fim do
+	// buffer. Block.Start e Link.Start seguem a mesma origem.
+	//
+	// A origem precisa estar escrita aqui porque um ParsedNote sozinho nao
+	// permite descobri-la: quem so recebe a struct nao tem como saber se os
+	// offsets sao do corpo ou do buffer inteiro.
 	Start int64 `json:"start"`
 	End   int64 `json:"end"`
 	// BodyStart e o offset logo apos a linha do heading. E o que

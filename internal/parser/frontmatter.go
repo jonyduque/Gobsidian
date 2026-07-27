@@ -10,8 +10,16 @@ import (
 var fmDelim = []byte("---")
 
 // SplitFrontmatter separa o bloco YAML do corpo, devolvendo tambem o offset
-// em que o corpo comeca no arquivo original. O offset e o que mantem todos os
-// offsets de heading e de bloco corretos em relacao ao arquivo, nao ao corpo.
+// em que o corpo comeca. O offset e o que mantem os offsets de heading e de
+// bloco corretos em relacao ao inicio do buffer, nao ao corpo.
+//
+// O offset e relativo AO SLICE RECEBIDO, nao ao arquivo em disco. A distincao
+// so importa quando ha BOM: como esta funcao exige entrada ja sem BOM, o
+// buffer e tres bytes mais curto que o arquivo. Para converter um offset daqui
+// em posicao no arquivo, quem tiver o arquivo precisa somar len(bom) quando
+// vault.StripBOM tiver reportado true. Nao somar produz deslocamento de
+// exatamente tres bytes em toda leitura de secao — silencioso, e so em notas
+// com BOM.
 //
 // Exige entrada ja sem BOM UTF-8. Quem produz essa garantia e
 // vault.StripBOM — este pacote nao a chama, para nao duplicar logica que ja

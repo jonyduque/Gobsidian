@@ -50,6 +50,48 @@ func TestSplitFrontmatter(t *testing.T) {
 			wantBody:   "# Corpo\n",
 			wantOffset: 8,
 		},
+		// CRLF e onde a aritmetica e menos obvia: advance conta o \r e o
+		// TrimRight nao, entao o CR precisa ser contabilizado certo em tres
+		// lugares. Cofre em Windows e o caso normal deste produto, e uma
+		// regressao aqui desloca todo heading, bloco e link de toda nota.
+		{
+			name:       "CRLF",
+			in:         "---\r\ntitle: A\r\n---\r\n# Corpo\r\n",
+			wantFM:     "title: A\r\n",
+			wantBody:   "# Corpo\r\n",
+			wantOffset: 20,
+		},
+		{
+			name:       "CRLF com frontmatter vazio",
+			in:         "---\r\n---\r\n# Corpo\r\n",
+			wantFM:     "",
+			wantBody:   "# Corpo\r\n",
+			wantOffset: 10,
+		},
+		// Corpo vazio no fim exato do buffer. E a forma que produz panic de
+		// indice em qualquer bug de fatiamento rio abaixo, entao vale fixar
+		// que o offset e igual ao comprimento total.
+		{
+			name:       "so frontmatter, sem corpo",
+			in:         "---\ntitle: A\n---\n",
+			wantFM:     "title: A\n",
+			wantBody:   "",
+			wantOffset: 17,
+		},
+		{
+			name:       "sem newline final",
+			in:         "---\ntitle: A\n---",
+			wantFM:     "title: A\n",
+			wantBody:   "",
+			wantOffset: 16,
+		},
+		{
+			name:       "delimitador de abertura no fim do arquivo",
+			in:         "---\n",
+			wantFM:     "",
+			wantBody:   "---\n",
+			wantOffset: 0,
+		},
 	}
 
 	for _, tt := range tests {
