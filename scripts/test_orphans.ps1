@@ -148,8 +148,14 @@ for ($i = 1; $i -le $Cycles; $i++) {
 
     Start-Sleep -Milliseconds $SettleMs
 
+    # Mesma checagem de identidade da varredura final (linhas 174-179): so o
+    # PID reaparecer nao basta. O filho pode ter morrido nos ~100ms apos o
+    # taskkill e deixado o numero livre pelo resto de $SettleMs — uma rodada
+    # de 100 ciclos cria 200+ processos nesse intervalo, entao um PID
+    # reatribuido a outro processo qualquer seria contado como orfao e levaria
+    # Stop-Process -Force.
     $Alive = Get-Process -Id $ServerPid -ErrorAction SilentlyContinue
-    if ($Alive) {
+    if ($Alive -and $Alive.ProcessName -eq "gobsidian" -and $Alive.StartTime -eq $ServerAlive.StartTime) {
         $Survivors++
         Write-Warning "[!] Ciclo ${i}: PID $ServerPid sobreviveu"
         Stop-Process -Id $ServerPid -Force -ErrorAction SilentlyContinue
