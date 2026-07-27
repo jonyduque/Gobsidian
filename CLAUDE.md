@@ -24,7 +24,10 @@ GOOS=linux go vet ./...      # e darwin: há arquivos com build tag
 pwsh -File scripts/check_net.ps1
 pwsh -File scripts/build.ps1
 pwsh -File scripts/test_orphans.ps1 -Cycles 100
+golangci-lint run ./...          # exige v2.12.2; v1.x nem carrega o config
 ```
+
+**`golangci-lint` local verde não significa CI verde.** O `go.mod` declara `go 1.25.0`, e um binário compilado com Go mais antigo recusa o config antes de analisar linha nenhuma: `can't load config: the Go language version (go1.24) used to build golangci-lint is lower than the targeted Go version (1.25.0)`. O CI fixa `v2.12.2` de propósito — com a versão flutuando, os dois lados resolvem binários diferentes e a checagem local para de dizer qualquer coisa sobre o pipeline. Confira `golangci-lint version` antes de confiar num zero.
 
 ## Dependências
 
