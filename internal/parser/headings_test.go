@@ -86,10 +86,20 @@ func TestExtractHeadingsCRLF(t *testing.T) {
 		t.Errorf("textos = %q, %q", hs[0].Text, hs[1].Text)
 	}
 
-	// Os offsets sao o que importa aqui, e o que uma assercao so de texto nao
-	// pega: TrimSpace dentro de parseATXHeading ja come o CR, entao remover o
-	// TrimRight nao muda o texto e muda todas as posicoes. Foi exatamente esta
-	// classe de omissao que a revisao da Task 12 encontrou.
+	// A e B sao IRMAOS de proposito. Com "## B" o assert de End abaixo estaria
+	// errado: a secao de um H1 nao termina num H2 aninhado, vai ate o proximo
+	// heading de nivel menor ou igual — aqui, o fim do buffer.
+	//
+	// Os offsets sao o que uma assercao so de texto nao pega. Eles vem de
+	// IndexByte e advance, que contam o CR; o texto passa por TrimSpace, que
+	// o come. Um erro na contagem de advance nao muda nenhum Text e desloca
+	// todas as posicoes — foi essa classe de omissao que a revisao da Task 12
+	// encontrou.
+	//
+	// O bytes.TrimRight(line, CR) no scan e defensivo: hoje nao ha caminho em
+	// que ele mude o resultado, porque os tres consumidores do texto
+	// (parseATXHeading, openFence, closesFence) ja passam por TrimSpace ou nao
+	// olham o fim da linha. Nao remova esperando que um teste reprove.
 	if hs[0].BodyStart != 5 {
 		t.Errorf("A.BodyStart = %d, quer 5", hs[0].BodyStart)
 	}
