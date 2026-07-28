@@ -154,16 +154,16 @@ func TestInlineFieldBracketedTrailingText(t *testing.T) {
 // a linha inteira depois de "a::", incluindo o "b:: 2" — exatamente como o
 // Dataview real, que exige colchetes para mais de um campo por linha.
 //
-// Mas como o parser nao consome mais esse valor (regra 3b — precisa
-// permanecer visivel para outros parsers inline, ver
-// TestInlineFieldValueWithWikilink), o segundo "::" dentro dele tambem
-// dispara o parser de novo. A busca por chave anda pra tras a partir dai e
-// para no primeiro caractere fora do alfabeto — que e o SEGUNDO ':' do
-// primeiro par "a::" — entao a "chave" que nasce e "1 b", nao "b": os bytes
-// que already pertenciam ao valor de "a" viram uma chave inventada. E a
-// mesma classe de artefato de "#tag::valor" (chave inventada a partir de
-// bytes que outro parser ja reivindicou) — nao apaga nem corrompe o valor
-// correto de "a", so acrescenta uma entrada espuria.
+// Como o parser nao consome mais esse valor (regra 3b — precisa permanecer
+// visivel para outros parsers inline, ver TestInlineFieldValueWithWikilink),
+// o segundo "::" dentro dele tambem dispara o parser inline de novo. Sem a
+// regra 2 (chave so no INICIO DA LINHA), o passo pra tras a partir desse
+// segundo "::" pararia no primeiro ':' do par "a::" e inventaria a chave
+// espuria "1 b" com bytes que ja pertenciam ao valor de "a". Com a regra 2,
+// esse passo pra tras encontra o ':' antes de alcancar o inicio da linha e
+// rejeita — "1 b" nao comeca a linha, entao nao vira campo. Ver
+// TestInlineFieldBracketedTwoPerLine para a forma que SUPORTA mais de um
+// campo por linha de proposito.
 func TestInlineFieldTwoPerLine(t *testing.T) {
 	note, err := parser.Parse([]byte("a:: 1 b:: 2\n"))
 	if err != nil {
@@ -172,11 +172,32 @@ func TestInlineFieldTwoPerLine(t *testing.T) {
 	if got := note.Inline["a"]; len(got) != 1 || got[0] != "1 b:: 2" {
 		t.Errorf("a = %v, quer [\"1 b:: 2\"]", got)
 	}
-	if got := note.Inline["1 b"]; len(got) != 1 || got[0] != "2" {
-		t.Errorf("\"1 b\" = %v, quer [\"2\"] (chave espuria, ver comentario acima)", got)
+	if _, ok := note.Inline["1 b"]; ok {
+		t.Errorf("inline = %v, \"1 b\" nao deveria existir (regra 2: campo simples e de linha)", note.Inline)
 	}
-	if len(note.Inline) != 2 {
-		t.Fatalf("inline = %v, quer 2 chaves (\"a\" e a espuria \"1 b\")", note.Inline)
+	if len(note.Inline) != 1 {
+		t.Fatalf("inline = %v, quer so a chave \"a\"", note.Inline)
+	}
+}
+
+// TestInlineFieldAfterTagNotField confirma o segundo artefato que a regra 2
+// fecha: "#tag::valor" nao pode produzir um campo cuja chave e montada com
+// bytes que o parser de tag (prioridade 120, dispara antes) ja reivindicou.
+// O parser de tag avanca sobre "#tag", mas o buffer bruto por tras continua
+// com o '#' ali; o passo pra tras a partir do "::" encontraria "tag" antes
+// de alcancar o inicio da linha, e regra 2 rejeita porque "tag" nao comeca a
+// linha — o '#' esta antes dele. A tag em si continua sendo extraida
+// normalmente pelo TagExtension; este teste olha so para note.Inline.
+func TestInlineFieldAfterTagNotField(t *testing.T) {
+	note, err := parser.Parse([]byte("#tag::valor\n"))
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	if len(note.Inline) != 0 {
+		t.Errorf("inline = %v, quer vazio (\"tag\" nao pode virar chave de campo)", note.Inline)
+	}
+	if len(note.Tags) != 1 || note.Tags[0] != "tag" {
+		t.Errorf("tags = %v, quer [tag] (a tag em si continua valendo)", note.Tags)
 	}
 }
 

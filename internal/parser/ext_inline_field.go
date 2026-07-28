@@ -124,16 +124,35 @@ func (p *inlineFieldParser) parseFromColon(parent gast.Node, block text.Reader, 
 // scanInlineFieldKeyBackward le pra tras a partir de pos, sem passar de
 // lower, acumulando runas do alfabeto de chave. Devolve ok=false quando nao
 // ha nenhum caractere de chave imediatamente a esquerda — e o caso de "::
-// valor" sem chave nenhuma.
+// valor" sem chave nenhuma — e tambem quando o passo pra tras encontra um
+// caractere fora do alfabeto de chave ANTES de alcancar lower.
+//
+// Essa segunda condicao e a regra 2 (forma simples e de LINHA, nao de
+// trecho): a chave precisa comecar no inicio da linha — apos marcador de
+// lista ou prefixo de citacao, que Lines() ja descontou de lower — sem nada
+// de texto antes. Se o passo pra tras para cedo, sobrou algo entre lower e
+// a chave, e essa chave nao comeca a linha.
+//
+// E o mesmo bound de "lower" que ja existia pra nao deixar o marcador de
+// lista vazar pra dentro da chave; a diferenca e so que agora um caractere
+// que interrompe o passo pra tras rejeita o campo inteiro, em vez de so
+// truncar a chave ali. Sem isso, "a:: 1 b:: 2" reoferece o valor "1 b:: 2"
+// aos parsers inline (regra 3), o segundo "::" dispara este parser de novo,
+// e o passo pra tras encontra o ':' do primeiro par antes de chegar a lower
+// — a chave que nasceria dali ("1 b") e bytes que ja pertenciam ao valor de
+// "a". Da mesma forma, "#tag::valor": o parser de tag ja avancou sobre
+// "#tag", mas o buffer bruto continua com o '#' ali, e o passo pra tras a
+// partir do "::" para nesse '#' antes de chegar a lower — "tag" seria uma
+// chave montada com bytes que o parser de tag ja reivindicou.
 func scanInlineFieldKeyBackward(source []byte, lower, pos int) (string, bool) {
 	i := pos
 	for i > lower {
 		r, size := utf8.DecodeLastRune(source[lower:i])
 		if r == utf8.RuneError && size <= 1 {
-			break
+			return "", false
 		}
 		if !inlineFieldKeyChar(r) {
-			break
+			return "", false
 		}
 		i -= size
 	}
