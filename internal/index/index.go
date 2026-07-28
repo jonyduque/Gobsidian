@@ -2,6 +2,7 @@ package index
 
 import (
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -117,6 +118,18 @@ func (ix *Index) insert(r parsed) {
 	ix.byName[string(base)] = append(ix.byName[string(base)], r.entry.Path)
 }
 
-func (ix *Index) buildBacklinks() {
-	// Not specified in the instruction, leave empty for now
+func (ix *Index) Paths() []vault.CanonicalPath {
+	ix.mu.RLock()
+	defer ix.mu.RUnlock()
+
+	paths := make([]vault.CanonicalPath, 0, len(ix.notes)+len(ix.assets))
+	for p := range ix.notes {
+		paths = append(paths, p)
+	}
+	for p := range ix.assets {
+		paths = append(paths, p)
+	}
+
+	slices.Sort(paths)
+	return paths
 }
