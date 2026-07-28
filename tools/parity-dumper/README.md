@@ -25,6 +25,18 @@ O esbuild não faz checagem de tipos, então não é preciso instalar `obsidian`
 4. Paleta de comandos → **Dump metadata cache to JSON**
 5. Mova o `metadata.json` gerado na raiz do cofre para `testdata/parity/`, e as notas do cofre para `testdata/parity/vault/`
 
+### O que a referência carrega, e por que mudou
+
+O dump atual é **schema 2**. A diferença é qual API descreve a resolução.
+
+O schema 1 usava `metadataCache.getFirstLinkpathDest`, que resolve por caminho e por nome de arquivo e **não consulta `aliases`**. Na primeira rodada de paridade isso apareceu: uma nota declarando `aliases: [Terceiro]` é alcançada por `[[Terceiro]]` dentro do Obsidian, e a referência registrava `resolved: null`.
+
+Um dado faltando seria ruim. Este era pior: se a comparação de resolução fosse ligada contra aquela referência, cada alias viraria divergência, e a reação natural seria "corrigir" o resolvedor do produto para parar de resolver aliases — quebrando um requisito correto para casar com um instrumento defeituoso. A métrica se voltaria contra o que ela existe para verificar.
+
+O schema 2 emite `resolvedLinks` e `unresolvedLinks`, que são o grafo que o próprio aplicativo usa, aliases incluídos. Separar os dois é também o que permite à paridade arbitrar uma questão em aberto: hoje nosso `vault_stats` conta URL externa como link quebrado, e a referência é quem decide se isso está errado.
+
+O teste detecta o schema. Com uma referência schema 1 ele compara headings, tags, blocos e presença de links, e **pula a comparação de grafo** dizendo isso — em vez de rodar contra uma medição que sabe estar errada.
+
 ### 3. Conferir antes de confiar
 
 O teste de paridade pula quando o corpus ou a referência estão vazios, justamente para não afirmar uma paridade que ninguém verificou. Confira que ele passou a **rodar**:
