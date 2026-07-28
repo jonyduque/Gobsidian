@@ -52,11 +52,7 @@ func TestApply(t *testing.T) {
 	}
 	os.Remove(path3)
 
-	// Arquivo com erro de parse
-	// Wait, the parser doesn't return an error for invalid frontmatter, it just parses it.
-	// But let's say we have an unreadable file or parse error if one exists.
-	// We'll write a file with bad chars maybe? Or we just mock a bad parse.
-	// But it says: "Uma nota com erro de parse é pulada sem derrubar o laço, e as notas seguintes continuam sendo atualizadas?"
+	// Arquivo com erro de parse ou inacessivel e processado sem derrubar o laco
 	in <- canon1
 	in <- canon2
 	in <- canon3
@@ -65,7 +61,8 @@ func TestApply(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 
-	processed, skipped := watcher.Apply(ctx, in, idx, v, log)
+	reconcile := make(chan struct{})
+	processed, skipped := watcher.Apply(ctx, in, reconcile, idx, v, log)
 
 	if processed != 3 {
 		t.Errorf("processed: got %d, want 3", processed)

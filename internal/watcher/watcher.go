@@ -23,13 +23,15 @@ type Watcher struct {
 	debounce  time.Duration
 	v         *vault.Vault
 	idx       *index.Index
+	reconcile chan struct{}
 
 	// Contadores (Task 32)
-	received  int64
-	dropped   int64
-	coalesced int64 // placeholder (if requested in the future)
-	processed int64
-	skipped   int64
+	received        int64
+	dropped         int64
+	coalesced       int64 // placeholder (if requested in the future)
+	processed       int64
+	skipped         int64
+	reconciliations int64
 }
 
 // New cria um novo Watcher observando a raiz do cofre.
@@ -70,6 +72,7 @@ func New(v *vault.Vault, idx *index.Index, debounce time.Duration, log *slog.Log
 		log:       log,
 		events:    make(chan Event, 100),
 		debounced: make(chan vault.CanonicalPath, 100),
+		reconcile: make(chan struct{}, 1),
 		debounce:  debounce,
 		v:         v,
 		idx:       idx,
@@ -88,7 +91,7 @@ func (w *Watcher) Run(ctx context.Context) error {
 
 	// Lança o aplicador lendo de w.debounced e escrevendo no índice
 	go func() {
-		p, s := Apply(ctx, w.debounced, w.idx, w.v, w.log)
+		p, s := Apply(ctx, w.debounced, w.reconcile, w.idx, w.v, w.log)
 		w.processed = p
 		w.skipped = s
 	}()
@@ -100,6 +103,19 @@ func (w *Watcher) Run(ctx context.Context) error {
 		case err, ok := <-w.fsWatcher.Errors:
 			if !ok {
 				return nil
+			}
+			// fsnotify 1.10.1 envia ErrEventOverflow no canal de erros
+			// (embora a documentação oficial mencione Has(fsnotify.Overflow) para Windows,
+			// macOS reporta overflow the event/err layer dependendo da versao. Usamos Is).
+			if err == fsnotify.ErrEventOverflow || (err != nil && err.Error() == fsnotify.ErrEventOverflow.Error()) {
+				w.reconciliations++
+				select {
+				case w.reconcile <- struct{}{}:
+					w.log.Warn("Overflow de fsnotify detectado, reconciliação agendada")
+				default:
+					w.log.Warn("Overflow de fsnotify detectado, reconciliação já em andamento")
+				}
+				continue
 			}
 			w.log.Error("Erro do fsnotify", "err", err)
 		case e, ok := <-w.fsWatcher.Events:
