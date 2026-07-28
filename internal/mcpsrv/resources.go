@@ -3,6 +3,7 @@ package mcpsrv
 import (
 	"context"
 	"fmt"
+	"runtime/debug"
 	"strings"
 
 	"github.com/jonyd/gobsidian/internal/index"
@@ -12,14 +13,25 @@ import (
 
 func (s *Server) registerResources() {
 	// Handler compartilhado
-	handler := func(ctx context.Context, req *mcp.ReadResourceRequest) (*mcp.ReadResourceResult, error) {
+	handler := func(ctx context.Context, req *mcp.ReadResourceRequest) (res *mcp.ReadResourceResult, err error) {
+		defer func() {
+			if r := recover(); r != nil {
+				s.log.Error("panic em handler de resource",
+					"uri", req.Params.URI,
+					"panic", fmt.Sprint(r),
+					"stack", string(debug.Stack()))
+				res = nil
+				err = fmt.Errorf("falha interna no resource; detalhes registrados em stderr")
+			}
+		}()
+
 		uri := req.Params.URI
 		if !strings.HasPrefix(uri, "gobsidian://") {
 			return nil, fmt.Errorf("invalid resource URI schema: %s", uri)
 		}
 		path := strings.TrimPrefix(uri, "gobsidian://")
 
-		res, err := s.svc.ReadNote(ctx, service.ReadRequest{
+		noteRes, err := s.svc.ReadNote(ctx, service.ReadRequest{
 			Path:               path,
 			IncludeFrontmatter: true,
 		})
@@ -32,7 +44,7 @@ func (s *Server) registerResources() {
 				{
 					URI:      uri,
 					MIMEType: "text/markdown",
-					Text:     res.Content,
+					Text:     noteRes.Content,
 				},
 			},
 		}, nil
