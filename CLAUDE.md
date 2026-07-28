@@ -17,15 +17,26 @@ Reparo de arquivo misto: decodificar byte a byte, tentando sequência UTF-8 vál
 ## Comandos
 
 ```bash
-go test -race ./...          # a versão sem -race não conta
-go vet ./...
-gofmt -l .
-GOOS=linux go vet ./...      # e darwin: há arquivos com build tag
-pwsh -File scripts/check_net.ps1
+pwsh -File scripts/verify.ps1    # bateria inteira, para no primeiro erro
 pwsh -File scripts/build.ps1
 pwsh -File scripts/test_orphans.ps1 -Cycles 100
 golangci-lint run ./...          # exige v2.12.2; v1.x nem carrega o config
 ```
+
+`verify.ps1` roda build, `go test -race`, vet nos três alvos, `gofmt` e `check_net`. Existe porque a lista solta convida a rodar três dos cinco. Aceita `-SkipCross` e `-SkipNet` para iteração rápida; o gate roda tudo.
+
+Fluxo de execução tarefa a tarefa:
+
+```bash
+pwsh -File scripts/sdd.ps1 status      # ledger + git
+pwsh -File scripts/sdd.ps1 base 19     # ANTES de a tarefa comecar
+pwsh -File scripts/sdd.ps1 brief 19
+pwsh -File scripts/sdd.ps1 review 19   # empacota o diff desde a base gravada
+```
+
+O `sdd.ps1` embrulha os scripts do plugin superpowers, cujo caminho embute a versão — que já mudou de 6.1.1 para 6.2.0 no meio deste projeto, alterando a assinatura de `review-package` e movendo os artefatos para um subdiretório por plano. Chamada literal quebra na próxima atualização.
+
+`base` existe porque `review-package` precisa do commit **anterior ao início** da tarefa. `HEAD~1` descarta em silêncio tudo menos o último commit de uma tarefa com vários, e a revisão passa a olhar meio diff sem avisar.
 
 **`golangci-lint` local verde não significa CI verde.** O `go.mod` declara `go 1.25.0`, e um binário compilado com Go mais antigo recusa o config antes de analisar linha nenhuma: `can't load config: the Go language version (go1.24) used to build golangci-lint is lower than the targeted Go version (1.25.0)`. O CI fixa `v2.12.2` de propósito — com a versão flutuando, os dois lados resolvem binários diferentes e a checagem local para de dizer qualquer coisa sobre o pipeline. Confira `golangci-lint version` antes de confiar num zero.
 
@@ -75,6 +86,16 @@ Cada uma passou por revisão e só apareceu depois. Estão aqui pra não voltare
 
 **`d == nil` no callback do `WalkDir` é falha na própria raiz** — cofre desmontado, share caído. Devolver `nil` ali faz varredura reportar sucesso com zero entradas, e servidor afirma com confiança que cofre está vazio. Cofre inacessível e cofre vazio não podem produzir mesma resposta.
 
+**Script Python que edita arquivo versionado precisa de `newline=""` na leitura E na escrita.** Ler com `encoding='utf-8'` e gravar em modo texto converte o arquivo inteiro para CRLF no Windows, e `gofmt` reprova um `.go` que estava perfeitamente formatado. Custou dois commits.
+
+**`str.replace` que não casa não falha — segue em silêncio.** Duas edições de plano "deram certo" sem editar nada, e o ledger ficou duas tarefas desatualizado do mesmo jeito. Toda edição por script leva `assert` do texto-âncora antes de substituir, e conferência do resultado no disco depois. Vale também para o plano: `sed -n 'N,Mp' arquivo | cat -A` depois de mexer em snippet com escapes, porque `"\n"` dentro de string Python já virou quebra de linha real e corrompeu a linha.
+
+**`-update` de golden grava o que o código produz, não o que está certo.** Aceitar a saída sem ler transforma a suíte em tautologia que fixa o bug de hoje como contrato de amanhã. Depois de gerar, leia cada `.json` e confira contra o que você esperava **antes** de rodar.
+
+**Regra que sobrevive a mutação não está verificada, está escrita.** Na Task 13, sete regras do módulo sobreviviam a mutantes com a suíte verde — inclusive a que o comentário do próprio fix defendia. Ler o teste não acha isso. Para cada regra que importa, apague-a, confirme que um teste nomeia a falha, restaure.
+
+**Feature P1 não tem direito de apagar dado P0.** O campo inline do Dataview consumia o span do valor, e `fonte:: [[STJ]]` deixava de produzir link nenhum — links que o commit anterior já coletava. Quando uma feature opcional muda o que uma obrigatória já entregava, o A/B contra o commit anterior é o que revela.
+
 **Flag booleana ou inteira não distingue "omitida" de "definida com zero".** `config.Flags` tem companheiros `ReadOnlySet` e `DebounceMSSet`. **Toda** chamada a `config.Load` precisa preenchê-los com `cmd.Flags().Changed(nome)` — esquecer em um subcomando faz flag virar no-op silencioso.
 
 ## Estado
@@ -85,6 +106,14 @@ Dívida de revisão de M0 **paga**. Tasks 9, 10 e 11 haviam fechado sem revisão
 
 Lint limpo nos três alvos (`GOOS=linux/darwin/windows`), depois de 39 achados que estavam vermelhos desde o commit de bootstrap. CI ganhou `fmt` (gofmt + vet cruzado) e `lint-windows`, sem o qual todo arquivo `//go:build windows` ficava sem análise.
 
-Próximo é M1 (Task 12 em diante): parser, índice e as cinco tools de leitura, que fecham a v0.1. Task 25 precisa de uma rodada manual do plugin do Obsidian para gerar a referência de paridade — vale agendar antes de chegar nela.
+M1 em andamento. **Tasks 12 a 18 fechadas e revisadas:** tipos do parser, frontmatter com offset de corpo, slug, headings com offsets de seção, as quatro extensões goldmark (wikilinks e embeds, block ids, tags hierárquicas, campos do Dataview), e o corpus de golden files que congela tudo isso — 48 pares, sem órfão em nenhuma direção.
+
+Pendentes: 19 (índice), 20 (resolução), 21 (backlinks), 22 (consultas), 23 (serviço), 24 (tools e resources), 25 (paridade), 26 (fechamento da v0.1). São estritamente sequenciais.
+
+**As tarefas 19 a 26 do plano são autocontidas.** Cada uma carrega, dentro da própria seção, onde encaixa, as decisões fechadas que a vinculam, as armadilhas já pagas que se aplicam, verificações além dos passos, regras de execução e contrato de relatório. O brief extraído basta para executar — não é preciso injetar contexto acumulado no prompt. Foi pensado para delegar a modelo mais barato, com revisão feita pelo modelo principal.
+
+Task 25 precisa de uma rodada manual do plugin do Obsidian para gerar a referência de paridade — vale agendar antes de chegar nela. O brief instrui a **pular** o teste quando o artefato falta, nunca falhar.
+
+O ledger fica em `.superpowers/sdd/2026-07-25-gobsidian-v01/progress.md`. O caminho plano antigo virou ponteiro: os dois derivaram e um tinha 16 tarefas enquanto o outro tinha 6.
 
 Lacuna registrada pra M6: no harness de órfãos atual `stdin-eof` sempre vence (100/100 nas duas últimas rodadas), então vigília do pai e sinais seguem sem verificação ponta a ponta. Falta cenário em que stdin fica aberto e pai morre.
