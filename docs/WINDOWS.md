@@ -153,7 +153,7 @@ else {
 
 `fsnotify` usa `ReadDirectoryChangesW`. Diferenças relevantes em relação ao Linux:
 
-- É recursivo nativamente por diretório observado — não exige um watch por subdiretório como `inotify`
+- Não é recursivo nativamente na versão v1.10.1 — exige adicionar cada subdiretório manualmente ao observador, igual ao `inotify`
 - Não há limite de watches por usuário, ao contrário do `max_user_watches` do Linux
 - O buffer de eventos é finito e pode transbordar sob rajada
 - Renomeação chega como par não correlacionado de remoção e criação

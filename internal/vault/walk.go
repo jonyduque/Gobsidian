@@ -71,6 +71,42 @@ func isNoise(name string) bool {
 	return false
 }
 
+// Classification diz o que o cofre pensa de um caminho relativo, sem tocar no
+// disco. E a mesma decisao que Walk aplica durante a varredura: exporta-la e o
+// que impede o watcher de manter uma segunda copia das regras, que divergiria
+// da primeira no dia em que alguem acrescentasse uma extensao a so uma delas.
+type Classification int
+
+const (
+	ClassExcluded Classification = iota // diretorio excluido, ruido, ou extensao desconhecida
+	ClassNote
+	ClassAsset
+)
+
+// Classify classifica um caminho canônico.
+func Classify(rel CanonicalPath) Classification {
+	parts := strings.Split(string(rel), "/")
+	for _, part := range parts {
+		if excludedDirs[strings.ToLower(part)] {
+			return ClassExcluded
+		}
+	}
+
+	name := parts[len(parts)-1]
+	if isNoise(name) {
+		return ClassExcluded
+	}
+
+	ext := strings.ToLower(filepath.Ext(name))
+	if ext == ".md" {
+		return ClassNote
+	}
+	if assetExts[ext] {
+		return ClassAsset
+	}
+	return ClassExcluded
+}
+
 // Walk percorre o cofre aplicando as exclusoes e classificando cada arquivo
 // como nota ou anexo. Arquivos que nao sao nem um nem outro sao ignorados.
 func (v *Vault) Walk(ctx context.Context, fn func(Entry) error) error {
@@ -113,22 +149,19 @@ func (v *Vault) Walk(ctx context.Context, fn func(Entry) error) error {
 			return nil
 		}
 
-		if isNoise(name) {
-			return nil
-		}
-
-		ext := strings.ToLower(filepath.Ext(name))
-		isNote := ext == ".md"
-		isAsset := assetExts[ext]
-		if !isNote && !isAsset {
-			return nil
-		}
-
 		canon, cErr := Canonicalize(v.walkRoot, abs)
 		if cErr != nil {
 			v.recordSkip(abs, cErr)
 			return nil
 		}
+
+		class := Classify(canon)
+		if class == ClassExcluded {
+			return nil
+		}
+
+		isNote := class == ClassNote
+
 		info, iErr := d.Info()
 		if iErr != nil {
 			v.recordSkip(abs, iErr)
