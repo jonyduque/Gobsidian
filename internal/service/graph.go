@@ -255,8 +255,8 @@ func (s *Service) VaultStats(ctx context.Context, req StatsRequest) (StatsResult
 
 	var orphans, brokenLinks, brokenAnchors int
 
-	paths := s.index.Paths()
-	for _, p := range paths {
+	// NotePaths, nao Paths: Paths inclui anexos, que Get nao resolve.
+	for _, p := range s.index.NotePaths() {
 		n, ok := s.index.Get(p)
 		if ok {
 			bl := s.index.Backlinks(p)
@@ -264,9 +264,13 @@ func (s *Service) VaultStats(ctx context.Context, req StatsRequest) (StatsResult
 				orphans++
 			}
 			for _, l := range n.Links {
-				if l.State == index.LinkTargetMissing {
+				// LinkExternal nao entra em nenhuma das duas contagens: uma
+				// URL nunca foi para o cofre, e conta-la como quebrada afoga
+				// o sinal de saude em falso positivo.
+				switch l.State {
+				case index.LinkTargetMissing:
 					brokenLinks++
-				} else if l.State == index.LinkAnchorMissing {
+				case index.LinkAnchorMissing:
 					brokenAnchors++
 				}
 			}
@@ -280,7 +284,7 @@ func (s *Service) VaultStats(ctx context.Context, req StatsRequest) (StatsResult
 		Orphans:      orphans,
 		BrokenLinks:  brokenLinks,
 		BrokenAnchor: brokenAnchors,
-		Collisions:   0,
+		Collisions:   s.index.AliasCollisions(),
 		Generation:   s.index.Generation(),
 	}
 

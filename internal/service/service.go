@@ -18,6 +18,8 @@ type Index interface {
 	Tags(prefix string, minCount int) []index.TagCount
 	Backlinks(path vault.CanonicalPath) []index.Backlink
 	Paths() []vault.CanonicalPath
+	NotePaths() []vault.CanonicalPath
+	AliasCollisions() int
 	Generation() uint64
 }
 

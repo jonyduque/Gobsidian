@@ -127,6 +127,51 @@ func matchFrontmatterValue(val any, expected any) bool {
 	return false
 }
 
+// NotePaths devolve apenas caminhos de NOTA.
+//
+// Paths() devolve notas e anexos, mas Get() so resolve notas — quem iterar um
+// e chamar o outro estoura em qualquer cofre com anexo. Foi o que aconteceu:
+// acrescentar um unico .png ao cofre de TestBacklinkInvariantUnderMutation
+// derrubava o teste com desreferencia de ponteiro nulo, e ele so passava
+// porque a fixture nao tinha anexo.
+//
+// Quem quer percorrer notas usa esta. Paths() continua existindo para quem
+// precisa do conjunto inteiro, e agora tem um par que diz o que faz.
+func (ix *Index) NotePaths() []vault.CanonicalPath {
+	ix.mu.RLock()
+	defer ix.mu.RUnlock()
+
+	paths := make([]vault.CanonicalPath, 0, len(ix.notes))
+	for p := range ix.notes {
+		paths = append(paths, p)
+	}
+	slices.Sort(paths)
+	return paths
+}
+
+// AliasCollisions conta aliases declarados por mais de uma nota.
+//
+// Colisao de alias nao tem resposta correta: a resolucao escolhe pelo mesmo
+// desempate de proximidade dos homonimos, mas o autor provavelmente nao quis
+// que dois arquivos respondessem pelo mesmo nome. Contar e o que torna isso
+// diagnosticavel em vez de silencioso.
+//
+// Antes disto o campo alias_collisions de vault_stats era zero literal no
+// codigo — aparecia na resposta e mentia sempre, o que e pior que nao existir,
+// porque quem le acredita.
+func (ix *Index) AliasCollisions() int {
+	ix.mu.RLock()
+	defer ix.mu.RUnlock()
+
+	n := 0
+	for _, paths := range ix.byAlias {
+		if len(paths) > 1 {
+			n++
+		}
+	}
+	return n
+}
+
 func (ix *Index) Tags(prefix string, minCount int) []TagCount {
 	ix.mu.RLock()
 	defer ix.mu.RUnlock()

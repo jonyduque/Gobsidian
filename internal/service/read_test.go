@@ -156,3 +156,59 @@ func TestReadNoteBOMOffsetParity(t *testing.T) {
 		t.Errorf("conteudo sem BOM = %q, quer %q", resNoBOM.Content, wantContent)
 	}
 }
+
+// heading_level nao era exercitado por nenhum teste. O parametro esta
+// documentado em docs/TOOLS.md para note_read e note_patch, e existe para um
+// caso concreto: o mesmo texto de heading aparecendo em niveis diferentes.
+//
+// Sem cobertura nao havia nada segurando nem a desambiguacao nem o caminho de
+// erro que ela evita — neutralizar a comparacao de nivel deixava a suite verde.
+func TestReadNoteHeadingLevelDisambiguates(t *testing.T) {
+	root := t.TempDir()
+	writeFile(t, root, "A.md", "# T\n\n## Resumo\n\nnivel dois\n\n### Resumo\n\nnivel tres\n")
+	svc := newTestService(t, root)
+
+	casos := []struct {
+		nivel int
+		quer  string
+	}{
+		{2, "nivel dois"},
+		{3, "nivel tres"},
+	}
+
+	for _, c := range casos {
+		res, err := svc.ReadNote(context.Background(), ReadRequest{
+			Path:         "A.md",
+			Heading:      "Resumo",
+			HeadingLevel: c.nivel,
+		})
+		if err != nil {
+			t.Errorf("heading_level=%d: %v", c.nivel, err)
+			continue
+		}
+		if !strings.Contains(res.Content, c.quer) {
+			t.Errorf("heading_level=%d devolveu %q, queria conter %q", c.nivel, res.Content, c.quer)
+		}
+	}
+}
+
+// heading_level so separa headings de niveis DIFERENTES. Dois com o mesmo texto
+// no MESMO nivel continuam ambiguos, e o erro precisa dizer isso em vez de
+// devolver o primeiro em silencio — o cliente e um modelo decidindo o proximo
+// passo a partir da mensagem.
+func TestReadNoteAmbiguousSameLevel(t *testing.T) {
+	root := t.TempDir()
+	writeFile(t, root, "A.md", "# T\n\n## Dup\n\num\n\n## Dup\n\ndois\n")
+	svc := newTestService(t, root)
+
+	_, err := svc.ReadNote(context.Background(), ReadRequest{Path: "A.md", Heading: "Dup"})
+	if err == nil {
+		t.Fatal("dois headings de mesmo texto e mesmo nivel deveriam ser ambiguos")
+	}
+	if CodeOf(err) != CodeAmbiguousHeading {
+		t.Errorf("codigo = %v, quer AMBIGUOUS_HEADING", CodeOf(err))
+	}
+	if !strings.Contains(err.Error(), "2") {
+		t.Errorf("mensagem nao diz quantas ocorrencias: %s", err.Error())
+	}
+}

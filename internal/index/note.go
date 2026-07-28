@@ -13,6 +13,17 @@ const (
 	LinkOK LinkState = iota
 	LinkTargetMissing
 	LinkAnchorMissing
+	// LinkExternal e um alvo que nunca foi para o cofre: tem esquema de URI.
+	//
+	// Sem este estado, toda URL numa nota entrava como link quebrado, e a
+	// contagem de links quebrados — que o PRD chama de principal sinal de
+	// saude do cofre — afogava em falso positivo. Num cofre de estudo com
+	// centenas de referencias externas o numero deixava de ter uso.
+	//
+	// Confirmado contra o metadataCache real: o Obsidian nao registra URL
+	// externa nem em resolvedLinks nem em unresolvedLinks. Para ele, nao e
+	// link do cofre.
+	LinkExternal
 )
 
 func (s LinkState) String() string {
@@ -21,6 +32,8 @@ func (s LinkState) String() string {
 		return "target_missing"
 	case LinkAnchorMissing:
 		return "anchor_missing"
+	case LinkExternal:
+		return "external"
 	default:
 		return "ok"
 	}

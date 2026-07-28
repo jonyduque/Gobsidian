@@ -33,6 +33,13 @@ func (ix *Index) resolveTarget(target string, origin vault.CanonicalPath) (vault
 		return "", ViaNone, LinkTargetMissing
 	}
 
+	// Alvo com esquema de URI nunca foi para o cofre. Precisa sair antes de
+	// qualquer tentativa de resolucao, senao vira link quebrado e polui a
+	// contagem de saude.
+	if hasURIScheme(target) {
+		return "", ViaNone, LinkExternal
+	}
+
 	// 1. Caminho explicito
 	if strings.Contains(target, "/") {
 		if path, ok := ix.resolveExplicit(target); ok {
@@ -56,6 +63,38 @@ func (ix *Index) resolveTarget(target string, origin vault.CanonicalPath) (vault
 	}
 
 	return "", ViaNone, LinkTargetMissing
+}
+
+// hasURIScheme reconhece "esquema:" no inicio do alvo, conforme a RFC 3986:
+// uma letra seguida de letras, digitos, "+", "-" ou ".", terminando em ":".
+//
+// Cobre http, https, mailto, ftp, obsidian e qualquer outro sem precisar de
+// lista. Uma lista fixa envelheceria e deixaria passar exatamente o esquema
+// que ninguem previu.
+//
+// Nao confunde com caminho do cofre: um alvo interno e relativo a raiz, e
+// validateLocal ja rejeita forma enraizada antes de chegar aqui. E um nome de
+// arquivo com dois-pontos nao passa, porque o esquema exige comecar por letra
+// e nao conter barra antes do dois-pontos.
+func hasURIScheme(target string) bool {
+	for i := 0; i < len(target); i++ {
+		c := target[i]
+		switch {
+		case c == ':':
+			// Esquema vazio nao e esquema.
+			return i > 0
+		case c >= 'a' && c <= 'z', c >= 'A' && c <= 'Z':
+			continue
+		case c >= '0' && c <= '9', c == '+', c == '-', c == '.':
+			// Digito e pontuacao so valem depois da primeira letra.
+			if i == 0 {
+				return false
+			}
+		default:
+			return false
+		}
+	}
+	return false
 }
 
 func (ix *Index) resolveExplicit(target string) (vault.CanonicalPath, bool) {
