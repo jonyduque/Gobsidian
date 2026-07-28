@@ -305,13 +305,13 @@ O primeiro risco da tabela é o mais provável de se materializar e o mais chato
 
 ## 9. Marcos
 
-### M0 — Esqueleto (1 semana)
+### M0 — Esqueleto (1 semana) — **Concluído em 2026-07-28**
 
 Servidor MCP em stdio respondendo a `initialize`. Uma tool trivial (`vault_stats`) devolvendo contagem de arquivos. Ciclo de vida completo (RF-40 a RF-44) implementado e testado antes de qualquer outra coisa. `gobsidian doctor` funcional.
 
 Encerrar o ciclo de vida primeiro é deliberado: é o requisito que define o produto, e postergá-lo garante que ele nunca fique bom.
 
-### M1 — Leitura (2 semanas) — **v0.1, primeiro release utilizável**
+### M1 — Leitura (2 semanas) — **v0.1, primeiro release utilizável — Concluído em 2026-07-28**
 
 Parser completo (RF-10 a RF-17). Resolução de referências (RF-60 a RF-63). Índice em memória construído no boot. `note_read`, `note_list`, `note_metadata`, `link_graph`, `tag_list`. Testes de golden file do parser e de paridade com o Obsidian.
 

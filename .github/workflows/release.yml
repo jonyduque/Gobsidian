@@ -1,0 +1,53 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-release:
+    name: Build and Release
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.25.x'
+
+      - name: Get version info
+        id: vars
+        run: |
+          VERSION=${GITHUB_REF#refs/tags/}
+          COMMIT=$(git rev-parse --short HEAD)
+          BUILD_DATE=$(date -u +"%Y-%M-%DThh:mm:ssZ")
+          echo "version=${VERSION}" >> $GITHUB_OUTPUT
+          echo "commit=${COMMIT}" >> $GITHUB_OUTPUT
+          echo "build_date=${BUILD_DATE}" >> $GITHUB_OUTPUT
+
+      - name: Build static binaries
+        env:
+          CGO_ENABLED: '0'
+          LDFLAGS: "-s -w -X main.version=${{ steps.vars.outputs.version }} -X main.commit=${{ steps.vars.outputs.commit }} -X main.buildDate=${{ steps.vars.outputs.build_date }}"
+        run: |
+          mkdir -p bin
+          GOOS=windows GOARCH=amd64 go build -ldflags="${LDFLAGS}" -o bin/gobsidian-windows-amd64.exe ./cmd/gobsidian
+          GOOS=darwin GOARCH=arm64 go build -ldflags="${LDFLAGS}" -o bin/gobsidian-darwin-arm64 ./cmd/gobsidian
+          GOOS=linux GOARCH=amd64 go build -ldflags="${LDFLAGS}" -o bin/gobsidian-linux-amd64 ./cmd/gobsidian
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v1
+        with:
+          files: |
+            bin/gobsidian-windows-amd64.exe
+            bin/gobsidian-darwin-arm64
+            bin/gobsidian-linux-amd64
+          generate_release_notes: true

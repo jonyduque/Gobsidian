@@ -16,9 +16,20 @@ O projeto nasceu de três frustrações concretas com os servidores MCP de Obsid
 
 ## Estado
 
-**Pré-alfa — documentação de projeto.** Nada implementado ainda. Este repositório contém a especificação que precede a primeira linha de código.
+**v0.1 publicada.** A primeira entrega utilizável.
 
-A primeira entrega utilizável é a **v0.1**: ciclo de vida completo, parser, índice e as cinco tools de leitura, sem watcher e sem busca. Watcher, busca full-text e a superfície de escrita vêm depois, nessa ordem. Ver [`docs/PRD.md`](docs/PRD.md) §9.
+Capacidades atuais:
+- Ciclo de vida completo (sem processos órfãos).
+- Parser completo, cobrindo wikilinks, embeds, block-ids, tags e aliases.
+- Índice em memória veloz.
+- 5 tools de leitura completas e funcionais (`note_read`, `note_list`, `note_metadata`, `link_graph`, `tag_list`, além de `vault_stats`).
+
+Limitações atuais:
+- Somente leitura.
+- Sem *watcher* ativo ainda: se o cofre mudar no disco, será preciso reiniciar o host MCP para reindexar.
+- Sem busca *full-text*.
+
+Ver [`docs/PRD.md`](docs/PRD.md) §9 para os próximos passos (M2 a M6).
 
 Protocolo MCP alvo: `2025-11-25`.
 
