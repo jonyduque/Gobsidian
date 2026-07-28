@@ -37,7 +37,7 @@ func collect(doc gast.Node, body []byte, bodyOffset int64, note *ParsedNote) {
 				// normalizar aqui corromperia o texto do usuario. So o alvo
 				// usado para resolver e decodificado.
 				Raw:    string(node.Destination),
-				Target: percentDecode(string(node.Destination)),
+				Target: PercentDecode(string(node.Destination)),
 				Alias:  string(node.Text(body)),
 				Kind:   LinkEmbed,
 				Start:  offsetUnknown,
@@ -52,7 +52,7 @@ func collect(doc gast.Node, body []byte, bodyOffset int64, note *ParsedNote) {
 				// Ver o comentario no caso *gast.Image: Raw byte-exato,
 				// alvo decodificado.
 				Raw:    string(node.Destination),
-				Target: percentDecode(string(node.Destination)),
+				Target: PercentDecode(string(node.Destination)),
 				Alias:  string(node.Text(body)),
 				Kind:   LinkMarkdown,
 				Start:  offsetUnknown,
@@ -173,7 +173,7 @@ func dedupeTags(note *ParsedNote) {
 	note.Tags = out
 }
 
-// percentDecode desfaz escapes %XX de um destino de link Markdown.
+// PercentDecode desfaz escapes %XX de um destino de link Markdown.
 //
 // "%20" e o que todo editor gera para caminho com espaco, e em cofre em
 // portugues nome com espaco e a regra, nao a excecao. Sem decodificar,
@@ -192,7 +192,12 @@ func dedupeTags(note *ParsedNote) {
 // A decodificacao e por BYTE, nao por rune, e isso e proposital: UTF-8
 // multibyte chega como varios %XX seguidos, e remontar byte a byte reconstroi
 // o caractere original.
-func percentDecode(s string) string {
+//
+// Exportada porque mcpsrv tambem precisa dela, para desfazer o escape das URIs
+// de resource. Uma segunda copia divergiria da primeira no dia em que alguem
+// corrigisse so uma — e as regras de escape invalido sao exatamente o tipo de
+// sutileza que uma copia perde.
+func PercentDecode(s string) string {
 	if !strings.Contains(s, "%") {
 		return s
 	}

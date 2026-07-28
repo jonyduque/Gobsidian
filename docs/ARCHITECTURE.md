@@ -561,9 +561,11 @@ RNF-30. Nenhum pacote sob `internal/` ou `cmd/` importa rede, e nenhuma chamada 
 
 ### AD-08 — Esquema de URI próprio para resources
 
-Resources são publicados como `gobsidian://<caminho-canônico>`, não `obsidian://`.
+Resources são publicados como `gobsidian:///<caminho-canônico>`, não `obsidian://`.
 
 `obsidian://` é o esquema real do aplicativo Obsidian, registrado no sistema operacional, com semântica própria — `obsidian://open?vault=X&file=Y`. Reusá-lo para identificar resources MCP cria colisão com URIs que o sistema já sabe abrir, e um `obsidian://Civil/PONTO 03.md` não é uma URI válida para o aplicativo. Um esquema próprio custa nada e não colide com ninguém.
+
+**São três barras, e o caminho vai escapado.** Este parágrafo já disse `gobsidian://` com duas, e essa forma derrubava o servidor no boot: depois de `//` vem a **autoridade**, então o primeiro segmento do caminho virava nome de host. Espaço é ilegal em host, e pasta com espaço é o caso comum num cofre do Obsidian — o exemplo `Civil/PONTO 03.md` acima é exatamente um deles. A terceira barra declara autoridade vazia; bytes fora de `A-Za-z0-9-._~` viram `%XX`, e a `/` fica crua por separar segmentos.
 
 ### AD-09 — Mutex por caminho, não fila global de escrita
 

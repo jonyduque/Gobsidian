@@ -4,10 +4,10 @@ import (
 	"context"
 	"fmt"
 	"runtime/debug"
-	"strings"
 
 	"github.com/jonyd/gobsidian/internal/index"
 	"github.com/jonyd/gobsidian/internal/service"
+	"github.com/jonyd/gobsidian/internal/vault"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
@@ -26,10 +26,10 @@ func (s *Server) registerResources() {
 		}()
 
 		uri := req.Params.URI
-		if !strings.HasPrefix(uri, "gobsidian://") {
-			return nil, fmt.Errorf("invalid resource URI schema: %s", uri)
+		path, err := pathFromResourceURI(uri)
+		if err != nil {
+			return nil, err
 		}
-		path := strings.TrimPrefix(uri, "gobsidian://")
 
 		noteRes, err := s.svc.ReadNote(ctx, service.ReadRequest{
 			Path:               path,
@@ -50,9 +50,10 @@ func (s *Server) registerResources() {
 		}, nil
 	}
 
-	// Adiciona template genérico para permitir leitura de qualquer nota (mesmo se não listada)
+	// Template generico: permite ler qualquer nota, inclusive as que ficaram
+	// fora das 200 listadas abaixo.
 	s.mcp.AddResourceTemplate(&mcp.ResourceTemplate{
-		URITemplate: "gobsidian://{path}",
+		URITemplate: "gobsidian:///{+path}",
 		Name:        "Nota do cofre",
 		MIMEType:    "text/markdown",
 	}, handler)
@@ -73,7 +74,7 @@ func (s *Server) registerResources() {
 			name = string(n.Path)
 		}
 		s.mcp.AddResource(&mcp.Resource{
-			URI:      "gobsidian://" + string(n.Path),
+			URI:      resourceURI(vault.CanonicalPath(n.Path)),
 			Name:     name,
 			MIMEType: "text/markdown",
 		}, handler)

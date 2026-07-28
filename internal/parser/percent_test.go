@@ -2,10 +2,12 @@ package parser
 
 import "testing"
 
-// Teste de caixa branca: percentDecode nao e exportada, e a tabela de casos de
-// borda e o que impede a proxima pessoa de trocar a implementacao a mao por
-// net/url — que resolveria o mesmo problema e derrubaria a garantia de ausencia
-// de rede verificada no CI.
+// A tabela de casos de borda e o que impede a proxima pessoa de trocar a
+// implementacao a mao por net/url — que resolveria o mesmo problema e
+// derrubaria a garantia de ausencia de rede verificada no CI.
+//
+// Tem dois consumidores: os destinos de link Markdown, aqui, e as URIs de
+// resource em mcpsrv. Um caso que sair desta tabela sai dos dois.
 func TestPercentDecode(t *testing.T) {
 	tests := []struct {
 		name string
@@ -35,8 +37,8 @@ func TestPercentDecode(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := percentDecode(tt.in); got != tt.want {
-				t.Errorf("percentDecode(%q) = %q, quer %q", tt.in, got, tt.want)
+			if got := PercentDecode(tt.in); got != tt.want {
+				t.Errorf("PercentDecode(%q) = %q, quer %q", tt.in, got, tt.want)
 			}
 		})
 	}

@@ -369,10 +369,16 @@ Notas são expostas como *resources* MCP, permitindo que o host as anexe ao cont
 
 | Campo | Valor |
 |---|---|
-| URI | `gobsidian://<caminho-canônico>` |
+| URI | `gobsidian:///<caminho-canônico>`, com escape percent |
 | MIME | `text/markdown` |
 | Nome | Título da nota (H1, ou nome do arquivo) |
 | Descrição | Primeiros 200 caracteres do corpo |
+
+**Três barras, e o caminho vem escapado.** `gobsidian://` seguido do caminho parece natural e está errado: em RFC 3986, o que vem logo depois de `//` é a **autoridade**, não o caminho. Com duas barras, `Civil/PONTO 03.md` faz `Civil` virar nome de host — e uma nota na raiz do cofre com espaço no nome faz o host inteiro ser `Minha nota.md`, que é inválido. O servidor morria no boot, dentro do registro do resource, antes de anunciar qualquer tool.
+
+A terceira barra declara autoridade vazia e faz o caminho começar onde deve. Os bytes fora de `A-Za-z0-9-._~` viram `%XX`; a `/` permanece crua, porque separa segmentos. Assim `Civil/PONTO 03.md` é publicado como `gobsidian:///Civil/PONTO%2003.md`.
+
+Na leitura o servidor também aceita a forma antiga de duas barras, para não transformar documentação desatualizada em nota inalcançável.
 
 A listagem de resources é paginada e serve o índice em memória. Em cofres grandes, listar todas as notas como resources é caro para o host; a listagem respeita um limite configurável (padrão: 200, ordenadas por data de modificação decrescente).
 

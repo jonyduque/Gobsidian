@@ -198,7 +198,7 @@ func TestResources(t *testing.T) {
 
 	found := false
 	for _, r := range res.Resources {
-		if r.URI == "gobsidian://A.md" {
+		if r.URI == "gobsidian:///A.md" {
 			found = true
 			if r.MIMEType != "text/markdown" {
 				t.Errorf("MimeType = %s, want text/markdown", r.MIMEType)
@@ -209,10 +209,10 @@ func TestResources(t *testing.T) {
 		}
 	}
 	if !found {
-		t.Errorf("Resource gobsidian://A.md not found in list")
+		t.Errorf("Resource gobsidian:///A.md not found in list")
 	}
 
-	readRes, err := session.ReadResource(ctx, &mcp.ReadResourceParams{URI: "gobsidian://A.md"})
+	readRes, err := session.ReadResource(ctx, &mcp.ReadResourceParams{URI: "gobsidian:///A.md"})
 	if err != nil {
 		t.Fatalf("ReadResource: %v", err)
 	}
@@ -224,7 +224,7 @@ func TestResources(t *testing.T) {
 	if content.MIMEType != "text/markdown" {
 		t.Errorf("ReadResource MimeType = %s, want text/markdown", content.MIMEType)
 	}
-	if content.URI != "gobsidian://A.md" {
-		t.Errorf("ReadResource Uri = %s, want gobsidian://A.md", content.URI)
+	if content.URI != "gobsidian:///A.md" {
+		t.Errorf("ReadResource Uri = %s, want gobsidian:///A.md", content.URI)
 	}
 }

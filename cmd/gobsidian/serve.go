@@ -95,10 +95,16 @@ func runServe(parent context.Context, cfg config.Config) error {
 		Logger:    log,
 	})
 
+	// A duracao da indexacao a frio e RNF-01, e ate aqui ninguem a media: quem
+	// quisesse o numero cronometrava o processo inteiro por fora, misturando
+	// boot do Go e handshake do MCP com o que o alvo cobre. Logar aqui torna a
+	// medicao reproduzivel e recorta exatamente o trecho que o requisito nomeia.
+	buildStart := time.Now()
 	idx := index.New()
 	if err := idx.Build(ctx, v); err != nil {
 		return err
 	}
+	indexMS := time.Since(buildStart).Milliseconds()
 
 	svc := service.New(v, idx, service.Options{
 		ReadOnly:   cfg.ReadOnly,
@@ -106,7 +112,12 @@ func runServe(parent context.Context, cfg config.Config) error {
 	})
 	srv := mcpsrv.New(svc, cfg, log)
 
-	log.Info("servidor pronto", "vault", cfg.VaultPath, "read_only", cfg.ReadOnly)
+	log.Info("servidor pronto",
+		"vault", cfg.VaultPath,
+		"read_only", cfg.ReadOnly,
+		"notes", idx.NoteCount(),
+		"assets", idx.AssetCount(),
+		"index_ms", indexMS)
 
 	serveErr := make(chan error, 1)
 	go func() { serveErr <- srv.Serve(ctx, teed, os.Stdout) }()
