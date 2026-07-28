@@ -137,12 +137,20 @@ Um wikilink não é um caminho, e resolvê-lo como se fosse produz um grafo que 
 |---|---|---|
 | RF-60 | Indexação de anexos (`.png`, `.jpg`, `.jpeg`, `.gif`, `.webp`, `.svg`, `.pdf`, `.mp3`, `.mp4`, `.wav`, `.canvas`) por caminho, tamanho e mtime, sem leitura de conteúdo | P0 |
 | RF-61 | Resolução de embed para anexo, de modo que `![[diagrama.png]]` não seja contabilizado como link quebrado | P0 |
-| RF-62 | Resolução de wikilink pelo campo `aliases` do frontmatter da nota alvo | P0 |
+| RF-62 | Resolução de wikilink pelo campo `aliases` do frontmatter da nota alvo — **divergência deliberada do Obsidian**, ver abaixo | P0 |
 | RF-63 | Validação da âncora: `[[nota#heading]]` e `[[nota#^bloco]]` marcados como âncora quebrada quando a nota resolve mas o alvo interno não existe | P1 |
 
 RF-60 e RF-61 andam juntos. Sem indexar os anexos, todo embed de imagem vira link quebrado, `vault_stats` reporta centenas de falsos positivos e a métrica de saúde do cofre deixa de ter uso. O custo é baixo — o índice guarda apenas a entrada de diretório, nunca os bytes.
 
-RF-62 é o requisito de paridade menos óbvio e o mais fácil de esquecer. Se uma nota declara `aliases: [Ponto 3, P3]`, o Obsidian resolve `[[P3]]` para ela, e o backlink existe. Um índice que ignore `aliases` perde esse backlink sem sinalizar nada.
+**RF-62 é uma divergência deliberada, e a premissa original estava errada.**
+
+Este requisito foi escrito assumindo que o Obsidian resolve `[[P3]]` quando alguma nota declara `aliases: [P3]`. A rodada de paridade contra o `metadataCache` real mostrou que **não resolve**: uma nota com `aliases: [P3, Terceiro]` foi corretamente registrada com esses aliases, e `[[Terceiro]]` apareceu em `unresolvedLinks`. O alias alimenta o seletor rápido e o autocomplete — que ao inserir escreve `[[Nota Real|Alias]]` — mas um `[[Alias]]` digitado à mão não vira aresta no grafo dele.
+
+A decisão, tomada com a evidência na mão, é **manter a resolução por alias**. Um alias declarado é uma intenção explícita do autor de que aquele nome se refere àquela nota, e honrá-la encontra backlinks reais que o Obsidian perde. A regra de comparação assimétrica de §7 já cobre o caso: nossa saída precisa conter tudo o que o Obsidian encontrou, e encontrar mais é o produto.
+
+A consequência precisa ser sabida por quem opera: `note_metadata` e `link_graph` mostram backlinks que o painel do Obsidian não mostra. Isso é uma diferença observável, não um bug a ser reportado.
+
+O que **não** muda: alias continua sendo *fallback*, nunca *override*. Se existe `P3.md` e outra nota declara `aliases: [P3]`, `[[P3]]` aponta para o arquivo. A paridade confirmou essa precedência nos dois lados.
 
 RF-63 vai além do que o próprio Obsidian expõe na interface, e é deliberado: uma âncora quebrada é exatamente o tipo de erro que aparece depois de renomear um heading, e é invisível até alguém clicar no link.
 
