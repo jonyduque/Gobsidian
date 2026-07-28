@@ -4,3 +4,6 @@ coverage.out
 cofre-debug.log
 gobsidian-debug.log
 .superpowers/
+
+# Artefato de build do plugin de paridade — gerado, nao versionado.
+tools/parity-dumper/main.js
