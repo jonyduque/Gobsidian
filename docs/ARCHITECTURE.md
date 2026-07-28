@@ -301,7 +301,7 @@ Nenhuma alocação do arquivo inteiro. Uma leitura de seção de 2 KB em uma not
 fsnotify.Watcher
   → canal bruto de eventos
   → filtro de relevância (extensão .md, fora dos diretórios excluídos)
-  → debouncer: mapa caminho→timer, janela de 250 ms
+  → debouncer: tique único e conjunto sujo, janela da configuração (padrão 250 ms)
   → coalescência: N eventos no mesmo arquivo dentro da janela = 1 reparse
   → verificação de mudança real: mtime e tamanho iguais aos indexados? descartar
   → reparse do arquivo
@@ -311,6 +311,10 @@ fsnotify.Watcher
 ```
 
 Três camadas de filtragem antes de qualquer trabalho real. Isso é o que torna o cofre em OneDrive utilizável: o sincronizador gera rajadas de eventos, muitos deles sobre arquivos que não mudaram de conteúdo, e a verificação de mtime e tamanho descarta a maioria antes que custem um parse.
+
+O debouncer utiliza um **tique único e um conjunto sujo** (`map[vault.CanonicalPath]struct{}`), e não um timer por arquivo. Isso resolve dois problemas graves sob carga:
+1. **Rajada do OneDrive:** Uma sincronização inicial toca milhares de arquivos. Um timer por arquivo exigiria criar e destruir milhares de objetos de runtime exatamente no pico de pressão. Um único `time.Ticker` mantém o custo constante.
+2. **Inanição (Starvation):** Um timer por arquivo, se reiniciado a cada novo evento, nunca dispararia enquanto o arquivo estivesse sendo escrito continuamente (ex: download grande). O tique único garante que, a cada janela, o conjunto sujo é esvaziado e o reparse acontece.
 
 **Tratamento de overflow.** `ReadDirectoryChangesW` no Windows tem buffer finito. Sob rajada intensa, `fsnotify` emite `ErrEventOverflow`, e eventos foram perdidos — não se sabe quais. A única resposta correta é uma varredura completa de reconciliação: percorrer o cofre, comparar mtime e tamanho com o índice, reparsear divergências, remover notas que sumiram. Ignorar o overflow deixa o índice silenciosamente incorreto, que é o pior estado possível.
 

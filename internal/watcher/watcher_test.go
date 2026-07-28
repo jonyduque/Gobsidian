@@ -20,7 +20,7 @@ func TestWatcher(t *testing.T) {
 		t.Fatalf("vault.New: %v", err)
 	}
 
-	w, err := New(v, log)
+	w, err := New(v, 10*time.Millisecond, log)
 	if err != nil {
 		t.Fatalf("watcher.New: %v", err)
 	}
@@ -45,8 +45,8 @@ func TestWatcher(t *testing.T) {
 	// Verify event
 	select {
 	case evt := <-w.Events():
-		if evt.Path != "teste.md" {
-			t.Errorf("got path %q, want 'teste.md'", evt.Path)
+		if evt != "teste.md" {
+			t.Errorf("got path %q, want 'teste.md'", evt)
 		}
 	case <-time.After(time.Second):
 		t.Fatal("timeout waiting for event")
