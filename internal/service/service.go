@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 
+	"github.com/jonyd/gobsidian/internal/index"
 	"github.com/jonyd/gobsidian/internal/vault"
 )
 
@@ -13,6 +14,8 @@ type Index interface {
 	NoteCount() int
 	AssetCount() int
 	TotalSize() int64
+	ResolvePath(input string) (vault.CanonicalPath, error)
+	Get(path vault.CanonicalPath) (*index.Note, bool)
 }
 
 // Options sao as decisoes de configuracao que o servico precisa conhecer.
