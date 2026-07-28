@@ -53,6 +53,17 @@ func TestWatcher_Burst(t *testing.T) {
 	}
 
 	if idx.NoteCount() != count {
-		t.Fatalf("esperava %d notas, encontrou %d", count, idx.NoteCount())
+		t.Fatalf("esperava %d notas no indice, encontrou %d", count, idx.NoteCount())
+	}
+
+	var walkCount int
+	v.Walk(context.Background(), func(e vault.Entry) error {
+		if e.IsNote {
+			walkCount++
+		}
+		return nil
+	})
+	if idx.NoteCount() != walkCount {
+		t.Fatalf("esperava que NoteCount (%d) correspondesse a v.Walk (%d)", idx.NoteCount(), walkCount)
 	}
 }

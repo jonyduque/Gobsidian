@@ -70,8 +70,8 @@ func TestApply(t *testing.T) {
 	if processed != 3 {
 		t.Errorf("processed: got %d, want 3", processed)
 	}
-	if skipped != 1 { // same.md was skipped
-		t.Errorf("skipped: got %d, want 1", skipped)
+	if skipped != 1 { // same.md was skipped, meaning 0 parses performed for it
+		t.Errorf("skipped (0-parses): got %d, want 1", skipped)
 	}
 
 	// new.md should be in index

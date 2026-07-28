@@ -6,6 +6,7 @@ import (
 	"io"
 	"log/slog"
 	"os"
+	"sync"
 	"time"
 
 	"github.com/jonyd/gobsidian/internal/config"
@@ -117,7 +118,10 @@ func runServe(parent context.Context, cfg config.Config) error {
 	if err != nil {
 		return err
 	}
+	var wg sync.WaitGroup
+	wg.Add(1)
 	go func() {
+		defer wg.Done()
 		_ = w.Run(ctx)
 	}()
 
@@ -178,6 +182,7 @@ func runServe(parent context.Context, cfg config.Config) error {
 	)
 
 	lc.Wait()
+	wg.Wait()
 
 	// Depois de Wait, nao antes: a etapa in-flight pode ter sido abandonada
 	// por estouro de orcamento, e sua goroutine ainda estar a caminho do
