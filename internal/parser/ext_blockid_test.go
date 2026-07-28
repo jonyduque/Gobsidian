@@ -99,10 +99,13 @@ func TestBlockIDBlockquote(t *testing.T) {
 	}
 }
 
-// TestBlockIDMultiplePerParagraph confirma que dois marcadores na mesma nota
-// produzem dois blocos, e que dois marcadores dentro do MESMO paragrafo
-// (linhas soft-wrapped) tambem sao capturados independentemente, cada um com
-// Start no inicio do paragrafo (o mesmo paragrafo para os dois).
+// TestBlockIDMultiplePerParagraph confirma que um "^id" que NAO esta na
+// ultima linha do paragrafo (linha soft-wrapped) e recusado — o Obsidian
+// trata um "^id" no meio de um paragrafo como texto literal, nao como block
+// id. Sem esta regra, "^um" (linha 1 de 2) produziria uma faixa que se
+// sobrepoe com a de "^dois" (linha 2 de 2): mesmo Start, End diferente, e
+// replace_block em "um" sobrescreveria "segunda linha", que pertence a
+// "dois". So o marcador da ultima linha do bloco conta.
 func TestBlockIDMultiplePerParagraph(t *testing.T) {
 	src := "primeira linha ^um\nsegunda linha ^dois\n"
 
@@ -110,16 +113,82 @@ func TestBlockIDMultiplePerParagraph(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Parse: %v", err)
 	}
-	if len(note.Blocks) != 2 {
-		t.Fatalf("blocos = %d, quer 2: %+v", len(note.Blocks), note.Blocks)
+	if len(note.Blocks) != 1 {
+		t.Fatalf("blocos = %d, quer 1 (so o marcador da ultima linha do paragrafo conta): %+v", len(note.Blocks), note.Blocks)
 	}
-	if note.Blocks[0].ID != "um" || note.Blocks[1].ID != "dois" {
-		t.Errorf("IDs = %q, %q", note.Blocks[0].ID, note.Blocks[1].ID)
+	if note.Blocks[0].ID != "dois" {
+		t.Errorf("ID = %q, quer %q — \"^um\" no meio do paragrafo nao e block id", note.Blocks[0].ID, "dois")
 	}
-	// Os dois marcadores pertencem ao mesmo paragrafo: mesmo Start.
-	if note.Blocks[0].Start != note.Blocks[1].Start {
-		t.Errorf("Start[0] = %d, Start[1] = %d, queria iguais (mesmo paragrafo)",
-			note.Blocks[0].Start, note.Blocks[1].Start)
+	got := src[note.Blocks[0].Start:note.Blocks[0].End]
+	want := "primeira linha ^um\nsegunda linha ^dois"
+	if got != want {
+		t.Errorf("bloco = %q, quer %q", got, want)
+	}
+}
+
+// TestBlockIDThreeLineParagraphOnlyLastMarkerCounts cobre o caso de tres
+// linhas com dois marcadores intermediario+final: so o ultimo produz bloco,
+// e a faixa cobre o paragrafo inteiro ate ele.
+func TestBlockIDThreeLineParagraphOnlyLastMarkerCounts(t *testing.T) {
+	src := "linha um\nlinha dois ^b\nlinha tres ^c\n"
+
+	note, err := parser.Parse([]byte(src))
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	if len(note.Blocks) != 1 {
+		t.Fatalf("blocos = %d, quer 1: %+v", len(note.Blocks), note.Blocks)
+	}
+	if note.Blocks[0].ID != "c" {
+		t.Errorf("ID = %q, quer %q — \"^b\" no meio nao e block id", note.Blocks[0].ID, "c")
+	}
+	got := src[note.Blocks[0].Start:note.Blocks[0].End]
+	want := "linha um\nlinha dois ^b\nlinha tres ^c"
+	if got != want {
+		t.Errorf("bloco = %q, quer %q", got, want)
+	}
+}
+
+// TestBlockIDMultilineBlockquotePrefixAsymmetry documenta o limite descrito
+// em Block.Start: numa citacao de varias linhas, o "> " da PRIMEIRA linha
+// fica fora da faixa (Start comeca depois dele), mas o "> " de qualquer
+// linha de CONTINUACAO fica dentro — a faixa e um intervalo contiguo no
+// buffer bruto, entao nao ha como excluir os dois ao mesmo tempo. Fixa o
+// formato para que M4 descubra a assimetria em vez de ser surpreendido.
+func TestBlockIDMultilineBlockquotePrefixAsymmetry(t *testing.T) {
+	src := "> linha um\n> linha dois ^abc\n"
+
+	note, err := parser.Parse([]byte(src))
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	if len(note.Blocks) != 1 {
+		t.Fatalf("blocos = %d, quer 1: %+v", len(note.Blocks), note.Blocks)
+	}
+	got := src[note.Blocks[0].Start:note.Blocks[0].End]
+	want := "linha um\n> linha dois ^abc"
+	if got != want {
+		t.Errorf("bloco = %q, quer %q (\"> \" da 1a linha fora, da 2a dentro)", got, want)
+	}
+}
+
+// TestBlockIDMultilineListItemPrefixAsymmetry e o mesmo limite que
+// TestBlockIDMultilineBlockquotePrefixAsymmetry, para item de lista: a
+// indentacao da linha de continuacao fica dentro da faixa.
+func TestBlockIDMultilineListItemPrefixAsymmetry(t *testing.T) {
+	src := "- linha um\n  linha dois ^abc\n"
+
+	note, err := parser.Parse([]byte(src))
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	if len(note.Blocks) != 1 {
+		t.Fatalf("blocos = %d, quer 1: %+v", len(note.Blocks), note.Blocks)
+	}
+	got := src[note.Blocks[0].Start:note.Blocks[0].End]
+	want := "linha um\n  linha dois ^abc"
+	if got != want {
+		t.Errorf("bloco = %q, quer %q (\"- \" da 1a linha fora, indentacao da 2a dentro)", got, want)
 	}
 }
 

@@ -54,9 +54,35 @@ type Heading struct {
 
 // Block e um bloco identificado por um marcador "^id" no fim de linha.
 type Block struct {
-	ID    string `json:"id"` // sem o '^'
-	Start int64  `json:"start"`
-	End   int64  `json:"end"`
+	ID string `json:"id"` // sem o '^'
+	// Start e o offset do inicio do BLOCO pai (paragrafo, item de lista,
+	// linha de citacao), nao do '^'. Em um item de lista isso cai depois do
+	// "- ": replace_block e responsavel so pelo texto, nao por reemitir o
+	// marcador de lista nem a indentacao que determina a profundidade do
+	// aninhamento.
+	//
+	// LIMITE CONHECIDO em bloco de varias linhas (paragrafo com quebra
+	// suave, ou citacao/item de lista com mais de uma linha): Start..End e
+	// uma faixa CONTIGUA no buffer bruto. O prefixo de sintaxe ("> " de
+	// citacao, marcador+indentacao de lista) so fica de fora da faixa na
+	// PRIMEIRA linha, porque Start vem de Lines().At(0).Start, que so
+	// descontou esse prefixo ali. Como a faixa e contigua no buffer, o
+	// prefixo de QUALQUER linha de continuacao (a segunda em diante) fica
+	// DENTRO dela — nao ha como excluir os dois ao mesmo tempo com um unico
+	// intervalo [Start,End). E assimetria inerente a essa escolha, nao um
+	// bug: exemplo, "> linha um\n> linha dois ^abc" produz Start=2 End=28,
+	// e src[Start:End] == "linha um\n> linha dois ^abc" — o "> " da primeira
+	// linha ficou fora, o da segunda ficou dentro. O mesmo vale para
+	// indentacao de item de lista em vez de "> ".
+	//
+	// M4's replace_block, ao escrever conteudo de varias linhas de volta no
+	// lugar deste bloco, precisa reemitir esses prefixos de continuacao — o
+	// "> " de cada linha de citacao, a indentacao de cada linha de item de
+	// lista — porque o range aqui devolvido ja descontou o prefixo da
+	// PRIMEIRA linha mas nao o das demais. Escrever de volta sem reemiti-los
+	// quebra a sintaxe do bloco.
+	Start int64 `json:"start"`
+	End   int64 `json:"end"`
 }
 
 // offsetUnknown marca um offset que o parser nao conseguiu determinar. Ver o

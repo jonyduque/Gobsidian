@@ -148,24 +148,35 @@ func TestInlineFieldBracketedTrailingText(t *testing.T) {
 	}
 }
 
-// TestInlineFieldTwoPerLine documenta o comportamento real de "a:: 1 b:: 2":
-// a forma sem colchetes consome o RESTO DA LINHA como valor (regra 3), entao
-// so um campo nasce daqui, com "b:: 2" dentro do valor de "a" — o mesmo
-// comportamento do Dataview real, que exige colchetes para varios campos por
-// linha.
+// TestInlineFieldTwoPerLine documenta o comportamento real de "a:: 1 b:: 2".
+// A regra 3 do Dataview continua valendo para o VALOR: a forma sem
+// colchetes nao tem terminador proprio, entao o valor registrado para "a" e
+// a linha inteira depois de "a::", incluindo o "b:: 2" — exatamente como o
+// Dataview real, que exige colchetes para mais de um campo por linha.
+//
+// Mas como o parser nao consome mais esse valor (regra 3b — precisa
+// permanecer visivel para outros parsers inline, ver
+// TestInlineFieldValueWithWikilink), o segundo "::" dentro dele tambem
+// dispara o parser de novo. A busca por chave anda pra tras a partir dai e
+// para no primeiro caractere fora do alfabeto — que e o SEGUNDO ':' do
+// primeiro par "a::" — entao a "chave" que nasce e "1 b", nao "b": os bytes
+// que already pertenciam ao valor de "a" viram uma chave inventada. E a
+// mesma classe de artefato de "#tag::valor" (chave inventada a partir de
+// bytes que outro parser ja reivindicou) — nao apaga nem corrompe o valor
+// correto de "a", so acrescenta uma entrada espuria.
 func TestInlineFieldTwoPerLine(t *testing.T) {
 	note, err := parser.Parse([]byte("a:: 1 b:: 2\n"))
 	if err != nil {
 		t.Fatalf("Parse: %v", err)
 	}
-	if len(note.Inline) != 1 {
-		t.Fatalf("inline = %v, quer 1 chave", note.Inline)
-	}
 	if got := note.Inline["a"]; len(got) != 1 || got[0] != "1 b:: 2" {
 		t.Errorf("a = %v, quer [\"1 b:: 2\"]", got)
 	}
-	if _, ok := note.Inline["b"]; ok {
-		t.Error("b nao deveria existir — foi absorvido pelo valor de a")
+	if got := note.Inline["1 b"]; len(got) != 1 || got[0] != "2" {
+		t.Errorf("\"1 b\" = %v, quer [\"2\"] (chave espuria, ver comentario acima)", got)
+	}
+	if len(note.Inline) != 2 {
+		t.Fatalf("inline = %v, quer 2 chaves (\"a\" e a espuria \"1 b\")", note.Inline)
 	}
 }
 
@@ -211,10 +222,13 @@ func TestInlineFieldInBlockquote(t *testing.T) {
 	}
 }
 
-// TestInlineFieldValueWithWikilink documenta que um wikilink dentro do valor
-// de um campo nao e coletado separadamente como link: a forma sem colchetes
-// consome o resto da linha, opaco a outros parsers inline — o mesmo
-// comportamento que WikilinkNode ja tem para o texto do alias.
+// TestInlineFieldValueWithWikilink confirma que um wikilink dentro do valor
+// de um campo AINDA e coletado como link: o parser nao consome o valor, so
+// avanca sobre "chave::" e deixa o goldmark oferecer o resto da linha a
+// outros parsers inline. O valor continua registrado em Inline por inteiro.
+// Sem isto, "fonte:: [[STJ]]" apagaria um link que o commit anterior ao
+// Task 17 ja coletava — Dataview field guardando link e idioma comum de
+// cofre.
 func TestInlineFieldValueWithWikilink(t *testing.T) {
 	note, err := parser.Parse([]byte("fonte:: [[STJ]]\n"))
 	if err != nil {
@@ -223,8 +237,79 @@ func TestInlineFieldValueWithWikilink(t *testing.T) {
 	if got := note.Inline["fonte"]; len(got) != 1 || got[0] != "[[STJ]]" {
 		t.Errorf("fonte = %v, quer [\"[[STJ]]\"]", got)
 	}
-	if len(note.Links) != 0 {
-		t.Errorf("links = %+v, quer nenhum — o valor do campo e opaco", note.Links)
+	if len(note.Links) != 1 || note.Links[0].Target != "STJ" {
+		t.Errorf("links = %+v, quer um link para STJ", note.Links)
+	}
+}
+
+// TestInlineFieldValueWithEmbed e o mesmo que
+// TestInlineFieldValueWithWikilink, para a forma de embed ("![[...]]").
+func TestInlineFieldValueWithEmbed(t *testing.T) {
+	note, err := parser.Parse([]byte("capa:: ![[img.png]]\n"))
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	if got := note.Inline["capa"]; len(got) != 1 || got[0] != "![[img.png]]" {
+		t.Errorf("capa = %v, quer [\"![[img.png]]\"]", got)
+	}
+	if len(note.Links) != 1 || note.Links[0].Target != "img.png" || note.Links[0].Kind != parser.LinkEmbed {
+		t.Errorf("links = %+v, quer um embed para img.png", note.Links)
+	}
+}
+
+// TestInlineFieldValueWithMarkdownLink e o mesmo, para a grafia Markdown de
+// link ("[texto](destino)").
+func TestInlineFieldValueWithMarkdownLink(t *testing.T) {
+	note, err := parser.Parse([]byte("fonte:: [STJ](stj.md)\n"))
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	if got := note.Inline["fonte"]; len(got) != 1 || got[0] != "[STJ](stj.md)" {
+		t.Errorf("fonte = %v, quer [\"[STJ](stj.md)\"]", got)
+	}
+	found := false
+	for _, l := range note.Links {
+		if l.Target == "stj.md" && l.Kind == parser.LinkMarkdown {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("links = %+v, quer um link markdown para stj.md", note.Links)
+	}
+}
+
+// TestInlineFieldBracketedNestedWikilinkValue confirma que o valor de um
+// campo entre colchetes cujo valor e ele mesmo um wikilink nao trunca no
+// primeiro ']' (que pertence ao wikilink): o rastreamento de profundidade
+// encontra o ']' que fecha o CAMPO, nao o do wikilink aninhado.
+func TestInlineFieldBracketedNestedWikilinkValue(t *testing.T) {
+	note, err := parser.Parse([]byte("[fonte:: [[STJ]]]\n"))
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	if got := note.Inline["fonte"]; len(got) != 1 || got[0] != "[[STJ]]" {
+		t.Errorf("fonte = %v, quer [\"[[STJ]]\"]", got)
+	}
+}
+
+// TestInlineFieldBracketedDeclinesBeforeMarkdownLink confirma o Critical 2:
+// quando o ']' da forma entre colchetes e seguido imediatamente de '(', o
+// texto inteiro e o de um link Markdown, nao um campo — mesma prioridade
+// (130) vem antes do parser de link do CommonMark (~200), entao sem esta
+// recusa "destino.md" nunca seria interpretado como link.
+func TestInlineFieldBracketedDeclinesBeforeMarkdownLink(t *testing.T) {
+	note, err := parser.Parse([]byte("[Nota:: veja](destino.md)\n"))
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	found := false
+	for _, l := range note.Links {
+		if l.Target == "destino.md" && l.Kind == parser.LinkMarkdown {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("links = %+v, quer um link markdown para destino.md", note.Links)
 	}
 }
 

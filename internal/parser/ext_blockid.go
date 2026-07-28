@@ -88,6 +88,21 @@ func (p *blockIDParser) Parse(parent gast.Node, block text.Reader, _ gparser.Con
 		// acima). Recusar em vez de indexar fora dos limites.
 		return nil
 	}
+
+	// Regra 1b: o marcador precisa estar na ULTIMA linha do bloco. Um
+	// paragrafo com quebra suave (um unico Enter, que o Markdown nao trata
+	// como novo paragrafo) tem varias linhas dentro do MESMO bloco; um
+	// "^id" no meio delas nao e um block id no Obsidian — e texto literal.
+	// Sem esta checagem, "linha um\nlinha dois ^b\nlinha tres ^c" produziria
+	// dois blocos com faixas sobrepostas: Start vem sempre da primeira linha
+	// do bloco (regra 3), entao "b" e "c" comecariam no mesmo lugar e so o
+	// End diferiria — replace_block em "b" sobrescreveria "linha tres", que
+	// pertence a "c".
+	lastLine := lines.At(lines.Len() - 1)
+	if segment.Start < lastLine.Start || segment.Start >= lastLine.Stop {
+		return nil
+	}
+
 	start := int64(lines.At(0).Start)
 
 	node := &BlockIDNode{

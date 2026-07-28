@@ -101,17 +101,28 @@ func TestTagTrailingSlash(t *testing.T) {
 	}
 }
 
-// TestTagDoubleSlash documenta o comportamento (nao necessariamente
-// "correto") de uma barra dupla: como '/' e preservado literalmente (regra
-// 3), "#a//b" produz uma unica tag "a//b" em vez de recusar o segmento
-// vazio. E um caso de canto conhecido, nao um requisito do brief.
-func TestTagDoubleSlash(t *testing.T) {
-	note, err := parser.Parse([]byte("veja #a//b depois\n"))
-	if err != nil {
-		t.Fatalf("Parse: %v", err)
+// TestTagEmptyHierarchySegments confirma que segmento vazio de hierarquia
+// nao chega em Tags: barra dupla interna e barra inicial sao colapsadas do
+// mesmo jeito que a barra final ja era (TestTagTrailingSlash). Sem isto,
+// "#a//b" e "#/civil" produzem segmento vazio ao serem divididos por '/' por
+// tag_list (hierarchical:true), e todas as tags com segmento vazio na mesma
+// profundidade colidem num so no sem nome.
+func TestTagEmptyHierarchySegments(t *testing.T) {
+	tests := []struct{ name, in, want string }{
+		{"barra dupla interna", "veja #a//b depois\n", "a/b"},
+		{"barra inicial", "veja #/civil depois\n", "civil"},
+		{"barra dupla e final compostas", "veja #a//b/c depois\n", "a/b/c"},
 	}
-	if len(note.Tags) != 1 || note.Tags[0] != "a//b" {
-		t.Errorf("tags = %v, quer [\"a//b\"]", note.Tags)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			note, err := parser.Parse([]byte(tt.in))
+			if err != nil {
+				t.Fatalf("Parse: %v", err)
+			}
+			if len(note.Tags) != 1 || note.Tags[0] != tt.want {
+				t.Errorf("tags = %v, quer [%q]", note.Tags, tt.want)
+			}
+		})
 	}
 }
 
@@ -234,6 +245,40 @@ func TestTagInHeading(t *testing.T) {
 	}
 	if len(note.Tags) != 1 || note.Tags[0] != "tag" {
 		t.Errorf("tags = %v, quer [tag]", note.Tags)
+	}
+}
+
+// TestTagAdjacentToEmphasisMarkers confirma que '*', '_' e '~' autorizam uma
+// tag logo depois deles: "**#civil**", "*#civil*", "_#civil_" e "~~#civil~~"
+// sao idioma comum no Obsidian (tag em negrito/italico/riscado), que a
+// aplicacao real indexa. Sem isto a tag desaparece de tag_list, do filtro
+// tags e do indice inteiro, porque esses tres caracteres sao categoria
+// Unicode Po/Pc — nao pontuacao de abertura — e ficavam de fora da checagem.
+func TestTagAdjacentToEmphasisMarkers(t *testing.T) {
+	tests := []struct{ name, in, want string }{
+		{"negrito", "**#civil**\n", "civil"},
+		{"italico asterisco", "*#civil*\n", "civil"},
+		// O '_' de fechamento entra no NOME, nao so na checagem de abertura:
+		// '_' ja fazia parte do alfabeto de tagNameChar antes desta correcao
+		// (para "#tag_com_underscore"), entao um '_' colado no fim e
+		// consumido pela mesma regra que aceita "#tag_com_underscore" — nao
+		// ha como distinguir "underscore de tag" de "underscore de italico"
+		// olhando so pro caractere. Ambiguidade pre-existente do alfabeto,
+		// ortogonal ao que esta checagem (regra 1, caractere PRECEDENTE)
+		// resolve.
+		{"italico underscore", "_#civil_\n", "civil_"},
+		{"riscado", "~~#civil~~\n", "civil"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			note, err := parser.Parse([]byte(tt.in))
+			if err != nil {
+				t.Fatalf("Parse: %v", err)
+			}
+			if len(note.Tags) != 1 || note.Tags[0] != tt.want {
+				t.Errorf("tags = %v, quer [%q]", note.Tags, tt.want)
+			}
+		})
 	}
 }
 

@@ -110,7 +110,14 @@ func (p *inlineFieldParser) parseFromColon(parent gast.Node, block text.Reader, 
 	// colchetes tem terminador proprio.
 	value := strings.TrimSpace(string(bytes.TrimRight(line[2:], "\r\n")))
 
-	block.Advance(len(line))
+	// Nao consumir o valor: avancar so sobre "chave::" deixa o resto da
+	// linha para o goldmark oferecer a outros parsers inline. Consumir o
+	// span inteiro (como antes) impede qualquer wikilink, embed ou link
+	// Markdown dentro do valor de ser oferecido a nenhum outro parser —
+	// "fonte:: [[STJ]]" parava de aparecer em note.Links, apagando um dado
+	// que o commit anterior ja coletava. O valor continua registrado aqui,
+	// lido do PeekLine antes deste Advance.
+	block.Advance(2)
 	return &InlineFieldNode{Key: key, Value: value}
 }
 
@@ -167,17 +174,52 @@ func (p *inlineFieldParser) parseFromBracket(block text.Reader, line []byte) gas
 		return nil
 	}
 
-	// Regra 3, forma entre colchetes: o valor vai ate o ']'. Sem fechamento
-	// nesta linha, isso nao e um campo entre colchetes valido.
+	// Regra 3, forma entre colchetes: o valor vai ate o ']' que fecha ESTE
+	// campo, no rastreamento de profundidade, nao o primeiro ']' encontrado
+	// em qualquer nivel. Um wikilink dentro do valor ("[fonte:: [[STJ]]]")
+	// tem seu proprio par de colchetes; parar no primeiro ']' truncaria o
+	// valor em "[[STJ". Sem fechamento nesta linha, isso nao e um campo
+	// entre colchetes valido.
 	rest := line[i+2:]
-	closeIdx := bytes.IndexByte(rest, ']')
+	closeIdx := -1
+	depth := 0
+	for idx := 0; idx < len(rest); idx++ {
+		switch rest[idx] {
+		case '[':
+			depth++
+		case ']':
+			if depth == 0 {
+				closeIdx = idx
+			} else {
+				depth--
+			}
+		}
+		if closeIdx >= 0 {
+			break
+		}
+	}
 	if closeIdx < 0 {
 		return nil
 	}
 	value := strings.TrimSpace(string(rest[:closeIdx]))
 
-	total := i + 2 + closeIdx + 1 // ate e incluindo ']'
-	block.Advance(total)
+	// Se o ']' de fechamento for seguido imediatamente de '(' ou '[', isto
+	// pode ser o texto de um link Markdown ou de outro wikilink —
+	// "[Nota:: veja](destino.md)" seria consumido como campo nesta
+	// prioridade (130), antes do parser de link do CommonMark (~200), e o
+	// destino nunca chegaria a ser interpretado. E a mesma classe de defeito
+	// que "[[[a]] b](d.md)" ja pagou no parser de wikilink. Recusar aqui
+	// devolve o '[' inicial intacto para o proximo parser da fila.
+	after := closeIdx + 1
+	if after < len(rest) && (rest[after] == '(' || rest[after] == '[') {
+		return nil
+	}
+
+	// Nao consumir o valor nem o ']' de fechamento — so "[chave::", pelo
+	// mesmo motivo da forma sem colchetes. O ']' que sobra vira um no de
+	// texto que collect ignora, e o valor volta a ser oferecido a outros
+	// parsers inline.
+	block.Advance(i + 2)
 	return &InlineFieldNode{Key: key, Value: value}
 }
 

@@ -1,6 +1,7 @@
 package parser
 
 import (
+	"strings"
 	"unicode"
 	"unicode/utf8"
 
@@ -44,12 +45,28 @@ func tagNameChar(r rune) bool {
 // Unicode (categoria Ps), aspas curvas e guillemets de abertura (categoria
 // Pi), e pontuacao de travessao — hifen, en dash, em dash (categoria Pd).
 // Aspa dupla reta e aspa simples reta entram a parte: sao categoria Po no
-// Unicode, mas abrem citacao no uso comum.
+// Unicode, mas abrem citacao no uso comum. '*', '_' e '~' tambem entram a
+// parte: sao marcadores de enfase/tachado (negrito, italico, ~~riscado~~),
+// categoria Po/Pc no Unicode — nao pontuacao de abertura —, mas
+// "**#civil**" e idioma comum no Obsidian, que indexa a tag. Nenhuma URL
+// tem fragmento precedido por um desses tres, entao admiti-los nao custa
+// nada contra o falso positivo que esta funcao existe pra barrar.
+//
+// Isto NAO e o que impede uma tag dentro do destino de um link Markdown
+// valido: "[texto](#introducao)" nao produz tag porque o parser de link do
+// CommonMark consome "(#introducao)" inteiro antes de qualquer outro
+// parser inline ver aquele '#' — o '(' nunca chega a ser oferecido a
+// tagPrecedingOK como caractere precedente, porque o '#' nunca dispara o
+// gatilho. A prova de que a protecao e essa, e nao a regra de pontuacao de
+// abertura acima (que TAMBEM aceitaria '(' se chegasse a ser consultada): um
+// link malformado como "[S] (#introducao)" (espaco entre ']' e '(', que o
+// CommonMark nao aceita como link) ainda produz uma tag — o '(' sobra como
+// texto solto, tagPrecedingOK e consultada de verdade, e responde "sim".
 func tagPrecedingOK(r rune) bool {
 	if r == '\n' || unicode.IsSpace(r) {
 		return true
 	}
-	if r == '"' || r == '\'' {
+	if r == '"' || r == '\'' || r == '*' || r == '_' || r == '~' {
 		return true
 	}
 	return unicode.In(r, unicode.Ps, unicode.Pi, unicode.Pd)
@@ -94,7 +111,9 @@ func (p *tagParser) Parse(_ gast.Node, block text.Reader, _ gparser.Context) gas
 
 	// Uma ou mais barras no FIM do nome nao fecham segmento de hierarquia
 	// nenhum — "#tag/" e a tag "tag", nao "tag/" com um segmento vazio. A
-	// barra sobra como texto literal depois da tag.
+	// barra sobra como texto literal depois da tag. So a faixa consumida
+	// (Advance) usa este limite; o NOME gravado no no ainda passa por
+	// collapseTagSlashes abaixo, que cobre as outras duas posicoes.
 	trimmed := width
 	for trimmed > 0 && rest[trimmed-1] == '/' {
 		trimmed--
@@ -108,10 +127,32 @@ func (p *tagParser) Parse(_ gast.Node, block text.Reader, _ gparser.Context) gas
 		return nil
 	}
 
-	node := &TagNode{Name: string(rest[:trimmed])}
+	// Regra 3: segmento vazio de hierarquia nao pode chegar em Tags. Barra
+	// dupla interna ("#a//b") e barra inicial ("#/civil") produzem segmento
+	// vazio ao serem divididas por '/' — o mesmo problema que a barra final
+	// ja tratava acima, so que nas outras duas posicoes. tag_list com
+	// hierarchical:true monta a arvore dividindo por '/', e um segmento
+	// vazio vira no sem nome onde toda tag com segmento vazio na mesma
+	// profundidade colide num so; o parametro prefix erra a subarvore do
+	// mesmo jeito.
+	node := &TagNode{Name: collapseTagSlashes(string(rest[:trimmed]))}
 
 	block.Advance(1 + trimmed)
 	return node
+}
+
+// collapseTagSlashes remove segmentos vazios de hierarquia colapsando
+// sequencias de '/' e removendo-as das pontas — ver comentario de regra 3
+// em tagParser.Parse.
+func collapseTagSlashes(s string) string {
+	parts := strings.Split(s, "/")
+	out := parts[:0]
+	for _, p := range parts {
+		if p != "" {
+			out = append(out, p)
+		}
+	}
+	return strings.Join(out, "/")
 }
 
 // TagExtension registra o inline parser no goldmark.
