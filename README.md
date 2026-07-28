@@ -16,20 +16,21 @@ O projeto nasceu de três frustrações concretas com os servidores MCP de Obsid
 
 ## Estado
 
-**v0.1 em fechamento — ainda não publicada.** O código está completo e a suíte passa nos três alvos, mas os portões de release não rodaram: não há tag `v0.1.0`, o teste de 100 ciclos de encerramento abrupto não foi executado nesta versão, e o orçamento de performance não foi medido. Ver [`docs/OPERACAO.md`](docs/OPERACAO.md) §5.
+**v0.1 publicada**, etiquetada `v0.1.0`. Os portões de release rodaram: suíte com `-race` verde nos três alvos, `go vet` cruzado, ausência de rede verificada, e 100 ciclos de encerramento abrupto com **zero processos órfãos**.
 
-A paridade com o *metadata cache* do Obsidian — a métrica de sucesso funcional do PRD §7 — também não foi verificada: ela depende de uma rodada manual de um plugin no Obsidian, que ainda não aconteceu. O teste correspondente pula enquanto a referência não existir.
+A paridade com o *metadata cache* do Obsidian — a métrica de sucesso funcional do PRD §7 — foi verificada contra um dump real do aplicativo, e não contra a nossa leitura da documentação dele. Uma divergência deliberada ficou registrada: resolvemos link por *alias*, o Obsidian não.
 
 Capacidades implementadas:
 - Ciclo de vida completo (sem processos órfãos).
 - Parser completo, cobrindo wikilinks, embeds, block-ids, tags e aliases.
-- Índice em memória veloz.
-- 5 tools de leitura completas e funcionais (`note_read`, `note_list`, `note_metadata`, `link_graph`, `tag_list`, além de `vault_stats`).
+- Índice em memória por deslocamento de byte — ler uma seção de 2 KB numa nota de 500 KB custa 2 KB.
+- 5 tools de leitura (`note_read`, `note_list`, `note_metadata`, `link_graph`, `tag_list`), mais `vault_stats`, e as notas publicadas como resources.
 
-Limitações atuais:
-- Somente leitura.
-- Sem *watcher* ativo ainda: se o cofre mudar no disco, será preciso reiniciar o host MCP para reindexar.
-- Sem busca *full-text*.
+Limitações atuais, e são reais:
+- **Somente leitura.** Nenhuma tool escreve no cofre.
+- **Sem *watcher*.** Se o cofre mudar no disco, é preciso **reiniciar o host MCP** para reindexar. Não há aviso de que o índice envelheceu; é o M2 que resolve isso.
+- **Sem busca *full-text*.** `note_list` filtra por metadados, não por conteúdo.
+- **O orçamento de desempenho não está validado.** As medições existentes são de um cofre de 7 notas e estabelecem o piso de ~19 MB de RSS, não o alvo de 5.000 notas. Ver [`docs/OPERACAO.md`](docs/OPERACAO.md) §5.
 
 Ver [`docs/PRD.md`](docs/PRD.md) §9 para os próximos passos (M2 a M6).
 
