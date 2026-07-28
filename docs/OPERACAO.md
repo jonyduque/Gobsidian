@@ -55,15 +55,23 @@ Se o servidor não for listado no Claude Desktop após a reinicialização:
 
 A tool `vault_stats` retorna estatísticas internas do índice em memória, importantes para debug de carga.
 
-| Campo | Significado |
+| Campo JSON | Significado |
 |---|---|
-| `TotalNotes` | Total de arquivos de notas Markdown detectadas no cofre |
-| `TotalBytes` | Tamanho somado do conteúdo de todas as notas em bytes |
-| `TotalLinks` | Número total de wikilinks registrados e indexados |
-| `TotalAliases` | Número total de aliases encontrados no *frontmatter* das notas |
-| `TotalTags` | Número único (ou instâncias totais) de tags detectadas |
-| `LoadTimeMs` | Tempo que demorou a indexação a frio no momento da inicialização (milissegundos) |
-| `CloudOnlyFiles` | (Apenas Windows) Arquivos detectados como OneDrive *Placeholder*, não indexados |
+| `notes` | Notas Markdown indexadas |
+| `assets` | Anexos indexados por nome (nunca lidos) |
+| `total_size` | Soma dos tamanhos de notas e anexos, em bytes |
+| `orphans` | Notas sem nenhum backlink |
+| `broken_links` | Links que deveriam resolver para uma nota do cofre e não resolvem. URL externa **não** conta |
+| `broken_anchors` | Links que resolvem a nota mas não ao heading ou bloco citado |
+| `alias_collisions` | Aliases declarados por mais de uma nota |
+| `generation` | Contador de mutações do índice desde o boot |
+| `runtime` | Presente só com `include_runtime`: `num_goroutine`, `alloc`, `total_alloc`, `sys`, `num_gc` |
+
+`orphans`, `broken_links` e `broken_anchors` só vêm com `include_health`.
+
+Uma versão anterior desta tabela listava `TotalNotes`, `TotalBytes`, `TotalLinks`, `TotalAliases`, `TotalTags`, `LoadTimeMs` e `CloudOnlyFiles`. **Nenhum desses campos existe.** Documentar campo que o servidor não emite é pior que não documentar: quem lê acredita, escreve o consumidor em cima, e descobre no primeiro uso. A tabela acima foi conferida campo a campo contra `service.StatsResult`.
+
+A duração da indexação a frio não está em `vault_stats` — está no log de boot, como `index_ms`. Ver §4.
 
 *Nota: como a v0.1 não tem um watcher de arquivos ativo, os valores refletem o estado no instante do boot.*
 
@@ -75,8 +83,21 @@ Todos os logs no formato estruturado saem obrigatoriamente para `stderr`. Para a
 gobsidian serve --vault "C:\Seu\Cofre" --log-level debug 2> "gobsidian.log"
 ```
 
-As mensagens vêm no formato (exemplo fictício):
-`time=2026-07-28T12:00:00Z level=DEBUG msg="indexing file" path="Nota.md"`
+As mensagens vêm em `chave=valor`. A primeira que importa é a do boot, emitida assim que o índice fica pronto:
+
+```
+time=2026-07-28T16:11:37.316-03:00 level=INFO msg="servidor pronto" vault="C:\Cofre" read_only=false notes=7 assets=1 index_ms=10
+```
+
+`index_ms` é a duração da construção do índice — **é o número que RNF-01 nomeia**. Ele recorta só a indexação: não inclui o boot do runtime do Go, a leitura da configuração nem o handshake do MCP. Cronometrar o processo por fora mede as quatro coisas juntas e responde outra pergunta.
+
+A do encerramento diz qual dos três mecanismos disparou:
+
+```
+time=2026-07-28T16:11:37.341-03:00 level=INFO msg="encerramento solicitado" reason=stdin-eof
+```
+
+`reason=` vale `stdin-eof`, `signal` ou `parent-gone`. Um encerramento sem `reason=` nenhum significa que nenhum mecanismo disparou e o processo morreu por outro motivo — é o que o gate de órfãos verifica.
 
 **Sinais importantes:**
 - `level=ERROR`: Falha fatal num componente. Pode indicar que um arquivo está corrompido ou inacessível.
@@ -85,21 +106,29 @@ As mensagens vêm no formato (exemplo fictício):
 
 ## 5. Medições do Orçamento de Performance
 
-A entrega da v0.1 deve validar pelo menos a indexação a frio e o estado inativo contra as metas do PRD.
-
-**Nada foi medido ainda.** Esta tabela existe para ser preenchida, não para ser lida como resultado.
-
-| ID | Métrica (Alvo) | Resultado da Medição v0.1 |
-|---|---|---|
-| **RNF-01** | Indexação a frio (≤ 3 s) | Não medido |
-| **RNF-07** | RSS em repouso (≤ 60 MB) | Não medido |
-
-Uma versão anterior desta tabela trazia "*Concluído abaixo do alvo (ex: 408ms em teste local)*" e "*Sob monitoramento. Tende a ficar ~30-45 MB*". Nenhum dos dois era uma medição: o primeiro é um exemplo ilustrativo, o segundo é uma expectativa. Alvo não atingido e registrado é informação; alvo não medido apresentado como resultado é ficção com aparência de tabela.
-
-Como preencher, contra o cofre de referência (5.000 notas, 50 MB):
+Medido com `scripts/measure.ps1`, que lê `index_ms` do próprio log de boot e amostra o `WorkingSet64` do processo depois do handshake MCP e de um período de acomodação. O script reporta o **maior** RSS observado, não o último: um pico mascarado por uma amostra tardia seria ficção.
 
 ```powershell
-Measure-Command { .\bin\gobsidian.exe index --vault $VaultPath --stats }
+pwsh -File scripts/measure.ps1 -Vault <caminho-do-cofre>
 ```
 
-Registre o número real, a data e a máquina. Se estourar o alvo, registre assim mesmo — o valor de a tabela existir é dizer onde o produto está, não onde se gostaria que estivesse.
+### O que foi medido até agora
+
+**Cofre pequeno, 2026-07-28.** 7 notas, 1 anexo, 180 KB. maquina de referencia, 12 núcleos, Windows 11. Três execuções.
+
+| ID | Métrica (Alvo) | Medição |
+|---|---|---|
+| **RNF-01** | Indexação a frio (≤ 3 s) | 5–8 ms |
+| **RNF-07** | RSS em repouso (≤ 60 MB) | 18,9–19,3 MB |
+
+**Isto não é a validação do orçamento.** Sete notas não exercitam RNF-01: 7 ms para 7 notas não permite extrapolar 5.000, porque o custo dominante em escala é a varredura do sistema de arquivos e o pool de parse, nenhum dos dois exercitado aqui.
+
+O que a medição **de fato** estabelece é o piso: **~19 MB é o custo do processo com o índice praticamente vazio** — runtime do Go, SDK de MCP e estruturas do servidor. Sobram cerca de 40 MB do orçamento de RNF-07 para o índice de 5.000 notas. É um número útil para saber quanto o índice pode custar por nota, e não é uma aprovação do alvo.
+
+### O que falta
+
+Rodar contra o cofre de referência do PRD: **5.000 notas, 50 MB**. Até lá, RNF-01 e RNF-07 seguem **não validados** — medidos em escala pequena, o que é diferente de medidos.
+
+Registre o número real, a data e a máquina. Se estourar o alvo, registre assim mesmo: o valor de a tabela existir é dizer onde o produto está, não onde se gostaria que estivesse.
+
+Uma versão anterior desta tabela trazia *"Concluído abaixo do alvo (ex: 408ms em teste local)"* e *"Sob monitoramento. Tende a ficar ~30-45 MB"*. Nenhum dos dois era medição: o primeiro é um exemplo ilustrativo, o segundo uma expectativa. Alvo não atingido e registrado é informação; alvo não medido apresentado como resultado é ficção com aparência de tabela.
