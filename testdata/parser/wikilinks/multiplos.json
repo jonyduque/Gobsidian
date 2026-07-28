@@ -1,0 +1,26 @@
+{
+  "links": [
+    {
+      "raw": "[[nota-a]]",
+      "target": "nota-a",
+      "kind": 0,
+      "start": 9,
+      "end": 19
+    },
+    {
+      "raw": "[[nota-b|apelido]]",
+      "target": "nota-b",
+      "alias": "apelido",
+      "kind": 0,
+      "start": 28,
+      "end": 46
+    },
+    {
+      "raw": "![[diagrama.pdf]]",
+      "target": "diagrama.pdf",
+      "kind": 1,
+      "start": 67,
+      "end": 84
+    }
+  ]
+}

@@ -1,0 +1,21 @@
+{
+  "headings": [
+    {
+      "level": 2,
+      "text": "Titulo com fechamento",
+      "slug": "titulo com fechamento",
+      "start": 322,
+      "end": 351,
+      "body_start": 350
+    },
+    {
+      "level": 1,
+      "text": "Notas sobre C#",
+      "slug": "notas sobre c",
+      "start": 351,
+      "end": 368,
+      "body_start": 368
+    }
+  ],
+  "title": "Notas sobre C#"
+}

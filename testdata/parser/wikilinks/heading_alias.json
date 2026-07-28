@@ -1,0 +1,13 @@
+{
+  "links": [
+    {
+      "raw": "[[nota#Capitulo 1|Cap 1]]",
+      "target": "nota",
+      "alias": "Cap 1",
+      "anchor": "Capitulo 1",
+      "kind": 0,
+      "start": 19,
+      "end": 44
+    }
+  ]
+}

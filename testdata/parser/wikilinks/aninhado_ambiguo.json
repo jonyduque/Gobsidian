@@ -1,0 +1,19 @@
+{
+  "links": [
+    {
+      "raw": "d.md",
+      "target": "d.md",
+      "alias": " b",
+      "kind": 2,
+      "start": -1,
+      "end": -1
+    },
+    {
+      "raw": "[[a]]",
+      "target": "a",
+      "kind": 0,
+      "start": 307,
+      "end": 312
+    }
+  ]
+}

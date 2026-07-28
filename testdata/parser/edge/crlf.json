@@ -1,0 +1,40 @@
+{
+  "tags": [
+    "civil"
+  ],
+  "headings": [
+    {
+      "level": 1,
+      "text": "Titulo CRLF",
+      "slug": "titulo crlf",
+      "start": 0,
+      "end": 107,
+      "body_start": 15
+    },
+    {
+      "level": 2,
+      "text": "Secao",
+      "slug": "secao",
+      "start": 81,
+      "end": 107,
+      "body_start": 91
+    }
+  ],
+  "blocks": [
+    {
+      "id": "abc123",
+      "start": 17,
+      "end": 77
+    }
+  ],
+  "links": [
+    {
+      "raw": "[[nota]]",
+      "target": "nota",
+      "kind": 0,
+      "start": 36,
+      "end": 44
+    }
+  ],
+  "title": "Titulo CRLF"
+}

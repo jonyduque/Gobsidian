@@ -1,0 +1,21 @@
+{
+  "headings": [
+    {
+      "level": 1,
+      "text": "Antes",
+      "slug": "antes",
+      "start": 374,
+      "end": 429,
+      "body_start": 382
+    },
+    {
+      "level": 1,
+      "text": "Depois",
+      "slug": "depois",
+      "start": 429,
+      "end": 438,
+      "body_start": 438
+    }
+  ],
+  "title": "Antes"
+}

@@ -1,0 +1,12 @@
+{
+  "links": [
+    {
+      "raw": "[[nota-longa|apelido curto]]",
+      "target": "nota-longa",
+      "alias": "apelido curto",
+      "kind": 0,
+      "start": 24,
+      "end": 52
+    }
+  ]
+}

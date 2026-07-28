@@ -1,0 +1,21 @@
+{
+  "headings": [
+    {
+      "level": 1,
+      "text": "Titulo",
+      "slug": "titulo",
+      "start": 115,
+      "end": 170,
+      "body_start": 124
+    },
+    {
+      "level": 3,
+      "text": "Subsecao sem H2 pai",
+      "slug": "subsecao sem h2 pai",
+      "start": 133,
+      "end": 170,
+      "body_start": 157
+    }
+  ],
+  "title": "Titulo"
+}

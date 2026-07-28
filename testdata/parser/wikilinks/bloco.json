@@ -1,0 +1,12 @@
+{
+  "links": [
+    {
+      "raw": "[[nota#^abc123]]",
+      "target": "nota",
+      "anchor": "^abc123",
+      "kind": 0,
+      "start": 23,
+      "end": 39
+    }
+  ]
+}

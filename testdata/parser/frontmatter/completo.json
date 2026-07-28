@@ -1,0 +1,44 @@
+{
+  "frontmatter": {
+    "aliases": [
+      "PDC",
+      "Ponto Civil"
+    ],
+    "autor": "Fulano",
+    "data": "2026-01-15T00:00:00Z",
+    "tags": [
+      "civil",
+      "obrigacoes"
+    ],
+    "title": "Ponto de Direito Civil"
+  },
+  "tags": [
+    "civil",
+    "obrigacoes",
+    "tributario"
+  ],
+  "aliases": [
+    "PDC",
+    "Ponto Civil"
+  ],
+  "headings": [
+    {
+      "level": 1,
+      "text": "Titulo do Corpo",
+      "slug": "titulo do corpo",
+      "start": 133,
+      "end": 362,
+      "body_start": 151
+    }
+  ],
+  "links": [
+    {
+      "raw": "[[outra-nota]]",
+      "target": "outra-nota",
+      "kind": 0,
+      "start": 162,
+      "end": 176
+    }
+  ],
+  "title": "Ponto de Direito Civil"
+}

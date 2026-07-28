@@ -1,0 +1,14 @@
+{
+  "headings": [
+    {
+      "level": 1,
+      "text": "Corpo apos frontmatter quebrado",
+      "slug": "corpo apos frontmatter quebrado",
+      "start": 286,
+      "end": 369,
+      "body_start": 320
+    }
+  ],
+  "title": "Corpo apos frontmatter quebrado",
+  "frontmatter_err": "decodificando frontmatter: yaml: line 4: did not find expected ',' or ']'"
+}

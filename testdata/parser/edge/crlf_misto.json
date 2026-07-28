@@ -1,0 +1,20 @@
+{
+  "headings": [
+    {
+      "level": 1,
+      "text": "Titulo CRLF misto",
+      "slug": "titulo crlf misto",
+      "start": 0,
+      "end": 137,
+      "body_start": 21
+    }
+  ],
+  "blocks": [
+    {
+      "id": "bloco2",
+      "start": 23,
+      "end": 135
+    }
+  ],
+  "title": "Titulo CRLF misto"
+}

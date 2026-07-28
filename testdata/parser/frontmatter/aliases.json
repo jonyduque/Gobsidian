@@ -1,0 +1,20 @@
+{
+  "frontmatter": {
+    "aliases": "Ponto 3, P3"
+  },
+  "aliases": [
+    "Ponto 3",
+    "P3"
+  ],
+  "headings": [
+    {
+      "level": 1,
+      "text": "Nota com aliases em string",
+      "slug": "nota com aliases em string",
+      "start": 220,
+      "end": 249,
+      "body_start": 249
+    }
+  ],
+  "title": "Nota com aliases em string"
+}

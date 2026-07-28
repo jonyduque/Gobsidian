@@ -1,0 +1,11 @@
+{
+  "links": [
+    {
+      "raw": "[[outra-nota]]",
+      "target": "outra-nota",
+      "kind": 0,
+      "start": 24,
+      "end": 38
+    }
+  ]
+}

@@ -16,3 +16,13 @@ Makefile   text eol=lf
 # Os scripts de PowerShell ficam em CRLF: e o que o Windows espera, e sao
 # executados la e so la.
 *.ps1  text eol=crlf
+
+# Estes tres golden fixtures do parser existem para testar CRLF real e BOM.
+# A regra "*.md text eol=lf" acima normalizaria os dois primeiros para LF no
+# checkout, e a segunda camada de normalizacao (bytes vs. texto) faria o
+# BOM ser tratado como texto comum. "-text" tira os tres da normalizacao de
+# fim de linha do Git inteiramente; sem isso, os casos que estes arquivos
+# existem para testar deixam de existir a partir do proximo checkout.
+testdata/parser/edge/crlf.md       -text
+testdata/parser/edge/crlf_misto.md -text
+testdata/parser/edge/bom.md        -text binary
