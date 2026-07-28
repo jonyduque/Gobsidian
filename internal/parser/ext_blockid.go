@@ -3,19 +3,27 @@ package parser
 import (
 	"github.com/yuin/goldmark"
 	gast "github.com/yuin/goldmark/ast"
+	gparser "github.com/yuin/goldmark/parser"
+	"github.com/yuin/goldmark/text"
+	"github.com/yuin/goldmark/util"
 )
 
-// BlockIDNode e um stub. Task 15 substitui este arquivo por uma extensao que
-// reconhece marcadores "^id" no fim de linha.
+var kindBlockID = gast.NewNodeKind("BlockID")
+
+// BlockIDNode e o no de AST para um marcador "^id" no fim de linha, que
+// ancora um wikilink "[[nota#^id]]" a um bloco especifico.
 type BlockIDNode struct {
 	gast.BaseInline
 
-	ID    string
+	ID string
+	// Start e o offset do inicio do BLOCO pai (paragrafo, item de lista,
+	// linha de citacao) — nao do '^'. End e o fim do marcador "^id", sem os
+	// espacos em branco que possam seguir. E o par que note_read com
+	// block_id devolve e que note_patch com replace_block substitui;
+	// devolver so o marcador tornaria as duas tools inuteis.
 	Start int64
 	End   int64
 }
-
-var kindBlockID = gast.NewNodeKind("BlockID")
 
 func (n *BlockIDNode) Kind() gast.NodeKind { return kindBlockID }
 
@@ -23,8 +31,85 @@ func (n *BlockIDNode) Dump(src []byte, level int) {
 	gast.DumpHelper(n, src, level, map[string]string{"ID": n.ID}, nil)
 }
 
-// BlockIDExtension e um stub sem efeito, so para o pacote compilar antes da
-// Task 15.
+// blockIDChar e o alfabeto aceito para um id: letras, digitos e hifen. Ver
+// blockIDParser.Parse.
+func blockIDChar(b byte) bool {
+	return (b >= 'a' && b <= 'z') ||
+		(b >= 'A' && b <= 'Z') ||
+		(b >= '0' && b <= '9') ||
+		b == '-'
+}
+
+type blockIDParser struct{}
+
+// Trigger dispara este parser em cada '^' oferecido pelo goldmark. O
+// goldmark ja suprime o gatilho dentro de blocos de codigo cercados,
+// indentados, spans de codigo inline e blocos/comentarios HTML — nao ha
+// estado de fence para rastrear aqui.
+func (p *blockIDParser) Trigger() []byte { return []byte{'^'} }
+
+func (p *blockIDParser) Parse(parent gast.Node, block text.Reader, _ gparser.Context) gast.Node {
+	line, segment := block.PeekLine()
+	if len(line) == 0 || line[0] != '^' {
+		return nil
+	}
+
+	i := 1
+	for i < len(line) && blockIDChar(line[i]) {
+		i++
+	}
+	id := string(line[1:i])
+	if id == "" {
+		// "^" sozinho, ou seguido de um caractere fora do alfabeto — nao ha
+		// candidato a id.
+		return nil
+	}
+
+	// Regra 1: o marcador precisa estar no fim da linha. Qualquer coisa
+	// depois do id que nao seja espaco/tab/quebra de linha significa que o
+	// "^" era texto literal no meio da linha, nao um marcador de bloco.
+	for _, b := range line[i:] {
+		if b != ' ' && b != '\t' && b != '\r' && b != '\n' {
+			return nil
+		}
+	}
+
+	// Regra 3: Start e o inicio do bloco pai (paragrafo, item de lista, linha
+	// de citacao), nao do '^'. O goldmark ja fez o trabalho de achar esse
+	// bloco: e o proprio "parent" que o parser de inline recebe, porque a
+	// analise de inline roda por bloco-folha (aquele que tem Lines()), e
+	// "parent" e sempre esse bloco-folha. Sua primeira linha comeca onde o
+	// bloco comeca, com os prefixos de sintaxe (marcador de lista, "> " de
+	// citacao) ja descontados pelo parser de bloco correspondente.
+	lines := parent.Lines()
+	if lines == nil || lines.Len() == 0 {
+		// Nao deveria acontecer: o goldmark so chama este Parse quando o
+		// bloco pai tem ao menos uma linha (e dela que PeekLine tirou "line"
+		// acima). Recusar em vez de indexar fora dos limites.
+		return nil
+	}
+	start := int64(lines.At(0).Start)
+
+	node := &BlockIDNode{
+		ID:    id,
+		Start: start,
+		End:   int64(segment.Start + i),
+	}
+
+	block.Advance(i)
+	return node
+}
+
+// BlockIDExtension registra o inline parser no goldmark.
 type BlockIDExtension struct{}
 
-func (BlockIDExtension) Extend(goldmark.Markdown) {}
+func (BlockIDExtension) Extend(md goldmark.Markdown) {
+	md.Parser().AddOptions(
+		gparser.WithInlineParsers(
+			// Prioridade sem concorrencia conhecida com wikilink (150) ou o
+			// link padrao do CommonMark (200): '^' nao aparece no gatilho de
+			// nenhum dos dois.
+			util.Prioritized(&blockIDParser{}, 100),
+		),
+	)
+}
