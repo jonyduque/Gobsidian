@@ -14,6 +14,7 @@ import (
 	"github.com/jonyd/gobsidian/internal/mcpsrv"
 	"github.com/jonyd/gobsidian/internal/service"
 	"github.com/jonyd/gobsidian/internal/vault"
+	"github.com/jonyd/gobsidian/internal/watcher"
 	"github.com/spf13/cobra"
 )
 
@@ -112,6 +113,14 @@ func runServe(parent context.Context, cfg config.Config) error {
 	})
 	srv := mcpsrv.New(ctx, svc, cfg, log)
 
+	w, err := watcher.New(v, idx, time.Duration(cfg.DebounceMS)*time.Millisecond, log)
+	if err != nil {
+		return err
+	}
+	go func() {
+		_ = w.Run(ctx)
+	}()
+
 	log.Info("servidor pronto",
 		"vault", cfg.VaultPath,
 		"read_only", cfg.ReadOnly,
@@ -162,6 +171,9 @@ func runServe(parent context.Context, cfg config.Config) error {
 		}},
 		lifecycle.Step{Name: "close-pipe", Budget: 500 * time.Millisecond, Fn: func(context.Context) error {
 			return pw.Close()
+		}},
+		lifecycle.Step{Name: "watcher", Budget: 500 * time.Millisecond, Fn: func(context.Context) error {
+			return w.Close()
 		}},
 	)
 

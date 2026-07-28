@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jonyd/gobsidian/internal/index"
 	"github.com/jonyd/gobsidian/internal/vault"
 )
 
@@ -20,7 +21,9 @@ func TestWatcher(t *testing.T) {
 		t.Fatalf("vault.New: %v", err)
 	}
 
-	w, err := New(v, 10*time.Millisecond, log)
+	idx := index.New()
+
+	w, err := New(v, idx, 10*time.Millisecond, log)
 	if err != nil {
 		t.Fatalf("watcher.New: %v", err)
 	}
@@ -42,14 +45,18 @@ func TestWatcher(t *testing.T) {
 		t.Fatalf("WriteFile: %v", err)
 	}
 
-	// Verify event
-	select {
-	case evt := <-w.Events():
-		if evt != "teste.md" {
-			t.Errorf("got path %q, want 'teste.md'", evt)
+	// Verify event via index
+	found := false
+	canon, _ := vault.Canonicalize(dir, notePath)
+	for i := 0; i < 50; i++ {
+		if _, ok := idx.Get(canon); ok {
+			found = true
+			break
 		}
-	case <-time.After(time.Second):
-		t.Fatal("timeout waiting for event")
+		time.Sleep(20 * time.Millisecond)
+	}
+	if !found {
+		t.Fatal("timeout waiting for index to update with 'teste.md'")
 	}
 
 	// Shutdown test
@@ -65,25 +72,5 @@ func TestWatcher(t *testing.T) {
 
 	if err := w.Close(); err != nil {
 		t.Errorf("Close() = %v", err)
-	}
-
-	// Verify events channel is closed
-	closed := false
-	for i := 0; i < 10; i++ {
-		select {
-		case _, ok := <-w.Events():
-			if !ok {
-				closed = true
-				break
-			}
-		default:
-		}
-		if closed {
-			break
-		}
-		time.Sleep(10 * time.Millisecond)
-	}
-	if !closed {
-		t.Error("Events channel not closed")
 	}
 }

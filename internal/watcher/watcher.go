@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/fsnotify/fsnotify"
+	"github.com/jonyd/gobsidian/internal/index"
 	"github.com/jonyd/gobsidian/internal/vault"
 )
 
@@ -20,15 +21,19 @@ type Watcher struct {
 	events    chan Event
 	debounced chan vault.CanonicalPath
 	debounce  time.Duration
+	v         *vault.Vault
+	idx       *index.Index
 
 	// Contadores (Task 32)
 	received  int64
 	dropped   int64
 	coalesced int64 // placeholder (if requested in the future)
+	processed int64
+	skipped   int64
 }
 
 // New cria um novo Watcher observando a raiz do cofre.
-func New(v *vault.Vault, debounce time.Duration, log *slog.Logger) (*Watcher, error) {
+func New(v *vault.Vault, idx *index.Index, debounce time.Duration, log *slog.Logger) (*Watcher, error) {
 	fsWatcher, err := fsnotify.NewWatcher()
 	if err != nil {
 		return nil, fmt.Errorf("criando fsnotify.Watcher: %w", err)
@@ -66,12 +71,9 @@ func New(v *vault.Vault, debounce time.Duration, log *slog.Logger) (*Watcher, er
 		events:    make(chan Event, 100),
 		debounced: make(chan vault.CanonicalPath, 100),
 		debounce:  debounce,
+		v:         v,
+		idx:       idx,
 	}, nil
-}
-
-// Events devolve o canal onde os caminhos coalescidos sao publicados.
-func (w *Watcher) Events() <-chan vault.CanonicalPath {
-	return w.debounced
 }
 
 // Run entra em loop processando eventos do fsnotify ate o contexto ser cancelado
@@ -82,6 +84,13 @@ func (w *Watcher) Run(ctx context.Context) error {
 	go func() {
 		Debounce(ctx, w.events, w.debounced, w.debounce, w.log)
 		close(w.debounced)
+	}()
+
+	// Lança o aplicador lendo de w.debounced e escrevendo no índice
+	go func() {
+		p, s := Apply(ctx, w.debounced, w.idx, w.v, w.log)
+		w.processed = p
+		w.skipped = s
 	}()
 
 	for {
