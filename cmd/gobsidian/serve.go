@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/jonyd/gobsidian/internal/config"
+	"github.com/jonyd/gobsidian/internal/index"
 	"github.com/jonyd/gobsidian/internal/lifecycle"
 	"github.com/jonyd/gobsidian/internal/mcpsrv"
 	"github.com/jonyd/gobsidian/internal/service"
@@ -94,7 +95,12 @@ func runServe(parent context.Context, cfg config.Config) error {
 		Logger:    log,
 	})
 
-	svc := service.New(v, nil, service.Options{
+	idx := index.New()
+	if err := idx.Build(ctx, v); err != nil {
+		return err
+	}
+
+	svc := service.New(v, idx, service.Options{
 		ReadOnly:   cfg.ReadOnly,
 		MaxResults: cfg.MaxResults,
 	})

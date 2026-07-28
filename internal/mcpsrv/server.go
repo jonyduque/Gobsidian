@@ -42,6 +42,8 @@ func New(svc *service.Service, cfg config.Config, log *slog.Logger) *Server {
 		log: log,
 	}
 	s.registerReadTools()
+	s.registerReadToolsInternal()
+	s.registerResources()
 	if !cfg.ReadOnly {
 		s.registerWriteTools()
 	}
