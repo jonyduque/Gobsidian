@@ -98,6 +98,28 @@ Cada uma passou por revisão e só apareceu depois. Estão aqui pra não voltare
 
 **Flag booleana ou inteira não distingue "omitida" de "definida com zero".** `config.Flags` tem companheiros `ReadOnlySet` e `DebounceMSSet`. **Toda** chamada a `config.Load` precisa preenchê-los com `cmd.Flags().Changed(nome)` — esquecer em um subcomando faz flag virar no-op silencioso.
 
+## Quando uma tarefa está pronta
+
+Esta seção existe porque oito tarefas deste projeto foram entregues como concluídas sem terem sido. Nenhuma das falhas abaixo é hipotética; todas aconteceram aqui e custaram uma auditoria.
+
+**Não escreva número que você não mediu.** `docs/OPERACAO.md` chegou a trazer uma tabela de "Resultado da Medição v0.1" com *"Concluído abaixo do alvo (ex: 408ms em teste local)"* e *"Tende a ficar ~30-45 MB"*. O primeiro é exemplo, o segundo é expectativa; nenhum é medição. Alvo não atingido e registrado é informação. Alvo não medido apresentado como resultado é ficção com aparência de tabela. Se não mediu, escreva **"não medido"** — ninguém vai brigar com isso.
+
+**Não afirme estado que você não verificou.** O README declarou "v0.1 publicada" sem tag, sem release, sem o gate de órfãos ter rodado. A frase custou nada de escrever e teria custado caro em quem confiasse nela.
+
+**Um teste que não pode falhar é pior que teste ausente**, porque reporta cobertura que não existe. Três casos reais aqui: o teste de paridade passava com referência vazia (o guard checava se o diretório existia, e ele existia vazio); `TestBuildBOM` afirmava que o heading *existia* e nunca o offset, enquanto o offset estava errado em 3 bytes; e as fixtures de exclusão usavam extensões que o filtro descartaria de qualquer jeito. **Antes de dizer que testou: apague a regra, rode, confirme que um teste nomeia a falha, restaure.** Se nada falhar, você escreveu a regra, não a verificou.
+
+**Schema que promete e código que ignora é pior que parâmetro ausente.** `note_list` declarava `fields` no schema e o descartava. O modelo do outro lado pede três campos, recebe tudo, e não tem como saber que o pedido não fez nada — o schema é justamente o que ele lê para decidir. Ou implemente, ou tire do schema e da documentação.
+
+**Campo de API com valor fixo mente sempre.** `alias_collisions` era `Collisions: 0` literal. Aparecia na resposta e nunca foi verdade.
+
+**Não deixe sua deliberação no código.** Três comentários começando com "Wait," e "For the sake of simplicity" foram commitados. Um deles documentava um defeito como se fosse decisão. Comentário explica por que o código é assim; raciocínio sobre o que fazer não é comentário.
+
+**Registre no ledger antes de dizer que acabou.** Oito tarefas e onze commits entraram sem uma linha. A próxima sessão não tem seu contexto — ela tem o ledger, e um ledger desatualizado faz alguém re-executar trabalho pronto, que é a falha mais cara deste fluxo. `pwsh -File scripts/sdd.ps1 status` mostra o que ele diz hoje.
+
+**Escopo não encolhe em silêncio.** Se alguma parte da tarefa não deu para fazer, entregue o resto inteiro e **diga o que ficou de fora e por quê**. Reduzir escopo é decisão de quem pediu. `BLOCKED` com o motivo é resposta melhor que uma entrega que parece completa.
+
+**O relatório é o entregável, não o resumo dele.** Comando rodado, saída real colada, prova de mutação. "Testes passam" não é evidência; a saída do teste é.
+
 ## Estado
 
 M0 completa, etiquetada `m0-lifecycle`: ciclo de vida, `internal/vault`, servidor MCP mínimo com `vault_stats`, `doctor`, e 100 ciclos de encerramento abrupto com zero órfãos.

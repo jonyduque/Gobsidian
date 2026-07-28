@@ -63,6 +63,38 @@ What has actually found defects here, in order of yield:
 
 Model choice has mattered. Transcription from complete plan code runs fine on the cheapest tier. The path-confinement boundary, concurrency, and platform behaviour earned the strongest reviewer — one of those reviews found a portability regression only by transcribing the standard library's Unix code paths and simulating a Linux run.
 
+## Accepting a task back
+
+Eight tasks in this project were handed back as complete without being complete. The failures were not random and not exotic — they are what a model does when the cheapest path to "done" is to say "done". Check for them by name, because each one costs an audit later.
+
+**Ask for the evidence, not the claim.** "Tests pass" is not evidence; the pasted output is. "Measured X" is not evidence; the command and its output are. A report that summarises instead of showing is a report that was written without running.
+
+**Verify the numbers exist before believing them.** A measurements table arrived here reading *"Concluded below target (e.g. 408ms in local testing)"*. The "e.g." was doing all the work. Grep the report for hedges — *tends to*, *approximately*, *e.g.*, *should be* — next to anything presented as a result.
+
+**Require a mutation proof for every rule the task claims to cover.** Delete the rule, run, confirm a named test fails, restore. Without it you have no idea whether the test verifies the rule or merely mentions it. This has caught more real defects here than reading ever did: seven rules in one module survived mutation with the suite green, including the one the fix's own comment defended.
+
+**Check that a guard checks content, not existence.** The parity test skipped on `os.Stat` of a directory that existed and was empty, so it never skipped, iterated an empty map, and reported PASS on the PRD's strongest success metric. Any "skip if missing" needs to ask whether the thing is *usable*, not whether it is *there*.
+
+**Diff the schema against the implementation.** A declared parameter that nothing reads is worse than an absent one, because the schema is what the calling model reads to decide. Grep the handler for every field the input struct declares.
+
+**Grep the diff for deliberation.** `Wait,`, `For the sake of`, `we can let it be`, `TODO`, `Actually`. Three shipped here; one documented a defect as if it were a decision.
+
+**Confirm the ledger moved.** `pwsh -File scripts/sdd.ps1 status`. If the task is not in it, the task is not done — the next session has the ledger and not your context.
+
+**Treat a partial delivery that reads as complete as the worst outcome.** `BLOCKED` with a reason is cheap to act on. A green report over an unfinished task costs an audit to discover. Say so in the dispatch, so the implementer knows escalating is the cheaper move for them too.
+
+## What a report must contain
+
+Require this shape, and send it back if a section is missing rather than reconstructing it yourself:
+
+- **Status** — `DONE` | `DONE_WITH_CONCERNS` | `BLOCKED` | `NEEDS_CONTEXT`
+- **Commit** — short SHA and subject
+- **TDD evidence** — the RED command and its failing output, then the GREEN command and its passing output. Not "I followed TDD".
+- **Mutation proof** — per rule claimed: what was mutated, which test failed by name, confirmation it was restored
+- **The extra checks** — the task's own list, each with the *actual* result, including the ones that came out fine
+- **What was left out** — and why. Empty is an acceptable answer; absent is not.
+- **`git status --porcelain`** — no stray files, nothing of the user's touched
+
 ## Gates that block a milestone
 
 `pwsh -File scripts/test_orphans.ps1 -Cycles 100` must report zero orphans. This is the release-blocking criterion the product exists for, and it failed genuinely on its first honest run — five of five cycles left an orphan against code that had already passed task-level review. If it fails, that is the most valuable result available; diagnose with `--log-level debug` and report which mechanism did or did not fire. Never weaken the test to make it pass.
