@@ -215,4 +215,19 @@ func TestBuildBOM(t *testing.T) {
 	if n.BOM != true {
 		t.Error("BOM field not true")
 	}
+
+	// Uma asercao de presenca nao pega deslocamento: o heading pode "existir"
+	// com o texto certo mesmo que Start/End estejam tres bytes cedo demais.
+	// Os offsets guardados no indice sao do ARQUIVO (com BOM), nao do corpo
+	// que o parser recebeu (sem BOM) — por isso fatiamos content, que ainda
+	// tem os tres bytes do marcador, e nao body.
+	h := n.Headings[0]
+	if h.Start < 0 || h.End > int64(len(content)) {
+		t.Fatalf("offsets fora do arquivo: Start=%d End=%d len=%d", h.Start, h.End, len(content))
+	}
+	got := content[h.Start:h.End]
+	want := "# Bom Heading\n"
+	if got != want {
+		t.Errorf("fatia pelos offsets do indice = %q, quer %q (offset de BOM nao foi somado)", got, want)
+	}
 }

@@ -130,11 +130,21 @@ func assertLinksMatch(t *testing.T, path string, gotLinks []ResolvedLink, wantLi
 
 func TestParityWithObsidian(t *testing.T) {
 	root := filepath.Join("..", "..", "testdata", "parity", "vault")
-	if _, err := os.Stat(root); os.IsNotExist(err) {
-		t.Skip("corpus de paridade ausente; ver tools/parity-dumper/README.md")
+	refPath := filepath.Join("..", "..", "testdata", "parity", "metadata.json")
+
+	// Checar CONTEUDO, nao existencia. Um diretorio vazio e um metadata.json
+	// com "{}" fazem o laco de comparacao nao executar nenhuma vez, e o teste
+	// passa afirmando uma paridade que ninguem verificou.
+	notes, _ := filepath.Glob(filepath.Join(root, "*.md"))
+	sub, _ := filepath.Glob(filepath.Join(root, "*", "*.md"))
+	if len(notes)+len(sub) == 0 {
+		t.Skip("corpus de paridade vazio; ver tools/parity-dumper/README.md")
 	}
 
-	ref := loadReference(t, filepath.Join("..", "..", "testdata", "parity", "metadata.json"))
+	ref := loadReference(t, refPath)
+	if len(ref) == 0 {
+		t.Skip("referencia de paridade vazia; rode o plugin dumper — ver tools/parity-dumper/README.md")
+	}
 
 	v, err := vault.New(root)
 	if err != nil {

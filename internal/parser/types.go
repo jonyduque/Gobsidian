@@ -135,3 +135,33 @@ type ParsedNote struct {
 	// FrontmatterErr registra frontmatter malformado sem abortar o parse.
 	FrontmatterErr string `json:"frontmatter_err,omitempty"`
 }
+
+// ShiftOffsets soma delta a todo offset da nota.
+//
+// Existe para uma coisa so: os offsets saem do Parse medidos sobre o buffer
+// recebido, e quem tem o arquivo precisa deles medidos sobre o arquivo. A
+// diferenca e o BOM, que vault.StripBOM removeu antes. Deslocar aqui, num
+// lugar, e o que impede cada consumidor de lembrar de somar por conta.
+func (n *ParsedNote) ShiftOffsets(delta int64) {
+	if delta == 0 {
+		return
+	}
+	for i := range n.Headings {
+		n.Headings[i].Start += delta
+		n.Headings[i].BodyStart += delta
+		n.Headings[i].End += delta
+	}
+	for i := range n.Blocks {
+		n.Blocks[i].Start += delta
+		n.Blocks[i].End += delta
+	}
+	for i := range n.Links {
+		// offsetUnknown marca posicao que o parser nao determinou; deslocar
+		// um sentinela o transformaria num offset plausivel e errado.
+		if n.Links[i].Start == offsetUnknown {
+			continue
+		}
+		n.Links[i].Start += delta
+		n.Links[i].End += delta
+	}
+}

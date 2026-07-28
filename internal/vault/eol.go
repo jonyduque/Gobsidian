@@ -29,7 +29,15 @@ func (e EOLStyle) Bytes() []byte {
 	return []byte("\n")
 }
 
-var bom = []byte{0xEF, 0xBB, 0xBF}
+const bomPrefix = "\xEF\xBB\xBF"
+
+// BOMLen e o tamanho do marcador UTF-8 que StripBOM remove. Quem guarda
+// offsets medidos sobre o corpo sem BOM precisa somar isto para obter
+// posicao no arquivo — sem isso toda leitura de secao numa nota com BOM
+// sai deslocada em tres bytes, em silencio.
+const BOMLen = len(bomPrefix)
+
+var bom = []byte(bomPrefix)
 
 // DetectEOL devolve o estilo predominante do arquivo. Arquivos com mistura
 // existem, e converter o arquivo inteiro para um estilo so seria reescrever

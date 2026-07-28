@@ -77,6 +77,9 @@ func (ix *Index) Build(ctx context.Context, v *vault.Vault) error {
 				if err != nil {
 					continue
 				}
+				if hadBOM {
+					note.ShiftOffsets(int64(vault.BOMLen))
+				}
 
 				select {
 				case results <- parsed{

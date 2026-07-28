@@ -116,3 +116,43 @@ func TestReadNoteRejectsTraversal(t *testing.T) {
 func TestReadNoteCloudOnlyFails(t *testing.T) {
 	t.Skip("requer arquivo com FILE_ATTRIBUTE_RECALL_ON_DATA_ACCESS")
 }
+
+// TestReadNoteBOMOffsetParity prova a costura entre index.Build (que soma
+// vault.BOMLen aos offsets de uma nota com BOM) e service.ReadNote (que usa
+// esses offsets contra vault.ReadRange, que le o arquivo — com o BOM ainda
+// nele). Uma asercao so sobre Headings[0].Text passaria com o bug: o heading
+// existe com o texto certo mesmo que os offsets estejam tres bytes cedo
+// demais. Aqui indexamos a MESMA nota duas vezes, uma com BOM e outra sem, e
+// exigimos que o conteudo devolvido pela mesma secao seja identico — isso so
+// pode passar se os offsets guardados no indice forem os do arquivo, nao os
+// do corpo sem BOM que o parser recebeu.
+func TestReadNoteBOMOffsetParity(t *testing.T) {
+	body := "# Titulo\n\n## Alvo\n\nCONTEUDO-ESPERADO\n\n## Depois\n\noutro texto\n"
+
+	rootNoBOM := t.TempDir()
+	writeFile(t, rootNoBOM, "A.md", body)
+	svcNoBOM := newTestService(t, rootNoBOM)
+
+	rootBOM := t.TempDir()
+	writeFile(t, rootBOM, "A.md", "\xef\xbb\xbf"+body)
+	svcBOM := newTestService(t, rootBOM)
+
+	resNoBOM, err := svcNoBOM.ReadNote(context.Background(), ReadRequest{Path: "A.md", Heading: "Alvo"})
+	if err != nil {
+		t.Fatalf("ReadNote (sem BOM): %v", err)
+	}
+	resBOM, err := svcBOM.ReadNote(context.Background(), ReadRequest{Path: "A.md", Heading: "Alvo"})
+	if err != nil {
+		t.Fatalf("ReadNote (com BOM): %v", err)
+	}
+	t.Logf("conteudo sem BOM: %q", resNoBOM.Content)
+	t.Logf("conteudo com BOM: %q", resBOM.Content)
+
+	if resNoBOM.Content != resBOM.Content {
+		t.Errorf("conteudo divergiu entre nota sem BOM e com BOM:\n  sem BOM: %q\n  com BOM: %q", resNoBOM.Content, resBOM.Content)
+	}
+	wantContent := "## Alvo\n\nCONTEUDO-ESPERADO\n\n"
+	if resNoBOM.Content != wantContent {
+		t.Errorf("conteudo sem BOM = %q, quer %q", resNoBOM.Content, wantContent)
+	}
+}

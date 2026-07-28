@@ -64,6 +64,9 @@ func (ix *Index) Replace(ctx context.Context, v *vault.Vault, path vault.Canonic
 	if err != nil {
 		return err
 	}
+	if hadBOM {
+		note.ShiftOffsets(int64(vault.BOMLen))
+	}
 
 	n := &Note{
 		Path:        entry.Path,
