@@ -1,6 +1,7 @@
 package index
 
 import (
+	"path/filepath"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -110,16 +111,13 @@ func (ix *Index) insert(r parsed) {
 
 	lower := strings.ToLower(string(r.entry.Path))
 	ix.lowerPath[lower] = r.entry.Path
-}
 
-func (ix *Index) buildAliasMap() {
-	// Not specified in the instruction, leave empty for now
-}
-
-func (ix *Index) resolveAllLinks() {
-	// Not specified in the instruction, leave empty for now
+	// Populate byName for note and asset resolution
+	base := vault.CanonicalPath(filepath.ToSlash(filepath.Base(string(r.entry.Path))))
+	ix.byName[string(base)] = append(ix.byName[string(base)], r.entry.Path)
 }
 
 func (ix *Index) buildBacklinks() {
 	// Not specified in the instruction, leave empty for now
 }
+
