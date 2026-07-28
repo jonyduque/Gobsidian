@@ -120,4 +120,3 @@ func (ix *Index) insert(r parsed) {
 func (ix *Index) buildBacklinks() {
 	// Not specified in the instruction, leave empty for now
 }
-
