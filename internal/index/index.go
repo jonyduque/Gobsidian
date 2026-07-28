@@ -100,6 +100,10 @@ func (ix *Index) insert(r parsed) {
 			n.Links = append(n.Links, ResolvedLink{Link: l})
 		}
 
+		for _, t := range r.note.Tags {
+			ix.tags[t] = append(ix.tags[t], r.entry.Path)
+		}
+
 		ix.notes[r.entry.Path] = n
 	} else {
 		a := &Asset{
