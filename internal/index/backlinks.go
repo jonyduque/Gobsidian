@@ -2,6 +2,7 @@ package index
 
 import "github.com/jonyd/gobsidian/internal/vault"
 
+// Backlinks devolve as referencias que chegam naquela nota.
 func (ix *Index) Backlinks(path vault.CanonicalPath) []Backlink {
 	ix.mu.RLock()
 	defer ix.mu.RUnlock()

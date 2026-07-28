@@ -38,7 +38,7 @@ func collect(doc gast.Node, body []byte, bodyOffset int64, note *ParsedNote) {
 				// usado para resolver e decodificado.
 				Raw:    string(node.Destination),
 				Target: PercentDecode(string(node.Destination)),
-				Alias:  string(node.Text(body)),
+				Alias:  inlineText(node, body),
 				Kind:   LinkEmbed,
 				Start:  offsetUnknown,
 				End:    offsetUnknown,
@@ -53,7 +53,7 @@ func collect(doc gast.Node, body []byte, bodyOffset int64, note *ParsedNote) {
 				// alvo decodificado.
 				Raw:    string(node.Destination),
 				Target: PercentDecode(string(node.Destination)),
-				Alias:  string(node.Text(body)),
+				Alias:  inlineText(node, body),
 				Kind:   LinkMarkdown,
 				Start:  offsetUnknown,
 				End:    offsetUnknown,
@@ -171,6 +171,30 @@ func dedupeTags(note *ParsedNote) {
 	}
 	sort.Strings(out)
 	note.Tags = out
+}
+
+// inlineText concatena o texto visivel dos filhos de um no inline.
+//
+// Substitui gast.Node.Text, depreciada no goldmark: ela fazia exatamente esta
+// travessia por dentro. O texto visivel de "[Ponto 3](Civil/PONTO 03.md)" e
+// "Ponto 3", e e ele que vira o Alias do link.
+//
+// A recursao existe porque o rotulo pode ter formatacao: em "[**Ponto** 3](x)"
+// o "Ponto" e filho de um no de enfase, e parar no primeiro nivel perderia a
+// metade em negrito do rotulo.
+func inlineText(n gast.Node, src []byte) string {
+	var b strings.Builder
+	for c := n.FirstChild(); c != nil; c = c.NextSibling() {
+		switch t := c.(type) {
+		case *gast.Text:
+			b.Write(t.Segment.Value(src))
+		case *gast.String:
+			b.Write(t.Value)
+		default:
+			b.WriteString(inlineText(c, src))
+		}
+	}
+	return b.String()
 }
 
 // PercentDecode desfaz escapes %XX de um destino de link Markdown.

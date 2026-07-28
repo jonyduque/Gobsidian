@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 
@@ -9,6 +10,9 @@ import (
 	"github.com/jonyd/gobsidian/internal/parser"
 )
 
+// ReadRequest sao os parametros de note_read. Heading e BlockID sao
+// mutuamente exclusivos: os dois juntos descrevem dois recortes diferentes da
+// mesma nota, e adivinhar qual vale seria decidir pelo cliente.
 type ReadRequest struct {
 	Path               string
 	Heading            string
@@ -18,6 +22,9 @@ type ReadRequest struct {
 	IncludeFrontmatter bool
 }
 
+// ReadResult e o retorno de note_read. Section vem preenchido so quando a
+// leitura foi recortada por heading, e Truncated diz que MaxBytes cortou o
+// resultado — sem ele o cliente nao distingue nota curta de nota cortada.
 type ReadResult struct {
 	Content   string
 	Hash      string
@@ -25,6 +32,10 @@ type ReadResult struct {
 	Truncated bool
 }
 
+// ReadNote le uma nota, ou um recorte dela por heading ou por bloco.
+//
+// Le apenas o intervalo de bytes pedido: e o offset guardado no indice que faz
+// uma secao de 2 KB numa nota de 500 KB custar 2 KB.
 func (s *Service) ReadNote(ctx context.Context, req ReadRequest) (ReadResult, error) {
 	if req.Heading != "" && req.BlockID != "" {
 		return ReadResult{}, Errorf(CodeInternal, "heading e block_id sao mutuamente exclusivos")
@@ -32,7 +43,7 @@ func (s *Service) ReadNote(ctx context.Context, req ReadRequest) (ReadResult, er
 
 	canonical, err := s.index.ResolvePath(req.Path)
 	if err != nil {
-		if err == index.ErrAmbiguousPath {
+		if errors.Is(err, index.ErrAmbiguousPath) {
 			return ReadResult{}, Errorf(CodeAmbiguousPath, "caminho %q resolve para mais de um arquivo", req.Path)
 		}
 		if strings.Contains(req.Path, "../") {
@@ -54,7 +65,8 @@ func (s *Service) ReadNote(ctx context.Context, req ReadRequest) (ReadResult, er
 	end := note.Size
 	var matchedHeading *parser.Heading
 
-	if req.Heading != "" {
+	switch {
+	case req.Heading != "":
 		targetSlug := parser.Slug(req.Heading)
 		var matches []parser.Heading
 
@@ -83,7 +95,8 @@ func (s *Service) ReadNote(ctx context.Context, req ReadRequest) (ReadResult, er
 		matchedHeading = &matches[0]
 		start = int64(matchedHeading.Start)
 		end = int64(matchedHeading.End)
-	} else if req.BlockID != "" {
+
+	case req.BlockID != "":
 		found := false
 		for _, b := range note.Blocks {
 			if b.ID == req.BlockID {
@@ -96,17 +109,22 @@ func (s *Service) ReadNote(ctx context.Context, req ReadRequest) (ReadResult, er
 		if !found {
 			return ReadResult{}, Errorf(CodeBlockNotFound, "bloco %q nao encontrado", req.BlockID)
 		}
-	} else {
-		if !req.IncludeFrontmatter {
-			// Compute bodyOffset
-			// We can do this efficiently by reading the first 4KB. If it's not enough, we fallback to read all.
-			// Actually, just read all and split.
-			data, err := s.vault.ReadAll(ctx, canonical)
-			if err == nil {
-				_, _, bodyOffset := parser.SplitFrontmatter(data)
-				start = bodyOffset
-			}
+
+	case !req.IncludeFrontmatter:
+		// O indice guarda offsets, nao conteudo, e o offset do corpo nao esta
+		// entre eles — descobri-lo exige olhar os bytes.
+		//
+		// O erro de leitura NAO pode ser engolido. Antes ele era, e a
+		// consequencia era pior que uma falha: start ficava em 0, a nota
+		// voltava COM o frontmatter, e o cliente que pediu para nao receber
+		// frontmatter recebia um resultado de sucesso contendo exatamente o
+		// que ele excluiu.
+		data, err := s.vault.ReadAll(ctx, canonical)
+		if err != nil {
+			return ReadResult{}, Wrap(CodeInternal, err, "lendo %q para localizar o inicio do corpo", req.Path)
 		}
+		_, _, bodyOffset := parser.SplitFrontmatter(data)
+		start = bodyOffset
 	}
 
 	if req.MaxBytes > 0 && (end-start) > int64(req.MaxBytes) {

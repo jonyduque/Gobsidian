@@ -33,7 +33,7 @@ func newTestServerWithIndex(t *testing.T, root string) *mcpsrv.Server {
 	svc := service.New(v, idx, service.Options{})
 	cfg := config.Defaults()
 
-	return mcpsrv.New(svc, cfg, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	return mcpsrv.New(context.Background(), svc, cfg, slog.New(slog.NewTextHandler(io.Discard, nil)))
 }
 
 func TestReadTools(t *testing.T) {
@@ -116,9 +116,14 @@ func TestReadTools(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			b, _ := json.Marshal(tt.args)
-			var args map[string]interface{}
-			json.Unmarshal(b, &args)
+			b, err := json.Marshal(tt.args)
+			if err != nil {
+				t.Fatalf("json.Marshal(%+v): %v", tt.args, err)
+			}
+			var args map[string]any
+			if err := json.Unmarshal(b, &args); err != nil {
+				t.Fatalf("json.Unmarshal: %v", err)
+			}
 
 			res, err := session.CallTool(ctx, &mcp.CallToolParams{
 				Name:      tt.tool,

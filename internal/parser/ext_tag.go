@@ -22,8 +22,10 @@ type TagNode struct {
 	Name string
 }
 
+// Kind identifica o no de tag para o goldmark.
 func (n *TagNode) Kind() gast.NodeKind { return kindTag }
 
+// Dump imprime o no na arvore de depuracao do goldmark.
 func (n *TagNode) Dump(src []byte, level int) {
 	gast.DumpHelper(n, src, level, map[string]string{"Name": n.Name}, nil)
 }
@@ -158,6 +160,11 @@ func collapseTagSlashes(s string) string {
 // TagExtension registra o inline parser no goldmark.
 type TagExtension struct{}
 
+// Extend registra o parser inline de tag no goldmark.
+//
+// E parser INLINE, e nao varredura de texto, de proposito: o goldmark nao
+// chama parsers inline dentro de bloco de codigo, entao a supressao dentro de
+// crase sai de graca em vez de virar mais uma regra para manter.
 func (TagExtension) Extend(md goldmark.Markdown) {
 	md.Parser().AddOptions(
 		gparser.WithInlineParsers(

@@ -29,8 +29,10 @@ type WikilinkNode struct {
 	End      int64
 }
 
+// Kind identifica o no de wikilink para o goldmark.
 func (n *WikilinkNode) Kind() gast.NodeKind { return kindWikilink }
 
+// Dump imprime o no na arvore de depuracao do goldmark.
 func (n *WikilinkNode) Dump(src []byte, level int) {
 	gast.DumpHelper(n, src, level, map[string]string{
 		"Target":   n.Target,
@@ -126,6 +128,11 @@ func splitWikilink(inner string) (target, anchor, alias string) {
 // WikilinkExtension registra o inline parser no goldmark.
 type WikilinkExtension struct{}
 
+// Extend registra o parser inline de wikilink no goldmark.
+//
+// E parser INLINE, e nao varredura de texto, de proposito: o goldmark nao
+// chama parsers inline dentro de bloco de codigo, entao a supressao dentro de
+// crase sai de graca em vez de virar mais uma regra para manter.
 func (WikilinkExtension) Extend(md goldmark.Markdown) {
 	md.Parser().AddOptions(
 		gparser.WithInlineParsers(

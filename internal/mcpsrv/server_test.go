@@ -38,7 +38,7 @@ func newTestServer(t *testing.T, root string) *mcpsrv.Server {
 	svc := service.New(v, nil, service.Options{})
 	cfg := config.Defaults()
 
-	return mcpsrv.New(svc, cfg, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	return mcpsrv.New(context.Background(), svc, cfg, slog.New(slog.NewTextHandler(io.Discard, nil)))
 }
 
 func TestServerAnswersInitializeAndListsTools(t *testing.T) {

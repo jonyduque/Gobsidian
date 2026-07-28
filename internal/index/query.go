@@ -15,6 +15,8 @@ import (
 	"golang.org/x/text/unicode/norm"
 )
 
+// Query e o filtro de note_list: pasta, tags, campos de frontmatter,
+// ordenacao e limite. Os criterios se combinam por E.
 type Query struct {
 	Folder      string
 	Glob        string
@@ -28,6 +30,7 @@ type Query struct {
 	Offset      int
 }
 
+// TagCount e uma tag com o numero de notas que a usam.
 type TagCount struct {
 	Tag   string
 	Count int
@@ -172,6 +175,8 @@ func (ix *Index) AliasCollisions() int {
 	return n
 }
 
+// Tags devolve as tags do cofre com suas contagens, filtradas por prefixo e
+// por contagem minima.
 func (ix *Index) Tags(prefix string, minCount int) []TagCount {
 	ix.mu.RLock()
 	defer ix.mu.RUnlock()
@@ -193,6 +198,8 @@ func (ix *Index) Tags(prefix string, minCount int) []TagCount {
 	return result
 }
 
+// List aplica a consulta e devolve as notas junto do total ANTES do limite —
+// sem esse total o cliente nao sabe que existe mais do que ele recebeu.
 func (ix *Index) List(q Query) ([]*Note, int) {
 	ix.mu.RLock()
 	defer ix.mu.RUnlock()

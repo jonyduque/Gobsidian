@@ -7,11 +7,17 @@ import (
 	"github.com/jonyd/gobsidian/internal/vault"
 )
 
+// LinkState diz o que aconteceu ao tentar resolver um link.
 type LinkState int
 
 const (
+	// LinkOK resolveu para uma nota ou anexo do cofre.
 	LinkOK LinkState = iota
+	// LinkTargetMissing deveria resolver para algo do cofre e nao resolveu.
+	// E o que conta como link quebrado.
 	LinkTargetMissing
+	// LinkAnchorMissing resolveu a nota, mas nao o heading ou bloco citado
+	// depois do #. A nota existe; a ancora dentro dela, nao.
 	LinkAnchorMissing
 	// LinkExternal e um alvo que nunca foi para o cofre: tem esquema de URI.
 	//
@@ -39,13 +45,22 @@ func (s LinkState) String() string {
 	}
 }
 
+// ResolveVia registra QUAL regra resolveu o link. Duas notas com o mesmo
+// nome em pastas diferentes tornam a regra que venceu uma informacao util
+// para diagnosticar um alvo inesperado.
 type ResolveVia int
 
 const (
+	// ViaNone significa que nenhuma regra resolveu o link.
 	ViaNone ResolveVia = iota
+	// ViaPath resolveu porque o alvo ja era um caminho do cofre.
 	ViaPath
+	// ViaName resolveu pelo nome do arquivo, sem o caminho.
 	ViaName
+	// ViaAsset resolveu para um anexo, nao para uma nota.
 	ViaAsset
+	// ViaAlias resolveu por um alias declarado no frontmatter. E uma
+	// divergencia deliberada do Obsidian, que NAO resolve links por alias.
 	ViaAlias
 )
 
@@ -73,6 +88,8 @@ type ResolvedLink struct {
 	State    LinkState
 }
 
+// Note e uma nota indexada: metadados e offsets, sem o corpo.
+// Ler o corpo custa uma ida ao disco, de proposito.
 type Note struct {
 	Path    vault.CanonicalPath
 	Title   string
@@ -96,12 +113,19 @@ type Note struct {
 	Inline      map[string][]string
 }
 
+// Asset e um anexo. Nao tem hash nem conteudo: ele e indexado por nome e
+// nunca aberto, porque abri-lo dispararia download de arquivo somente-nuvem e
+// porque o cofre so precisa saber que ele existe para nao chamar de quebrado
+// o embed que aponta para ele.
 type Asset struct {
 	Path    vault.CanonicalPath
 	Size    int64
 	ModTime time.Time
 }
 
+// Backlink e uma referencia CHEGANDO numa nota, com o contexto de texto ao
+// redor — o backlink sem contexto obriga a abrir a nota de origem para saber
+// se a referencia interessa.
 type Backlink struct {
 	From    vault.CanonicalPath
 	Anchor  string

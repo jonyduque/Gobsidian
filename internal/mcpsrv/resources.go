@@ -11,7 +11,7 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
-func (s *Server) registerResources() {
+func (s *Server) registerResources(ctx context.Context) {
 	// Handler compartilhado
 	handler := func(ctx context.Context, req *mcp.ReadResourceRequest) (res *mcp.ReadResourceResult, err error) {
 		defer func() {
@@ -58,8 +58,10 @@ func (s *Server) registerResources() {
 		MIMEType:    "text/markdown",
 	}, handler)
 
-	// Busca as 200 últimas notas modificadas
-	ctx := context.Background()
+	// Busca as 200 ultimas notas modificadas. O ctx vem de quem construiu o
+	// servidor: usar context.Background() aqui desligaria este trecho do
+	// cancelamento do processo, e um cofre grande faz dele um trecho que
+	// demora.
 	res, err := s.svc.ListNotes(ctx, service.ListRequest{
 		Query: index.Query{Limit: 200, Sort: "modified", Order: "desc"},
 	})

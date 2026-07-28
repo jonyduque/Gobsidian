@@ -12,6 +12,12 @@ import (
 	"github.com/jonyd/gobsidian/internal/vault"
 )
 
+// Replace reindexa um unico caminho: remove as contribuicoes antigas, le e
+// parseia de novo, reinsere, e reprocessa os links afetados.
+//
+// E o ponto de chegada do watcher. Arquivo que sumiu entre o evento e o
+// Stat nao e erro: a nota sai do indice e os links para ela passam a
+// quebrados.
 func (ix *Index) Replace(ctx context.Context, v *vault.Vault, path vault.CanonicalPath) error {
 	ix.mu.Lock()
 	defer ix.mu.Unlock()
@@ -24,7 +30,9 @@ func (ix *Index) Replace(ctx context.Context, v *vault.Vault, path vault.Canonic
 	info, err := os.Stat(abs)
 	if err != nil {
 		if os.IsNotExist(err) {
-			ix.markLinksToTargetMissingLocked(path)
+			// Nota sumiu entre o evento e o Stat. Reprocessar todos os
+			// links e o que marca como quebrados os que apontavam para ela.
+			ix.reprocessLinksLocked()
 			return nil
 		}
 		return err
@@ -125,6 +133,8 @@ func (ix *Index) Replace(ctx context.Context, v *vault.Vault, path vault.Canonic
 	return nil
 }
 
+// Remove tira o caminho do indice e marca como quebrados os links que
+// apontavam para ele.
 func (ix *Index) Remove(path vault.CanonicalPath) {
 	ix.mu.Lock()
 	defer ix.mu.Unlock()
@@ -132,7 +142,9 @@ func (ix *Index) Remove(path vault.CanonicalPath) {
 	ix.removeContributionsLocked(path)
 	atomic.AddUint64(&ix.generation, 1)
 
-	ix.markLinksToTargetMissingLocked(path)
+	// Reprocessar todos os links e o que marca como quebrados os que
+	// apontavam para a nota removida.
+	ix.reprocessLinksLocked()
 }
 
 func (ix *Index) removeContributionsLocked(path vault.CanonicalPath) {
@@ -287,10 +299,4 @@ func (ix *Index) reprocessLinksLocked() {
 			}
 		}
 	}
-}
-
-func (ix *Index) markLinksToTargetMissingLocked(path vault.CanonicalPath) {
-	// Links que apontavam para path agora estao quebrados.
-	// reprocessLinksLocked() cuida disso se iterarmos todas as notas.
-	ix.reprocessLinksLocked()
 }

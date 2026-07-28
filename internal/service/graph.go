@@ -10,29 +10,39 @@ import (
 	"github.com/jonyd/gobsidian/internal/vault"
 )
 
+// GraphRequest sao os parametros de link_graph. Depth e Limit existem porque
+// o grafo de um cofre real cresce depressa demais para caber numa resposta.
 type GraphRequest struct {
 	Path  string `json:"path"`
 	Depth int    `json:"depth"`
 	Limit int    `json:"limit"`
 }
 
+// GraphNode e uma nota no grafo de links.
 type GraphNode struct {
 	Path  string `json:"path"`
 	Title string `json:"title,omitempty"`
 }
 
+// GraphEdge e um link resolvido, da origem para o alvo. Link externo e link
+// quebrado nao viram aresta: nao ha nota do outro lado.
 type GraphEdge struct {
 	Source string `json:"source"`
 	Target string `json:"target"`
 	Kind   string `json:"kind,omitempty"`
 }
 
+// GraphResult e o retorno de link_graph.
 type GraphResult struct {
 	Nodes []GraphNode `json:"nodes"`
 	Edges []GraphEdge `json:"edges"`
 }
 
-func (s *Service) LinkGraph(ctx context.Context, req GraphRequest) (GraphResult, error) {
+// LinkGraph percorre o grafo a partir de uma nota, ate a profundidade pedida.
+//
+// Nao recebe ctx util: le so o indice em memoria, e um ctx que nenhum corpo
+// verifica ensina o revisor a ignorar ctx onde ele importa.
+func (s *Service) LinkGraph(_ context.Context, req GraphRequest) (GraphResult, error) {
 	if s.index == nil {
 		return GraphResult{}, fmt.Errorf("index not available")
 	}
@@ -89,8 +99,8 @@ func (s *Service) LinkGraph(ctx context.Context, req GraphRequest) (GraphResult,
 
 		for _, link := range n.Links {
 			if link.State == index.LinkOK && link.Resolved != "" {
-				edgeId := string(curr.Path) + "->" + string(link.Resolved)
-				edgesMap[edgeId] = GraphEdge{Source: string(curr.Path), Target: string(link.Resolved)}
+				edgeID := string(curr.Path) + "->" + string(link.Resolved)
+				edgesMap[edgeID] = GraphEdge{Source: string(curr.Path), Target: string(link.Resolved)}
 
 				if !visited[link.Resolved] && len(nodesMap)+len(queue) < limit {
 					queue = append(queue, queueItem{Path: link.Resolved, Depth: curr.Depth + 1})
@@ -99,8 +109,8 @@ func (s *Service) LinkGraph(ctx context.Context, req GraphRequest) (GraphResult,
 		}
 
 		for _, bl := range s.index.Backlinks(curr.Path) {
-			edgeId := string(bl.From) + "->" + string(curr.Path)
-			edgesMap[edgeId] = GraphEdge{Source: string(bl.From), Target: string(curr.Path), Kind: fmt.Sprint(bl.Kind)}
+			edgeID := string(bl.From) + "->" + string(curr.Path)
+			edgesMap[edgeID] = GraphEdge{Source: string(bl.From), Target: string(curr.Path), Kind: fmt.Sprint(bl.Kind)}
 
 			if !visited[bl.From] && len(nodesMap)+len(queue) < limit {
 				queue = append(queue, queueItem{Path: bl.From, Depth: curr.Depth + 1})
@@ -123,17 +133,22 @@ func (s *Service) LinkGraph(ctx context.Context, req GraphRequest) (GraphResult,
 	return res, nil
 }
 
+// TagRequest sao os parametros de tag_list.
 type TagRequest struct {
 	Prefix       string `json:"prefix"`
 	MinCount     int    `json:"min_count"`
 	Hierarchical bool   `json:"hierarchical"`
 }
 
+// TagResult e o retorno de tag_list, com a contagem por tag.
 type TagResult struct {
 	Tags []index.TagCount `json:"tags"`
 }
 
-func (s *Service) TagList(ctx context.Context, req TagRequest) (TagResult, error) {
+// TagList devolve as tags do cofre com suas contagens.
+//
+// Nao recebe ctx util: le so o indice em memoria.
+func (s *Service) TagList(_ context.Context, req TagRequest) (TagResult, error) {
 	if s.index == nil {
 		return TagResult{}, fmt.Errorf("index not available")
 	}
@@ -141,6 +156,7 @@ func (s *Service) TagList(ctx context.Context, req TagRequest) (TagResult, error
 	return TagResult{Tags: tags}, nil
 }
 
+// ListRequest sao os parametros de note_list.
 type ListRequest struct {
 	Query index.Query `json:"query"`
 	// Fields sao os campos de frontmatter a incluir em cada item. Vazio
@@ -165,12 +181,18 @@ type ListItem struct {
 	Fields   map[string]any `json:"fields,omitempty"`
 }
 
+// ListResult e o retorno de note_list. Total e a contagem ANTES do limite,
+// para o cliente saber que existe mais do que ele recebeu.
 type ListResult struct {
 	Notes []ListItem `json:"notes"`
 	Total int        `json:"total"`
 }
 
-func (s *Service) ListNotes(ctx context.Context, req ListRequest) (ListResult, error) {
+// ListNotes filtra e ordena notas por metadados, devolvendo a projecao barata
+// ListItem em vez da Note inteira.
+//
+// Nao recebe ctx util: le so o indice em memoria.
+func (s *Service) ListNotes(_ context.Context, req ListRequest) (ListResult, error) {
 	if s.index == nil {
 		return ListResult{}, fmt.Errorf("index not available")
 	}
@@ -219,10 +241,12 @@ func selectFields(fm map[string]any, want []string) map[string]any {
 	return out
 }
 
+// MetadataRequest sao os parametros de note_metadata.
 type MetadataRequest struct {
 	Path string `json:"path"`
 }
 
+// MetadataResult e tudo o que o indice sabe de uma nota sem ler o disco.
 type MetadataResult struct {
 	Path        string               `json:"path"`
 	Frontmatter map[string]any       `json:"frontmatter,omitempty"`
@@ -234,7 +258,9 @@ type MetadataResult struct {
 	Backlinks   []index.Backlink     `json:"backlinks,omitempty"`
 }
 
-func (s *Service) NoteMetadata(ctx context.Context, req MetadataRequest) (MetadataResult, error) {
+// NoteMetadata devolve tudo o que o indice sabe de uma nota sem abrir o
+// arquivo.
+func (s *Service) NoteMetadata(_ context.Context, req MetadataRequest) (MetadataResult, error) {
 	if s.index == nil {
 		return MetadataResult{}, fmt.Errorf("index not available")
 	}
@@ -268,6 +294,8 @@ func (s *Service) NoteMetadata(ctx context.Context, req MetadataRequest) (Metada
 	}, nil
 }
 
+// RuntimeStats sao os numeros do runtime do Go, para diagnosticar consumo de
+// memoria e vazamento de goroutine contra o orcamento de RNF-07.
 type RuntimeStats struct {
 	NumGoroutine int    `json:"num_goroutine"`
 	Alloc        uint64 `json:"alloc"`
@@ -276,11 +304,17 @@ type RuntimeStats struct {
 	NumGC        uint32 `json:"num_gc"`
 }
 
+// StatsRequest sao os parametros de vault_stats. Os dois campos sao opcionais
+// porque as contagens de saude percorrem o indice inteiro e o runtime so
+// interessa quando se esta diagnosticando.
 type StatsRequest struct {
 	IncludeHealth  bool `json:"include_health"`
 	IncludeRuntime bool `json:"include_runtime"`
 }
 
+// StatsResult e o retorno de vault_stats. Os campos aqui sao contrato
+// publico: docs/TOOLS.md descreve cada um pelo nome JSON, e um campo declarado
+// que ninguem preenche e pior que um campo ausente, porque quem le acredita.
 type StatsResult struct {
 	Notes        int           `json:"notes"`
 	Assets       int           `json:"assets"`

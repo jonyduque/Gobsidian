@@ -10,6 +10,11 @@ import (
 	"github.com/jonyd/gobsidian/internal/vault"
 )
 
+// Index e o cofre indexado em memoria: metadados e OFFSETS DE BYTE, nunca
+// conteudo. E o que sustenta o orcamento de 60 MB de RSS e o que faz ler uma
+// secao de 2 KB numa nota de 500 KB custar 2 KB.
+//
+// Leituras sao concorrentes; escritas sao serializadas na thread do watcher.
 type Index struct {
 	mu sync.RWMutex
 
@@ -24,6 +29,7 @@ type Index struct {
 	generation uint64
 }
 
+// New devolve um indice vazio. Quem o popula e Build, a partir de um cofre.
 func New() *Index {
 	return &Index{
 		notes:     make(map[vault.CanonicalPath]*Note),
@@ -36,6 +42,11 @@ func New() *Index {
 	}
 }
 
+// Get devolve a nota daquele caminho canonico.
+//
+// O booleano NAO e opcional: Get resolve NOTAS, e Paths devolve notas e anexos.
+// Iterar Paths chamando Get e desreferenciar sem checar estoura em qualquer
+// cofre que tenha um anexo. Use NotePaths quando quiser so as notas.
 func (ix *Index) Get(path vault.CanonicalPath) (*Note, bool) {
 	ix.mu.RLock()
 	defer ix.mu.RUnlock()
@@ -43,18 +54,22 @@ func (ix *Index) Get(path vault.CanonicalPath) (*Note, bool) {
 	return n, ok
 }
 
+// NoteCount e a quantidade de notas indexadas.
 func (ix *Index) NoteCount() int {
 	ix.mu.RLock()
 	defer ix.mu.RUnlock()
 	return len(ix.notes)
 }
 
+// AssetCount e a quantidade de anexos indexados. Anexo entra por nome e
+// nunca e lido — sem isso todo embed de imagem viraria link quebrado.
 func (ix *Index) AssetCount() int {
 	ix.mu.RLock()
 	defer ix.mu.RUnlock()
 	return len(ix.assets)
 }
 
+// TotalSize soma os tamanhos de notas e anexos, em bytes.
 func (ix *Index) TotalSize() int64 {
 	ix.mu.RLock()
 	defer ix.mu.RUnlock()
@@ -68,6 +83,8 @@ func (ix *Index) TotalSize() int64 {
 	return total
 }
 
+// Generation conta mutacoes do indice desde o boot. Um cliente que guardou
+// um resultado pode comparar a geracao para saber se ele envelheceu.
 func (ix *Index) Generation() uint64 {
 	return atomic.LoadUint64(&ix.generation)
 }
@@ -122,6 +139,11 @@ func (ix *Index) insert(r parsed) {
 	ix.byName[string(base)] = append(ix.byName[string(base)], r.entry.Path)
 }
 
+// Paths devolve todos os caminhos indexados, notas E anexos, ordenados.
+//
+// Get so resolve notas. Iterar isto chamando Get e desreferenciar sem
+// checar o booleano estoura em qualquer cofre que tenha um anexo — use
+// NotePaths quando quiser so as notas.
 func (ix *Index) Paths() []vault.CanonicalPath {
 	ix.mu.RLock()
 	defer ix.mu.RUnlock()

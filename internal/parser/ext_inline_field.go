@@ -25,8 +25,10 @@ type InlineFieldNode struct {
 	Value string
 }
 
+// Kind identifica o no de campo do Dataview para o goldmark.
 func (n *InlineFieldNode) Kind() gast.NodeKind { return kindInlineField }
 
+// Dump imprime o no na arvore de depuracao do goldmark.
 func (n *InlineFieldNode) Dump(src []byte, level int) {
 	gast.DumpHelper(n, src, level, map[string]string{"Key": n.Key, "Value": n.Value}, nil)
 }
@@ -245,6 +247,11 @@ func (p *inlineFieldParser) parseFromBracket(block text.Reader, line []byte) gas
 // InlineFieldExtension registra o inline parser no goldmark.
 type InlineFieldExtension struct{}
 
+// Extend registra o parser inline de campo do Dataview no goldmark.
+//
+// E parser INLINE, e nao varredura de texto, de proposito: o goldmark nao
+// chama parsers inline dentro de bloco de codigo, entao a supressao dentro de
+// crase sai de graca em vez de virar mais uma regra para manter.
 func (InlineFieldExtension) Extend(md goldmark.Markdown) {
 	md.Parser().AddOptions(
 		gparser.WithInlineParsers(

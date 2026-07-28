@@ -25,8 +25,10 @@ type BlockIDNode struct {
 	End   int64
 }
 
+// Kind identifica o no de block id para o goldmark.
 func (n *BlockIDNode) Kind() gast.NodeKind { return kindBlockID }
 
+// Dump imprime o no na arvore de depuracao do goldmark.
 func (n *BlockIDNode) Dump(src []byte, level int) {
 	gast.DumpHelper(n, src, level, map[string]string{"ID": n.ID}, nil)
 }
@@ -118,6 +120,11 @@ func (p *blockIDParser) Parse(parent gast.Node, block text.Reader, _ gparser.Con
 // BlockIDExtension registra o inline parser no goldmark.
 type BlockIDExtension struct{}
 
+// Extend registra o parser inline de block id no goldmark.
+//
+// E parser INLINE, e nao varredura de texto, de proposito: o goldmark nao
+// chama parsers inline dentro de bloco de codigo, entao a supressao dentro de
+// crase sai de graca em vez de virar mais uma regra para manter.
 func (BlockIDExtension) Extend(md goldmark.Markdown) {
 	md.Parser().AddOptions(
 		gparser.WithInlineParsers(

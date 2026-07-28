@@ -110,7 +110,7 @@ func runServe(parent context.Context, cfg config.Config) error {
 		ReadOnly:   cfg.ReadOnly,
 		MaxResults: cfg.MaxResults,
 	})
-	srv := mcpsrv.New(svc, cfg, log)
+	srv := mcpsrv.New(ctx, svc, cfg, log)
 
 	log.Info("servidor pronto",
 		"vault", cfg.VaultPath,

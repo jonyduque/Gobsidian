@@ -77,12 +77,7 @@ func loadReference(t *testing.T, path string) Reference {
 	// metadados, entao o campo "schema" ausente e o que distingue os dois.
 	var v2 dumpV2
 	if err := json.Unmarshal(raw, &v2); err == nil && v2.Schema >= 2 {
-		return Reference{
-			Schema:          v2.Schema,
-			Notes:           v2.Notes,
-			ResolvedLinks:   v2.ResolvedLinks,
-			UnresolvedLinks: v2.UnresolvedLinks,
-		}
+		return Reference(v2)
 	}
 
 	var flat map[string]RefNote

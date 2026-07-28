@@ -8,6 +8,9 @@ import (
 	"github.com/jonyd/gobsidian/internal/vault"
 )
 
+// ErrAmbiguousPath sinaliza que a entrada casou com mais de um arquivo e
+// nenhuma regra de desempate decidiu. Devolver um dos candidatos em silencio
+// seria pior: o cliente leria a nota errada acreditando ter lido a certa.
 var ErrAmbiguousPath = errors.New("ambiguous path")
 
 func (ix *Index) resolveAllLinks() {
@@ -211,6 +214,9 @@ func (ix *Index) tiebreak(candidates []vault.CanonicalPath, origin vault.Canonic
 	return best
 }
 
+// ResolvePath traduz o que o cliente escreveu — caminho, nome de arquivo ou
+// alias — no caminho canonico da nota. Devolve ErrAmbiguousPath quando mais de
+// um arquivo casa e o desempate nao decide.
 func (ix *Index) ResolvePath(input string) (vault.CanonicalPath, error) {
 	ix.mu.RLock()
 	defer ix.mu.RUnlock()

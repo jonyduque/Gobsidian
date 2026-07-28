@@ -34,7 +34,7 @@ type Server struct {
 // tools de escrita nao sao registradas — e nao apenas recusadas na chamada:
 // um host que ve a tool anunciada vai tentar usa-la, e a recusa vira uma
 // rodada desperdicada (PRD RF-55).
-func New(svc *service.Service, cfg config.Config, log *slog.Logger) *Server {
+func New(ctx context.Context, svc *service.Service, cfg config.Config, log *slog.Logger) *Server {
 	s := &Server{
 		mcp: mcp.NewServer(&mcp.Implementation{Name: "gobsidian", Version: Version}, nil),
 		svc: svc,
@@ -43,7 +43,7 @@ func New(svc *service.Service, cfg config.Config, log *slog.Logger) *Server {
 	}
 	s.registerReadTools()
 	s.registerReadToolsInternal()
-	s.registerResources()
+	s.registerResources(ctx)
 	if !cfg.ReadOnly {
 		s.registerWriteTools()
 	}
