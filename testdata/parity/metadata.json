@@ -1,303 +1,323 @@
 {
-  "Penal/PONTO 03.md": {
-    "headings": [
-      {
-        "level": 1,
-        "heading": "Ponto 3 Penal"
-      }
-    ],
-    "tags": [],
-    "frontmatterTags": null,
-    "aliases": null,
-    "blocks": [],
-    "links": [],
-    "embeds": []
+  "schema": 2,
+  "generatedAt": "2026-07-28T18:23:43.927Z",
+  "notes": {
+    "Penal/PONTO 03.md": {
+      "headings": [
+        {
+          "level": 1,
+          "heading": "Ponto 3 Penal"
+        }
+      ],
+      "tags": [],
+      "frontmatterTags": null,
+      "aliases": null,
+      "blocks": [],
+      "links": [],
+      "embeds": []
+    },
+    "P3.md": {
+      "headings": [
+        {
+          "level": 1,
+          "heading": "Arquivo P3"
+        }
+      ],
+      "tags": [],
+      "frontmatterTags": null,
+      "aliases": null,
+      "blocks": [],
+      "links": [],
+      "embeds": []
+    },
+    "Origem.md": {
+      "headings": [
+        {
+          "level": 1,
+          "heading": "Origem dos links"
+        }
+      ],
+      "tags": [
+        "processual",
+        "processual/civil"
+      ],
+      "frontmatterTags": null,
+      "aliases": null,
+      "blocks": [],
+      "links": [
+        {
+          "link": "Civil/PONTO 03",
+          "displayText": "Civil/PONTO 03"
+        },
+        {
+          "link": "PONTO 03",
+          "displayText": "PONTO 03"
+        },
+        {
+          "link": "P3",
+          "displayText": "P3"
+        },
+        {
+          "link": "Terceiro",
+          "displayText": "Terceiro"
+        },
+        {
+          "link": "Civil/PONTO 03#Cap 1",
+          "displayText": "Civil/PONTO 03 > Cap 1"
+        },
+        {
+          "link": "Civil/PONTO 03#Cap 9",
+          "displayText": "Civil/PONTO 03 > Cap 9"
+        },
+        {
+          "link": "Civil/PONTO 03#^blk1",
+          "displayText": "Civil/PONTO 03 > ^blk1"
+        },
+        {
+          "link": "Nao Existe",
+          "displayText": "Nao Existe"
+        },
+        {
+          "link": "Civil/PONTO 03.md",
+          "displayText": "Ponto 3"
+        },
+        {
+          "link": "Apelidada",
+          "displayText": "Apelidada"
+        }
+      ],
+      "embeds": [
+        {
+          "link": "diagrama.png"
+        },
+        {
+          "link": "Apelidada"
+        }
+      ]
+    },
+    "Neoconstitucionalismo.md": {
+      "headings": [
+        {
+          "level": 3,
+          "heading": "1.1. Alocação do Direito Constitucional"
+        },
+        {
+          "level": 4,
+          "heading": "1.1.1. A classificação em “ramos do direito”"
+        },
+        {
+          "level": 4,
+          "heading": "1.1.2. A superação da dicotomia “público-privado” — constitucionalização do direito privado"
+        },
+        {
+          "level": 3,
+          "heading": "1.2. Constitucionalismo"
+        },
+        {
+          "level": 4,
+          "heading": "1.2.1. Conceito"
+        },
+        {
+          "level": 4,
+          "heading": "1.2.2. Evolução histórica"
+        },
+        {
+          "level": 5,
+          "heading": "1.2.2.1. Constitucionalismo durante a Antiguidade"
+        },
+        {
+          "level": 5,
+          "heading": "1.2.2.2. Constitucionalismo durante a Idade Média"
+        },
+        {
+          "level": 5,
+          "heading": "1.2.2.3. Constitucionalismo durante a Idade Moderna"
+        },
+        {
+          "level": 5,
+          "heading": "1.2.2.4. Constitucionalismo norte-americano"
+        },
+        {
+          "level": 5,
+          "heading": "1.2.2.5. Constitucionalismo moderno (durante a Idade Contemporânea)"
+        },
+        {
+          "level": 5,
+          "heading": "1.2.2.6. Constitucionalismo contemporâneo (durante a Idade Contemporânea) “antenado” com a ideia de “constitucionalismo globalizado”"
+        },
+        {
+          "level": 5,
+          "heading": "1.2.2.7. Constitucionalismo do futuro: o que podemos esperar?"
+        },
+        {
+          "level": 4,
+          "heading": "1.2.3. Esquematização do constitucionalismo"
+        },
+        {
+          "level": 3,
+          "heading": "1.3. NEOCONSTITUCIONALISMO"
+        },
+        {
+          "level": 4,
+          "heading": "1.3.1. Aspectos iniciais"
+        },
+        {
+          "level": 4,
+          "heading": "1.3.2. Pontos marcantes do neoconstitucionalismo"
+        },
+        {
+          "level": 4,
+          "heading": "1.3.3. Marcos fundamentais para se chegar a um “novo direito constitucional” (neoconstitucionalismo)"
+        },
+        {
+          "level": 3,
+          "heading": "1.4. O novo constitucionalismo democrático latino-americano. Constitucionalismo pluralista (andino ou indígena). Estado plurinacional e intercultural"
+        },
+        {
+          "level": 3,
+          "heading": "1.5. Constitucionalismo E SOBERANIA POPULAR"
+        },
+        {
+          "level": 4,
+          "heading": "1.5.1. Aspectos gerais"
+        },
+        {
+          "level": 3,
+          "heading": "1.6. Constitucionalismo popular (Tushnet) — “Judicial Review” — “Teorias do diálogo constitucional” (Bateup) e “Os papÉis das Supremas Cortes e Tribunais Constitucionais nas Democracias Contemporâneas” (Barroso)"
+        },
+        {
+          "level": 4,
+          "heading": "1.6.1. Constitucionalismo popular: perspectivas"
+        },
+        {
+          "level": 4,
+          "heading": "1.6.2. Supremacia judicial “versus” soberania judicial: a nossa posição no sentido do diálogo constitucional"
+        },
+        {
+          "level": 4,
+          "heading": "1.6.3. Reversão (superação) legislativa da jurisprudência da Corte: possibilidade de mutação constitucional pela via legislativa"
+        },
+        {
+          "level": 4,
+          "heading": "1.6.4. “Os papéis das Supremas Cortes e Tribunais Constitucionais nas democracias contemporâneas” (Luís Roberto Barroso)"
+        },
+        {
+          "level": 3,
+          "heading": "1.7. Constitucionalismo democrático e “backlash” (reação social em razão de decisão da Corte)"
+        },
+        {
+          "level": 3,
+          "heading": "1.8. “Constitucionalismo Abusivo” (David Landau): um alerta que preocupa E NÃO SE CONFUNDE COM O DENOMINADO “CONSTITUCIONALISMO AUTORITÁRIO” (MARK TUSHNET)"
+        },
+        {
+          "level": 3,
+          "heading": "1.9. QUESTÕES"
+        }
+      ],
+      "tags": [],
+      "frontmatterTags": null,
+      "aliases": null,
+      "blocks": [],
+      "links": [
+        {
+          "link": "chapter17.xhtml",
+          "displayText": "capítulo 17"
+        },
+        {
+          "link": "chapter09.xhtml",
+          "displayText": "capítulo 9"
+        }
+      ],
+      "embeds": []
+    },
+    "Civil/PONTO 03.md": {
+      "headings": [
+        {
+          "level": 1,
+          "heading": "Ponto 3 Civil"
+        },
+        {
+          "level": 2,
+          "heading": "Cap 1"
+        },
+        {
+          "level": 2,
+          "heading": "Cap 2"
+        }
+      ],
+      "tags": [],
+      "frontmatterTags": null,
+      "aliases": null,
+      "blocks": [
+        "blk1"
+      ],
+      "links": [],
+      "embeds": []
+    },
+    "Bem-vindo.md": {
+      "headings": [],
+      "tags": [],
+      "frontmatterTags": null,
+      "aliases": null,
+      "blocks": [],
+      "links": [
+        {
+          "link": "crie um link",
+          "displayText": "crie um link"
+        }
+      ],
+      "embeds": []
+    },
+    "Apelidada.md": {
+      "headings": [
+        {
+          "level": 1,
+          "heading": "Nota Apelidada"
+        }
+      ],
+      "tags": [],
+      "frontmatterTags": [
+        "civil",
+        "civil/obrigacoes"
+      ],
+      "aliases": [
+        "P3",
+        "Terceiro"
+      ],
+      "blocks": [],
+      "links": [],
+      "embeds": []
+    }
   },
-  "P3.md": {
-    "headings": [
-      {
-        "level": 1,
-        "heading": "Arquivo P3"
-      }
-    ],
-    "tags": [],
-    "frontmatterTags": null,
-    "aliases": null,
-    "blocks": [],
-    "links": [],
-    "embeds": []
+  "resolvedLinks": {
+    "Apelidada.md": {},
+    "Bem-vindo.md": {},
+    "Civil/PONTO 03.md": {},
+    "Neoconstitucionalismo.md": {},
+    "Origem.md": {
+      "Civil/PONTO 03.md": 6,
+      "P3.md": 1,
+      "Apelidada.md": 2,
+      "Anexos/diagrama.png": 1
+    },
+    "P3.md": {},
+    "Penal/PONTO 03.md": {}
   },
-  "Origem.md": {
-    "headings": [
-      {
-        "level": 1,
-        "heading": "Origem dos links"
-      }
-    ],
-    "tags": [
-      "processual",
-      "processual/civil"
-    ],
-    "frontmatterTags": null,
-    "aliases": null,
-    "blocks": [],
-    "links": [
-      {
-        "link": "Civil/PONTO 03",
-        "displayText": "Civil/PONTO 03",
-        "resolved": "Civil/PONTO 03.md"
-      },
-      {
-        "link": "PONTO 03",
-        "displayText": "PONTO 03",
-        "resolved": "Civil/PONTO 03.md"
-      },
-      {
-        "link": "P3",
-        "displayText": "P3",
-        "resolved": "P3.md"
-      },
-      {
-        "link": "Terceiro",
-        "displayText": "Terceiro",
-        "resolved": null
-      },
-      {
-        "link": "Civil/PONTO 03#Cap 1",
-        "displayText": "Civil/PONTO 03 > Cap 1",
-        "resolved": "Civil/PONTO 03.md"
-      },
-      {
-        "link": "Civil/PONTO 03#Cap 9",
-        "displayText": "Civil/PONTO 03 > Cap 9",
-        "resolved": "Civil/PONTO 03.md"
-      },
-      {
-        "link": "Civil/PONTO 03#^blk1",
-        "displayText": "Civil/PONTO 03 > ^blk1",
-        "resolved": "Civil/PONTO 03.md"
-      },
-      {
-        "link": "Nao Existe",
-        "displayText": "Nao Existe",
-        "resolved": null
-      },
-      {
-        "link": "Civil/PONTO 03.md",
-        "displayText": "Ponto 3",
-        "resolved": "Civil/PONTO 03.md"
-      },
-      {
-        "link": "Apelidada",
-        "displayText": "Apelidada",
-        "resolved": "Apelidada.md"
-      }
-    ],
-    "embeds": [
-      {
-        "link": "diagrama.png",
-        "resolved": "Anexos/diagrama.png"
-      },
-      {
-        "link": "Apelidada",
-        "resolved": "Apelidada.md"
-      }
-    ]
-  },
-  "Neoconstitucionalismo.md": {
-    "headings": [
-      {
-        "level": 3,
-        "heading": "1.1. Alocação do Direito Constitucional"
-      },
-      {
-        "level": 4,
-        "heading": "1.1.1. A classificação em “ramos do direito”"
-      },
-      {
-        "level": 4,
-        "heading": "1.1.2. A superação da dicotomia “público-privado” — constitucionalização do direito privado"
-      },
-      {
-        "level": 3,
-        "heading": "1.2. Constitucionalismo"
-      },
-      {
-        "level": 4,
-        "heading": "1.2.1. Conceito"
-      },
-      {
-        "level": 4,
-        "heading": "1.2.2. Evolução histórica"
-      },
-      {
-        "level": 5,
-        "heading": "1.2.2.1. Constitucionalismo durante a Antiguidade"
-      },
-      {
-        "level": 5,
-        "heading": "1.2.2.2. Constitucionalismo durante a Idade Média"
-      },
-      {
-        "level": 5,
-        "heading": "1.2.2.3. Constitucionalismo durante a Idade Moderna"
-      },
-      {
-        "level": 5,
-        "heading": "1.2.2.4. Constitucionalismo norte-americano"
-      },
-      {
-        "level": 5,
-        "heading": "1.2.2.5. Constitucionalismo moderno (durante a Idade Contemporânea)"
-      },
-      {
-        "level": 5,
-        "heading": "1.2.2.6. Constitucionalismo contemporâneo (durante a Idade Contemporânea) “antenado” com a ideia de “constitucionalismo globalizado”"
-      },
-      {
-        "level": 5,
-        "heading": "1.2.2.7. Constitucionalismo do futuro: o que podemos esperar?"
-      },
-      {
-        "level": 4,
-        "heading": "1.2.3. Esquematização do constitucionalismo"
-      },
-      {
-        "level": 3,
-        "heading": "1.3. NEOCONSTITUCIONALISMO"
-      },
-      {
-        "level": 4,
-        "heading": "1.3.1. Aspectos iniciais"
-      },
-      {
-        "level": 4,
-        "heading": "1.3.2. Pontos marcantes do neoconstitucionalismo"
-      },
-      {
-        "level": 4,
-        "heading": "1.3.3. Marcos fundamentais para se chegar a um “novo direito constitucional” (neoconstitucionalismo)"
-      },
-      {
-        "level": 3,
-        "heading": "1.4. O novo constitucionalismo democrático latino-americano. Constitucionalismo pluralista (andino ou indígena). Estado plurinacional e intercultural"
-      },
-      {
-        "level": 3,
-        "heading": "1.5. Constitucionalismo E SOBERANIA POPULAR"
-      },
-      {
-        "level": 4,
-        "heading": "1.5.1. Aspectos gerais"
-      },
-      {
-        "level": 3,
-        "heading": "1.6. Constitucionalismo popular (Tushnet) — “Judicial Review” — “Teorias do diálogo constitucional” (Bateup) e “Os papÉis das Supremas Cortes e Tribunais Constitucionais nas Democracias Contemporâneas” (Barroso)"
-      },
-      {
-        "level": 4,
-        "heading": "1.6.1. Constitucionalismo popular: perspectivas"
-      },
-      {
-        "level": 4,
-        "heading": "1.6.2. Supremacia judicial “versus” soberania judicial: a nossa posição no sentido do diálogo constitucional"
-      },
-      {
-        "level": 4,
-        "heading": "1.6.3. Reversão (superação) legislativa da jurisprudência da Corte: possibilidade de mutação constitucional pela via legislativa"
-      },
-      {
-        "level": 4,
-        "heading": "1.6.4. “Os papéis das Supremas Cortes e Tribunais Constitucionais nas democracias contemporâneas” (Luís Roberto Barroso)"
-      },
-      {
-        "level": 3,
-        "heading": "1.7. Constitucionalismo democrático e “backlash” (reação social em razão de decisão da Corte)"
-      },
-      {
-        "level": 3,
-        "heading": "1.8. “Constitucionalismo Abusivo” (David Landau): um alerta que preocupa E NÃO SE CONFUNDE COM O DENOMINADO “CONSTITUCIONALISMO AUTORITÁRIO” (MARK TUSHNET)"
-      },
-      {
-        "level": 3,
-        "heading": "1.9. QUESTÕES"
-      }
-    ],
-    "tags": [],
-    "frontmatterTags": null,
-    "aliases": null,
-    "blocks": [],
-    "links": [
-      {
-        "link": "chapter17.xhtml",
-        "displayText": "capítulo 17",
-        "resolved": null
-      },
-      {
-        "link": "chapter09.xhtml",
-        "displayText": "capítulo 9",
-        "resolved": null
-      }
-    ],
-    "embeds": []
-  },
-  "Civil/PONTO 03.md": {
-    "headings": [
-      {
-        "level": 1,
-        "heading": "Ponto 3 Civil"
-      },
-      {
-        "level": 2,
-        "heading": "Cap 1"
-      },
-      {
-        "level": 2,
-        "heading": "Cap 2"
-      }
-    ],
-    "tags": [],
-    "frontmatterTags": null,
-    "aliases": null,
-    "blocks": [
-      "blk1"
-    ],
-    "links": [],
-    "embeds": []
-  },
-  "Bem-vindo.md": {
-    "headings": [],
-    "tags": [],
-    "frontmatterTags": null,
-    "aliases": null,
-    "blocks": [],
-    "links": [
-      {
-        "link": "crie um link",
-        "displayText": "crie um link",
-        "resolved": null
-      }
-    ],
-    "embeds": []
-  },
-  "Apelidada.md": {
-    "headings": [
-      {
-        "level": 1,
-        "heading": "Nota Apelidada"
-      }
-    ],
-    "tags": [],
-    "frontmatterTags": [
-      "civil",
-      "civil/obrigacoes"
-    ],
-    "aliases": [
-      "P3",
-      "Terceiro"
-    ],
-    "blocks": [],
-    "links": [],
-    "embeds": []
+  "unresolvedLinks": {
+    "Apelidada.md": {},
+    "Bem-vindo.md": {
+      "crie um link": 1
+    },
+    "Civil/PONTO 03.md": {},
+    "Neoconstitucionalismo.md": {
+      "chapter17.xhtml": 1,
+      "chapter09.xhtml": 1
+    },
+    "Origem.md": {
+      "Terceiro": 1,
+      "Nao Existe": 1
+    },
+    "P3.md": {},
+    "Penal/PONTO 03.md": {}
   }
 }

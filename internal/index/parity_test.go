@@ -3,6 +3,7 @@ package index
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"sort"
@@ -109,26 +110,31 @@ func assertGraphMatches(t *testing.T, idx *Index, ref Reference) {
 			continue
 		}
 
-		nossos := make(map[string]bool, len(n.Links))
+		// A contagem importa, nao so a presenca do alvo. Sem ela, uma regressao
+		// que desvia UM link entre varios para o mesmo destino fica invisivel:
+		// inverter o desempate de colisao manda [[PONTO 03]] para Penal/, e o
+		// alvo Civil/ continua presente pelos outros cinco links. Provado por
+		// mutacao — a versao anterior desta comparacao passava.
+		nossos := make(map[string]int, len(n.Links))
 		for _, l := range n.Links {
 			if l.Resolved != "" {
-				nossos[string(l.Resolved)] = true
+				nossos[string(l.Resolved)]++
 			}
 		}
 
-		for alvo := range alvos {
-			if !nossos[alvo] {
-				t.Errorf("%s: o Obsidian resolve uma aresta para %q e nos nao; resolvemos %v",
-					origem, alvo, keysOf(nossos))
+		for alvo, querAoMenos := range alvos {
+			if nossos[alvo] < querAoMenos {
+				t.Errorf("%s: o Obsidian resolve %d aresta(s) para %q e nos resolvemos %d; nosso grafo daqui: %v",
+					origem, querAoMenos, alvo, nossos[alvo], contagemOf(nossos))
 			}
 		}
 	}
 }
 
-func keysOf(m map[string]bool) []string {
+func contagemOf(m map[string]int) []string {
 	out := make([]string, 0, len(m))
-	for k := range m {
-		out = append(out, k)
+	for k, n := range m {
+		out = append(out, fmt.Sprintf("%s x%d", k, n))
 	}
 	sort.Strings(out)
 	return out
