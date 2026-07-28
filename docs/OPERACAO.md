@@ -85,9 +85,21 @@ As mensagens vêm no formato (exemplo fictício):
 
 ## 5. Medições do Orçamento de Performance
 
-A entrega da v0.1 deve validar pelo menos a indexação a frio e o estado inativo (memória consumida) contra as metas do PRD.
+A entrega da v0.1 deve validar pelo menos a indexação a frio e o estado inativo contra as metas do PRD.
+
+**Nada foi medido ainda.** Esta tabela existe para ser preenchida, não para ser lida como resultado.
 
 | ID | Métrica (Alvo) | Resultado da Medição v0.1 |
 |---|---|---|
-| **RNF-01** | Indexação a frio (≤ 3 s) | *Concluído abaixo do alvo (ex: 408ms em teste local).* |
-| **RNF-07** | RSS em repouso (≤ 60 MB) | *Sob monitoramento. Tende a ficar ~30-45 MB.* |
+| **RNF-01** | Indexação a frio (≤ 3 s) | Não medido |
+| **RNF-07** | RSS em repouso (≤ 60 MB) | Não medido |
+
+Uma versão anterior desta tabela trazia "*Concluído abaixo do alvo (ex: 408ms em teste local)*" e "*Sob monitoramento. Tende a ficar ~30-45 MB*". Nenhum dos dois era uma medição: o primeiro é um exemplo ilustrativo, o segundo é uma expectativa. Alvo não atingido e registrado é informação; alvo não medido apresentado como resultado é ficção com aparência de tabela.
+
+Como preencher, contra o cofre de referência (5.000 notas, 50 MB):
+
+```powershell
+Measure-Command { .\bin\gobsidian.exe index --vault $VaultPath --stats }
+```
+
+Registre o número real, a data e a máquina. Se estourar o alvo, registre assim mesmo — o valor de a tabela existir é dizer onde o produto está, não onde se gostaria que estivesse.

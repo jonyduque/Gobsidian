@@ -16,9 +16,11 @@ O projeto nasceu de três frustrações concretas com os servidores MCP de Obsid
 
 ## Estado
 
-**v0.1 publicada.** A primeira entrega utilizável.
+**v0.1 em fechamento — ainda não publicada.** O código está completo e a suíte passa nos três alvos, mas os portões de release não rodaram: não há tag `v0.1.0`, o teste de 100 ciclos de encerramento abrupto não foi executado nesta versão, e o orçamento de performance não foi medido. Ver [`docs/OPERACAO.md`](docs/OPERACAO.md) §5.
 
-Capacidades atuais:
+A paridade com o *metadata cache* do Obsidian — a métrica de sucesso funcional do PRD §7 — também não foi verificada: ela depende de uma rodada manual de um plugin no Obsidian, que ainda não aconteceu. O teste correspondente pula enquanto a referência não existir.
+
+Capacidades implementadas:
 - Ciclo de vida completo (sem processos órfãos).
 - Parser completo, cobrindo wikilinks, embeds, block-ids, tags e aliases.
 - Índice em memória veloz.
