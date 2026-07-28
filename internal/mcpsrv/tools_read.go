@@ -85,14 +85,11 @@ func (s *Server) registerReadToolsInternal() {
 					Offset:      offset,
 				}
 
-				out, err := s.svc.ListNotes(ctx, service.ListRequest{Query: q})
+				out, err := s.svc.ListNotes(ctx, service.ListRequest{Query: q, Fields: in.Fields})
 				if err != nil {
 					return nil, service.ListResult{}, toolErr(err)
 				}
 
-				// Fields filtering is not in service? Wait, the plan says "Todos delegam ao Service em uma linha e traduzem o resultado".
-				// Since we don't have explicit fields filtering in Service, we can let it be or just pass the full result.
-				// For the sake of simplicity, we just return `out`.
 				return nil, out, nil
 			}),
 	)

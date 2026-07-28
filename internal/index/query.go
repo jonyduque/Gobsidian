@@ -314,8 +314,11 @@ func (ix *Index) List(q Query) ([]*Note, int) {
 						matchesAll = false
 						break
 					}
-					// Se value == null e key não existe, não deveria casar. "Campo ausente -> nunca casa, exceto se o valor pedido for null e a chave existir"
-					// Actually the table says "Campo ausente: Nunca casa, exceto se o valor pedido for `null` e a chave existir". Wait, if key doesn't exist, it never matches.
+					// Campo ausente nunca casa, nem quando o valor pedido e
+					// null. A tabela de docs/TOOLS.md diz que null casa com a
+					// PRESENCA da chave com qualquer valor — ausencia nao e um
+					// valor, e um pedido por "existe com qualquer valor" nao
+					// pode ser satisfeito por "nao existe".
 					matchesAll = false
 					break
 				}

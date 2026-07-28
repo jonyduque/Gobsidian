@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"runtime"
+	"time"
 
 	"github.com/jonyd/gobsidian/internal/index"
 	"github.com/jonyd/gobsidian/internal/vault"
@@ -142,22 +143,80 @@ func (s *Service) TagList(ctx context.Context, req TagRequest) (TagResult, error
 
 type ListRequest struct {
 	Query index.Query `json:"query"`
+	// Fields sao os campos de frontmatter a incluir em cada item. Vazio
+	// devolve nenhum — note_list e a tool barata, e despejar o frontmatter
+	// inteiro de cada nota derrota o proposito dela.
+	Fields []string `json:"fields,omitempty"`
+}
+
+// ListItem e a projecao que note_list devolve, conforme docs/TOOLS.md.
+//
+// Nao e o *index.Note inteiro, e a diferenca importa: a Note carrega headings,
+// blocos e todos os links, e devolver isso por nota transforma "que notas
+// existem na pasta X" numa resposta de dezenas de milhares de tokens. A tool
+// existe justamente para ser a barata.
+type ListItem struct {
+	Path     string         `json:"path"`
+	Title    string         `json:"title"`
+	Hash     string         `json:"hash"`
+	Modified time.Time      `json:"modified"`
+	Size     int64          `json:"size"`
+	Tags     []string       `json:"tags,omitempty"`
+	Fields   map[string]any `json:"fields,omitempty"`
 }
 
 type ListResult struct {
-	Notes []*index.Note `json:"notes"`
-	Total int           `json:"total"`
+	Notes []ListItem `json:"notes"`
+	Total int        `json:"total"`
 }
 
 func (s *Service) ListNotes(ctx context.Context, req ListRequest) (ListResult, error) {
 	if s.index == nil {
 		return ListResult{}, fmt.Errorf("index not available")
 	}
+
 	notes, total := s.index.List(req.Query)
-	return ListResult{
-		Notes: notes,
-		Total: total,
-	}, nil
+
+	items := make([]ListItem, 0, len(notes))
+	for _, n := range notes {
+		items = append(items, ListItem{
+			Path:     string(n.Path),
+			Title:    n.Title,
+			Hash:     fmt.Sprintf("%016x", n.Hash),
+			Modified: n.ModTime,
+			Size:     n.Size,
+			Tags:     n.Tags,
+			Fields:   selectFields(n.Frontmatter, req.Fields),
+		})
+	}
+
+	return ListResult{Notes: items, Total: total}, nil
+}
+
+// selectFields devolve so os campos pedidos.
+//
+// Antes disto o parametro era declarado no schema da tool e ignorado: o modelo
+// pedia tres campos, recebia tudo, e nao tinha como saber que o pedido nao
+// fizera nada. Schema que promete e codigo que ignora e pior que parametro
+// ausente, porque quem le o schema acredita.
+//
+// Campo pedido e inexistente simplesmente nao aparece — a ausencia ja e a
+// resposta, e inventar null obrigaria o cliente a distinguir dois nadas.
+func selectFields(fm map[string]any, want []string) map[string]any {
+	if len(want) == 0 || len(fm) == 0 {
+		return nil
+	}
+
+	out := make(map[string]any, len(want))
+	for _, k := range want {
+		if v, ok := fm[k]; ok {
+			out[k] = v
+		}
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
 }
 
 type MetadataRequest struct {
