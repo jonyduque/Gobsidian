@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"io"
 	"log/slog"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -14,6 +16,7 @@ import (
 	"github.com/jonyd/gobsidian/internal/mcpsrv"
 	"github.com/jonyd/gobsidian/internal/service"
 	"github.com/jonyd/gobsidian/internal/vault"
+	"github.com/jonyd/gobsidian/internal/watcher"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
@@ -326,4 +329,103 @@ func TestVaultStatsWithWatcher(t *testing.T) {
 			t.Fatal("watcher block should be missing when include_runtime is false")
 		}
 	})
+}
+
+func TestVaultStatsReflectsWatcherUpdate(t *testing.T) {
+	root := t.TempDir()
+	v, err := vault.New(root)
+	if err != nil {
+		t.Fatalf("vault.New: %v", err)
+	}
+
+	idx := index.New()
+	if err := idx.Build(context.Background(), v); err != nil {
+		t.Fatalf("idx.Build: %v", err)
+	}
+
+	log := slog.New(slog.NewTextHandler(io.Discard, nil))
+	w, err := watcher.New(v, idx, 10*time.Millisecond, log)
+	if err != nil {
+		t.Fatalf("watcher.New: %v", err)
+	}
+
+	runCtx, runCancel := context.WithCancel(context.Background())
+	defer runCancel()
+	defer func() { _ = w.Close() }()
+
+	go func() {
+		_ = w.Run(runCtx)
+	}()
+
+	svc := service.New(v, idx, nil, service.Options{ReadOnly: true})
+	cfg := config.Defaults()
+	srv := mcpsrv.New(context.Background(), svc, cfg, log)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	clientTransport, serverTransport := mcp.NewInMemoryTransports()
+	go func() { _ = srv.Connect(ctx, serverTransport) }()
+
+	client := mcp.NewClient(&mcp.Implementation{Name: "test", Version: "0.0.1"}, nil)
+	session, err := client.Connect(ctx, clientTransport, nil)
+	if err != nil {
+		t.Fatalf("Connect: %v", err)
+	}
+	defer func() { _ = session.Close() }()
+
+	getNoteCount := func() float64 {
+		res, err := session.CallTool(ctx, &mcp.CallToolParams{
+			Name: "vault_stats",
+		})
+		if err != nil {
+			t.Fatalf("CallTool vault_stats: %v", err)
+		}
+		b, _ := json.Marshal(res.StructuredContent)
+		var out map[string]interface{}
+		_ = json.Unmarshal(b, &out)
+		return out["notes"].(float64)
+	}
+
+	initialCount := getNoteCount()
+	if initialCount != 0 {
+		t.Fatalf("initial notes count = %v, want 0", initialCount)
+	}
+
+	notePath := filepath.Join(root, "dynamic_note.md")
+	if err := os.WriteFile(notePath, []byte("# Dynamic Note\n"), 0644); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+
+	deadline := time.Now().Add(3 * time.Second)
+	foundAdd := false
+	startAdd := time.Now()
+	for time.Now().Before(deadline) {
+		if getNoteCount() == 1 {
+			foundAdd = true
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	if !foundAdd {
+		t.Fatalf("vault_stats notes count did not increase to 1 after creating note (took %v)", time.Since(startAdd))
+	}
+
+	if err := os.Remove(notePath); err != nil {
+		t.Fatalf("Remove: %v", err)
+	}
+
+	deadline = time.Now().Add(3 * time.Second)
+	foundRemove := false
+	startRemove := time.Now()
+	for time.Now().Before(deadline) {
+		if getNoteCount() == 0 {
+			foundRemove = true
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	if !foundRemove {
+		t.Fatalf("vault_stats notes count did not return to 0 after removing note (took %v)", time.Since(startRemove))
+	}
 }
