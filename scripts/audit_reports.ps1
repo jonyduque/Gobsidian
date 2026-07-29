@@ -63,6 +63,22 @@ if (-not (Test-Path $SddRoot)) {
 
 $Findings = 0
 
+# Palavras de conteudo de um texto curto. Verbos de commit e ruido de ledger
+# saem: sem isso, "fix" e "watcher" fazem qualquer descricao casar com qualquer
+# assunto, e a checagem de conferencia para de conferir.
+function Get-PalavrasSignificativas {
+    param([string]$Texto)
+    $Parar = @('the','and','for','with','that','from','into','not','review','approved',
+               'complete','completa','commits','commit','fix','feat','test','docs','chore',
+               'when','what','its','are','was','has','apos','pass','passes')
+    # 'index' e 'watcher' NAO entram na lista: sao os substantivos que carregam
+    # o sinal neste projeto, e descarta-los fazia a Task 29 ser acusada por
+    # descrever "index application" contra um commit sobre "integrating
+    # fsnotify with index".
+    return @(($Texto.ToLower() -replace '[^a-z0-9 ]', ' ') -split '\s+' |
+        Where-Object { $_.Length -ge 4 -and $Parar -notcontains $_ })
+}
+
 function Add-Finding {
     param([string]$File, [int]$Line, [string]$Rule, [string]$Text)
     $script:Findings++
@@ -148,6 +164,10 @@ foreach ($R in $Reports) {
 Write-Output ""
 Write-Output "=== Ledger ==="
 
+# SHA pleno -> id da tarefa que o registrou primeiro. Sobrevive entre linhas e
+# entre ledgers para que reuso seja detectavel.
+$script:ShaDeTarefa = @{}
+
 $Ledgers = @(Get-ChildItem -Path $SddRoot -Filter 'progress.md' -Recurse -File)
 foreach ($Ledger in $Ledgers) {
     $Lines = @(Get-Content -Path $Ledger.FullName -Encoding utf8)
@@ -164,6 +184,73 @@ foreach ($Ledger in $Ledgers) {
             & git -C $ProjectRoot cat-file -t $Sha *> $null
             if ($LASTEXITCODE -ne 0) {
                 Add-Finding -File $Ledger.FullName -Line ($i + 1) -Rule 'SHA-FANTASMA' -Text "$Sha nao existe no repositorio"
+            }
+        }
+
+        # SHA que EXISTE nao e SHA CERTO. O ledger ja teve a Task 31 apontando
+        # para 14210ee, inexistente — e a "correcao" trocou por 2a59d0c, que
+        # existe e e o commit da Task 30. A checagem de existencia passou verde
+        # num ledger que mandava duas tarefas para o mesmo lugar, e o trabalho
+        # real da 31 (d5d1bf0) deixou de ser referenciado por qualquer linha.
+        # As tres checagens abaixo cobrem o que a existencia nao cobre.
+        if ($L -match '(?i)^Task\s+([\d/]+)\s*:\s*(complete|completa)\s*\(commits?\s+([0-9a-f]{7,40})(?:\.\.([0-9a-f]{7,40}))?\s*,?\s*([^)]*)\)') {
+            $TarefaID  = $Matches[1]
+            $De        = $Matches[3]
+            $Ate       = if ($Matches[4]) { $Matches[4] } else { $Matches[3] }
+            $Descricao = $Matches[5]
+
+            # (a) Intervalo vazio. "A..A" nao contem commit nenhum, e uma tarefa
+            # cujo intervalo nao contem trabalho nao esta registrada, esta
+            # mencionada.
+            $NoIntervalo = @(& git -C $ProjectRoot rev-list "$De..$Ate" 2>$null)
+            if ($null -eq $NoIntervalo) { $NoIntervalo = @() }
+            if ($LASTEXITCODE -eq 0 -and @($NoIntervalo).Count -eq 0 -and $De -ne $Ate) {
+                Add-Finding -File $Ledger.FullName -Line ($i + 1) -Rule 'INTERVALO-VAZIO' `
+                    -Text "Task ${TarefaID}: $De..$Ate nao contem commit nenhum"
+            }
+
+            # (b) Duas tarefas terminando no MESMO commit. So o fim conta: o
+            # inicio de uma tarefa e, por convencao, o fim da anterior — o
+            # intervalo e exclusivo na ponta esquerda — entao comparar as duas
+            # pontas acusaria toda sequencia contigua, que e justamente a
+            # correta. Dois fins iguais e que significam que uma das linhas
+            # aponta para o trabalho da outra.
+            $FimPleno = (& git -C $ProjectRoot rev-parse $Ate 2>$null)
+            if ($LASTEXITCODE -eq 0 -and $FimPleno) {
+                if ($script:ShaDeTarefa.ContainsKey($FimPleno) -and
+                    $script:ShaDeTarefa[$FimPleno] -ne $TarefaID) {
+                    Add-Finding -File $Ledger.FullName -Line ($i + 1) -Rule 'SHA-REUSADO' `
+                        -Text ("Task {0} termina em {1}, mesmo commit final da Task {2}" -f `
+                            $TarefaID, $Ate, $script:ShaDeTarefa[$FimPleno])
+                } else {
+                    $script:ShaDeTarefa[$FimPleno] = $TarefaID
+                }
+            }
+
+            # (c) A descricao da linha e o assunto do commit falam da mesma
+            # coisa? Sem NENHUMA palavra significativa em comum, a linha
+            # descreve uma tarefa e aponta para outra — que e exatamente o caso
+            # da Task 31 hoje: "xxhash rename correlation" apontando para
+            # "reconciliation recovery on fsnotify overflow event".
+            # Compara com TODOS os assuntos do intervalo, nao so com a ponta: o
+            # ultimo commit de uma tarefa e as vezes um gofmt ou um docstring, e
+            # exigir que a ponta descreva a tarefa acusaria entregas corretas.
+            $Assuntos = @(& git -C $ProjectRoot log --format='%s' "$De..$Ate" 2>$null)
+            if (@($Assuntos).Count -eq 0) {
+                $Assuntos = @(& git -C $ProjectRoot log -1 --format='%s' $Ate 2>$null)
+            }
+
+            # Linhas cuja descricao e so metadado de revisao ("review clean apos
+            # 2 fix passes") nao descrevem trabalho e nao tem com o que casar.
+            $A = @(Get-PalavrasSignificativas $Descricao)
+            $B = @(Get-PalavrasSignificativas ($Assuntos -join ' '))
+            if (@($A).Count -ge 3 -and @($B).Count -gt 0) {
+                $Comuns = @($A | Where-Object { $B -contains $_ })
+                if (@($Comuns).Count -eq 0) {
+                    Add-Finding -File $Ledger.FullName -Line ($i + 1) -Rule 'SHA-NAO-CONFERE' `
+                        -Text ("Task {0} descreve `"{1}`" mas {2}..{3} contem `"{4}`"" -f `
+                            $TarefaID, $Descricao.Trim(), $De, $Ate, ($Assuntos -join ' | '))
+                }
             }
         }
 
