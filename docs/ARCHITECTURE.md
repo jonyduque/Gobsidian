@@ -321,8 +321,12 @@ O debouncer utiliza um **tique único e um conjunto sujo** (`map[vault.Canonical
 **Correlação de Renames.** `fsnotify` reporta rename como um par de eventos (remoção na origem, criação no destino) sem correlação explícita. O debouncer entrega um lote de caminhos ao `Apply`. O `Apply` separa esses caminhos entre deletados (não existem mais no disco) e modificados/criados. Arquivos deletados e criados no *mesmo lote* que possuam exato o mesmo hash `xxhash` (calculado sobre o conteúdo bruto antes da remoção de BOM) e não sejam vazios são correlacionados como um rename em nível lógico, preservando o hash e marcando backlinks pendentes. Limitações documentadas:
 1. Cópias seguidas de remoções do original caem como rename se acontecerem na mesma janela de debounce.
 2. Remoção e criação separadas por tempo maior que o debounce não correlacionam.
-3. Apenas notas são hasheadas e correlacionadas, anexos e mídias não.
+3. Apenas notas são hasheadas e correlacionadas, anexos e mídias não. Anexo e arquivo somente-nuvem **nunca são abertos** para correlacionar: ler um placeholder dispara download síncrono, e ler um anexo viola a regra de que anexo é indexado por nome. Os dois são classificados antes de qualquer leitura e caem direto no caminho comum.
 4. Qualquer modificação de conteúdo simultânea ao move anula o rename lógico e ele decai para um remover e adicionar comum (remove+replace).
+5. Notas vazias nunca correlacionam. O gate `Size > 0` existe porque arquivos vazios compartilham hash e a cardinalidade 1-para-1 sozinha não distingue rename de coincidência. Um rename de nota vazia decai para remove + create.
+6. macOS e BSD não sinalizam overflow: o backend kqueue do `fsnotify` v1.10.1 nunca emite `ErrEventOverflow` — só `backend_inotify.go` e `backend_windows.go` emitem. Nessas plataformas a reconciliação descrita acima nunca dispara, e o único anteparo contra evento perdido é a reindexação no boot. Lacuna registrada, não resolvida por heurística.
+
+**O cofre nunca é escrito.** O que o rename correlacionado altera é o índice, in-place, via `index.MoveNote`: a nota muda de caminho preservando hash, tags, aliases e backlinks, e as notas que apontavam para o caminho antigo passam a resolver para o novo. Os links no disco continuam apontando para o caminho antigo e são reportados como candidatos a atualização — reescrevê-los seria decidir conteúdo pelo usuário.
 
 ### 5.4 Escrita (`note_patch` sob um heading)
 

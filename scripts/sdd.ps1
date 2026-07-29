@@ -70,13 +70,35 @@ function Require-Task {
     if (-not $Task) { throw "Informe o numero da tarefa. Ex.: .\scripts\sdd.ps1 $Command 19" }
 }
 
+# Os scripts do plugin sao shell, e o bash do Git consome a contrabarra do
+# caminho do Windows como escape: "C:\Users\jonyd\..." chega como
+# "C:Usersjonyd..." e o erro que aparece e "No such file or directory",
+# que nao diz que o problema foi o separador. Barra normal o bash aceita.
+function ConvertTo-BashPath([string]$Path) {
+    return $Path -replace '\\', '/'
+}
+
+# `bash` no PATH desta maquina resolve para o bash do WSL
+# (WindowsApps\bash.exe), que nao enxerga "C:/Users/..." — ele quer
+# "/mnt/c/Users/...". O sintoma e "No such file or directory" apontando
+# para um caminho que existe, o que manda a investigacao para o lado errado.
+# Os scripts do plugin sao do ecossistema Git, entao use o bash do Git.
+function Get-GitBash {
+    $GitCmd = Get-Command git -ErrorAction SilentlyContinue
+    if ($GitCmd) {
+        $Candidate = Join-Path (Split-Path (Split-Path $GitCmd.Source)) "bin\bash.exe"
+        if (Test-Path $Candidate) { return $Candidate }
+    }
+    return "bash"
+}
+
 $BaseFile = Join-Path $SddDir "task-$Task-base.txt"
 
 switch ($Command) {
     "brief" {
         Require-Task
         $Scripts = Get-SuperpowersScripts
-        & bash (Join-Path $Scripts "task-brief") $Plan $Task
+        & (Get-GitBash) (ConvertTo-BashPath (Join-Path $Scripts "task-brief")) (ConvertTo-BashPath $Plan) $Task
     }
 
     "base" {
@@ -101,7 +123,7 @@ switch ($Command) {
         $Scripts = Get-SuperpowersScripts
         # A assinatura ganhou PLAN_FILE na frente na 6.2.0. Passar na ordem
         # antiga falha com um "usage:" que nao diz que a versao mudou.
-        & bash (Join-Path $Scripts "review-package") $Plan $Base "HEAD"
+        & (Get-GitBash) (ConvertTo-BashPath (Join-Path $Scripts "review-package")) (ConvertTo-BashPath $Plan) $Base "HEAD"
     }
 
     "status" {

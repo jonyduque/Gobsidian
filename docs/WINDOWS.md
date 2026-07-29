@@ -166,7 +166,7 @@ Sob rajada intensa — sincronização inicial do OneDrive, `git checkout` de br
 
 Ignorar o overflow deixa o índice silenciosamente incorreto — o pior estado possível, porque o servidor continua respondendo com confiança a partir de dados errados.
 
-`vault_stats` expõe o contador de overflows. Ocorrências recorrentes indicam que a janela de debounce precisa ser ampliada via `--debounce-ms`.
+`vault_stats` expõe o contador de overflows. Ocorrências recorrentes indicam que a janela de debounce precisa ser ampliada via `--debounce-ms`. O menor valor aceito é `1`: zero é recusado na carga da configuração, porque sem coalescência a correlação de rename — que exige uma remoção e uma criação na mesma janela — para de detectar qualquer renomeação.
 
 ### 4.3 Handles e desligamento
 
