@@ -66,6 +66,7 @@ Task 45: complete (commits 1c182c9..b147b8d, inverted index with incremental upd
 Task 46: complete (commits c791cff..e8c31e3, BM25 ranking with field weights, review Approved)
 Task 47: complete (commits 01116d9..ae4a3b2, snippets with term highlight, review Approved)
 Task 48: complete (commits ed936d7..0fe5f2b, vault_search tool with filters and phrase queries, review Approved)
+Task 49: complete (commits 2ccf51b..3daee57, on-disk cache with version header, review Approved)
 
 === REVISAO DO M2.1 (Tasks 33-42), 2026-07-29, pelo modelo principal ===
 Nove provas de mutacao rodadas com scripts/mutate.ps1, TODAS saindo 0 (o teste
