@@ -1,6 +1,7 @@
 package parser_test
 
 import (
+	"strings"
 	"testing"
 	"time"
 
@@ -152,5 +153,64 @@ func TestDecodeFrontmatterPreservesTypes(t *testing.T) {
 func TestDecodeFrontmatterMalformedReturnsError(t *testing.T) {
 	if _, err := parser.DecodeFrontmatter([]byte("a: [1, 2\nb: :\n")); err == nil {
 		t.Fatal("frontmatter malformado deveria devolver erro")
+	}
+}
+
+func TestFrontmatterClosingDelimiterWithTrailingSpace(t *testing.T) {
+	raw := []byte("---\ntitle: Prescricao\ntags: [civil]\n--- \n\n# Corpo\n\ntexto\n")
+
+	note, err := parser.Parse(raw)
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+
+	if len(note.Tags) != 1 || note.Tags[0] != "civil" {
+		t.Fatalf("tags = %v, quer [civil] — o bloco YAML virou corpo", note.Tags)
+	}
+	if note.Frontmatter == nil || note.Frontmatter["title"] != "Prescricao" {
+		t.Errorf("frontmatter = %v, quer title=Prescricao", note.Frontmatter)
+	}
+
+	_, _, bodyOffset := parser.SplitFrontmatter(raw)
+	corpo := string(raw[bodyOffset:])
+	if !strings.HasPrefix(corpo, "\n# Corpo") {
+		t.Errorf("BodyOffset=%d aponta para %q; quer o inicio do corpo real",
+			bodyOffset, corpo[:min(20, len(corpo))])
+	}
+}
+
+func TestFrontmatterOpeningDelimiterWithTrailingSpace(t *testing.T) {
+	raw := []byte("--- \ntitle: Abastecimento\n---\n# Corpo\n")
+	note, err := parser.Parse(raw)
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	if note.Frontmatter == nil || note.Frontmatter["title"] != "Abastecimento" {
+		t.Errorf("frontmatter = %v, quer title=Abastecimento", note.Frontmatter)
+	}
+}
+
+func TestFrontmatterDelimiterWithTrailingTabs(t *testing.T) {
+	raw := []byte("---\t\ntitle: Tabulacao\n---\t\n# Corpo\n")
+	note, err := parser.Parse(raw)
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	if note.Frontmatter == nil || note.Frontmatter["title"] != "Tabulacao" {
+		t.Errorf("frontmatter = %v, quer title=Tabulacao", note.Frontmatter)
+	}
+}
+
+func TestFrontmatterDelimiterWithExtraTextRejected(t *testing.T) {
+	raw := []byte("--- extra\ntitle: Rejeitado\n---\n# Corpo\n")
+	fm, body, off := parser.SplitFrontmatter(raw)
+	if fm != nil {
+		t.Errorf("fm = %q, quer nil para delimitador invalido", fm)
+	}
+	if off != 0 {
+		t.Errorf("offset = %d, quer 0", off)
+	}
+	if string(body) != string(raw) {
+		t.Errorf("body = %q, quer raw inteiro", body)
 	}
 }

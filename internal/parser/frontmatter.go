@@ -37,7 +37,7 @@ func SplitFrontmatter(data []byte) ([]byte, []byte, int64) {
 	if firstNL < 0 {
 		return nil, data, 0
 	}
-	first := bytes.TrimRight(data[:firstNL], "\r")
+	first := bytes.TrimRight(data[:firstNL], " \t\r")
 	if !bytes.Equal(first, fmDelim) {
 		return nil, data, 0
 	}
@@ -55,7 +55,7 @@ func SplitFrontmatter(data []byte) ([]byte, []byte, int64) {
 			line, advance = rest[:nl], nl+1
 		}
 
-		if bytes.Equal(bytes.TrimRight(line, "\r"), fmDelim) {
+		if bytes.Equal(bytes.TrimRight(line, " \t\r"), fmDelim) {
 			fmEnd := int(offset) - (firstNL + 1)
 			body := rest[advance:]
 			return data[firstNL+1 : firstNL+1+fmEnd], body, offset + int64(advance)
