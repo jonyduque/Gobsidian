@@ -71,10 +71,124 @@ Faça e **reporte o resultado real de cada uma**, inclusive quando estiver corre
 - Dois arquivos vazios removidos e criados na mesma janela continuam **não** correlacionados?
 - Uma cópia seguida da remoção do original continua sendo correlacionada como rename? (É o comportamento documentado em `ARCHITECTURE.md` §5.3, limitação 1. Não mude, só confirme.)
 
-**Provas de mutação obrigatórias, com saída colada:**
-1. Remover o gate `!vault.IsCloudOnly(...)` → `TestCorrelateRenames_NeverReadsAssetsOrCloudOnly` reprova.
-2. Reintroduzir o segundo laço de leitura → `TestCorrelateRenames_NoDuplicateOutput` reprova.
-3. Apagar a linha `backlinks := idx.Backlinks(oldPath)` → `TestCorrelateRenames_ReportsBacklinkCandidates` reprova.
+**Provas de mutação obrigatórias, com saída colada.** Use `scripts/mutate.ps1`, nunca a mão — ele exige âncora única, restaura em `finally` conferindo por SHA-256, e trata falha de build como inconclusivo em vez de contá-la como cobertura. Saída `0` é o que você quer; saída `1` significa que a regra está escrita e não verificada.
+
+```bash
+# 1. o gate de classe: sem ele, o anexo passa a ser lido e correlacionado
+pwsh -File scripts/mutate.ps1 -Path internal/watcher/rename.go `
+  -Anchor 'vault.Classify(p) == vault.ClassNote' -Replacement 'true' `
+  -Test TestCorrelateRenames_AssetIsNeverCorrelated -Package ./internal/watcher/
+
+# 3. os candidatos de backlink
+pwsh -File scripts/mutate.ps1 -Path internal/watcher/rename.go `
+  -Anchor 'backlinks := idx.Backlinks(oldPath)' -Replacement 'var backlinks []index.Backlink' `
+  -Test TestCorrelateRenames_ReportsBacklinkCandidates -Package ./internal/watcher/
+```
+
+A prova 2 (duplicata) não tem mutação de uma linha só, porque o defeito era estrutural — dois laços de leitura. Prove reintroduzindo o segundo laço à mão, confirmando que `TestCorrelateRenames_NoDuplicateOutput` reprova, e desfazendo.
+
+#### O código dos dois testes que esta tarefa precisa e que não são óbvios
+
+Transcreva. Os outros quatro da lista acima são diretos; estes dois têm uma sutileza cada.
+
+**O teste do anexo não instrumenta leitura — ele afere comportamento.** Não existe seam para contar `os.ReadFile` sem inventar um, e inventar um só para o teste é maquinário que ninguém mais usa. Em vez disso: dê ao anexo **exatamente os mesmos bytes** de uma nota removida. Se o código ler o anexo, ele vai hashear, vai casar 1-para-1, e vai correlacionar. Se o gate de classe funcionar, ele nunca é aberto e a correlação não acontece. O comportamento observável denuncia a leitura.
+
+```go
+func TestCorrelateRenames_AssetIsNeverCorrelated(t *testing.T) {
+	tmp := t.TempDir()
+	v, err := vault.New(tmp)
+	if err != nil {
+		t.Fatalf("vault.New: %v", err)
+	}
+	idx := index.New()
+	log := slog.New(slog.NewTextHandler(io.Discard, nil))
+
+	// Bytes identicos nos dois lados. Se o anexo for lido, o hash casa e a
+	// correlacao acontece — que e exatamente o defeito que este teste pega.
+	conteudo := []byte("# Nota\n\nconteudo qualquer\n")
+	if err := os.WriteFile(filepath.Join(tmp, "origem.md"), conteudo, 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := idx.Build(context.Background(), v); err != nil {
+		t.Fatalf("idx.Build: %v", err)
+	}
+
+	// origem.md sai do disco; diagrama.png entra com os MESMOS bytes.
+	if err := os.Remove(filepath.Join(tmp, "origem.md")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(tmp, "diagrama.png"), conteudo, 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	batch := []vault.CanonicalPath{"origem.md", "diagrama.png"}
+	renames, nonRenames := watcher.CorrelateRenames(context.Background(), batch, v, idx, log)
+
+	if len(renames) != 0 {
+		t.Fatalf("anexo foi correlacionado como rename: %+v — o gate de classe nao "+
+			"impediu a leitura, e um .png de 40 MB tocado pelo OneDrive seria lido "+
+			"inteiro dentro do laco que serializa as escritas do indice", renames)
+	}
+	if len(nonRenames) != 2 {
+		t.Errorf("nonRenames = %v, quer os dois caminhos exatamente uma vez", nonRenames)
+	}
+}
+```
+
+**Arquivo somente-nuvem não é testável nesta máquina.** `vault.IsCloudOnly` lê um atributo que só o cliente de sincronização produz, e forjá-lo num `t.TempDir()` testaria o forjador. **Não invente fixture para ele e não marque a verificação como coberta.** No relatório, escreva que o gate de nuvem foi verificado por inspeção de código e pela mutação do gate de classe (que compartilha a mesma condição), e que teste automatizado depende de um cofre OneDrive real — que é um item para o M6, não para esta tarefa.
+
+**O teste de duplicata precisa de arquivo vazio nos dois lados**, porque era exatamente ali que os dois laços se sobrepunham:
+
+```go
+func TestCorrelateRenames_NoDuplicateOutput(t *testing.T) {
+	tmp := t.TempDir()
+	v, err := vault.New(tmp)
+	if err != nil {
+		t.Fatalf("vault.New: %v", err)
+	}
+	idx := index.New()
+	log := slog.New(slog.NewTextHandler(io.Discard, nil))
+
+	// Nota vazia indexada, depois removida: Hash != 0 mas Size == 0.
+	if err := os.WriteFile(filepath.Join(tmp, "vazia.md"), []byte(""), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := idx.Build(context.Background(), v); err != nil {
+		t.Fatalf("idx.Build: %v", err)
+	}
+	if err := os.Remove(filepath.Join(tmp, "vazia.md")); err != nil {
+		t.Fatal(err)
+	}
+	// Nota vazia nova: len(data) == 0.
+	if err := os.WriteFile(filepath.Join(tmp, "nova.md"), []byte(""), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	batch := []vault.CanonicalPath{"vazia.md", "nova.md"}
+	renames, nonRenames := watcher.CorrelateRenames(context.Background(), batch, v, idx, log)
+
+	if len(renames) != 0 {
+		t.Errorf("arquivos vazios nao podem correlacionar: %+v", renames)
+	}
+	// A assercao central: cada caminho aparece UMA vez. Com os dois lacos de
+	// leitura da entrega original, isto devolvia 4 entradas, e o Apply chamava
+	// Replace/Remove duas vezes por caminho.
+	visto := map[vault.CanonicalPath]int{}
+	for _, p := range nonRenames {
+		visto[p]++
+	}
+	if len(nonRenames) != 2 {
+		t.Fatalf("nonRenames = %v (len %d), quer 2 entradas distintas", nonRenames, len(nonRenames))
+	}
+	for p, n := range visto {
+		if n != 1 {
+			t.Errorf("%s aparece %d vezes em nonRenames; duplicata faz Replace rodar em dobro", p, n)
+		}
+	}
+}
+```
+
+Os dois testes ficam no pacote `watcher_test` (externo), como o `rename_test.go` atual. Importe `context`, `io`, `log/slog`, `os`, `path/filepath`, `testing`, mais `index`, `vault` e `watcher`.
 
 #### Regras de execução
 

@@ -5,7 +5,7 @@ description: Resume and continue executing the gobsidian implementation plan tas
 
 # Executing the gobsidian plan
 
-The plan lives in `docs/superpowers/plans/2026-07-25-gobsidian-v01.md` and is the source implementations are transcribed from. Tasks are numbered; M0 is Tasks 1–11, M1 is Tasks 12–26.
+The plan lives in `docs/superpowers/plans/2026-07-25-gobsidian-v01.md` and is the source implementations are transcribed from. Tasks are numbered: M0 is Tasks 1–11, M1 is Tasks 12–26, M2 is Tasks 27–32.
 
 ## Before anything: read the ledger
 
@@ -23,7 +23,7 @@ The ledger also carries the accumulated decisions: why `ctx` is scoped the way i
 
 Execution goes to the cheapest model that can do it. Review and planning stay with the strongest one — the reviews are where this project's real defects were caught, and every one of them originated in the plan's own snippets rather than in the transcription.
 
-**Tasks 19–26 of the plan are self-contained.** Each carries, inside its own section: where it fits, the closed decisions that bind it, the traps already paid for that apply to it, verifications beyond the numbered steps, execution rules, and the report contract. The extracted brief is enough to execute — do **not** paste accumulated context into the dispatch prompt. That was necessary before and is now duplication.
+**Tasks 19–32 of the plan are self-contained.** Each carries, inside its own section: where it fits, the closed decisions that bind it, the traps already paid for that apply to it, verifications beyond the numbered steps, execution rules, and the report contract. The extracted brief is enough to execute — do **not** paste accumulated context into the dispatch prompt. That was necessary before and is now duplication.
 
 ## The per-task loop
 
@@ -63,6 +63,38 @@ What has actually found defects here, in order of yield:
 
 Model choice has mattered. Transcription from complete plan code runs fine on the cheapest tier. The path-confinement boundary, concurrency, and platform behaviour earned the strongest reviewer — one of those reviews found a portability regression only by transcribing the standard library's Unix code paths and simulating a Linux run.
 
+## Accepting a task back
+
+Eight tasks in this project were handed back as complete without being complete. The failures were not random and not exotic — they are what a model does when the cheapest path to "done" is to say "done". Check for them by name, because each one costs an audit later.
+
+**Ask for the evidence, not the claim.** "Tests pass" is not evidence; the pasted output is. "Measured X" is not evidence; the command and its output are. A report that summarises instead of showing is a report that was written without running.
+
+**Verify the numbers exist before believing them.** A measurements table arrived here reading *"Concluded below target (e.g. 408ms in local testing)"*. The "e.g." was doing all the work. Grep the report for hedges — *tends to*, *approximately*, *e.g.*, *should be* — next to anything presented as a result.
+
+**Require a mutation proof for every rule the task claims to cover.** Delete the rule, run, confirm a named test fails, restore. Without it you have no idea whether the test verifies the rule or merely mentions it. This has caught more real defects here than reading ever did: seven rules in one module survived mutation with the suite green, including the one the fix's own comment defended.
+
+**Check that a guard checks content, not existence.** The parity test skipped on `os.Stat` of a directory that existed and was empty, so it never skipped, iterated an empty map, and reported PASS on the PRD's strongest success metric. Any "skip if missing" needs to ask whether the thing is *usable*, not whether it is *there*.
+
+**Diff the schema against the implementation.** A declared parameter that nothing reads is worse than an absent one, because the schema is what the calling model reads to decide. Grep the handler for every field the input struct declares.
+
+**Grep the diff for deliberation.** `Wait,`, `For the sake of`, `we can let it be`, `TODO`, `Actually`. Three shipped here; one documented a defect as if it were a decision.
+
+**Confirm the ledger moved.** `pwsh -File scripts/sdd.ps1 status`. If the task is not in it, the task is not done — the next session has the ledger and not your context.
+
+**Treat a partial delivery that reads as complete as the worst outcome.** `BLOCKED` with a reason is cheap to act on. A green report over an unfinished task costs an audit to discover. Say so in the dispatch, so the implementer knows escalating is the cheaper move for them too.
+
+## What a report must contain
+
+Require this shape, and send it back if a section is missing rather than reconstructing it yourself:
+
+- **Status** — `DONE` | `DONE_WITH_CONCERNS` | `BLOCKED` | `NEEDS_CONTEXT`
+- **Commit** — short SHA and subject
+- **TDD evidence** — the RED command and its failing output, then the GREEN command and its passing output. Not "I followed TDD".
+- **Mutation proof** — per rule claimed: what was mutated, which test failed by name, confirmation it was restored
+- **The extra checks** — the task's own list, each with the *actual* result, including the ones that came out fine
+- **What was left out** — and why. Empty is an acceptable answer; absent is not.
+- **`git status --porcelain`** — no stray files, nothing of the user's touched
+
 ## Gates that block a milestone
 
 `pwsh -File scripts/test_orphans.ps1 -Cycles 100` must report zero orphans. This is the release-blocking criterion the product exists for, and it failed genuinely on its first honest run — five of five cycles left an orphan against code that had already passed task-level review. If it fails, that is the most valuable result available; diagnose with `--log-level debug` and report which mechanism did or did not fire. Never weaken the test to make it pass.
@@ -79,13 +111,15 @@ pwsh -File scripts/test_orphans.ps1 -Cycles 100
 
 M0 is complete and tagged `m0-lifecycle`: lifecycle with three shutdown mechanisms, `internal/vault`, the minimal MCP server, `doctor`, and the orphan gate.
 
-M1 is in progress. **Tasks 12–18 are closed and reviewed:** parser types, frontmatter with a body offset, slugs, headings with section offsets, the four goldmark inline extensions, and the golden-file corpus that freezes them — 48 pairs, no orphan in either direction, harness proven to fail by tampering.
+**M1 is complete** — Tasks 12–26: parser and its four goldmark extensions frozen by a golden corpus, the byte-offset index, resolution, backlinks, queries, the service facade, the five read tools and resources, and parity verified against a real Obsidian `metadataCache` dump.
 
-Pending, strictly sequential: 19 (index), 20 (resolution), 21 (backlinks), 22 (queries), 23 (service), 24 (tools and resources), 25 (parity), 26 (v0.1 closure).
+**M2 is written and ready to delegate.** Tasks 27–32 in the plan, self-contained in the same shape as 19–26: fsnotify facade and relevance filter, debounce and coalescing, real-change verification wired to `index.Replace`, overflow reconciliation, rename correlation by `xxhash`, and the counters in `vault_stats`. Strictly sequential; each consumes what the previous produced.
 
-Task 25 needs a one-time Obsidian plugin run to produce the parity reference, so it cannot be fully automated. Its brief instructs the test to **skip** when the artefact is absent rather than fail — a test that fails for want of a human artefact is one people learn to ignore.
+Three design decisions are settled inside those tasks rather than left to the executor, each with its reason: `vault.Classify` exported so the walk and the watcher filter cannot drift apart; a single ticker plus a dirty set instead of the per-path timer map `ARCHITECTURE.md` §5.3 describes; rename correlation limited to notes, because `index.Asset` carries no hash and adding one would mean reading every attachment.
 
-M2–M6 are specified at task altitude only. Each gets its own detailed plan written against the code that exists then, rather than in advance where the detail would go stale.
+One uncertainty is left explicit instead of guessed: `docs/WINDOWS.md` §4.1 claims fsnotify on Windows watches subdirectories recursively. That was never checked against the pinned v1.10.1, and Task 27 requires measuring it — if it is wrong, that task grows considerably.
+
+M3–M6 stay at task altitude. Each gets its own detailed plan written against the code that exists then.
 
 ## Carried gaps
 
@@ -93,5 +127,6 @@ Recorded rather than hidden, and the final whole-branch review should cover them
 
 - Task 9's last fix pass, Task 10's fix pass, and Task 14's fix pass closed on direct evidence — mutation proofs, twenty clean exit-code runs, a measured walk count — without a fresh review round. `cmd/gobsidian/serve.go`, `internal/mcpsrv/convert.go`, `internal/parser/ext_wikilink.go`, `internal/parser/ast.go` and `internal/doctor/` need that attention.
 - The orphan harness is always won by `stdin-eof`, so the parent watcher and signal handling remain unverified end to end. M6 needs a scenario where stdin stays open and the parent dies — precisely what the parent watcher exists for.
+- **The specification itself has been wrong at least once, and the review agreed with it.** `docs/TOOLS.md` and AD-08 both documented resource URIs as `gobsidian://<path>`, which crashes the server at boot on any vault path containing a space — AD-08 even used `Civil/PONTO 03.md` as its example. The code was faithful to the spec, and the review read both and concurred. When a rule only ever gets checked against the document that states it, agreement proves nothing. Run the thing.
 - The `vault.StripBOM` → `parser.Parse` seam is tested at neither end together. The golden `edge/bom.md` pins that a BOM'd note parsed directly yields `{}` — no headings, no title. Routed into Task 19's verifications, since that is where the composition is built.
 - A triage list of deferred Minor findings from M1 sits in the ledger under `## Minor diferidos de M1`. The frontmatter one is the sharpest: a closing delimiter with a trailing space makes the whole YAML block become body, losing metadata in silence.

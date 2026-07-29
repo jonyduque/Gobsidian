@@ -1,0 +1,10 @@
+{
+  "mcpServers": {
+    "gopls-workspace-mcp": {
+      "command": "gopls",
+      "args": ["mcp"],
+      "disabled": false
+    }
+  }
+}
+

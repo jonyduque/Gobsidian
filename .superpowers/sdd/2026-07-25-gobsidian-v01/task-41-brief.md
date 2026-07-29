@@ -25,7 +25,28 @@ Ele não foi escrito. `internal/watcher/burst_test.go` afere `idx.NoteCount()`, 
 
 #### Armadilhas já pagas neste projeto que se aplicam aqui
 
-- **Um teste que não pode falhar é pior que teste ausente.** Se o teste medir só depois do `Build`, ele passa sem watcher nenhum. **Prova de mutação obrigatória:** desligue a chamada a `idx.Replace` em `internal/watcher/apply.go`, confirme que este teste reprova, restaure. Sem essa mutação você não sabe se está medindo o `Build` do boot.
+- **Um teste que não pode falhar é pior que teste ausente.** Se o teste medir só depois do `Build`, ele passa sem watcher nenhum, porque a contagem que ele lê já estava certa antes de o watcher existir. Sem mutação você não sabe se está medindo o pipeline ou o boot.
+
+  **Prova de mutação obrigatória, com as duas rodadas e as duas saídas coladas.** Use `scripts/mutate.ps1`: saída `0` é o que você quer, saída `1` significa que o teste passa sem o watcher e portanto não prova nada.
+
+```bash
+# 1. o aplicador nao escreve mais no indice. Se o teste continuar verde, ele
+#    esta lendo a contagem que o Build deixou, nao a que o watcher produziu.
+pwsh -File scripts/mutate.ps1 -Path internal/watcher/apply.go `
+  -Anchor 'err = idx.Replace(ctx, v, path)' -Replacement 'err = error(nil)' `
+  -Test TestVaultStatsReflectsWatcherUpdate -Package ./internal/mcpsrv/
+
+# 2. a remocao. A metade que afirma que a contagem VOLTA depois de apagar a
+#    nota tem de reprovar sozinha — um teste que so cobre a subida deixa
+#    passar um Remove que nunca acontece.
+pwsh -File scripts/mutate.ps1 -Path internal/watcher/apply.go `
+  -Anchor 'idx.Remove(path)' -Replacement '_ = path' `
+  -Test TestVaultStatsReflectsWatcherUpdate -Package ./internal/mcpsrv/
+```
+
+  Ajuste `-Package` para onde você pôs o teste. Se `-Anchor` não casar, o script sai `2` e diz que não casou — copie o texto do arquivo em vez de digitá-lo.
+
+  **Se a mutação 1 sair `1`, o teste está errado e a tarefa não está pronta.** Não relate como "cobertura parcial": reescreva o teste até ele reprovar sem o watcher. É a verificação que o plano chama de *"o teste que prova que o M2 existe"*, e um teste que não pode falhar prova o contrário do que promete.
 - **Handler que devolve `error` Go faz o SDK montar `IsError` sem `StructuredContent`.** Se o teste for pelo handler, afirme o conteúdo estruturado, não só a ausência de erro.
 - **Verificar conteúdo, não presença.** Afirmar que o campo existe não é afirmar que ele mudou.
 

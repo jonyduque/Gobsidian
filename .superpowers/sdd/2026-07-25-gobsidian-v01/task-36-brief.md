@@ -43,7 +43,23 @@ Além disso, `MoveNote` preserva `Size` e `ModTime` do caminho antigo. Se o sist
 
 - Os quatro itens acima estão implementados e testados? Liste cada um com o nome do teste.
 - **Prova de mutação 1:** `MoveNote` vira no-op → `TestWatcher_RenameEndToEnd` **precisa** reprovar. Se só `TestMoveNote` reprovar, o teste de integração não está exercendo o caminho.
-- **Prova de mutação 2:** para **cada uma** das oito estruturas, remova a atualização correspondente dentro de `MoveNote`, rode, e diga qual teste reprovou nomeando a estrutura. Se alguma sobreviver com a suíte verde, ela está escrita e não verificada — escreva o teste que falta. **Este é o item central da tarefa.**
+- **Prova de mutação 2:** para **cada uma** das oito estruturas, remova a atualização correspondente dentro de `MoveNote`, rode, e diga qual teste reprovou nomeando a estrutura. **Este é o item central da tarefa.**
+
+  **Instrução expressa, porque a saída fácil aqui é registrar e seguir:** quando uma estrutura sobreviver à mutação — `scripts/mutate.ps1` saindo `1` — **o entregável é o teste que a pega, escrito nesta tarefa.** Não é uma linha no relatório dizendo "estrutura X sem cobertura", não é um `TODO`, não é um item para a próxima tarefa. Uma estrutura que sobrevive à mutação é uma estrutura que `MoveNote` pode parar de atualizar sem ninguém notar, e o sintoma disso em produção é uma consulta devolvendo caminho que não existe — silêncio, não erro.
+
+  O laço é: mute a estrutura → saiu `1` → escreva o teste que afirma aquela estrutura especificamente depois do move → rode a mutação de novo → tem que sair `0` → restaure → próxima estrutura. Oito voltas, oito saídas coladas no relatório, cada uma com o nome do teste que reprovou.
+
+  Se uma estrutura for genuinamente não observável de fora do pacote, escreva o teste **dentro** do pacote `index` (`package index`, não `index_test`) acessando o campo direto. Preferir a fronteira pública é bom estilo; deixar a regra sem verificação para preservar o estilo não é.
+
+  Esperar oito testes novos é o resultado normal, não sinal de que você entendeu errado. Hoje `MoveNote` inteira reduzida a no-op deixa **todos** os testes do pacote `watcher` verdes, e só `TestMoveNote` reprova — um teste para oito estruturas.
+
+```bash
+# o laco, por estrutura. Exemplo com byName:
+pwsh -File scripts/mutate.ps1 -Path internal/index/update.go `
+  -Anchor 'ix.byName[string(newBase)] = append(ix.byName[string(newBase)], newPath)' `
+  -Replacement '' `
+  -Test TestMoveNote_UpdatesByName -Package ./internal/index/
+```
 - `os.Stat` do caminho novo falhando deixa `ModTime` zerado e força reindexação na próxima passagem? Prove.
 
 #### Regras de execução

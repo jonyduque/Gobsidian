@@ -75,8 +75,131 @@ Acrescente no topo de `Reconcile` o comentário que amarra a lacuna de plataform
 Faça e **reporte o resultado real de cada uma**:
 
 - Os seis testes acima existem e passam? Liste os seis com o resultado.
-- **Prova de mutação obrigatória:** trocar o corpo de `Reconcile` por `return 0, 0, 0`, rodar, confirmar que `TestReconcile_CorrectsLostEvents` **e** `TestApply_ReconcileSignal` reprovam nomeando os três arquivos, restaurar. Cole a saída real.
-- **Segunda prova de mutação:** trocar `errors.Is(err, context.Canceled)` por `false`, confirmar que `TestReconcile_CancelIsNotAnError` reprova, restaurar.
+- **Provas de mutação obrigatórias.** Use `scripts/mutate.ps1` — saída `0` é o que você quer, saída `1` significa que a regra continua sem cobertura. Cole a saída real das duas.
+
+```bash
+# 1. o reconciliador inteiro. Hoje, ANTES desta tarefa, esta mutacao sai 1:
+#    o teste passa sem reconciliador nenhum. Depois dela tem que sair 0.
+pwsh -File scripts/mutate.ps1 -Path internal/watcher/apply.go `
+  -Anchor 'Reconcile(ctx, v, idx, log)' -Replacement '_ = Reconcile' `
+  -Test TestReconcile_CorrectsLostEvents -Package ./internal/watcher/
+
+# 2. o cancelamento tratado como erro
+pwsh -File scripts/mutate.ps1 -Path internal/watcher/overflow.go `
+  -Anchor 'errors.Is(err, context.Canceled)' -Replacement 'false' `
+  -Test TestReconcile_CancelIsNotAnError -Package ./internal/watcher/
+```
+
+Rode a mutação 1 **antes** de escrever os testes novos, e cole essa saída também: ela é a linha de base que mostra que o teste antigo não conseguia reprovar. Sem esse antes, o depois não prova que a cobertura mudou.
+
+#### O código dos dois testes que sustentam esta tarefa
+
+Transcreva. Os outros quatro são diretos; estes dois carregam a decisão inteira, e a entrega anterior errou exatamente aqui — deixando o watcher rodando.
+
+```go
+// TestReconcile_CorrectsLostEvents roda SEM watcher. Isso e a tarefa inteira:
+// com o watcher ligado, o pipeline normal aplica as tres mudancas e a
+// reconciliacao nunca e exercitada — foi assim que um requisito P0 passou por
+// uma revisao inteira com cobertura zero.
+func TestReconcile_CorrectsLostEvents(t *testing.T) {
+	tmp := t.TempDir()
+
+	modificado := filepath.Join(tmp, "file1.md")
+	removido := filepath.Join(tmp, "file2.md")
+	if err := os.WriteFile(modificado, []byte("old"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(removido, []byte("some content"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	v, err := vault.New(tmp)
+	if err != nil {
+		t.Fatalf("vault.New: %v", err)
+	}
+	idx := index.New()
+	if err := idx.Build(context.Background(), v); err != nil {
+		t.Fatalf("idx.Build: %v", err)
+	}
+
+	// O cofre muda por baixo, com NINGUEM escutando. E o que "eventos perdidos"
+	// significa: nao ha evento nenhum para perder, so divergencia.
+	if err := os.WriteFile(modificado, []byte("new content, different size"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(removido); err != nil {
+		t.Fatal(err)
+	}
+	criado := filepath.Join(tmp, "file3.md")
+	if err := os.WriteFile(criado, []byte("added content"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	log := slog.New(slog.NewTextHandler(io.Discard, nil))
+	updated, removedN, skipped := Reconcile(context.Background(), v, idx, log)
+
+	if n, ok := idx.Get("file1.md"); !ok || n.Size != int64(len("new content, different size")) {
+		t.Errorf("modificado nao reconciliado: ok=%v nota=%+v", ok, n)
+	}
+	if _, ok := idx.Get("file2.md"); ok {
+		t.Errorf("removido continua no indice")
+	}
+	if n, ok := idx.Get("file3.md"); !ok || n.Size != int64(len("added content")) {
+		t.Errorf("criado nao entrou no indice: ok=%v nota=%+v", ok, n)
+	}
+	if updated < 2 || removedN != 1 {
+		t.Errorf("contadores = updated %d, removed %d, skipped %d; quer >=2 e 1",
+			updated, removedN, skipped)
+	}
+}
+
+// TestApply_ReconcileSignal prova que a correcao veio do SINAL, e nao de um
+// evento: o canal de entrada e criado e nunca alimentado.
+func TestApply_ReconcileSignal(t *testing.T) {
+	tmp := t.TempDir()
+	alvo := filepath.Join(tmp, "nota.md")
+	if err := os.WriteFile(alvo, []byte("antes"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	v, err := vault.New(tmp)
+	if err != nil {
+		t.Fatalf("vault.New: %v", err)
+	}
+	idx := index.New()
+	if err := idx.Build(context.Background(), v); err != nil {
+		t.Fatalf("idx.Build: %v", err)
+	}
+
+	in := make(chan []vault.CanonicalPath)  // criado e NUNCA alimentado
+	reconcile := make(chan struct{}, 1)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	log := slog.New(slog.NewTextHandler(io.Discard, nil))
+	go Apply(ctx, in, reconcile, idx, v, log /* ...contadores conforme a assinatura atual */)
+
+	if err := os.WriteFile(alvo, []byte("depois, bem maior"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	reconcile <- struct{}{}
+
+	// Espera em laco com condicao de saida. time.Sleep fixo como assercao e o
+	// que fez o teste anterior passar sem mecanismo nenhum.
+	quer := int64(len("depois, bem maior"))
+	deadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) {
+		if n, ok := idx.Get("nota.md"); ok && n.Size == quer {
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	n, _ := idx.Get("nota.md")
+	t.Fatalf("indice nao foi corrigido pelo sinal de reconciliacao: %+v", n)
+}
+```
+
+Os dois ficam no pacote **interno** (`package watcher`), porque chamam `Reconcile` e `Apply` diretamente — é o que `overflow_test.go` já faz hoje. Importe `context`, `io`, `log/slog`, `os`, `path/filepath`, `testing`, `time`, mais `index` e `vault`. Ajuste a chamada de `Apply` à assinatura de contadores que a Task 32 deixou.
 - Quanto tempo a reconciliação leva no cofre de teste disponível? Um número medido, com a contagem de notas ao lado. Se não mediu, escreva **"não medido"**.
 - O contador de reconciliações incrementa uma vez por overflow, e não uma vez por arquivo reconciliado?
 

@@ -53,6 +53,93 @@ type Counters struct {
 
 > `events_dropped_by_reason` desdobra o total porque as causas pedem ações diferentes: `chmod` alto é OneDrive em operação normal e pode ser ignorado; `outside_vault` alto indica que a raiz do cofre é um link e o confinamento está recusando eventos; `excluded` alto indica atividade em `.obsidian/` ou `.git/`; `unknown_op` alto indica evento que o filtro não soube classificar e merece `--log-level debug`.
 
+#### Os quatro pontos onde esta tarefa vai dar errado, com o código que evita cada um
+
+Esta é a tarefa mais larga do bloco — oito arquivos, três pacotes, uma corrida de dados e um golden. Os quatro pontos abaixo não são estilo; são os lugares onde um erro compila, passa nos testes e mente na resposta.
+
+**1. `map` de contadores não é seguro para leitura concorrente, e `atomic` não conserta isso.** Os contadores são escritos na goroutine do watcher e lidos na que atende MCP. Um `map[string]int64` compartilhado, mesmo que só cresça, é corrida de dados — `go test -race` acusa, e um `atomic.Int64` **dentro** do map não ajuda, porque o mapa em si é a estrutura compartilhada. Guarde quatro atomics separados e monte o mapa **dentro** do `Stats()`, na goroutine que pergunta:
+
+```go
+type Watcher struct {
+	// ...
+	droppedChmod        atomic.Int64
+	droppedOutsideVault atomic.Int64
+	droppedExcluded     atomic.Int64
+	droppedUnknownOp    atomic.Int64
+}
+
+func (w *Watcher) Stats() Counters {
+	// O mapa nasce aqui, por chamada. Um mapa compartilhado entre a goroutine
+	// que incrementa e a que le e corrida de dados mesmo que so cresca, e
+	// atomic no valor nao protege a estrutura.
+	porMotivo := map[string]int64{
+		"chmod":         w.droppedChmod.Load(),
+		"outside_vault": w.droppedOutsideVault.Load(),
+		"excluded":      w.droppedExcluded.Load(),
+		"unknown_op":    w.droppedUnknownOp.Load(),
+	}
+	var soma int64
+	for _, n := range porMotivo {
+		soma += n
+	}
+	return Counters{
+		Active:          w.active.Load(),
+		EventsDropped:   soma, // sempre derivada, nunca contada em paralelo
+		DroppedByReason: porMotivo,
+		// ...
+	}
+}
+```
+
+`EventsDropped` é **derivada da soma**, nunca um quinto contador incrementado em paralelo. Dois contadores para a mesma coisa divergem, e o dia em que divergirem ninguém vai saber qual acreditar.
+
+**2. O motivo tem que ser devolvido pelo `filter`, não reconstruído depois.** Reconstruir a causa no chamador é como o contador agregado nasce de novo — e erra, porque a informação que distingue os motivos já foi descartada.
+
+```go
+// DropReason e fechado: quatro valores, e nenhum outro entra sem mudar o plano.
+type DropReason string
+
+const (
+	DropChmod        DropReason = "chmod"
+	DropOutsideVault DropReason = "outside_vault"
+	DropExcluded     DropReason = "excluded"
+	DropUnknownOp    DropReason = "unknown_op"
+)
+
+// filter devolve o motivo junto com a decisao. Quando ok e true, reason nao
+// tem significado — nao a use.
+func filter(e fsnotify.Event, root string, log *slog.Logger) (Event, bool, DropReason)
+```
+
+**3. `active` precisa ser desligado num `defer`, no topo do `Run`.** Ligar no fim ou desligar só no caminho feliz devolve o campo ao estado de hoje: `true` sempre, inclusive depois de o watcher morrer.
+
+```go
+func (w *Watcher) Run(ctx context.Context) error {
+	w.active.Store(true)
+	defer w.active.Store(false) // vale para ctx cancelado, canal fechado e panic
+	// ...
+}
+```
+
+**4. `internal/watcher` não pode importar `internal/service`.** O tipo `Counters` mora no `watcher`; quem satisfaz `service.WatchStats` é um adaptador em `cmd/gobsidian/serve.go`, que é onde os subsistemas já se encontram. Confirme com `go list -deps ./internal/watcher | Select-String service` — a saída tem que ser vazia, e ela vai no relatório.
+
+```go
+// em cmd/gobsidian/serve.go
+type watcherStats struct{ w *watcher.Watcher }
+
+func (a watcherStats) Stats() service.WatchCounters {
+	c := a.w.Stats()
+	return service.WatchCounters{
+		Active:          c.Active,
+		EventsReceived:  c.EventsReceived,
+		EventsDropped:   c.EventsDropped,
+		DroppedByReason: c.DroppedByReason,
+		EventsCoalesced: c.EventsCoalesced,
+		// ...
+	}
+}
+```
+
 #### Armadilhas já pagas neste projeto que se aplicam aqui
 
 - **Campo de API com valor fixo mente sempre.** É o defeito que esta tarefa corrige; não introduza outro.
