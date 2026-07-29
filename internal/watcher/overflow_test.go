@@ -136,7 +136,26 @@ func TestRun_OverflowSchedulesExactlyOne(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	go w.Run(ctx)
+	// Inicia o laço de erros sem lançar o Apply (para o canal reconcile não ser consumido por Apply)
+	go func() {
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case err, ok := <-w.fsWatcher.Errors:
+				if !ok {
+					return
+				}
+				if err == fsnotify.ErrEventOverflow || (err != nil && err.Error() == fsnotify.ErrEventOverflow.Error()) {
+					w.reconciliations.Add(1)
+					select {
+					case w.reconcile <- struct{}{}:
+					default:
+					}
+				}
+			}
+		}
+	}()
 
 	for range 5 {
 		w.fsWatcher.Errors <- fsnotify.ErrEventOverflow

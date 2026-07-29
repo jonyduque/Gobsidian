@@ -40,7 +40,7 @@ func Apply(ctx context.Context, in <-chan []vault.CanonicalPath, reconcile <-cha
 					"to", rename.To,
 					"backlinks", len(rename.Backlinks),
 				)
-				idx.MoveNote(rename.From, rename.To)
+				idx.MoveNote(v, rename.From, rename.To)
 			}
 
 			for _, path := range nonRenames {

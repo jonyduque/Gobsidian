@@ -376,3 +376,77 @@ func snapshotVault(t *testing.T, root string) map[string]fileState {
 	}
 	return res
 }
+
+func TestWatcher_RenameEndToEnd(t *testing.T) {
+	tmp := t.TempDir()
+	origemContent := []byte("---\naliases:\n  - OrigemAlias\n---\n# Origem\n\nConteudo da nota origem.\n")
+	cContent := []byte("# Nota C\n\nLink para [[OrigemAlias]]\n")
+
+	if err := os.WriteFile(filepath.Join(tmp, "origem.md"), origemContent, 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(tmp, "c.md"), cContent, 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	v, err := vault.New(tmp)
+	if err != nil {
+		t.Fatalf("vault.New: %v", err)
+	}
+	idx := index.New()
+	if err := idx.Build(context.Background(), v); err != nil {
+		t.Fatalf("idx.Build: %v", err)
+	}
+
+	log := slog.New(slog.NewTextHandler(io.Discard, nil))
+
+	w, err := watcher.New(v, idx, 20*time.Millisecond, log)
+	if err != nil {
+		t.Fatalf("watcher.New: %v", err)
+	}
+	defer w.Close()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	go w.Run(ctx)
+
+	// Rename no disco
+	if err := os.Remove(filepath.Join(tmp, "origem.md")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(tmp, "destino.md"), origemContent, 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Aguarda processamento do debounce e correlação
+	deadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) {
+		if _, ok := idx.Get("destino.md"); ok {
+			if _, oldOk := idx.Get("origem.md"); !oldOk {
+				break
+			}
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+
+	if _, ok := idx.Get("origem.md"); ok {
+		t.Errorf("origem.md ainda no índice após rename end-to-end")
+	}
+	destinoNote, ok := idx.Get("destino.md")
+	if !ok {
+		t.Fatalf("destino.md ausente no índice após rename end-to-end")
+	}
+	if destinoNote.Path != "destino.md" {
+		t.Errorf("destinoNote.Path = %s, quer destino.md", destinoNote.Path)
+	}
+
+	// Verifica se o link em c.md (por alias OrigemAlias) resolve para destino.md
+	cNote, ok := idx.Get("c.md")
+	if !ok || len(cNote.Links) != 1 {
+		t.Fatalf("c.md links incorretos: %+v", cNote)
+	}
+	if cNote.Links[0].Resolved != "destino.md" {
+		t.Errorf("c.md link.Resolved = %s, quer destino.md", cNote.Links[0].Resolved)
+	}
+}

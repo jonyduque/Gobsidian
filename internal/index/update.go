@@ -2,10 +2,12 @@ package index
 
 import (
 	"context"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
 	"sync/atomic"
+	"time"
 
 	"github.com/cespare/xxhash/v2"
 	"github.com/jonyd/gobsidian/internal/parser"
@@ -304,7 +306,7 @@ func (ix *Index) reprocessLinksLocked() {
 }
 
 // MoveNote atualiza os caminhos de uma nota no índice sem precisar reler do disco.
-func (ix *Index) MoveNote(oldPath, newPath vault.CanonicalPath) {
+func (ix *Index) MoveNote(v *vault.Vault, oldPath, newPath vault.CanonicalPath) {
 	ix.mu.Lock()
 	defer ix.mu.Unlock()
 
@@ -317,6 +319,22 @@ func (ix *Index) MoveNote(oldPath, newPath vault.CanonicalPath) {
 
 	// 1. Atualizar notas
 	n.Path = newPath
+
+	var info os.FileInfo
+	var err error
+	if v != nil {
+		info, err = os.Stat(v.Abs(newPath))
+	} else {
+		info, err = os.Stat(string(newPath))
+	}
+	if err == nil {
+		n.ModTime = info.ModTime()
+		n.Size = info.Size()
+	} else {
+		n.ModTime = time.Time{}
+		slog.Debug("MoveNote stat failed, zeroing ModTime to force reindex", "path", newPath, "err", err)
+	}
+
 	ix.notes[newPath] = n
 	delete(ix.notes, oldPath)
 

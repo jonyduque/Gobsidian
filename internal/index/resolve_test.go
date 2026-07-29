@@ -128,7 +128,7 @@ func TestMoveNote(t *testing.T) {
 	}
 
 	// Move a nota no índice (simulando que foi renomeada para Destino.md)
-	idx.MoveNote("Origem.md", "Destino.md")
+	idx.MoveNote(v, "Origem.md", "Destino.md")
 
 	// Verifica se a nota agora existe no novo caminho e não no velho
 	if _, ok := idx.Get("Origem.md"); ok {
