@@ -65,6 +65,7 @@ Task 44: complete (commits 0819e50..53b2061, portuguese analyzer with dual index
 Task 45: complete (commits 1c182c9..b147b8d, inverted index with incremental update, review Approved)
 Task 46: complete (commits c791cff..e8c31e3, BM25 ranking with field weights, review Approved)
 Task 47: complete (commits 01116d9..ae4a3b2, snippets with term highlight, review Approved)
+Task 48: complete (commits ed936d7..0fe5f2b, vault_search tool with filters and phrase queries, review Approved)
 
 === REVISAO DO M2.1 (Tasks 33-42), 2026-07-29, pelo modelo principal ===
 Nove provas de mutacao rodadas com scripts/mutate.ps1, TODAS saindo 0 (o teste
