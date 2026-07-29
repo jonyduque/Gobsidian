@@ -608,3 +608,53 @@ silencio. Era Minor porque afeta poucas notas; deixa de ser no M3 porque a busca
 filtra por tag e por campo de frontmatter, e o sintoma vira "a busca nao acha".
 Os demais Minor de M1 (slug vazio, condicao redundante, contrato nil-vs-vazio)
 carregam para o M4 sem relacao com busca.
+
+=== REVISAO DO M3 (Tasks 43-50), 2026-07-29, pelo modelo principal ===
+Gate estava verde: verify.ps1 7/7 e golangci-lint 0 issues, primeira vez sem
+precisar conserto. Nenhum dos dois pega o que segue.
+
+CRITICAL: o indice de busca NUNCA e atualizado pelo watcher em producao.
+serve.go constroi inv e passa a service.New, mas watcher.New nao o recebe, o
+Watcher nao tem campo de search, e Run chama Apply sem o variadico — entao
+searchInv e nil sempre e o bloco de atualizacao em apply.go e codigo morto.
+Nota criada/editada/removida com o servidor rodando nao entra/sai da busca ate
+reiniciar. Os dois call sites de teste tambem nao passam inv: cobertura zero.
+O parametro `inv ...*search.Inverted` e o que tornou isso silencioso —
+esquecer de passar COMPILA. O brief da Task 45 pedia o teste ponta a ponta que
+teria pegado; nao foi feito, e as tres lentes aprovaram. Vira a Task 51.
+
+CRITICAL: a medicao da Q3 mediu UMA nota rotulada como 100. persist_test.go
+inseria 100x o MESMO caminho; o log do proprio teste dizia "Notes: 1" ao lado
+de "100 notas". E a comparacao que decide a pergunta — custo de RECONSTRUIR a
+busca a partir dos metadados carregados — nunca foi feita; mediu-se Save/Load
+do cache, o outro lado. Q3 REABERTA no PRD 11. RNF-02 e RNF-04 retirados do
+OPERACAO.md e marcados "nao medido": numero falso esperando tarefa e numero
+falso no repositorio. O p95 de RNF-04 tambem nao era p95 — uma chamada unica.
+Vira a Task 52.
+
+MECANICO (Task 53): TestInvertedConcurrencyRace(_ *testing.T) nao pode falhar
+(descarta o t); tres `_ = searchInv.Update(...)` e um `_ = SaveInvertedCache`
+engolindo erro; nota ilegivel descartada em silencio no rebuild do boot; as
+cinco constantes do BM25 fixadas por ordenacao e nao por valor (perturbacao
+pequena sobrevive: k1->0.9, b->0.5, headings->1.5 todos passam), entao os
+testes precisam dizer no NOME o que verificam de fato; sete constantes e nao
+cinco; verificacao de query vazia mais fraca que a pedida; pacote de revisao de
+intervalo vazio.
+
+DOIS ACHADOS DA REVISAO ESTAVAM ERRADOS, e a correcao e nos docs:
+- watcher importar search NAO e violacao: ARCHITECTURE 5.3 poe search.Update no
+  pipeline, logo depois de index.Replace.
+- search importar index NAO e violacao: 6.2 exige pesos por campo, que precisam
+  de titulo e headings.
+O paragrafo do ARCHITECTURE 1 que dizia "as camadas abaixo nao se conhecem",
+sem excecao, contradizia 5.3 e 6.2 e foi corrigido com as duas excecoes
+nomeadas. O "e folha" do brief da Task 44 tambem: vale para analyzer.go e
+persist.go, nao para bm25.go e snippet.go.
+
+O QUE PASSOU: mutacoes que rodei e sairam 0 — espaco no delimitador (43), peso
+do titulo (46), offset do BOM (47), termo orfao (45). As Tasks 43 e 47 fizeram
+o dever de offset: o teste le do DISCO e reprova sem o ajuste de BOM. Os nove
+parametros de schema e os seis campos de retorno da Task 48 tem teste nomeado
+cada um. Ledger sem SHA fantasma, reusado ou intervalo vazio nas 43-50.
+
+=== M3.1 ESCRITO: Tasks 51-53, prontas para delegar ===

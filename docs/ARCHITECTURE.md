@@ -37,7 +37,13 @@ Duas propriedades estruturais governam o desenho.
 
 **O índice é derivado e descartável.** Nenhuma informação existe apenas em memória. Perder o índice custa uma reindexação, nunca dados. Isso permite que qualquer inconsistência detectada seja resolvida com a estratégia mais simples possível: reconstruir.
 
-**`internal/service` é o único ponto que enxerga todos os subsistemas.** As camadas abaixo dele não se conhecem. O parser não sabe que existe um índice; o escritor não sabe que existe uma busca. Isso mantém cada uma testável isoladamente e impede que a lógica de orquestração se espalhe.
+**`internal/service` é o único ponto que enxerga todos os subsistemas.** O parser não sabe que existe um índice; o escritor não sabe que existe uma busca. Isso mantém cada uma testável isoladamente e impede que a lógica de orquestração se espalhe.
+
+**Duas exceções, e são de projeto, não descuido.** §5.3 põe `search.Update(nota)` no pipeline do watcher, logo depois de `index.Replace(nota)`: atualizar a busca é parte da reindexação incremental, e mandar isso pelo serviço acrescentaria um salto sem acrescentar isolamento. E §6.2 dá pesos por campo à busca — título 3×, headings 2×, corpo 1× —, o que exige conhecer o título e os headings da nota, isto é, o tipo do índice. Portanto `internal/watcher` importa `internal/search`, e `internal/search` importa `internal/index`, das duas de propósito.
+
+O que **não** vale: `internal/parser` continua folha e não importa ninguém; `internal/index` não conhece a busca (a direção é só de search para index); e nada abaixo do serviço importa `internal/service` — um subsistema que importa a fachada que deveria consumi-lo inverte a dependência, e isso já aconteceu uma vez em `watcher/counters.go`. Dentro de `internal/search`, `analyzer.go` e `persist.go` são folhas e devem continuar sendo: são o que se testa sem construir cofre nenhum.
+
+A redação anterior deste parágrafo — "as camadas abaixo dele não se conhecem", sem exceção — contradizia §5.3 e §6.2, que são mais específicas e mais novas. Corrigida em 2026-07-29, depois de a revisão do M3 acusar como violação algo que a própria arquitetura especifica.
 
 ---
 

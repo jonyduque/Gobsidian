@@ -119,11 +119,18 @@ pwsh -File scripts/measure.ps1 -Vault <caminho-do-cofre>
 | ID | Métrica (Alvo) | Medição |
 |---|---|---|
 | **RNF-01** | Indexação a frio (≤ 3 s) | 5–8 ms |
-| **RNF-02** | Boot com cache válido (≤ 300 ms) | 15,82 ms (LoadInvertedCache), 17,02 ms boot total |
-| **RNF-04** | Latência de `vault_search` p95 (≤ 100 ms) | 0,18 ms (medido em teste unitário/local) |
+| **RNF-02** | Boot com cache válido (≤ 300 ms) | **não medido** — ver nota |
+| **RNF-04** | Latência de `vault_search` p95 (≤ 100 ms) | **não medido** — ver nota |
 | **RNF-07** | RSS em repouso (≤ 60 MB) | 18,9–19,3 MB |
 
 **Isto não é a validação do orçamento completo.** Sete a cem notas não exercitam RNF-01 em escala de 5.000 notas.
+
+**RNF-02 e RNF-04 foram retirados desta tabela em 2026-07-29 pela revisão do M3.** Traziam `15,82 ms` e `0,18 ms`, e nenhum dos dois era o que a legenda dizia:
+
+- O de RNF-02 vinha de `persist_test.go`, cujo laço chamava `inv.Add` cem vezes com **o mesmo caminho** (`folder/note.md`). O cache continha **uma** nota, e o próprio log do teste dizia `Notes: 1` ao lado do rótulo "100 notas". Carregar um cache de uma nota não diz nada sobre boot com cache válido.
+- O de RNF-04 era uma chamada única em teste unitário com índice em memória. p95 exige distribuição; um ponto não é percentil.
+
+A medição honesta é a Task 52. Até ela fechar, o valor é **"não medido"** — que é a resposta certa e com a qual ninguém briga.
 O que a medição **de fato** estabelece é que tanto a deserialização GOB quanto o motor BM25 operam com folga da ordem de grandeza em relação aos limites de RNF-02 e RNF-04.
 
 ### O que falta
