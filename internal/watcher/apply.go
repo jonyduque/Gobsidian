@@ -28,7 +28,7 @@ func Apply(ctx context.Context, in <-chan []vault.CanonicalPath, reconcile <-cha
 			}
 
 			// Task 31: Correlate renames within the batch
-			renames, nonRenames := CorrelateRenames(batch, v, idx, log)
+			renames, nonRenames := CorrelateRenames(ctx, batch, v, idx, log)
 
 			// Process renames (report without rewriting content)
 			for _, rename := range renames {

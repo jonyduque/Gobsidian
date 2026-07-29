@@ -18,69 +18,67 @@ type RenameCandidate struct {
 	Backlinks []index.Backlink
 }
 
-// CorrelateRenames analisa um lote de caminhos coalescidos para encontrar renames.
+// CorrelateRenames analisa um lote de caminhos coalescidos para encontrar renames em uma única passagem.
 // A correlação ocorre quando há exatamente uma remoção e exatamente uma criação com o mesmo xxhash.
-func CorrelateRenames(batch []vault.CanonicalPath, v *vault.Vault, idx *index.Index, log *slog.Logger) (renames []RenameCandidate, nonRenames []vault.CanonicalPath) {
-	var missing []vault.CanonicalPath
-	var added []vault.CanonicalPath
+func CorrelateRenames(ctx context.Context, batch []vault.CanonicalPath, v *vault.Vault, idx *index.Index, log *slog.Logger) (renames []RenameCandidate, nonRenames []vault.CanonicalPath) {
+	missingHashes := make(map[uint64][]vault.CanonicalPath)
 
-	// 1. Separar o batch
-	for _, path := range batch {
-		abs := v.Abs(path)
-		_, err := os.Stat(abs)
+	type addedInfo struct {
+		path vault.CanonicalPath
+		abs  string
+	}
+	var addedCandidates []addedInfo
+
+	// 1. Laço único sobre o batch para classificar ausentes (do índice) e novos (do disco)
+	for _, p := range batch {
+		abs := v.Abs(p)
+		info, err := os.Stat(abs)
 		if err != nil {
 			if os.IsNotExist(err) {
-				missing = append(missing, path)
-			} else {
-				// Erros de permissão, etc., não devem entrar na correlação
-				nonRenames = append(nonRenames, path)
+				n, ok := idx.Get(p)
+				if ok && n.Hash != 0 && n.Size > 0 {
+					missingHashes[n.Hash] = append(missingHashes[n.Hash], p)
+				}
 			}
-		} else {
-			added = append(added, path)
+			continue
+		}
+
+		if info.IsDir() {
+			continue
+		}
+
+		if vault.Classify(p) == vault.ClassNote && !vault.IsCloudOnly(abs) {
+			addedCandidates = append(addedCandidates, addedInfo{path: p, abs: abs})
 		}
 	}
 
-	// 2. Extrair os hashes do index para os deletados
-	missingHashes := make(map[uint64][]vault.CanonicalPath)
-	for _, p := range missing {
-		n, ok := idx.Get(p)
-		if ok && n.Hash != 0 && n.Size > 0 {
-			missingHashes[n.Hash] = append(missingHashes[n.Hash], p)
-		} else {
-			// Se não estava no índice (ex. anexo) ou o hash era zero, não podemos correlacionar
-			nonRenames = append(nonRenames, p)
-		}
+	// Curto-circuito: se não há remoções com hash no lote, nenhum rename é possível
+	if len(missingHashes) == 0 {
+		return nil, batch
 	}
 
-	// 3. Calcular hashes para os recém-adicionados
+	// 2. Ler conteúdo apenas das notas adicionadas elegíveis quando há remoções
 	addedHashes := make(map[uint64][]vault.CanonicalPath)
-	for _, p := range added {
-		data, err := v.ReadAll(context.Background(), p)
-		if err == nil && len(data) > 0 {
-			// xxhash calculado sobre bytes crus (raw bytes), antes de remover o BOM, conforme exigido.
+	for _, cand := range addedCandidates {
+		data, rErr := v.ReadAll(ctx, cand.path)
+		if rErr == nil && len(data) > 0 {
 			h := xxhash.Sum64(data)
 			if h != 0 {
-				addedHashes[h] = append(addedHashes[h], p)
-			} else {
-				nonRenames = append(nonRenames, p)
+				addedHashes[h] = append(addedHashes[h], cand.path)
 			}
-		} else {
-			nonRenames = append(nonRenames, p)
 		}
 	}
 
-	// 4. Correlacionar e detectar ambiguidade
+	// 3. Correlacionar por cardinalidade exata 1-para-1
 	matchedMissing := make(map[vault.CanonicalPath]bool)
 	matchedAdded := make(map[vault.CanonicalPath]bool)
 
 	for h, ms := range missingHashes {
 		as, ok := addedHashes[h]
 		if !ok {
-			continue // Sem correspondente
+			continue
 		}
 
-		// Regra 3: ambiguidade (arquivos idênticos, como vazios).
-		// Exatamente 1 e 1.
 		if len(ms) == 1 && len(as) == 1 {
 			oldPath := ms[0]
 			newPath := as[0]
@@ -94,35 +92,25 @@ func CorrelateRenames(batch []vault.CanonicalPath, v *vault.Vault, idx *index.In
 			})
 			matchedMissing[oldPath] = true
 			matchedAdded[newPath] = true
-			log.Info("Rename detectado por hash de conteúdo", "from", oldPath, "to", newPath)
+			if log != nil {
+				log.Info("Rename detectado por hash de conteúdo", "from", oldPath, "to", newPath)
+			}
 		} else {
-			log.Debug("Correlação recusada por ambiguidade", "hash", h, "missing_count", len(ms), "added_count", len(as))
+			if log != nil {
+				log.Debug("Correlação recusada por ambiguidade", "hash", h, "missing_count", len(ms), "added_count", len(as))
+			}
 		}
 	}
 
-	// 5. Adicionar os não correlacionados em nonRenames
-	for _, p := range missing {
-		if !matchedMissing[p] {
-			if n, ok := idx.Get(p); !ok || n.Hash == 0 {
-				// Já foi adicionado acima
-			} else {
-				nonRenames = append(nonRenames, p)
-			}
+	// 4. Varredura final única sobre batch para montar nonRenames sem duplicatas
+	seen := make(map[vault.CanonicalPath]bool)
+	for _, p := range batch {
+		if matchedMissing[p] || matchedAdded[p] {
+			continue
 		}
-	}
-	for _, p := range added {
-		if !matchedAdded[p] {
-			data, err := v.ReadAll(context.Background(), p)
-			if err != nil {
-				// Já foi adicionado acima
-			} else {
-				h := xxhash.Sum64(data)
-				if h == 0 {
-					// Já foi
-				} else {
-					nonRenames = append(nonRenames, p)
-				}
-			}
+		if !seen[p] {
+			seen[p] = true
+			nonRenames = append(nonRenames, p)
 		}
 	}
 

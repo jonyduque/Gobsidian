@@ -102,7 +102,7 @@ $Required = @(
 )
 
 $Filter = if ($Task) { "task-$Task-report.md" } else { 'task-*-report.md' }
-$Reports = Get-ChildItem -Path $SddRoot -Filter $Filter -Recurse -File | Sort-Object Name
+$Reports = @(Get-ChildItem -Path $SddRoot -Filter $Filter -Recurse -File | Sort-Object Name)
 
 if ($Reports.Count -eq 0) {
     Write-Output "[!] Nenhum relatorio casou com '$Filter' em $SddRoot"
@@ -111,7 +111,7 @@ if ($Reports.Count -eq 0) {
 
 Write-Output "=== Relatorios ($($Reports.Count)) ==="
 foreach ($R in $Reports) {
-    $Lines = Get-Content -Path $R.FullName -Encoding utf8
+    $Lines = @(Get-Content -Path $R.FullName -Encoding utf8)
     $Body = $Lines -join "`n"
 
     for ($i = 0; $i -lt $Lines.Count; $i++) {
@@ -148,9 +148,9 @@ foreach ($R in $Reports) {
 Write-Output ""
 Write-Output "=== Ledger ==="
 
-$Ledgers = Get-ChildItem -Path $SddRoot -Filter 'progress.md' -Recurse -File
+$Ledgers = @(Get-ChildItem -Path $SddRoot -Filter 'progress.md' -Recurse -File)
 foreach ($Ledger in $Ledgers) {
-    $Lines = Get-Content -Path $Ledger.FullName -Encoding utf8
+    $Lines = @(Get-Content -Path $Ledger.FullName -Encoding utf8)
 
     for ($i = 0; $i -lt $Lines.Count; $i++) {
         $L = $Lines[$i]
