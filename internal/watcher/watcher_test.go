@@ -2,6 +2,7 @@ package watcher
 
 import (
 	"context"
+	"errors"
 	"io"
 	"log/slog"
 	"os"
@@ -65,7 +66,7 @@ func TestWatcher(t *testing.T) {
 	cancel()
 	select {
 	case err := <-errc:
-		if err != context.Canceled {
+		if !errors.Is(err, context.Canceled) {
 			t.Errorf("Run error = %v, want %v", err, context.Canceled)
 		}
 	case <-time.After(time.Second):
@@ -195,5 +196,22 @@ func TestWatcher_DirCreatedAfterStartIsWatched(t *testing.T) {
 
 	if !found {
 		t.Errorf("nota em subdiretório criado dinamicamente (%s) não foi indexada", canon)
+	}
+}
+
+func TestNew_FailsOnUnwatchablePath(t *testing.T) {
+	nonExistentDir := filepath.Join(t.TempDir(), "subpasta_inexistente")
+	v, err := vault.New(nonExistentDir)
+	if err != nil {
+		t.Skipf("vault.New recusou caminho inexistente: %v", err)
+	}
+
+	log := slog.New(slog.NewTextHandler(io.Discard, nil))
+	idx := index.New()
+
+	w, err := New(v, idx, 10*time.Millisecond, log)
+	if err == nil {
+		w.Close()
+		t.Fatal("New esperava erro ao observar caminho inexistente, mas obteve nil")
 	}
 }

@@ -80,11 +80,15 @@ func isNoise(name string) bool {
 // disco. E a mesma decisao que Walk aplica durante a varredura: exporta-la e o
 // que impede o watcher de manter uma segunda copia das regras, que divergiria
 // da primeira no dia em que alguem acrescentasse uma extensao a so uma delas.
+// Classification indica o tipo de arquivo ou se ele deve ser excluido.
 type Classification int
 
 const (
-	ClassExcluded Classification = iota // diretorio excluido, ruido, ou extensao desconhecida
+	// ClassExcluded indica diretorio excluido, ruido, ou extensao desconhecida.
+	ClassExcluded Classification = iota
+	// ClassNote indica nota Markdown (.md).
 	ClassNote
+	// ClassAsset indica arquivo de anexo.
 	ClassAsset
 )
 

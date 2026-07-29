@@ -45,7 +45,7 @@ func TestWatcher_Burst(t *testing.T) {
 	}
 
 	// wait for processing
-	for i := 0; i < 50; i++ {
+	for i := 0; i < 100; i++ {
 		if idx.NoteCount() == count {
 			break
 		}

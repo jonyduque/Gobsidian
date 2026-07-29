@@ -95,10 +95,8 @@ func CorrelateRenames(ctx context.Context, batch []vault.CanonicalPath, v *vault
 			if log != nil {
 				log.Info("Rename detectado por hash de conteúdo", "from", oldPath, "to", newPath)
 			}
-		} else {
-			if log != nil {
-				log.Debug("Correlação recusada por ambiguidade", "hash", h, "missing_count", len(ms), "added_count", len(as))
-			}
+		} else if log != nil {
+			log.Debug("Correlação recusada por ambiguidade", "hash", h, "missing_count", len(ms), "added_count", len(as))
 		}
 	}
 

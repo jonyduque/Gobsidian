@@ -2,6 +2,7 @@ package watcher
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"os"
@@ -51,23 +52,35 @@ func New(v *vault.Vault, idx *index.Index, debounce time.Duration, log *slog.Log
 	root := v.Root()
 
 	if err := fsWatcher.Add(root); err != nil {
-		fsWatcher.Close()
+		_ = fsWatcher.Close()
 		return nil, fmt.Errorf("observando raiz %q: %w", root, err)
 	}
 
 	// fsnotify v1.10.1 no Windows não é recursivo. Adiciona subdiretorios dinamicamente.
-	filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
+	errWalk := filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
 		if err != nil {
+			if path == root {
+				return err
+			}
+			log.Warn("erro ao acessar diretório na varredura inicial", "path", path, "err", err)
 			return nil
 		}
 		if d.IsDir() {
 			if vault.IsExcludedDir(d.Name()) {
 				return filepath.SkipDir
 			}
-			fsWatcher.Add(path)
+			if path != root {
+				if err := fsWatcher.Add(path); err != nil {
+					log.Warn("falha ao adicionar watch em subdiretório", "path", path, "err", err)
+				}
+			}
 		}
 		return nil
 	})
+	if errWalk != nil {
+		_ = fsWatcher.Close()
+		return nil, fmt.Errorf("varrendo subdiretórios de %q: %w", root, errWalk)
+	}
 
 	return &Watcher{
 		fsWatcher: fsWatcher,
@@ -108,7 +121,7 @@ func (w *Watcher) Run(ctx context.Context) error {
 			if !ok {
 				return nil
 			}
-			if err == fsnotify.ErrEventOverflow || (err != nil && err.Error() == fsnotify.ErrEventOverflow.Error()) {
+			if errors.Is(err, fsnotify.ErrEventOverflow) {
 				w.reconciliations.Add(1)
 				select {
 				case w.reconcile <- struct{}{}:
@@ -130,7 +143,9 @@ func (w *Watcher) Run(ctx context.Context) error {
 				info, err := os.Stat(e.Name)
 				if err == nil && info.IsDir() {
 					if !vault.IsExcludedDir(info.Name()) {
-						w.fsWatcher.Add(e.Name)
+						if err := w.fsWatcher.Add(e.Name); err != nil {
+							w.log.Warn("falha ao adicionar watch em novo subdiretório", "path", e.Name, "err", err)
+						}
 					}
 				}
 			}

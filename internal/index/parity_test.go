@@ -189,7 +189,7 @@ func assertBlocksContain(t *testing.T, path string, got []parser.Block, want []s
 // O Obsidian registra o alvo COM a ancora junto — "Civil/PONTO 03#Cap 1" —
 // enquanto nos separamos em Target e Anchor, que e a representacao melhor
 // para resolver e reescrever. Comparar Target contra o link do Obsidian faz
-// TODO link com ancora divergir, em qualquer cofre, e os achados verdadeiros
+// cada link com ancora divergir, em qualquer cofre, e os achados verdadeiros
 // afogam no ruido. Foi assim que a primeira rodada de paridade reportou tres
 // divergencias falsas ao lado de uma real.
 //

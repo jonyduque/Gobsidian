@@ -42,8 +42,7 @@ func Debounce(ctx context.Context, in <-chan Event, out chan<- []vault.Canonical
 	}
 }
 
-// flush empties the dirty set into the output channel.
-// It creates a new map instead of modifying the existing one, but doing it in-place is fine.
+// flush esvazia o conjunto sujo reusando o mapa alocado.
 func flush(ctx context.Context, dirty map[vault.CanonicalPath]struct{}, out chan<- []vault.CanonicalPath) {
 	if len(dirty) == 0 {
 		return

@@ -254,7 +254,7 @@ func TestVaultStatsWithWatcher(t *testing.T) {
 
 	v, _ := vault.New(root)
 	idx := index.New()
-	idx.Build(context.Background(), v)
+	_ = idx.Build(context.Background(), v)
 
 	// Inject dummy watcher
 	svc := service.New(v, idx, dummyWatchStats{}, service.Options{})
@@ -269,7 +269,7 @@ func TestVaultStatsWithWatcher(t *testing.T) {
 
 	client := mcp.NewClient(&mcp.Implementation{Name: "test", Version: "0.0.1"}, nil)
 	session, _ := client.Connect(ctx, clientTransport, nil)
-	defer session.Close()
+	defer func() { _ = session.Close() }()
 
 	t.Run("include_runtime=true", func(t *testing.T) {
 		res, err := session.CallTool(ctx, &mcp.CallToolParams{
@@ -282,7 +282,7 @@ func TestVaultStatsWithWatcher(t *testing.T) {
 
 		b, _ := json.Marshal(res.StructuredContent)
 		var out map[string]interface{}
-		json.Unmarshal(b, &out)
+		_ = json.Unmarshal(b, &out)
 
 		watcherObj, ok := out["watcher"].(map[string]interface{})
 		if !ok {
@@ -320,7 +320,7 @@ func TestVaultStatsWithWatcher(t *testing.T) {
 
 		b, _ := json.Marshal(res.StructuredContent)
 		var out map[string]interface{}
-		json.Unmarshal(b, &out)
+		_ = json.Unmarshal(b, &out)
 
 		if _, ok := out["watcher"]; ok {
 			t.Fatal("watcher block should be missing when include_runtime is false")

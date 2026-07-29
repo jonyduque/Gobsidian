@@ -100,8 +100,8 @@ func TestMoveNote_EquivalentToRemoveReplace(t *testing.T) {
 	}
 
 	// 7. outgoing backlinks / c.md links resolution
-	cNote1, _ := idx1.notes["c.md"]
-	cNote2, _ := idx2.notes["c.md"]
+	cNote1 := idx1.notes["c.md"]
+	cNote2 := idx2.notes["c.md"]
 	if len(cNote1.Links) != len(cNote2.Links) {
 		t.Fatalf("cNote links count mismatch: %d vs %d", len(cNote1.Links), len(cNote2.Links))
 	}
@@ -126,9 +126,9 @@ func TestMoveNote_UpdatesNotes(t *testing.T) {
 	writeFileHelper(t, root, "b.md", "# B\n")
 	v, _ := vault.New(root)
 	idx := New()
-	idx.Build(context.Background(), v)
+	_ = idx.Build(context.Background(), v)
 
-	os.Rename(filepath.Join(root, "a.md"), filepath.Join(root, "b.md"))
+	_ = os.Rename(filepath.Join(root, "a.md"), filepath.Join(root, "b.md"))
 	idx.MoveNote(v, "a.md", "b.md")
 
 	if _, ok := idx.notes["a.md"]; ok {
@@ -144,9 +144,9 @@ func TestMoveNote_UpdatesLowerPath(t *testing.T) {
 	writeFileHelper(t, root, "a.md", "# A\n")
 	v, _ := vault.New(root)
 	idx := New()
-	idx.Build(context.Background(), v)
+	_ = idx.Build(context.Background(), v)
 
-	os.Rename(filepath.Join(root, "a.md"), filepath.Join(root, "b.md"))
+	_ = os.Rename(filepath.Join(root, "a.md"), filepath.Join(root, "b.md"))
 	idx.MoveNote(v, "a.md", "b.md")
 
 	if p, ok := idx.lowerPath["a.md"]; ok {
@@ -162,9 +162,9 @@ func TestMoveNote_UpdatesByName(t *testing.T) {
 	writeFileHelper(t, root, "a.md", "# A\n")
 	v, _ := vault.New(root)
 	idx := New()
-	idx.Build(context.Background(), v)
+	_ = idx.Build(context.Background(), v)
 
-	os.Rename(filepath.Join(root, "a.md"), filepath.Join(root, "b.md"))
+	_ = os.Rename(filepath.Join(root, "a.md"), filepath.Join(root, "b.md"))
 	idx.MoveNote(v, "a.md", "b.md")
 
 	if paths := idx.byName["a.md"]; len(paths) != 0 {

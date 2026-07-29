@@ -3,6 +3,7 @@ package watcher
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -146,7 +147,7 @@ func TestRun_OverflowSchedulesExactlyOne(t *testing.T) {
 				if !ok {
 					return
 				}
-				if err == fsnotify.ErrEventOverflow || (err != nil && err.Error() == fsnotify.ErrEventOverflow.Error()) {
+				if errors.Is(err, fsnotify.ErrEventOverflow) {
 					w.reconciliations.Add(1)
 					select {
 					case w.reconcile <- struct{}{}:
