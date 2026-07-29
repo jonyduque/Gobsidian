@@ -1,0 +1,291 @@
+# Review package: 48d2c2fbc662611d11aaf8e30d658edfb7552972..HEAD
+
+## Commits
+74a8b5c fix(config): reject debounce-ms below 1 instead of silently defaulting
+
+## Files changed
+ .../sdd/2026-07-25-gobsidian-v01/task-38-base.txt  |   1 +
+ .superpowers/sdd/task-38-report.md                 | 116 +++++++++++++++++++++
+ docs/TOOLS.md                                      |   2 +-
+ internal/config/config.go                          |  13 ++-
+ internal/config/config_test.go                     |  16 +--
+ internal/watcher/debounce.go                       |   4 -
+ 6 files changed, 134 insertions(+), 18 deletions(-)
+
+## Diff
+diff --git a/.superpowers/sdd/2026-07-25-gobsidian-v01/task-38-base.txt b/.superpowers/sdd/2026-07-25-gobsidian-v01/task-38-base.txt
+new file mode 100644
+index 0000000..f43a06d
+--- /dev/null
++++ b/.superpowers/sdd/2026-07-25-gobsidian-v01/task-38-base.txt
+@@ -0,0 +1 @@
++48d2c2fbc662611d11aaf8e30d658edfb7552972
+\ No newline at end of file
+diff --git a/.superpowers/sdd/task-38-report.md b/.superpowers/sdd/task-38-report.md
+new file mode 100644
+index 0000000..982f48e
+--- /dev/null
++++ b/.superpowers/sdd/task-38-report.md
+@@ -0,0 +1,116 @@
++# Relatório de Execução - Task 38
++
++- **Status**: DONE
++- **Commit**: (Pendente de gravação após auditoria) - `fix(config): reject debounce-ms below 1 instead of silently defaulting`
++
++---
++
++## 1. Evidência de TDD
++
++### Red
++Alteração dos casos de teste em `internal/config/config_test.go` para esperar erro quando `debounce-ms` for 0 resultou em falha antes da alteração na validação da configuração:
++```text
++--- FAIL: TestLoadPrecedence/debounce_zero_rejected_from_env (0.00s)
++    config_test.go:126: Load() esperava erro, obteve config = {DebounceMS:0 ...}
++--- FAIL: TestLoadPrecedence/debounce_zero_rejected_from_flag (0.00s)
++    config_test.go:126: Load() esperava erro, obteve config = {DebounceMS:0 ...}
++```
++
++### Green
++Saída real de `pwsh -File scripts/verify.ps1`:
++```text
++Carregado em 571ms
++Carregado em 483ms
++[...] 1. go build
++[OK] go build
++[...] 2. go test -race
++[OK] go test -race
++[...] 3. go vet (windows)
++[OK] go vet (windows)
++[...] 4. go vet (linux)
++[OK] go vet (linux)
++[...] 5. go vet (darwin)
++[OK] go vet (darwin)
++[...] 6. gofmt
++[OK] gofmt
++[...] 7. check_net (RNF-30)
++[OK] check_net (RNF-30)
++
++[OK] Bateria completa. Pode commitar.
++```
++
++---
++
++## 2. Prova de Mutação
++
++Mutação de `n < 1` para `n < 0` em `internal/config/config.go`:
++```text
++[...] Mutando internal/config/config.go
++      - if n < 1 {
++      + if n < 0 {
++
++[...] go test -race -run TestLoad ./internal/config/
++----------------------------------------------------------------------
++--- FAIL: TestLoadPrecedence (0.00s)
++    --- FAIL: TestLoadPrecedence/debounce_zero_rejected_from_env (0.00s)
++        config_test.go:126: Load() esperava erro, obteve config = {VaultPath:C:\vault LogLevel:INFO ReadOnly:false DebounceMS:0 CacheDir:... MaxResults:50}
++    --- FAIL: TestLoadPrecedence/debounce_zero_rejected_from_flag (0.00s)
++        config_test.go:126: Load() esperava erro, obteve config = {VaultPath:C:\vault LogLevel:INFO ReadOnly:false DebounceMS:0 CacheDir:... MaxResults:50}
++FAIL
++FAIL	github.com/jonyd/gobsidian/internal/config	0.824s
++FAIL
++----------------------------------------------------------------------
++[OK] internal/config/config.go restaurado byte a byte (SHA-256 confere).
++
++[OK] O teste REPROVOU com a regra mutada — a regra esta verificada.
++```
++
++---
++
++## 3. Verificações do Brief
++
++- **`gobsidian serve --debounce-ms 0`**:
++```text
++[!] --debounce-ms: valor invalido 0 (use um inteiro >= 1)
++```
++
++- **`GOBSIDIAN_DEBOUNCE_MS=0 gobsidian serve`**:
++```text
++[!] GOBSIDIAN_DEBOUNCE_MS: valor invalido 0 (use um inteiro >= 1)
++```
++
++- **`gobsidian serve --debounce-ms 1`**:
++```text
++time=2026-07-29T13:30:11.705-03:00 level=INFO msg="servidor pronto" vault=C:\Users\jonyd\Projetos\Gobsidian read_only=false notes=169 assets=2 index_ms=113
++```
++
++- **`grep -rn "DebounceMSSet" --include=*.go .`**:
++```text
++cmd/gobsidian/doctor.go:34: flags.DebounceMSSet = cmd.Flags().Changed("debounce-ms")
++cmd/gobsidian/serve.go:34: flags.DebounceMSSet = cmd.Flags().Changed("debounce-ms")
++internal/config/config.go:88: if f.DebounceMSSet {
++```
++
++- **`grep -rn "250" --include=*.go internal/ cmd/`**:
++```text
++internal/config/config_test.go:21: DebounceMS: 250,
++internal/config/defaults.go:8: DefaultDebounceMS = 250
++```
++
++---
++
++## 4. O que ficou de fora
++
++Nada. Todos os requisitos da Task 38 foram implementados e testados.
++
++---
++
++## 5. `git status --porcelain`
++
++```text
++ M .superpowers/sdd/2026-07-25-gobsidian-v01/progress.md
++ M docs/TOOLS.md
++ M internal/config/config.go
++ M internal/config/config_test.go
++ M internal/watcher/debounce.go
++```
+diff --git a/docs/TOOLS.md b/docs/TOOLS.md
+index 03f0330..eadd724 100644
+--- a/docs/TOOLS.md
++++ b/docs/TOOLS.md
+@@ -231,21 +231,21 @@ Estado do cofre e saúde do servidor.
+ **Retorno.**
+ 
+ - Contagem de notas, tamanho total, contagem de links, contagem de tags
+ - Contagem de anexos e tamanho total deles
+ - Notas órfãs (sem backlinks), links quebrados, âncoras quebradas, notas vazias
+ - Colisões de alias: aliases declarados por mais de uma nota
+ - Notas somente-nuvem não hidratadas
+ - Timestamp da última indexação e duração
+ - Com `include_runtime`: `runtime` (RSS, goroutines, gc) e objeto `watcher` (ausente se desligado) com os campos: `active`, `events_received`, `events_dropped`, `events_dropped_by_reason`, `events_coalesced`, `events_processed`, `events_skipped`, `reconciliations`, `reconciled_updated`, `reconciled_removed`.
+ 
+-**Notas.** Os contadores do watcher são a instrumentação principal para diagnosticar cofres em pastas sincronizadas. `events_received` conta os eventos antes do filtro de relevância (brutos), e `events_dropped` conta os irrelevantes ou ocultos. `events_dropped_by_reason` desdobra o total porque as causas pedem ações diferentes: `chmod` alto é OneDrive em operação normal e pode ser ignorado; `outside_vault` alto indica que a raiz do cofre é um link e o confinamento está recusando eventos; `excluded` alto indica atividade em `.obsidian/` ou `.git/`; `unknown_op` alto indica evento que o filtro não soube classificar e merece `--log-level debug`. `events_coalesced` conta eventos adicionais na mesma nota dentro da janela de debounce. `events_processed` conta o número de absorções de mudanças efetivas, e `events_skipped` as absorções rejeitadas (mesmo mtime e tamanho). `reconciled_updated` e `reconciled_removed` registram os arquivos corrigidos por reconciliação de overflow. Uma razão alta entre `events_received` e `events_processed` é o comportamento esperado e saudável; overflows recorrentes (contabilizados em `reconciliations`) indicam que a janela de debounce precisa ser ampliada.
++**Notas.** Os contadores do watcher são a instrumentação principal para diagnosticar cofres em pastas sincronizadas. `events_received` conta os eventos antes do filtro de relevância (brutos), e `events_dropped` conta os irrelevantes ou ocultos. `events_dropped_by_reason` desdobra o total porque as causas pedem ações diferentes: `chmod` alto é OneDrive em operação normal e pode ser ignorado; `outside_vault` alto indica que a raiz do cofre é um link e o confinamento está recusando eventos; `excluded` alto indica atividade em `.obsidian/` ou `.git/`; `unknown_op` alto indica evento que o filtro não soube classificar e merece `--log-level debug`. `events_coalesced` conta eventos adicionais na mesma nota dentro da janela de debounce. `events_processed` conta o número de absorções de mudanças efetivas, e `events_skipped` as absorções rejeitadas (mesmo mtime e tamanho). `reconciled_updated` e `reconciled_removed` registram os arquivos corrigidos por reconciliação de overflow. Uma razão alta entre `events_received` e `events_processed` é o comportamento esperado e saudável; overflows recorrentes (contabilizados em `reconciliations`) indicam que a janela de debounce precisa ser ampliada via `--debounce-ms`. O menor valor aceito é `1`: zero é recusado na carga da configuração.
+ 
+ ---
+ 
+ # Escrita
+ 
+ Todas aceitam `dry_run`. Todas preservam o estilo de fim de linha do arquivo. Nenhuma reformata conteúdo que não seja o alvo explícito da operação.
+ 
+ ## `note_create`
+ 
+ ```json
+diff --git a/internal/config/config.go b/internal/config/config.go
+index 7b31d3d..096408e 100644
+--- a/internal/config/config.go
++++ b/internal/config/config.go
+@@ -135,34 +135,37 @@ func parseReadOnly(s string) (bool, error) {
+ 	default:
+ 		return false, fmt.Errorf("valor desconhecido: %q (use 1, true, t, yes, y, 0, false, f, no ou n)", s)
+ 	}
+ }
+ 
+ // parseDebounceMS converte e valida um valor de debounce vindo de texto
+ // (variavel de ambiente). O erro do strconv.Atoi e preservado com %w.
+ func parseDebounceMS(v string) (int, error) {
+ 	n, err := strconv.Atoi(v)
+ 	if err != nil {
+-		return 0, fmt.Errorf("valor invalido %q (use um inteiro >= 0): %w", v, err)
++		return 0, fmt.Errorf("valor invalido %q (use um inteiro >= 1): %w", v, err)
+ 	}
+ 	if err := validateDebounceMS(n); err != nil {
+ 		return 0, err
+ 	}
+ 	return n, nil
+ }
+ 
+ // validateDebounceMS aplica a mesma regra de aceitacao independente da
+-// origem do valor (flag ou env): qualquer inteiro >= 0 e valido, incluindo
+-// zero (que significa "sem debounce").
++// origem do valor (flag ou env). Zero e recusado: sem coalescencia cada
++// evento vira um lote de um caminho so, e a correlacao de rename — que
++// exige uma remocao E uma criacao no MESMO lote — para de detectar
++// qualquer rename. Servidor sem debounce nao e configuracao que se possa
++// pedir por engano, entao a recusa mora aqui e nao no watcher.
+ func validateDebounceMS(n int) error {
+-	if n < 0 {
+-		return fmt.Errorf("valor invalido %d (use um inteiro >= 0)", n)
++	if n < 1 {
++		return fmt.Errorf("valor invalido %d (use um inteiro >= 1)", n)
+ 	}
+ 	return nil
+ }
+ 
+ // defaultCacheDir deriva o diretorio de cache de um hash do caminho absoluto
+ // do cofre, sempre FORA do cofre (PRD D1).
+ func defaultCacheDir(vaultPath string) string {
+ 	sum := xxhash.Sum64String(strings.ToLower(vaultPath))
+ 	name := strconv.FormatUint(sum, 16)
+ 
+diff --git a/internal/config/config_test.go b/internal/config/config_test.go
+index 85b37e3..4cb22bf 100644
+--- a/internal/config/config_test.go
++++ b/internal/config/config_test.go
+@@ -84,30 +84,30 @@ func TestLoadPrecedence(t *testing.T) {
+ 			env:   map[string]string{"GOBSIDIAN_DEBOUNCE_MS": "500"},
+ 			want:  func(c config.Config) bool { return c.DebounceMS == 500 },
+ 		},
+ 		{
+ 			name:  "debounce flag overrides env",
+ 			flags: config.Flags{VaultPath: "C:/vault", DebounceMS: 700, DebounceMSSet: true},
+ 			env:   map[string]string{"GOBSIDIAN_DEBOUNCE_MS": "500"},
+ 			want:  func(c config.Config) bool { return c.DebounceMS == 700 },
+ 		},
+ 		{
+-			name:  "debounce explicit zero reachable from env",
+-			flags: config.Flags{VaultPath: "C:/vault"},
+-			env:   map[string]string{"GOBSIDIAN_DEBOUNCE_MS": "0"},
+-			want:  func(c config.Config) bool { return c.DebounceMS == 0 },
++			name:    "debounce zero rejected from env",
++			flags:   config.Flags{VaultPath: "C:/vault"},
++			env:     map[string]string{"GOBSIDIAN_DEBOUNCE_MS": "0"},
++			wantErr: true,
+ 		},
+ 		{
+-			name:  "debounce explicit zero reachable from flag",
+-			flags: config.Flags{VaultPath: "C:/vault", DebounceMS: 0, DebounceMSSet: true},
+-			env:   map[string]string{"GOBSIDIAN_DEBOUNCE_MS": "500"},
+-			want:  func(c config.Config) bool { return c.DebounceMS == 0 },
++			name:    "debounce zero rejected from flag",
++			flags:   config.Flags{VaultPath: "C:/vault", DebounceMS: 0, DebounceMSSet: true},
++			env:     map[string]string{"GOBSIDIAN_DEBOUNCE_MS": "500"},
++			wantErr: true,
+ 		},
+ 		{
+ 			name:    "debounce negative rejected from env",
+ 			flags:   config.Flags{VaultPath: "C:/vault"},
+ 			env:     map[string]string{"GOBSIDIAN_DEBOUNCE_MS": "-5"},
+ 			wantErr: true,
+ 		},
+ 		{
+ 			name:    "debounce negative rejected from flag",
+ 			flags:   config.Flags{VaultPath: "C:/vault", DebounceMS: -5, DebounceMSSet: true},
+diff --git a/internal/watcher/debounce.go b/internal/watcher/debounce.go
+index 6ac05c5..7a17afb 100644
+--- a/internal/watcher/debounce.go
++++ b/internal/watcher/debounce.go
+@@ -7,24 +7,20 @@ import (
+ 	"time"
+ 
+ 	"github.com/jonyd/gobsidian/internal/vault"
+ )
+ 
+ // Debounce reads events from 'in' and emits coalesced paths to 'out'.
+ // It uses a single ticker and a dirty set to coalesce multiple events on the same path.
+ func Debounce(ctx context.Context, in <-chan Event, out chan<- []vault.CanonicalPath, window time.Duration, log *slog.Logger, coalesced *atomic.Int64) {
+ 	dirty := make(map[vault.CanonicalPath]struct{})
+ 
+-	if window <= 0 {
+-		window = 250 * time.Millisecond // default
+-	}
+-
+ 	ticker := time.NewTicker(window)
+ 	defer ticker.Stop()
+ 
+ 	for {
+ 		select {
+ 		case <-ctx.Done():
+ 			if len(dirty) > 0 {
+ 				log.Debug("Debouncer context cancelled with pending paths", "pending_count", len(dirty))
+ 			}
+ 			return

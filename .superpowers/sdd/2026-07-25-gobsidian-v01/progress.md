@@ -43,6 +43,7 @@ Task 34: complete (commits 0430807..f35edd4, reconciliation tests that actually 
 Task 35: complete (commits da09dc7..f67257a, normalize byAlias keys so Remove clears what Build wrote, review Approved)
 Task 36: complete (commits 98dd2d2..faa0674, MoveNote refreshes stat and matches Remove+Replace, review Approved)
 Task 37: complete (commits a59e814..98eec3e, per-reason drop counters, coalesced count, and a real active flag, review Approved)
+Task 38: complete (commits 48d2c2f..74a8b5c, reject debounce-ms below 1 instead of silently defaulting, review Approved)
 
 === M0, M1 e M2 (Tasks 1-32) COMPLETAS! ===
 
