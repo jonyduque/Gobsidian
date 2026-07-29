@@ -63,6 +63,7 @@ Task 42: complete (commits 36f4134..c537dc2, rewrite reports with real evidence;
 Task 43: complete (commits 5cf441d..713cfc1, accept trailing whitespace on frontmatter delimiter, review Approved)
 Task 44: complete (commits 0819e50..53b2061, portuguese analyzer with dual indexing, review Approved)
 Task 45: complete (commits 1c182c9..b147b8d, inverted index with incremental update, review Approved)
+Task 46: complete (commits c791cff..e8c31e3, BM25 ranking with field weights, review Approved)
 
 === REVISAO DO M2.1 (Tasks 33-42), 2026-07-29, pelo modelo principal ===
 Nove provas de mutacao rodadas com scripts/mutate.ps1, TODAS saindo 0 (o teste
