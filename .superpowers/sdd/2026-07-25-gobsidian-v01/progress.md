@@ -60,6 +60,8 @@ Task 42: complete (commits 36f4134..c537dc2, rewrite reports with real evidence;
     contem commit nenhum e cuja ponta e a entrada de ledger da Task 41. O
     trabalho da 42 e b1d7888 mais c537dc2.
 
+Task 43: complete (commits 5cf441d..713cfc1, accept trailing whitespace on frontmatter delimiter, review Approved)
+
 === REVISAO DO M2.1 (Tasks 33-42), 2026-07-29, pelo modelo principal ===
 Nove provas de mutacao rodadas com scripts/mutate.ps1, TODAS saindo 0 (o teste
 reprova sob mutacao): gate de classe da correlacao (33), idx.Replace e
