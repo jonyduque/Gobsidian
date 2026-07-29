@@ -4,9 +4,11 @@ export const meta = {
   whenToUse:
     'Quando for executar UMA tarefa numerada de docs/superpowers/plans/2026-07-25-gobsidian-v01.md ' +
     '(hoje, as Tasks 33-42 do M2.1). Passe o numero em args, por exemplo args: 35. ' +
-    'As tarefas sao estritamente sequenciais — rode uma, feche no ledger, comece a proxima. ' +
-    'Nao use para as tarefas que a revisao marcou como do modelo principal (33, 34, 36, 37, 42) ' +
-    'sem passar model explicitamente.',
+    'Serve para TODAS as dez: o corpo dos testes dificeis entrou no plano como codigo Go literal, ' +
+    'entao 33, 34, 37 e 41 viraram transcricao. As Tasks 36 e 42 continuam pedindo projeto e nao ' +
+    'transcricao, entao o workflow sobe o modelo delas sozinho — nao e preciso passar nada. ' +
+    'As tarefas sao estritamente sequenciais: rode uma, valide, feche no ledger, comece a proxima. ' +
+    'Rodar duas em paralelo conflita, porque 33, 34, 37, 38 e 40 tocam os mesmos arquivos.',
   phases: [
     { title: 'Implementar', detail: 'um agente transcreve o brief e commita' },
     { title: 'Revisar', detail: 'tres lentes independentes: contrato, cobertura, regras do projeto' },
@@ -23,7 +25,32 @@ const task = typeof args === 'object' && args !== null ? args.task : args
 if (!task) {
   throw new Error('Passe o numero da tarefa em args. Ex.: args: 35, ou args: {task: 35, model: "sonnet"}')
 }
-const model = typeof args === 'object' && args !== null ? args.model : undefined
+// Duas das dez pedem projeto e nao transcricao, e por isso sobem de modelo
+// sozinhas. A 36 tem de escrever oito testes que nao existem, um por estrutura
+// que MoveNote atualiza — hoje ela reduzida a no-op deixa todos os testes do
+// pacote watcher verdes, entao nao ha de onde copiar. A 42 produz relatorios
+// com evidencia real, e o modo de falha de um modelo barato pedido a "escrever
+// relatorio com evidencia" e fabrica-la.
+//
+// As outras oito sao transcricao: o corpo dos testes dificeis esta no plano
+// como Go literal, e a decisao de projeto ja foi tomada e revisada la.
+const PROJETO_NAO_TRANSCRICAO = new Set([36, 42])
+
+const numero = Number(task)
+const sobeModelo = PROJETO_NAO_TRANSCRICAO.has(numero)
+
+const opcoes = typeof args === 'object' && args !== null ? args : {}
+
+// args.model manda em tudo. Sem ele: modelo forte nas duas de projeto, e
+// herdado (undefined) nas outras oito, o que respeita o modelo da sessao.
+const model = opcoes.model !== undefined ? opcoes.model : sobeModelo ? 'opus' : undefined
+
+// O revisor e onde economizar sai mais caro: a revisao do M2 aprovou codigo
+// cujo teste nao conseguia reprovar. Por padrao ele acompanha o implementador,
+// mas pode ser levantado sozinho com args.modelRevisor — vale a pena quando a
+// sessao inteira roda no tier mais barato.
+const modelRevisor =
+  opcoes.modelRevisor !== undefined ? opcoes.modelRevisor : model
 
 const PLAN = 'docs/superpowers/plans/2026-07-25-gobsidian-v01.md'
 const BRIEF = `.superpowers/sdd/2026-07-25-gobsidian-v01/task-${task}-brief.md`
@@ -136,7 +163,52 @@ Commit em Conventional Commits, em ingles, com a mensagem que o brief indica.
 // que a outra nao ve: a revisao do M2 aprovou codigo cujo teste nao conseguia
 // reprovar, porque leu o teste em vez de mutar a regra.
 
-const LENTES = [
+// A Task 42 nao entrega codigo — ela reescreve relatorios e o ledger. Rodar as
+// lentes de codigo nela queima dois agentes procurando ctx e camada num diff de
+// markdown, e a lente de cobertura tentaria mutar um .md. Ela tem lente propria.
+const LENTES_DOCS = [
+  {
+    key: 'evidencia',
+    prompt: `
+Lente EVIDENCIA. Esta tarefa reescreveu relatorios e o ledger. O risco unico
+dela e substituir evidencia falsa por evidencia inventada.
+
+Rode e cole a saida:
+  pwsh -File scripts/audit_reports.ps1
+
+Para CADA prova de mutacao que os relatorios reescritos afirmam: ela esta no
+passado, com saida de comando colada, nomeando o teste que reprovou? Prova no
+condicional ("se removermos X...") e achado Critical — foi exatamente o defeito
+que esta tarefa existe para corrigir, e repeti-lo seria o pior resultado.
+
+Para CADA numero apresentado como medicao: existe o comando que o produziu? Se
+nao houver, "nao medido" era a resposta certa, e escrever qualquer outra coisa e
+achado Important.
+
+Para CADA SHA citado no ledger: git cat-file -t <sha> responde "commit"? Cole a
+saida de todos.
+
+Toda tarefa marcada completa no ledger tem relatorio no disco?
+`,
+  },
+  {
+    key: 'fidelidade',
+    prompt: `
+Lente FIDELIDADE. Compare cada relatorio reescrito com o que o repositorio
+realmente mostra.
+
+Um relatorio reescrito depois do fato pode descrever com confianca coisas que
+nao aconteceram. Para cada afirmacao sobre o que foi feito, confirme contra o
+git log, contra o diff, e contra os arquivos no disco. Divergencia entre o
+relatorio e o repositorio e achado Critical.
+
+O ledger reflete o estado real de cada tarefa 27 a 42? Nenhuma marcada
+"Approved" sem revisao que tenha acontecido?
+`,
+  },
+]
+
+const LENTES_CODIGO = [
   {
     key: 'contrato',
     prompt: `
@@ -210,6 +282,14 @@ Lente REGRAS DO PROJETO. Leia CLAUDE.md e confira o diff contra ele.
   },
 ]
 
+const LENTES = numero === 42 ? LENTES_DOCS : LENTES_CODIGO
+
+log(
+  `Task ${task}: implementador=${model || 'herdado da sessao'}, ` +
+    `revisor=${modelRevisor || 'herdado da sessao'}, ` +
+    `${LENTES.length} lente(s) de revisao (${LENTES.map((l) => l.key).join(', ')}).`,
+)
+
 const revisoes = await parallel(
   LENTES.map((lente) => () =>
     agent(
@@ -221,7 +301,7 @@ const revisoes = await parallel(
         `Toda evidencia e comando rodado com saida real, ou cenario concreto entrada -> resultado errado.\n` +
         `"Parece fragil" e "poderia ser melhor" nao sao achados. Se nao achou nada, devolva lista vazia —\n` +
         `revisao que inventa achado para parecer util custa mais que revisao silenciosa.`,
-      { label: `review:${lente.key}`, phase: 'Revisar', schema: ACHADO_SCHEMA },
+      { label: `review:${lente.key}`, phase: 'Revisar', schema: ACHADO_SCHEMA, model: modelRevisor },
     ),
   ),
 )
@@ -321,7 +401,7 @@ Para cada regra que o fix pass alega ter coberto, rode scripts/mutate.ps1 voce
 mesmo. Nao aceite a saida colada por quem corrigiu — este projeto ja teve prova de
 mutacao escrita no condicional, e uma delas estava factualmente errada.
 `.trim(),
-  { label: `re-review:task-${task}`, phase: 'Re-revisar', schema: ACHADO_SCHEMA },
+  { label: `re-review:task-${task}`, phase: 'Re-revisar', schema: ACHADO_SCHEMA, model: modelRevisor },
 )
 
 const restantes = (rerevisao?.findings || []).filter(
