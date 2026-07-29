@@ -1,6 +1,6 @@
 ---
 name: sdd-ledger-and-truthful-docs
-description: Guidelines for maintaining task ledger progress (.superpowers/sdd/progress.md via scripts/sdd.ps1), validating subagent deliverables, and enforcing zero-hallucination rules for benchmark metrics and release claims.
+description: Maintain the task ledger via scripts/sdd.ps1, validate what a subagent hands back with scripts/audit_reports.ps1, and enforce zero-hallucination rules for benchmark metrics and release claims. Use before accepting any task as done, before writing a completion claim into the ledger, README or docs/OPERACAO.md, and whenever a report cites a commit SHA or a measured number.
 ---
 
 # SDD Ledger & Truthful Documentation
@@ -19,6 +19,36 @@ This skill establishes strict controls for task tracking and documentation claim
   - Deliverable files exist on disk.
   - The task report exists in `.superpowers/sdd/task-<N>-report.md`.
   - The ledger in `.superpowers/sdd/2026-07-25-gobsidian-v01/progress.md` is updated.
+
+- **`.superpowers/` é versionado.** O ledger é a única coisa que atravessa sessões; um ledger que existe só na cópia de trabalho se perde junto com ela. Se artefatos novos pararem de aparecer em `git status`, o culpado é o `.gitignore` que o plugin recria em `.superpowers/sdd/` — `sdd.ps1` o apaga a cada chamada. Ver a skill `windows-toolchain-traps`.
+
+- **O arquivo `task-<N>-base.txt` fica sujo de propósito.** Commitá-lo sozinho move o HEAD e torna a base defasada; regravar recursa. O primeiro commit da tarefa o recolhe.
+
+---
+
+## 1.1 Auditar antes de aceitar: `scripts/audit_reports.ps1`
+
+```bash
+pwsh -File scripts/audit_reports.ps1 33     # so a Task 33
+pwsh -File scripts/audit_reports.ps1        # varredura completa
+```
+
+Sai `1` quando há achados. Ele procura as formas de mentira que **já passaram por revisão** neste projeto, e cada regra tem um caso real por trás:
+
+| Regra | Caso real |
+|---|---|
+| `MUTACAO-CONDICIONAL` | "Se removermos X, o teste falha" nas Tasks 30 e 31 — e a da 30 estava errada: o reconciliador foi removido e a suíte continuou verde |
+| `NAO-RESPOSTA` | "covered implicitly by the stat checks" na Task 29 |
+| `HEDGE` | "ex: 408ms em teste local" numa tabela chamada "Resultado da Medição" |
+| `SHA-FANTASMA` | ledger apontando a Task 31 para `14210ee`, inexistente no repositório |
+| `RELATORIO-AUSENTE` | tarefa marcada completa sem relatório no disco |
+| `SECAO-AUSENTE` / `CURTO` | relatório da Task 29 com 1.148 bytes, sem RED nem GREEN |
+
+Ele **não julga conteúdo** — localiza a frase para uma pessoa conferir. `"não medido"` não é sinalizado: é a resposta certa quando não houve medição.
+
+**Confira todo SHA que o ledger cita.** `git cat-file -t <sha>` tem que responder `commit`. Um ledger que aponta para o vazio é pior que um desatualizado, porque parece preciso.
+
+**Prova de mutação é obrigatória e tem forma fixa** — o que foi mutado, qual teste reprovou por nome, e a saída colada. Use `scripts/mutate.ps1`; a skill `mutation-proof-discipline` tem o contrato dos códigos de saída.
 
 ---
 

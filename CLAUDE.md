@@ -21,7 +21,14 @@ pwsh -File scripts/verify.ps1    # bateria inteira, para no primeiro erro
 pwsh -File scripts/build.ps1
 pwsh -File scripts/test_orphans.ps1 -Cycles 100
 golangci-lint run ./...          # exige v2.12.2; v1.x nem carrega o config
+
+pwsh -File scripts/mutate.ps1 -Path <arquivo> -Anchor '<texto>' -Replacement '<texto>' -Test <Nome> -Package ./internal/x/
+pwsh -File scripts/audit_reports.ps1 [N]    # relatórios e ledger contra evidência falsa
 ```
+
+`mutate.ps1` tem **código de saída invertido de propósito**: `0` = o teste reprovou sob mutação (regra verificada), `1` = o teste passou (regra escrita, não verificada), `2` = inconclusivo (âncora ambígua, ou a mutação quebrou o build — falha de compilação não é cobertura). Ele exige âncora com ocorrência única, restaura em `finally` e confere o restauro por SHA-256. Detalhe na skill `mutation-proof-discipline`.
+
+`audit_reports.ps1` procura hedge apresentado como medição, prova de mutação escrita no condicional, não-resposta do tipo "coberto implicitamente", SHA citado no ledger que não existe, e tarefa completa sem relatório. Sai `1` com achados. Não julga conteúdo — localiza a frase para alguém conferir.
 
 `verify.ps1` roda build, `go test -race`, vet nos três alvos, `gofmt` e `check_net`. Existe porque a lista solta convida a rodar três dos cinco. Aceita `-SkipCross` e `-SkipNet` para iteração rápida; o gate roda tudo.
 
@@ -94,6 +101,12 @@ Cada uma passou por revisão e só apareceu depois. Estão aqui pra não voltare
 
 **Regra que sobrevive a mutação não está verificada, está escrita.** Na Task 13, sete regras do módulo sobreviviam a mutantes com a suíte verde — inclusive a que o comentário do próprio fix defendia. Ler o teste não acha isso. Para cada regra que importa, apague-a, confirme que um teste nomeia a falha, restaure.
 
+**Chave de mapa calculada em dois lugares diverge, e a divergência só aparece no caminho menos usado.** `byAlias` era escrito minúsculo por `alias.go` no boot e cru por `Replace`; `resolve.go` lia minúsculo. Enquanto o índice só era construído no boot, os dois concordavam. Quando o watcher tornou `Replace` e `Remove` alcançáveis, `Remove` passou a procurar uma chave que não existia, e a entrada velha sobrevivia: `[[STJ]]` continuava resolvendo, com `state=ok`, para uma nota que já tinha saído do índice. Toda chave derivada passa por **uma** função — `aliasKey(alias)` — e todo acesso passa por ela, inclusive os que já estavam certos. Não é para consertar os errados: é para tornar a próxima divergência impossível sem tocar na função.
+
+**Camada de pré-filtro que abre arquivo derrota o filtro que ela precede.** `CorrelateRenames` roda antes de `index.Replace` e chamava `vault.ReadAll` em todo caminho do lote — anexo inclusive, placeholder de nuvem inclusive. `Replace` respeita as duas regras (anexo por nome, nuvem não hidratada); a camada anterior a ele não respeitava, então as regras valiam para um caminho que nunca era alcançado. **Quem roda antes do guarda precisa do mesmo guarda.**
+
+**Teste de mecanismo de recuperação que deixa o caminho normal ligado mede o caminho normal.** `TestOverflowReconciliationFull` injetava overflow com o watcher ativo; os eventos comuns aplicavam as três mudanças, e a reconciliação nunca era exercida. Removido o reconciliador inteiro, o teste passava em 2,8 s — cobertura zero num requisito P0, através de uma revisão que o aprovou. Teste de fallback **desconecta** o caminho principal, ou não é teste de fallback.
+
 **Feature P1 não tem direito de apagar dado P0.** O campo inline do Dataview consumia o span do valor, e `fonte:: [[STJ]]` deixava de produzir link nenhum — links que o commit anterior já coletava. Quando uma feature opcional muda o que uma obrigatória já entregava, o A/B contra o commit anterior é o que revela.
 
 **Flag booleana ou inteira não distingue "omitida" de "definida com zero".** `config.Flags` tem companheiros `ReadOnlySet` e `DebounceMSSet`. **Toda** chamada a `config.Load` precisa preenchê-los com `cmd.Flags().Changed(nome)` — esquecer em um subcomando faz flag virar no-op silencioso.
@@ -114,6 +127,10 @@ Esta seção existe porque oito tarefas deste projeto foram entregues como concl
 
 **Não deixe sua deliberação no código.** Três comentários começando com "Wait," e "For the sake of simplicity" foram commitados. Um deles documentava um defeito como se fosse decisão. Comentário explica por que o código é assim; raciocínio sobre o que fazer não é comentário.
 
+**Prova de mutação escrita no condicional não é prova.** "Se removermos X, o teste falha" apareceu em dois relatórios desta fase, e uma das duas estava factualmente errada — o reconciliador foi removido e a suíte continuou verde. O tempo verbal é o sinal: prova real está no passado e traz saída colada. Rode `scripts/mutate.ps1` e cole o que ele imprimiu.
+
+**Confira todo SHA que você escrever no ledger.** A Task 31 foi registrada em `14210ee`, que não existe no repositório — `git cat-file -t` responde `fatal: Not a valid object name`. Ledger que aponta para o vazio é pior que ledger desatualizado, porque parece preciso. `scripts/audit_reports.ps1` confere todos.
+
 **Registre no ledger antes de dizer que acabou.** Oito tarefas e onze commits entraram sem uma linha. A próxima sessão não tem seu contexto — ela tem o ledger, e um ledger desatualizado faz alguém re-executar trabalho pronto, que é a falha mais cara deste fluxo. `pwsh -File scripts/sdd.ps1 status` mostra o que ele diz hoje.
 
 **Escopo não encolhe em silêncio.** Se alguma parte da tarefa não deu para fazer, entregue o resto inteiro e **diga o que ficou de fora e por quê**. Reduzir escopo é decisão de quem pediu. `BLOCKED` com o motivo é resposta melhor que uma entrega que parece completa.
@@ -128,14 +145,22 @@ Dívida de revisão de M0 **paga**. Tasks 9, 10 e 11 haviam fechado sem revisão
 
 Lint limpo nos três alvos (`GOOS=linux/darwin/windows`), depois de 39 achados que estavam vermelhos desde o commit de bootstrap. CI ganhou `fmt` (gofmt + vet cruzado) e `lint-windows`, sem o qual todo arquivo `//go:build windows` ficava sem análise.
 
-M1 em andamento. **Tasks 12 a 18 fechadas e revisadas:** tipos do parser, frontmatter com offset de corpo, slug, headings com offsets de seção, as quatro extensões goldmark (wikilinks e embeds, block ids, tags hierárquicas, campos do Dataview), e o corpus de golden files que congela tudo isso — 48 pares, sem órfão em nenhuma direção.
+**M1 completa** — Tasks 12 a 26: parser e as quatro extensões goldmark congelados por um corpus de 48 golden files, o índice com offsets de byte, resolução, backlinks, consultas, a fachada de serviço, as cinco tools de leitura e os resources, e paridade verificada contra um dump real do `metadataCache` do Obsidian.
 
-Pendentes: 19 (índice), 20 (resolução), 21 (backlinks), 22 (consultas), 23 (serviço), 24 (tools e resources), 25 (paridade), 26 (fechamento da v0.1). São estritamente sequenciais.
+**M2 completa** — Tasks 27 a 32: fachada sobre fsnotify com filtro de relevância unificado em `vault.Classify`, debounce de tique único com conjunto sujo, verificação de mudança real ligada a `index.Replace`, reconciliação por overflow, correlação de rename por `xxhash`, e os contadores em `vault_stats`.
 
-**As tarefas 19 a 26 do plano são autocontidas.** Cada uma carrega, dentro da própria seção, onde encaixa, as decisões fechadas que a vinculam, as armadilhas já pagas que se aplicam, verificações além dos passos, regras de execução e contrato de relatório. O brief extraído basta para executar — não é preciso injetar contexto acumulado no prompt. Foi pensado para delegar a modelo mais barato, com revisão feita pelo modelo principal.
+**M2.1 em andamento — Tasks 33 a 42.** A revisão do M2 (2026-07-28) encontrou três Critical, cinco Important e um lote de higiene, cada um reproduzido por mutação ou sonda, nenhum inferido:
 
-Task 25 precisa de uma rodada manual do plugin do Obsidian para gerar a referência de paridade — vale agendar antes de chegar nela. O brief instrui a **pular** o teste quando o artefato falta, nunca falhar.
+- `CorrelateRenames` abria anexo e placeholder somente-nuvem, furando duas regras fechadas que `index.Replace` respeita.
+- O reconciliador de overflow (P0, RF-05) tinha cobertura zero: removido inteiro, o teste continuava verde.
+- Link resolvia para nota deletada, por divergência de caixa na chave de `byAlias`.
+
+Três decisões foram fechadas antes de escrever as tarefas e não devem ser re-litigadas: `--debounce-ms=0` passa a ser **recusado na config**; `index.MoveNote` **fica**, pagando as dívidas que contraiu ao entrar fora do contrato; e os contadores de descarte são **publicados desdobrados por motivo** em `vault_stats`.
+
+**As tarefas 19 a 42 do plano são autocontidas.** Cada uma carrega, dentro da própria seção, onde encaixa, as decisões fechadas que a vinculam, as armadilhas já pagas que se aplicam, verificações além dos passos, regras de execução e contrato de relatório. O brief extraído basta para executar — não é preciso injetar contexto acumulado no prompt. Foi pensado para delegar a modelo mais barato, com revisão feita pelo modelo principal. Para o M2.1: **35, 38, 39 e 40 vão para o modelo barato**; 33, 34, 36, 37 e 42 ficam com o principal, porque são onde os defeitos se esconderam.
 
 O ledger fica em `.superpowers/sdd/2026-07-25-gobsidian-v01/progress.md`. O caminho plano antigo virou ponteiro: os dois derivaram e um tinha 16 tarefas enquanto o outro tinha 6.
+
+**`.superpowers/` é versionado.** Era ignorado por inteiro, exceto um relatório que alguém forçou uma vez — então o ledger, a única coisa que atravessa sessões, existia só na cópia de trabalho. Remover a linha do `.gitignore` não bastou: havia um segundo `.gitignore` com `*` dentro de `.superpowers/sdd/`, que o `sdd-workspace` do plugin **recria**, e que negação no diretório pai não cancela. `sdd.ps1` o apaga a cada chamada. O arquivo `task-N-base.txt` fica sujo de propósito — commitá-lo move o HEAD e a base recursa.
 
 Lacuna registrada pra M6: no harness de órfãos atual `stdin-eof` sempre vence (100/100 nas duas últimas rodadas), então vigília do pai e sinais seguem sem verificação ponta a ponta. Falta cenário em que stdin fica aberto e pai morre.
