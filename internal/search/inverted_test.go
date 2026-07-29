@@ -66,7 +66,7 @@ func TestInvertedReindexSameNoteNoDuplicates(t *testing.T) {
 	}
 }
 
-func TestInvertedConcurrencyRace(_ *testing.T) {
+func TestInvertedConcurrencyRace(t *testing.T) {
 	ix := search.NewInverted()
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
@@ -113,6 +113,18 @@ func TestInvertedConcurrencyRace(_ *testing.T) {
 	}
 
 	wg.Wait()
+
+	if ix.DocCount() < 0 {
+		t.Errorf("DocCount negativo apos concorrencia: %d", ix.DocCount())
+	}
+	if ix.TermCount() == 0 {
+		t.Errorf("TermCount zerado apos escritas concorrentes")
+	}
+	for _, p := range ix.Postings("prescricao") {
+		if p.Path == "" {
+			t.Errorf("postings com caminho vazio encontrado: %+v", p)
+		}
+	}
 }
 
 func TestInvertedRemoveAndRecreateNoResidue(t *testing.T) {

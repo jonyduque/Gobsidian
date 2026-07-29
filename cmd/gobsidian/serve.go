@@ -113,12 +113,17 @@ func runServe(parent context.Context, cfg config.Config) error {
 	if err != nil {
 		inv = search.NewInverted()
 		for _, p := range idx.NotePaths() {
-			if data, err := v.ReadAll(ctx, p); err == nil {
-				body, _ := vault.StripBOM(data)
-				inv.Add(string(p), search.Analyze(string(body)))
+			data, err := v.ReadAll(ctx, p)
+			if err != nil {
+				log.Warn("falha ao ler nota ao construir indice invertido de busca", "path", p, "err", err)
+				continue
 			}
+			body, _ := vault.StripBOM(data)
+			inv.Add(string(p), search.Analyze(string(body)))
 		}
-		_ = search.SaveInvertedCache(ctx, cfg.CacheDir, cfg.VaultPath, inv)
+		if err := search.SaveInvertedCache(ctx, cfg.CacheDir, cfg.VaultPath, inv); err != nil {
+			log.Warn("falha ao salvar cache invertido de busca no boot", "err", err)
+		}
 	}
 
 	w, err := watcher.New(v, idx, inv, time.Duration(cfg.DebounceMS)*time.Millisecond, log)

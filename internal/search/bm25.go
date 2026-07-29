@@ -10,6 +10,8 @@ import (
 )
 
 // Constantes da fórmula BM25 e pesos de campo (D9, RF-20).
+// ARCHITECTURE.md §6.2 exige que a forma crua (WeightRaw) pontue acima da forma reduzida (WeightReduced),
+// garantindo que a busca por termo exato receba peso superior ao termo derivado morfológicamente.
 const (
 	ParamK1        = 1.2
 	ParamB         = 0.75

@@ -260,14 +260,18 @@ func TestVaultSearchReturnFields(t *testing.T) {
 	}
 }
 
-// Query vazia com filtros -> redireciona para metadados (RF-25)
+// Query vazia com filtros -> redireciona para metadados (RF-25).
+// Prova determinística: um serviço instanciado com inv == nil serve buscas por query vazia
+// a partir dos metadados, enquanto buscas com texto retornam zero resultados.
 func TestVaultSearchEmptyQueryMetadataOnly(t *testing.T) {
-	svc, _, _, _ := createSearchService(t, map[string]string{
+	_, v, idx, _ := createSearchService(t, map[string]string{
 		"Civil/a.md": "# A\n",
 		"Penal/b.md": "# B\n",
 	})
 
-	res, err := svc.Search(context.Background(), service.SearchOptions{Query: "", Folder: "Civil"})
+	svcNoInv := service.New(v, idx, nil, nil, service.Options{})
+
+	res, err := svcNoInv.Search(context.Background(), service.SearchOptions{Query: "", Folder: "Civil"})
 	if err != nil {
 		t.Fatalf("Search: %v", err)
 	}
@@ -276,6 +280,15 @@ func TestVaultSearchEmptyQueryMetadataOnly(t *testing.T) {
 	}
 	if res.Results[0].Score != 0.0 {
 		t.Errorf("Empty query metadata search score = %f, quer 0.0", res.Results[0].Score)
+	}
+
+	// Consulta com texto sobre o mesmo serviço sem inv devolve zero resultados
+	resText, err := svcNoInv.Search(context.Background(), service.SearchOptions{Query: "A", Folder: "Civil"})
+	if err != nil {
+		t.Fatalf("Search text query: %v", err)
+	}
+	if len(resText.Results) != 0 {
+		t.Errorf("Esperava 0 resultados sem indice invertido, obteve %d", len(resText.Results))
 	}
 }
 

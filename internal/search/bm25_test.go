@@ -130,8 +130,11 @@ func TestBM25WeightBody(t *testing.T) {
 	}
 }
 
-func TestBM25ParamK1(t *testing.T) {
-	// K1 controla a saturação de frequência de termos (tf).
+// TestBM25TermFrequencySaturation verifica a presença da curva sublinear de
+// saturação por frequência de termo (mecanismo do parâmetro K1).
+// Nota: Este teste valida a mecânica de saturação (razão > 1.0 e finita), e não
+// engessa o valor numérico exato da constante ParamK1.
+func TestBM25TermFrequencySaturation(t *testing.T) {
 	// Duas notas de mesmo comprimento (5 tokens)
 	ix := search.NewInverted()
 	ix.Add("tf1.md", search.Analyze("prescricao a b c d"))
@@ -154,12 +157,15 @@ func TestBM25ParamK1(t *testing.T) {
 
 	ratio := s5 / s1
 	if ratio < 1.2 || ratio > 2.2 {
-		t.Errorf("ParamK1 saturação de frequencia fora do esperado: ratio = %.4f", ratio)
+		t.Errorf("saturação de frequência fora do esperado: ratio = %.4f", ratio)
 	}
 }
 
-func TestBM25ParamB(t *testing.T) {
-	// ParamB (0.75) penaliza notas longas.
+// TestBM25DocumentLengthNormalization verifica que a penalização por
+// comprimento do documento está ativa (mecanismo do parâmetro B).
+// Nota: Este teste valida que documentos mais curtos ordenam acima de mais
+// longos para o mesmo termo, e não engessa o valor numérico exato de ParamB.
+func TestBM25DocumentLengthNormalization(t *testing.T) {
 	ix := search.NewInverted()
 	ix.Add("curta.md", search.Analyze("prescricao civil"))
 	ix.Add("longa.md", search.Analyze("prescricao a b c d e f g h i j k l m n o p q r s"))
@@ -170,11 +176,11 @@ func TestBM25ParamB(t *testing.T) {
 	}
 
 	if res[0].Path != "curta.md" {
-		t.Errorf("ParamB penalizacao de comprimento falhou: res[0] = %s", res[0].Path)
+		t.Errorf("penalização de comprimento falhou: res[0] = %s", res[0].Path)
 	}
 	ratio := res[0].Score / res[1].Score
 	if ratio < 1.3 {
-		t.Errorf("ParamB razao de penalidade = %.4f, quer > 1.3", ratio)
+		t.Errorf("razão de penalidade = %.4f, quer > 1.3", ratio)
 	}
 }
 
