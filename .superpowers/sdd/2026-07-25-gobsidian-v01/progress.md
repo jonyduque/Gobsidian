@@ -40,6 +40,7 @@ Task 31: complete (commit 14210ee, xxhash rename correlation for fast path updat
 Task 32: complete (commits 56f8135..b5b2a9f, expose watcher metrics in vault_stats tool, review Approved)
 Task 33: complete (commits e507be0..8daa35a, rename correlation single pass, zero asset/cloud reads, review Approved)
 Task 34: complete (commits 0430807..f35edd4, reconciliation tests that actually lose events, review Approved)
+Task 35: complete (commits da09dc7..f67257a, normalize byAlias keys so Remove clears what Build wrote, review Approved)
 
 === M0, M1 e M2 (Tasks 1-32) COMPLETAS! ===
 
