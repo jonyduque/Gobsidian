@@ -21,7 +21,7 @@ func Apply(ctx context.Context, in <-chan []vault.CanonicalPath, reconcile <-cha
 		case <-ctx.Done():
 			return
 		case <-reconcile:
-			Reconcile(ctx, v, idx, log)
+			_, _, _ = Reconcile(ctx, v, idx, log)
 		case batch, ok := <-in:
 			if !ok {
 				return
