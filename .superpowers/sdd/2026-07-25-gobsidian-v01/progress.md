@@ -36,11 +36,12 @@ Task 27: complete (commit 69362c7, fsnotify facade with unified vault relevance 
 Task 28: complete (commit cc08160, single-ticker debouncer with dirty set coalescence, review Approved)
 Task 29: complete (commit 0bce29f, real change verification with mtime+size diffing and index application, review Approved)
 Task 30: complete (commit 3496610, reconciliation recovery on fsnotify overflow event, review Approved)
-Task 31: complete (commit 14210ee, xxhash rename correlation for fast path updates and backlink preservation, review Approved)
+Task 31: complete (commit 2a59d0c, xxhash rename correlation for fast path updates and backlink preservation, review Approved)
 Task 32: complete (commits 56f8135..b5b2a9f, expose watcher metrics in vault_stats tool, review Approved)
 Task 33: complete (commits e507be0..8daa35a, rename correlation single pass, zero asset/cloud reads, review Approved)
 Task 34: complete (commits 0430807..f35edd4, reconciliation tests that actually lose events, review Approved)
 Task 35: complete (commits da09dc7..f67257a, normalize byAlias keys so Remove clears what Build wrote, review Approved)
+Task 36: complete (commits 98dd2d2..faa0674, MoveNote refreshes stat and matches Remove+Replace, review Approved)
 
 === M0, M1 e M2 (Tasks 1-32) COMPLETAS! ===
 
