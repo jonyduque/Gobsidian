@@ -61,6 +61,7 @@ Task 42: complete (commits 36f4134..c537dc2, rewrite reports with real evidence;
     trabalho da 42 e b1d7888 mais c537dc2.
 
 Task 43: complete (commits 5cf441d..713cfc1, accept trailing whitespace on frontmatter delimiter, review Approved)
+Task 44: complete (commits 0819e50..53b2061, portuguese analyzer with dual indexing, review Approved)
 
 === REVISAO DO M2.1 (Tasks 33-42), 2026-07-29, pelo modelo principal ===
 Nove provas de mutacao rodadas com scripts/mutate.ps1, TODAS saindo 0 (o teste
@@ -459,7 +460,7 @@ Commits de ressincronizacao ate agora: 44672fd, a1ec366, 2b4967f.
 Corrigir o plano ANTES de despachar o fixer e necessario mas NAO SUFICIENTE:
 o fix loop muda o codigo depois disso, e o plano fica para tras de novo.
 A conferencia tem que acontecer TAMBEM no fim de cada task, e MECANICAMENTE —
-extrair os blocos ```go do plano e comparar com os arquivos do disco, nao ler.
+extrair os blocos go do plano e comparar com os arquivos do disco, nao ler.
 Script usado nesta task: extrair todos os blocos com regex e casar por
 igualdade exata contra cada arquivo. Ancorar por "package parser" NAO funciona:
 o plano tem 68 blocos go e varios comecam igual.
