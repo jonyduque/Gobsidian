@@ -98,7 +98,7 @@ func TestApply_ReconcileSignal(t *testing.T) {
 	defer cancel()
 
 	log := slog.New(slog.NewTextHandler(io.Discard, nil))
-	go Apply(ctx, in, reconcile, idx, v, log, nil, nil, nil, nil)
+	go Apply(ctx, in, reconcile, idx, v, log, nil, nil, nil, nil, nil)
 
 	if err := os.WriteFile(alvo, []byte("depois, bem maior"), 0644); err != nil {
 		t.Fatal(err)
@@ -128,7 +128,7 @@ func TestRun_OverflowSchedulesExactlyOne(t *testing.T) {
 	idx := index.New()
 	log := slog.New(slog.NewTextHandler(io.Discard, nil))
 
-	w, err := New(v, idx, 10*time.Millisecond, log)
+	w, err := New(v, idx, nil, 10*time.Millisecond, log)
 	if err != nil {
 		t.Fatalf("New watcher: %v", err)
 	}

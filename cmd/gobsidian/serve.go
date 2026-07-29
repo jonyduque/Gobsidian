@@ -121,7 +121,7 @@ func runServe(parent context.Context, cfg config.Config) error {
 		_ = search.SaveInvertedCache(ctx, cfg.CacheDir, cfg.VaultPath, inv)
 	}
 
-	w, err := watcher.New(v, idx, time.Duration(cfg.DebounceMS)*time.Millisecond, log)
+	w, err := watcher.New(v, idx, inv, time.Duration(cfg.DebounceMS)*time.Millisecond, log)
 	if err != nil {
 		return err
 	}

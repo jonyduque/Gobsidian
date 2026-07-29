@@ -12,6 +12,7 @@ import (
 
 	"github.com/fsnotify/fsnotify"
 	"github.com/jonyd/gobsidian/internal/index"
+	"github.com/jonyd/gobsidian/internal/search"
 	"github.com/jonyd/gobsidian/internal/vault"
 )
 
@@ -25,6 +26,7 @@ type Watcher struct {
 	debounce  time.Duration
 	v         *vault.Vault
 	idx       *index.Index
+	inv       *search.Inverted
 	reconcile chan struct{}
 
 	// Contadores (Task 32 e Task 37)
@@ -43,7 +45,7 @@ type Watcher struct {
 }
 
 // New cria um novo Watcher observando a raiz do cofre.
-func New(v *vault.Vault, idx *index.Index, debounce time.Duration, log *slog.Logger) (*Watcher, error) {
+func New(v *vault.Vault, idx *index.Index, inv *search.Inverted, debounce time.Duration, log *slog.Logger) (*Watcher, error) {
 	fsWatcher, err := fsnotify.NewWatcher()
 	if err != nil {
 		return nil, fmt.Errorf("criando fsnotify.Watcher: %w", err)
@@ -92,6 +94,7 @@ func New(v *vault.Vault, idx *index.Index, debounce time.Duration, log *slog.Log
 		debounce:  debounce,
 		v:         v,
 		idx:       idx,
+		inv:       inv,
 	}, nil
 }
 
@@ -110,7 +113,7 @@ func (w *Watcher) Run(ctx context.Context) error {
 
 	// Lança o aplicador lendo de w.debounced e escrevendo no índice
 	go func() {
-		Apply(ctx, w.debounced, w.reconcile, w.idx, w.v, w.log, &w.processed, &w.skipped, &w.reconciledUpdated, &w.reconciledRemoved)
+		Apply(ctx, w.debounced, w.reconcile, w.idx, w.v, w.log, &w.processed, &w.skipped, &w.reconciledUpdated, &w.reconciledRemoved, w.inv)
 	}()
 
 	for {

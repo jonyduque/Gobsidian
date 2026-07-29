@@ -418,7 +418,7 @@ func TestWatcher_RenameEndToEnd(t *testing.T) {
 
 	log := slog.New(slog.NewTextHandler(io.Discard, nil))
 
-	w, err := watcher.New(v, idx, 20*time.Millisecond, log)
+	w, err := watcher.New(v, idx, nil, 20*time.Millisecond, log)
 	if err != nil {
 		t.Fatalf("watcher.New: %v", err)
 	}

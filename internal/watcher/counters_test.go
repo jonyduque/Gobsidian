@@ -25,7 +25,7 @@ func setupTestWatcher(t *testing.T) (*Watcher, context.CancelFunc, string, *inde
 
 	idx := index.New()
 
-	w, err := New(v, idx, 10*time.Millisecond, log)
+	w, err := New(v, idx, nil, 10*time.Millisecond, log)
 	if err != nil {
 		t.Fatalf("watcher.New: %v", err)
 	}

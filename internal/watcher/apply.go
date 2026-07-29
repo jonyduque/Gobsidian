@@ -21,12 +21,7 @@ import (
 // Uma reescrita dentro do mesmo tique de mtime, preservando o tamanho, passa despercebida.
 // Isso é aceitável porque há dois anteparos: a reconciliação por overflow (Task 30)
 // e a reindexação no boot.
-func Apply(ctx context.Context, in <-chan []vault.CanonicalPath, reconcile <-chan struct{}, idx *index.Index, v *vault.Vault, log *slog.Logger, processed, skipped, reconciledUpdated, reconciledRemoved *atomic.Int64, inv ...*search.Inverted) {
-	var searchInv *search.Inverted
-	if len(inv) > 0 {
-		searchInv = inv[0]
-	}
-
+func Apply(ctx context.Context, in <-chan []vault.CanonicalPath, reconcile <-chan struct{}, idx *index.Index, v *vault.Vault, log *slog.Logger, processed, skipped, reconciledUpdated, reconciledRemoved *atomic.Int64, searchInv *search.Inverted) {
 	for {
 		select {
 		case <-ctx.Done():
@@ -60,7 +55,9 @@ func Apply(ctx context.Context, in <-chan []vault.CanonicalPath, reconcile <-cha
 				idx.MoveNote(v, rename.From, rename.To)
 				if searchInv != nil {
 					searchInv.Remove(string(rename.From))
-					_ = searchInv.Update(ctx, v, rename.To)
+					if err := searchInv.Update(ctx, v, rename.To); err != nil {
+						log.Warn("falha ao atualizar indice invertido no rename", "path", rename.To, "err", err)
+					}
 				}
 			}
 
@@ -98,7 +95,9 @@ func Apply(ctx context.Context, in <-chan []vault.CanonicalPath, reconcile <-cha
 				if err != nil {
 					log.Warn("Falha ao reindexar arquivo", "path", path, "err", err)
 				} else if searchInv != nil {
-					_ = searchInv.Update(ctx, v, path)
+					if err := searchInv.Update(ctx, v, path); err != nil {
+						log.Warn("falha ao atualizar indice invertido", "path", path, "err", err)
+					}
 				}
 			}
 		}

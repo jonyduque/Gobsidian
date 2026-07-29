@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/jonyd/gobsidian/internal/index"
+	"github.com/jonyd/gobsidian/internal/search"
 	"github.com/jonyd/gobsidian/internal/vault"
 )
 
@@ -26,7 +27,7 @@ func TestWatcher(t *testing.T) {
 
 	idx := index.New()
 
-	w, err := New(v, idx, 10*time.Millisecond, log)
+	w, err := New(v, idx, nil, 10*time.Millisecond, log)
 	if err != nil {
 		t.Fatalf("watcher.New: %v", err)
 	}
@@ -96,7 +97,7 @@ func TestWatcher_CloseReleasesHandles(t *testing.T) {
 	idx := index.New()
 	log := slog.New(slog.NewTextHandler(io.Discard, nil))
 
-	w, err := New(v, idx, 10*time.Millisecond, log)
+	w, err := New(v, idx, nil, 10*time.Millisecond, log)
 	if err != nil {
 		t.Fatalf("watcher.New: %v", err)
 	}
@@ -130,7 +131,7 @@ func TestWatcher_EventsChannelClosedOnShutdown(t *testing.T) {
 	idx := index.New()
 	log := slog.New(slog.NewTextHandler(io.Discard, nil))
 
-	w, err := New(v, idx, 10*time.Millisecond, log)
+	w, err := New(v, idx, nil, 10*time.Millisecond, log)
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
@@ -159,7 +160,7 @@ func TestWatcher_DirCreatedAfterStartIsWatched(t *testing.T) {
 	idx := index.New()
 	log := slog.New(slog.NewTextHandler(io.Discard, nil))
 
-	w, err := New(v, idx, 10*time.Millisecond, log)
+	w, err := New(v, idx, nil, 10*time.Millisecond, log)
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
@@ -209,9 +210,68 @@ func TestNew_FailsOnUnwatchablePath(t *testing.T) {
 	log := slog.New(slog.NewTextHandler(io.Discard, nil))
 	idx := index.New()
 
-	w, err := New(v, idx, 10*time.Millisecond, log)
+	w, err := New(v, idx, nil, 10*time.Millisecond, log)
 	if err == nil {
 		_ = w.Close()
 		t.Fatal("New esperava erro ao observar caminho inexistente, mas obteve nil")
 	}
+}
+
+// TestWatcherUpdatesSearchIndex e o teste que prova que a busca acompanha o
+// cofre. Sem ele, o gate fica verde com search.Update sendo codigo morto.
+func TestWatcherUpdatesSearchIndex(t *testing.T) {
+	tmp := t.TempDir()
+	v, err := vault.New(tmp)
+	if err != nil {
+		t.Fatal(err)
+	}
+	idx := index.New()
+	inv := search.NewInverted()
+	if err := idx.Build(context.Background(), v); err != nil {
+		t.Fatal(err)
+	}
+
+	log := slog.New(slog.NewTextHandler(io.Discard, nil))
+	w, err := New(v, idx, inv, 10*time.Millisecond, log)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go func() { _ = w.Run(ctx) }()
+	time.Sleep(100 * time.Millisecond) // watcher precisa estar observando
+
+	// CRIACAO: a nota nova tem de passar a ser encontravel.
+	if err := os.WriteFile(filepath.Join(tmp, "nova.md"), []byte("prescricao intercorrente"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	esperaTermo(t, inv, "prescricao", "nova.md", true)
+
+	// REMOCAO: a nota removida tem de deixar de ser encontravel. Um teste que
+	// so cobre a criacao passa com um Remove que nunca acontece.
+	if err := os.Remove(filepath.Join(tmp, "nova.md")); err != nil {
+		t.Fatal(err)
+	}
+	esperaTermo(t, inv, "prescricao", "nova.md", false)
+}
+
+// esperaTermo espera em laco com condicao de saida. time.Sleep fixo como
+// assercao e o que faz um teste passar sem o mecanismo existir.
+func esperaTermo(t *testing.T, inv *search.Inverted, termo, path string, quer bool) {
+	t.Helper()
+	limite := time.Now().Add(3 * time.Second)
+	for time.Now().Before(limite) {
+		presente := false
+		for _, p := range inv.Postings(termo) {
+			if p.Path == path {
+				presente = true
+			}
+		}
+		if presente == quer {
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatalf("apos 3s, %q em %q: presente=%v, quer %v — a busca nao acompanhou o cofre",
+		termo, path, !quer, quer)
 }

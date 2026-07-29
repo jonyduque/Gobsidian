@@ -354,7 +354,7 @@ func TestVaultStatsReflectsWatcherUpdate(t *testing.T) {
 	}
 
 	log := slog.New(slog.NewTextHandler(io.Discard, nil))
-	w, err := watcher.New(v, idx, 10*time.Millisecond, log)
+	w, err := watcher.New(v, idx, nil, 10*time.Millisecond, log)
 	if err != nil {
 		t.Fatalf("watcher.New: %v", err)
 	}
