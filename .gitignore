@@ -6,3 +6,8 @@ gobsidian-debug.log
 
 # Artefato de build do plugin de paridade — gerado, nao versionado.
 tools/parity-dumper/main.js
+
+# Espelho gerado de .claude/. Versionar as duas copias faz alguem editar a
+# errada e as regras divergirem em silencio — que e o defeito que a skill
+# mutation-proof-discipline descreve. A fonte e .claude/.
+.agents/
