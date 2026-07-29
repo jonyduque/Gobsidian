@@ -5,6 +5,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -60,7 +61,9 @@ func TestApply(t *testing.T) {
 	defer cancel()
 
 	reconcile := make(chan struct{})
-	processed, skipped := watcher.Apply(ctx, in, reconcile, idx, v, log)
+	var p, s atomic.Int64
+	watcher.Apply(ctx, in, reconcile, idx, v, log, &p, &s)
+	processed, skipped := p.Load(), s.Load()
 
 	if processed != 3 {
 		t.Errorf("processed: got %d, want 3", processed)

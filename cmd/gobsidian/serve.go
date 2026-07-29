@@ -108,16 +108,18 @@ func runServe(parent context.Context, cfg config.Config) error {
 	}
 	indexMS := time.Since(buildStart).Milliseconds()
 
-	svc := service.New(v, idx, service.Options{
+	w, err := watcher.New(v, idx, time.Duration(cfg.DebounceMS)*time.Millisecond, log)
+	if err != nil {
+		return err
+	}
+
+	svc := service.New(v, idx, w, service.Options{
 		ReadOnly:   cfg.ReadOnly,
 		MaxResults: cfg.MaxResults,
 	})
 	srv := mcpsrv.New(ctx, svc, cfg, log)
 
-	w, err := watcher.New(v, idx, time.Duration(cfg.DebounceMS)*time.Millisecond, log)
-	if err != nil {
-		return err
-	}
+
 	var wg sync.WaitGroup
 	wg.Add(1)
 	go func() {

@@ -316,15 +316,16 @@ type StatsRequest struct {
 // publico: docs/TOOLS.md descreve cada um pelo nome JSON, e um campo declarado
 // que ninguem preenche e pior que um campo ausente, porque quem le acredita.
 type StatsResult struct {
-	Notes        int           `json:"notes"`
-	Assets       int           `json:"assets"`
-	TotalSize    int64         `json:"total_size"`
-	Orphans      int           `json:"orphans"`
-	BrokenLinks  int           `json:"broken_links"`
-	BrokenAnchor int           `json:"broken_anchors"`
-	Collisions   int           `json:"alias_collisions"`
-	Generation   uint64        `json:"generation"`
-	Runtime      *RuntimeStats `json:"runtime,omitempty"`
+	Notes        int            `json:"notes"`
+	Assets       int            `json:"assets"`
+	TotalSize    int64          `json:"total_size"`
+	Orphans      int            `json:"orphans"`
+	BrokenLinks  int            `json:"broken_links"`
+	BrokenAnchor int            `json:"broken_anchors"`
+	Collisions   int            `json:"alias_collisions"`
+	Generation   uint64         `json:"generation"`
+	Runtime      *RuntimeStats  `json:"runtime,omitempty"`
+	Watcher      *WatchCounters `json:"watcher,omitempty"`
 }
 
 // VaultStats was relocated from service.go
@@ -391,6 +392,11 @@ func (s *Service) VaultStats(ctx context.Context, req StatsRequest) (StatsResult
 			Sys:          mem.Sys,
 			NumGC:        mem.NumGC,
 		}
+	}
+
+	if s.watcher != nil {
+		stats := s.watcher.Stats()
+		res.Watcher = &stats
 	}
 
 	return res, nil

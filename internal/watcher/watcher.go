@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"sync/atomic"
 	"time"
 
 	"github.com/fsnotify/fsnotify"
@@ -26,12 +27,11 @@ type Watcher struct {
 	reconcile chan struct{}
 
 	// Contadores (Task 32)
-	received        int64
-	dropped         int64
-	coalesced       int64 // placeholder (if requested in the future)
-	processed       int64
-	skipped         int64
-	reconciliations int64
+	received        atomic.Int64
+	dropped         atomic.Int64
+	processed       atomic.Int64
+	skipped         atomic.Int64
+	reconciliations atomic.Int64
 }
 
 // New cria um novo Watcher observando a raiz do cofre.
@@ -91,9 +91,7 @@ func (w *Watcher) Run(ctx context.Context) error {
 
 	// Lança o aplicador lendo de w.debounced e escrevendo no índice
 	go func() {
-		p, s := Apply(ctx, w.debounced, w.reconcile, w.idx, w.v, w.log)
-		w.processed = p
-		w.skipped = s
+		Apply(ctx, w.debounced, w.reconcile, w.idx, w.v, w.log, &w.processed, &w.skipped)
 	}()
 
 	for {
@@ -108,7 +106,7 @@ func (w *Watcher) Run(ctx context.Context) error {
 			// (embora a documentação oficial mencione Has(fsnotify.Overflow) para Windows,
 			// macOS reporta overflow the event/err layer dependendo da versao. Usamos Is).
 			if err == fsnotify.ErrEventOverflow || (err != nil && err.Error() == fsnotify.ErrEventOverflow.Error()) {
-				w.reconciliations++
+				w.reconciliations.Add(1)
 				select {
 				case w.reconcile <- struct{}{}:
 					w.log.Warn("Overflow de fsnotify detectado, reconciliação agendada")
@@ -122,7 +120,7 @@ func (w *Watcher) Run(ctx context.Context) error {
 			if !ok {
 				return nil
 			}
-			w.received++
+			w.received.Add(1)
 
 			// Se um diretorio novo for criado, adiciona o watch nele
 			if e.Op&fsnotify.Create == fsnotify.Create {
@@ -137,7 +135,7 @@ func (w *Watcher) Run(ctx context.Context) error {
 
 			evt, ok := filter(e, w.root, w.log)
 			if !ok {
-				w.dropped++
+				w.dropped.Add(1)
 				continue
 			}
 

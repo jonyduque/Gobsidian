@@ -236,9 +236,9 @@ Estado do cofre e saúde do servidor.
 - Colisões de alias: aliases declarados por mais de uma nota
 - Notas somente-nuvem não hidratadas
 - Timestamp da última indexação e duração
-- Com `include_runtime`: RSS, goroutines, geração do índice, contadores do watcher (eventos recebidos, coalescidos, processados, overflows)
+- Com `include_runtime`: `runtime` (RSS, goroutines, gc) e objeto `watcher` (ausente se desligado) com os campos: `active`, `events_received`, `events_dropped`, `events_processed`, `events_skipped`, `reconciliations`.
 
-**Notas.** Os contadores do watcher são a instrumentação principal para diagnosticar cofres em pastas sincronizadas. Uma razão alta entre eventos recebidos e eventos processados é o comportamento esperado e saudável; overflows recorrentes indicam que a janela de debounce precisa ser ampliada.
+**Notas.** Os contadores do watcher são a instrumentação principal para diagnosticar cofres em pastas sincronizadas. `events_received` conta os eventos antes do filtro de relevância (brutos), e `events_dropped` conta os irrelevantes ou ocultos. `events_processed` conta o número de absorções de mudanças efetivas, e `events_skipped` as absorções rejeitadas (mesmo mtime e tamanho). Uma razão alta entre `events_received` e `events_processed` é o comportamento esperado e saudável; overflows recorrentes (contabilizados em `reconciliations`) indicam que a janela de debounce precisa ser ampliada.
 
 ---
 

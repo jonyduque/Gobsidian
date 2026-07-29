@@ -4,6 +4,7 @@ import (
 	"context"
 	"log/slog"
 	"os"
+	"sync/atomic"
 
 	"github.com/jonyd/gobsidian/internal/index"
 	"github.com/jonyd/gobsidian/internal/vault"
@@ -14,16 +15,16 @@ import (
 // Uma reescrita dentro do mesmo tique de mtime, preservando o tamanho, passa despercebida.
 // Isso é aceitável porque há dois anteparos: a reconciliação por overflow (Task 30)
 // e a reindexação no boot.
-func Apply(ctx context.Context, in <-chan []vault.CanonicalPath, reconcile <-chan struct{}, idx *index.Index, v *vault.Vault, log *slog.Logger) (processed, skipped int64) {
+func Apply(ctx context.Context, in <-chan []vault.CanonicalPath, reconcile <-chan struct{}, idx *index.Index, v *vault.Vault, log *slog.Logger, processed, skipped *atomic.Int64) {
 	for {
 		select {
 		case <-ctx.Done():
-			return processed, skipped
+			return
 		case <-reconcile:
 			Reconcile(ctx, v, idx, log)
 		case batch, ok := <-in:
 			if !ok {
-				return processed, skipped
+				return
 			}
 
 			// Task 31: Correlate renames within the batch
@@ -31,7 +32,9 @@ func Apply(ctx context.Context, in <-chan []vault.CanonicalPath, reconcile <-cha
 
 			// Process renames (report without rewriting content)
 			for _, rename := range renames {
-				processed += 2
+				if processed != nil {
+					processed.Add(2)
+				}
 				log.Info("rename_correlated",
 					"from", rename.From,
 					"to", rename.To,
@@ -41,7 +44,9 @@ func Apply(ctx context.Context, in <-chan []vault.CanonicalPath, reconcile <-cha
 			}
 
 			for _, path := range nonRenames {
-				processed++
+				if processed != nil {
+					processed.Add(1)
+				}
 				abs := v.Abs(path)
 				info, err := os.Stat(abs)
 
@@ -58,7 +63,9 @@ func Apply(ctx context.Context, in <-chan []vault.CanonicalPath, reconcile <-cha
 				// Só compara para notas (pois idx.Get resolve apenas notas).
 				if n, ok := idx.Get(path); ok {
 					if n.ModTime.Equal(info.ModTime()) && n.Size == info.Size() {
-						skipped++
+						if skipped != nil {
+							skipped.Add(1)
+						}
 						continue
 					}
 				}

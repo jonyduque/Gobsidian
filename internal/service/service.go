@@ -23,6 +23,21 @@ type Index interface {
 	Generation() uint64
 }
 
+// WatchCounters reporta a saude e os contadores do watcher em tempo de execucao.
+type WatchCounters struct {
+	Active          bool  `json:"active"`
+	EventsReceived  int64 `json:"events_received"`
+	EventsDropped   int64 `json:"events_dropped"`
+	EventsProcessed int64 `json:"events_processed"`
+	EventsSkipped   int64 `json:"events_skipped"`
+	Reconciliations int64 `json:"reconciliations"`
+}
+
+// WatchStats representa o subsistema do watcher, capaz de reportar seus contadores.
+type WatchStats interface {
+	Stats() WatchCounters
+}
+
 // Options sao as decisoes de configuracao que o servico precisa conhecer.
 // So o que muda o comportamento dele entra aqui; o resto da Config fica
 // onde esta.
@@ -35,13 +50,14 @@ type Options struct {
 // a um metodo daqui. Nenhum tipo do SDK de MCP entra nesta struct, e e essa
 // fronteira que torna uma quebra de protocolo mudanca de um pacote so.
 type Service struct {
-	vault *vault.Vault
-	index Index
-	opts  Options
+	vault   *vault.Vault
+	index   Index
+	watcher WatchStats
+	opts    Options
 }
 
 // New monta o servico. idx pode ser nulo em M0, quando o indice ainda nao
 // existe e as contagens saem de uma varredura do disco.
-func New(v *vault.Vault, idx Index, opts Options) *Service {
-	return &Service{vault: v, index: idx, opts: opts}
+func New(v *vault.Vault, idx Index, w WatchStats, opts Options) *Service {
+	return &Service{vault: v, index: idx, watcher: w, opts: opts}
 }

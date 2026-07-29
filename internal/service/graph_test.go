@@ -3,6 +3,9 @@ package service
 import (
 	"context"
 	"testing"
+
+	"github.com/jonyd/gobsidian/internal/index"
+	"github.com/jonyd/gobsidian/internal/vault"
 )
 
 func TestService_LinkGraph(t *testing.T) {
@@ -88,6 +91,53 @@ func TestService_VaultStats(t *testing.T) {
 			t.Errorf("expected runtime stats")
 		}
 	})
+
+	t.Run("stats with watcher", func(t *testing.T) {
+		root := t.TempDir()
+		v, _ := vault.New(root)
+		idx := index.New()
+		svcWithWatcher := New(v, idx, dummyWatchStats{}, Options{})
+
+		res, err := svcWithWatcher.VaultStats(context.Background(), StatsRequest{
+			IncludeRuntime: true,
+			IncludeHealth:  false,
+		})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if res.Watcher == nil {
+			t.Fatalf("expected watcher stats to be present")
+		}
+		if !res.Watcher.Active {
+			t.Errorf("watcher.active = %v, want true", res.Watcher.Active)
+		}
+		if res.Watcher.EventsReceived != 10 {
+			t.Errorf("watcher.events_received = %v, want 10", res.Watcher.EventsReceived)
+		}
+		if res.Watcher.EventsDropped != 2 {
+			t.Errorf("watcher.events_dropped = %v, want 2", res.Watcher.EventsDropped)
+		}
+		if res.Watcher.EventsProcessed != 8 {
+			t.Errorf("watcher.events_processed = %v, want 8", res.Watcher.EventsProcessed)
+		}
+		if res.Watcher.EventsSkipped != 1 {
+			t.Errorf("watcher.events_skipped = %v, want 1", res.Watcher.EventsSkipped)
+		}
+	})
+}
+
+// Dummy WatchStats for testing
+type dummyWatchStats struct{}
+
+func (d dummyWatchStats) Stats() WatchCounters {
+	return WatchCounters{
+		Active:          true,
+		EventsReceived:  10,
+		EventsDropped:   2,
+		EventsProcessed: 8,
+		EventsSkipped:   1,
+		Reconciliations: 0,
+	}
 }
 
 func setupGraphTest(t *testing.T) *Service {

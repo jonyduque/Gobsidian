@@ -30,7 +30,7 @@ func newTestServerWithIndex(t *testing.T, root string) *mcpsrv.Server {
 		t.Fatalf("idx.Build: %v", err)
 	}
 
-	svc := service.New(v, idx, service.Options{})
+	svc := service.New(v, idx, nil, service.Options{})
 	cfg := config.Defaults()
 
 	return mcpsrv.New(context.Background(), svc, cfg, slog.New(slog.NewTextHandler(io.Discard, nil)))
@@ -231,5 +231,78 @@ func TestResources(t *testing.T) {
 	}
 	if content.URI != "gobsidian:///A.md" {
 		t.Errorf("ReadResource Uri = %s, want gobsidian:///A.md", content.URI)
+	}
+}
+
+// Dummy WatchStats for testing
+type dummyWatchStats struct{}
+
+func (d dummyWatchStats) Stats() service.WatchCounters {
+	return service.WatchCounters{
+		Active:          true,
+		EventsReceived:  10,
+		EventsDropped:   2,
+		EventsProcessed: 8,
+		EventsSkipped:   1,
+		Reconciliations: 0,
+	}
+}
+
+func TestVaultStatsWithWatcher(t *testing.T) {
+	root := t.TempDir()
+
+	v, _ := vault.New(root)
+	idx := index.New()
+	idx.Build(context.Background(), v)
+
+	// Inject dummy watcher
+	svc := service.New(v, idx, dummyWatchStats{}, service.Options{})
+	cfg := config.Defaults()
+	srv := mcpsrv.New(context.Background(), svc, cfg, slog.New(slog.NewTextHandler(io.Discard, nil)))
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	clientTransport, serverTransport := mcp.NewInMemoryTransports()
+	go func() { _ = srv.Connect(ctx, serverTransport) }()
+
+	client := mcp.NewClient(&mcp.Implementation{Name: "test", Version: "0.0.1"}, nil)
+	session, _ := client.Connect(ctx, clientTransport, nil)
+	defer session.Close()
+
+	res, err := session.CallTool(ctx, &mcp.CallToolParams{
+		Name:      "vault_stats",
+		Arguments: map[string]any{"include_runtime": true},
+	})
+	if err != nil {
+		t.Fatalf("CallTool: %v", err)
+	}
+
+	b, _ := json.Marshal(res.StructuredContent)
+	var out map[string]interface{}
+	json.Unmarshal(b, &out)
+
+	watcherObj, ok := out["watcher"].(map[string]interface{})
+	if !ok {
+		t.Fatal("watcher block missing or not an object in vault_stats output")
+	}
+
+	if watcherObj["active"] != true {
+		t.Errorf("watcher.active = %v, want true", watcherObj["active"])
+	}
+	if watcherObj["events_received"].(float64) != 10 {
+		t.Errorf("watcher.events_received = %v, want 10", watcherObj["events_received"])
+	}
+	if watcherObj["events_dropped"].(float64) != 2 {
+		t.Errorf("watcher.events_dropped = %v, want 2", watcherObj["events_dropped"])
+	}
+	if watcherObj["events_processed"].(float64) != 8 {
+		t.Errorf("watcher.events_processed = %v, want 8", watcherObj["events_processed"])
+	}
+	if watcherObj["events_skipped"].(float64) != 1 {
+		t.Errorf("watcher.events_skipped = %v, want 1", watcherObj["events_skipped"])
+	}
+	if _, ok := watcherObj["reconciliations"]; !ok {
+		t.Errorf("watcher.reconciliations missing")
 	}
 }
