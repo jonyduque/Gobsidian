@@ -392,11 +392,10 @@ func (s *Service) VaultStats(ctx context.Context, req StatsRequest) (StatsResult
 			Sys:          mem.Sys,
 			NumGC:        mem.NumGC,
 		}
-	}
-
-	if s.watcher != nil {
-		stats := s.watcher.Stats()
-		res.Watcher = &stats
+		if s.watcher != nil {
+			stats := s.watcher.Stats()
+			res.Watcher = &stats
+		}
 	}
 
 	return res, nil

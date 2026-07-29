@@ -270,39 +270,59 @@ func TestVaultStatsWithWatcher(t *testing.T) {
 	session, _ := client.Connect(ctx, clientTransport, nil)
 	defer session.Close()
 
-	res, err := session.CallTool(ctx, &mcp.CallToolParams{
-		Name:      "vault_stats",
-		Arguments: map[string]any{"include_runtime": true},
+	t.Run("include_runtime=true", func(t *testing.T) {
+		res, err := session.CallTool(ctx, &mcp.CallToolParams{
+			Name:      "vault_stats",
+			Arguments: map[string]any{"include_runtime": true},
+		})
+		if err != nil {
+			t.Fatalf("CallTool: %v", err)
+		}
+
+		b, _ := json.Marshal(res.StructuredContent)
+		var out map[string]interface{}
+		json.Unmarshal(b, &out)
+
+		watcherObj, ok := out["watcher"].(map[string]interface{})
+		if !ok {
+			t.Fatal("watcher block missing or not an object in vault_stats output")
+		}
+
+		if watcherObj["active"] != true {
+			t.Errorf("watcher.active = %v, want true", watcherObj["active"])
+		}
+		if watcherObj["events_received"].(float64) != 10 {
+			t.Errorf("watcher.events_received = %v, want 10", watcherObj["events_received"])
+		}
+		if watcherObj["events_dropped"].(float64) != 2 {
+			t.Errorf("watcher.events_dropped = %v, want 2", watcherObj["events_dropped"])
+		}
+		if watcherObj["events_processed"].(float64) != 8 {
+			t.Errorf("watcher.events_processed = %v, want 8", watcherObj["events_processed"])
+		}
+		if watcherObj["events_skipped"].(float64) != 1 {
+			t.Errorf("watcher.events_skipped = %v, want 1", watcherObj["events_skipped"])
+		}
+		if _, ok := watcherObj["reconciliations"]; !ok {
+			t.Errorf("watcher.reconciliations missing")
+		}
 	})
-	if err != nil {
-		t.Fatalf("CallTool: %v", err)
-	}
 
-	b, _ := json.Marshal(res.StructuredContent)
-	var out map[string]interface{}
-	json.Unmarshal(b, &out)
+	t.Run("include_runtime=false", func(t *testing.T) {
+		res, err := session.CallTool(ctx, &mcp.CallToolParams{
+			Name:      "vault_stats",
+			Arguments: map[string]any{},
+		})
+		if err != nil {
+			t.Fatalf("CallTool: %v", err)
+		}
 
-	watcherObj, ok := out["watcher"].(map[string]interface{})
-	if !ok {
-		t.Fatal("watcher block missing or not an object in vault_stats output")
-	}
+		b, _ := json.Marshal(res.StructuredContent)
+		var out map[string]interface{}
+		json.Unmarshal(b, &out)
 
-	if watcherObj["active"] != true {
-		t.Errorf("watcher.active = %v, want true", watcherObj["active"])
-	}
-	if watcherObj["events_received"].(float64) != 10 {
-		t.Errorf("watcher.events_received = %v, want 10", watcherObj["events_received"])
-	}
-	if watcherObj["events_dropped"].(float64) != 2 {
-		t.Errorf("watcher.events_dropped = %v, want 2", watcherObj["events_dropped"])
-	}
-	if watcherObj["events_processed"].(float64) != 8 {
-		t.Errorf("watcher.events_processed = %v, want 8", watcherObj["events_processed"])
-	}
-	if watcherObj["events_skipped"].(float64) != 1 {
-		t.Errorf("watcher.events_skipped = %v, want 1", watcherObj["events_skipped"])
-	}
-	if _, ok := watcherObj["reconciliations"]; !ok {
-		t.Errorf("watcher.reconciliations missing")
-	}
+		if _, ok := out["watcher"]; ok {
+			t.Fatal("watcher block should be missing when include_runtime is false")
+		}
+	})
 }

@@ -92,7 +92,7 @@ func TestService_VaultStats(t *testing.T) {
 		}
 	})
 
-	t.Run("stats with watcher", func(t *testing.T) {
+	t.Run("stats with watcher (include_runtime=true)", func(t *testing.T) {
 		root := t.TempDir()
 		v, _ := vault.New(root)
 		idx := index.New()
@@ -122,6 +122,24 @@ func TestService_VaultStats(t *testing.T) {
 		}
 		if res.Watcher.EventsSkipped != 1 {
 			t.Errorf("watcher.events_skipped = %v, want 1", res.Watcher.EventsSkipped)
+		}
+	})
+
+	t.Run("stats with watcher (include_runtime=false)", func(t *testing.T) {
+		root := t.TempDir()
+		v, _ := vault.New(root)
+		idx := index.New()
+		svcWithWatcher := New(v, idx, dummyWatchStats{}, Options{})
+
+		res, err := svcWithWatcher.VaultStats(context.Background(), StatsRequest{
+			IncludeRuntime: false,
+			IncludeHealth:  false,
+		})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if res.Watcher != nil {
+			t.Fatalf("expected watcher stats to be nil when include_runtime is false")
 		}
 	})
 }
