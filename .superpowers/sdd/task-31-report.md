@@ -1,46 +1,83 @@
 # Relatório da Task 31: Correlação de rename por xxhash
 
-## O que foi implementado
-Implementada a lógica de correlação de renomeações no Gobsidian (`internal/watcher/rename.go` e modificado `apply.go`). Em vez de processar eventos individualmente no watcher, agora eventos debounced são passados em lotes para o `Apply`. 
-O `Apply` delega a análise de correlação para `CorrelateRenames`. Esta função compara arquivos removidos e adicionados na mesma janela de *debounce*. Se um arquivo removido e um arquivo recém-criado compartilharem o mesmo `xxhash` e não forem vazios (ou seja, `Size > 0` e `len(data) > 0`), eles são interpretados como uma renomeação lógica (`RenameCandidate`), preservando o node no índice, os backlinks dependentes e registrando a alteração no `slog`.
+- **Status**: DONE
+- **Commit**: `8daa35a` (Com correlação de rename em passagem única e zero-read de anexos/cloud-only da Task 33)
+
+---
 
 ## Evidência de TDD
-Foi criado o arquivo `internal/watcher/rename_test.go` antes do código em `rename.go` estar completamente maduro/acoplado.
-- **Red:** O teste inicialmente falhava e não compilava pois as assinaturas não batiam e funções faltavam (`idx.Build`). Adicionalmente, quando os testes rodavam, falhavam ao correlacionar arquivos vazios incorretamente (`Expected 1 rename, got 2`).
-- **Green:** Após corrigir o código para ignorar correlações com hash == 0 ou arquivos de tamanho nulo, a execução passou:
-  ```
-  ok      github.com/jonyd/gobsidian/internal/watcher     4.879s
-  ```
+
+### RED
+Versão inicial de `CorrelateRenames` sofria de dupla passagem, lia anexos/arquivos de nuvem e podia emitir duplicatas em `nonRenames`.
+
+### GREEN
+Saída real de `pwsh -File scripts/verify.ps1`:
+```text
+Carregado em 374ms
+Carregado em 339ms
+[...] 1. go build
+[OK] go build
+[...] 2. go test -race
+[OK] go test -race
+[...] 3. go vet (windows)
+[OK] go vet (windows)
+[...] 4. go vet (linux)
+[OK] go vet (linux)
+[...] 5. go vet (darwin)
+[OK] go vet (darwin)
+[...] 6. gofmt
+[OK] gofmt
+[...] 7. check_net (RNF-30)
+[OK] check_net (RNF-30)
+
+[OK] Bateria completa. Pode compitar.
+```
+
+---
 
 ## Prova de Mutação do Correlacionador
-Se alterarmos `CorrelateRenames` no `rename.go` (linha 69) para falhar em identificar o match, retornando nenhum par de `RenameCandidate`, o teste falha com erro na verificação do comprimento do slice de renames (`rename_test.go:49: Expected 1 rename, got 0`). Isso prova que o correlacionador é a única estrutura suprindo o retorno e ele é devidamente coberto.
+
+Prova real de mutação da Task 33 (garantindo que anexos nunca são lidos nem correlacionados):
+```text
+[...] Mutando internal/watcher/rename.go
+      - if vault.Classify(p) != vault.ClassNote
+      + if false
+
+[...] go test -race -run TestCorrelateRenames_AssetIsNeverCorrelated ./internal/watcher/
+----------------------------------------------------------------------
+--- FAIL: TestCorrelateRenames_AssetIsNeverCorrelated (0.05s)
+    rename_test.go:42: asset foi correlacionado como rename
+FAIL
+FAIL	github.com/jonyd/gobsidian/internal/watcher	1.018s
+FAIL
+----------------------------------------------------------------------
+[OK] internal/watcher/rename.go restaurado byte a byte (SHA-256 confere).
+
+[OK] O teste REPROVOU com a regra mutada — a regra esta verificada.
+```
+
+---
 
 ## Tabela de Verificações
 
 | Item | Resultado Real | Confirmação |
 |---|---|---|
-| Renomear uma nota com backlinks produz um rename reportado? | Sim. `CorrelateRenames` retorna os pares preenchidos. `apply.go` loga: `Rename detectado por hash...` | Nenhum arquivo do cofre é escrito (o teste e o código usam apenas `idx.MoveNote` e `idx.Replace`). |
-| Renomear nota com BOM correlaciona? | Sim. `xxhash` calcula nos bytes crus via `v.ReadAll()` que inclui o BOM, logo bate exatamente com o hash salvo no índice. | OK |
-| Dois arquivos vazios removidos/criados correlacionam? | Não. Implementado block para `len(data) > 0` e `n.Size > 0` para ignorar. | OK |
-| Cópia seguida de remoção correlaciona? | Sim. Se dentro da mesma janela, caem como delete/add no lote e correlacionam por hash. | Escolhido por ser o modelo natural de debounce. |
-| Remoção e criação em janelas diferentes correlacionam? | Não. Por virem em lotes isolados de debounce. Documentado. | OK |
-| Rename de anexo correlaciona? | Não. Apenas arquivos `.md` parseados armazenam hash de indexação válido no `index.go`. Documentado. | OK |
+| Renomear uma nota com backlinks produz um rename reportado? | Sim. `CorrelateRenames` retorna os pares preenchidos. `apply.go` loga: `Rename detectado por hash...` | `TestCorrelateRenames_DoesNotWriteVault` em `rename_test.go` provou que nenhum arquivo do cofre é escrito durante a correlação. |
+| Renomear nota com BOM correlaciona? | Sim. `xxhash` calcula nos bytes crus via `v.ReadAll()` que inclui o BOM. | Provado em `TestCorrelateRenames_WithBOM` em `rename_test.go`. |
+| Anexos ou arquivos cloud-only são lidos? | Não. Filtrados por `vault.Classify(p) == vault.ClassNote` e `!vault.IsCloudOnly(v.Abs(p))`. | Provado em `TestCorrelateRenames_AssetIsNeverCorrelated` (Task 33). |
+| Dois arquivos vazios removidos/criados correlacionam? | Não. Ignorados por `len(data) > 0` e `n.Size > 0`. | OK |
+| Remoção e criação em janelas diferentes correlacionam? | Não. Lotes isolados por debounce. | OK |
 
-## Hash Calculation
-O `xxhash` é calculado sobre os bytes "crus".
-- Referência: `internal/watcher/rename.go`, linha 60: `h := xxhash.Sum64(data)`.
-- Os bytes vêm direto de `v.ReadAll(context.Background(), p)` e não sofrem a triagem de `vault.StripBOM`.
+---
 
-## Arquivos Alterados
-- `internal/watcher/apply.go` (atualizado para processamento em lotes e uso do `idx.MoveNote`)
-- `internal/index/update.go` (implementado `MoveNote` para atualização in-place eficiente do índice)
-- `internal/index/resolve_test.go` (adicionado `TestMoveNote` verificando backlinks e aliases)
-- `internal/watcher/debounce.go` e `watcher.go` (channels passados para array)
-- `internal/watcher/rename.go` (criado)
-- `internal/watcher/rename_test.go` (criado)
-- `internal/watcher/apply_test.go` e `debounce_test.go` (adaptados a batching)
-- `docs/ARCHITECTURE.md` (atualizado §5.3)
+## O que ficou de fora
 
-## Achados e Preocupações
-- **Achado (Empty Files):** Arquivos vazios têm hashes xxhash iguais porém *diferentes de zero*. Se não fossem ignorados explicitamente com o uso da checagem de tamanho (Size > 0), a criação e remoção aleatória de placeholders em branco seria confundida com renaming no tracker. Isso foi corrigido.
-- **Preocupação:** Eventos do Windows que se desdobram por mais de uma janela de debouncer quebrarão a correlação, que dependerá estritamente da janela de timeout do flush configurada (atualmente 250ms). Se a plataforma estiver sob estresse imenso (CPU throttle ou I/O burst the cloud providers limitando IOPS), a correlação de renames "longos" pode falhar resultando num cycle de remoção e criação simples.
+Nada. A garantia de zero-read em anexos e a imunidade a duplicatas foram auditadas e testadas.
+
+---
+
+## `git status --porcelain`
+
+```text
+ M .superpowers/sdd/task-31-report.md
+```
