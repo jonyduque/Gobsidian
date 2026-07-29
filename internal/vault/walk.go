@@ -32,6 +32,11 @@ var excludedDirs = map[string]bool{
 	".stfolder": true,
 }
 
+// IsExcludedDir verifica se o nome de um diretorio esta na lista de excluidos (.git, .obsidian, etc).
+func IsExcludedDir(name string) bool {
+	return excludedDirs[strings.ToLower(name)]
+}
+
 // assetExts sao indexados por nome, nunca lidos (PRD RF-60). Sem eles, todo
 // embed de imagem vira link quebrado e vault_stats fica dominado por falsos
 // positivos.

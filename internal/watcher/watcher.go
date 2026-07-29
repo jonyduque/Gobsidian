@@ -61,11 +61,8 @@ func New(v *vault.Vault, idx *index.Index, debounce time.Duration, log *slog.Log
 			return nil
 		}
 		if d.IsDir() {
-			canon, errCanon := vault.Canonicalize(root, path)
-			if errCanon == nil {
-				if vault.Classify(canon) == vault.ClassExcluded {
-					return filepath.SkipDir
-				}
+			if vault.IsExcludedDir(d.Name()) {
+				return filepath.SkipDir
 			}
 			fsWatcher.Add(path)
 		}
@@ -132,8 +129,7 @@ func (w *Watcher) Run(ctx context.Context) error {
 			if e.Op&fsnotify.Create == fsnotify.Create {
 				info, err := os.Stat(e.Name)
 				if err == nil && info.IsDir() {
-					canon, _ := vault.Canonicalize(w.root, e.Name)
-					if vault.Classify(canon) != vault.ClassExcluded {
+					if !vault.IsExcludedDir(info.Name()) {
 						w.fsWatcher.Add(e.Name)
 					}
 				}

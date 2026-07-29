@@ -100,3 +100,21 @@ func TestFilter(t *testing.T) {
 		})
 	}
 }
+
+func TestFilter_OutsideVaultIsDropped(t *testing.T) {
+	log := slog.New(slog.NewTextHandler(io.Discard, nil))
+	root := "C:\\test\\vault"
+
+	evt := fsnotify.Event{
+		Name: "D:\\fora_do_vault\\nota.md",
+		Op:   fsnotify.Write,
+	}
+
+	_, emitted, reason := filter(evt, root, log)
+	if emitted {
+		t.Errorf("emitted = true, want false para evento fora do vault")
+	}
+	if reason != DropOutsideVault {
+		t.Errorf("reason = %q, want %q", reason, DropOutsideVault)
+	}
+}
