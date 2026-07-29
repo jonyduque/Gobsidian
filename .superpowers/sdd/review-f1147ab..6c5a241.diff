@@ -1,0 +1,5535 @@
+# Review package: f1147ab..HEAD
+
+## Commits
+6c5a241 test(parser): golden file corpus covering documented edge cases
+
+## Files changed
+ .gitattributes                                     |   10 +
+ internal/parser/golden_test.go                     |   77 +
+ testdata/parser/blocks/em_lista.json               |   14 +
+ testdata/parser/blocks/em_lista.md                 |    5 +
+ testdata/parser/blocks/invalido.json               |    1 +
+ testdata/parser/blocks/invalido.md                 |   11 +
+ testdata/parser/blocks/multiplos.json              |   14 +
+ testdata/parser/blocks/multiplos.md                |    9 +
+ testdata/parser/blocks/simples.json                |    9 +
+ testdata/parser/blocks/simples.md                  |    1 +
+ testdata/parser/codeblocks/cercado.json            |    1 +
+ testdata/parser/codeblocks/cercado.md              |   11 +
+ testdata/parser/codeblocks/cercado_lang.json       |    1 +
+ testdata/parser/codeblocks/cercado_lang.md         |    7 +
+ testdata/parser/codeblocks/colchete_literal.json   |    1 +
+ testdata/parser/codeblocks/colchete_literal.md     |    2 +
+ testdata/parser/codeblocks/escapado.json           |    1 +
+ testdata/parser/codeblocks/escapado.md             |    6 +
+ testdata/parser/codeblocks/indentado.json          |    1 +
+ testdata/parser/codeblocks/indentado.md            |    9 +
+ testdata/parser/codeblocks/inline.json             |    1 +
+ testdata/parser/codeblocks/inline.md               |    2 +
+ testdata/parser/codeblocks/til.json                |    1 +
+ testdata/parser/codeblocks/til.md                  |    7 +
+ testdata/parser/edge/bom.json                      |    1 +
+ testdata/parser/edge/bom.md                        |  Bin 0 -> 20 bytes
+ testdata/parser/edge/crlf.json                     |   40 +
+ testdata/parser/edge/crlf.md                       |    7 +
+ testdata/parser/edge/crlf_misto.json               |   20 +
+ testdata/parser/edge/crlf_misto.md                 |    5 +
+ testdata/parser/edge/nota_gigante.json             | 2908 ++++++++++++++++++++
+ testdata/parser/edge/nota_gigante.md               |  970 +++++++
+ testdata/parser/edge/sem_newline_final.json        |   13 +
+ testdata/parser/edge/sem_newline_final.md          |    3 +
+ testdata/parser/edge/so_frontmatter.json           |   12 +
+ testdata/parser/edge/so_frontmatter.md             |    5 +
+ testdata/parser/edge/vazio.json                    |    1 +
+ testdata/parser/edge/vazio.md                      |    0
+ testdata/parser/frontmatter/aliases.json           |   20 +
+ testdata/parser/frontmatter/aliases.md             |    7 +
+ testdata/parser/frontmatter/ausente.json           |   13 +
+ testdata/parser/frontmatter/ausente.md             |    3 +
+ testdata/parser/frontmatter/completo.json          |   44 +
+ testdata/parser/frontmatter/completo.md            |   16 +
+ testdata/parser/frontmatter/malformado.json        |   14 +
+ testdata/parser/frontmatter/malformado.md          |   11 +
+ testdata/parser/frontmatter/nao_fechado.json       |   13 +
+ testdata/parser/frontmatter/nao_fechado.md         |    8 +
+ testdata/parser/frontmatter/tags_lista.json        |   12 +
+ testdata/parser/frontmatter/tags_lista.md          |    8 +
+ testdata/parser/frontmatter/tags_string.json       |   11 +
+ testdata/parser/frontmatter/tags_string.md         |    5 +
+ testdata/parser/frontmatter/vazio.json             |   13 +
+ testdata/parser/frontmatter/vazio.md               |    7 +
+ testdata/parser/headings/acentos.json              |   12 +
+ testdata/parser/headings/acentos.md                |    6 +
+ testdata/parser/headings/cerca_quatro_crases.json  |   21 +
+ testdata/parser/headings/cerca_quatro_crases.md    |   14 +
+ testdata/parser/headings/duplicados.json           |   20 +
+ testdata/parser/headings/duplicados.md             |   10 +
+ testdata/parser/headings/fechamento.json           |   21 +
+ testdata/parser/headings/fechamento.md             |    8 +
+ testdata/parser/headings/hierarquia.json           |   37 +
+ testdata/parser/headings/hierarquia.md             |   15 +
+ testdata/parser/headings/nivel_pulado.json         |   21 +
+ testdata/parser/headings/nivel_pulado.md           |    9 +
+ .../parser/inline_fields/multiplos_por_linha.json  |   11 +
+ .../parser/inline_fields/multiplos_por_linha.md    |   11 +
+ testdata/parser/inline_fields/valor_wikilink.json  |   16 +
+ testdata/parser/inline_fields/valor_wikilink.md    |    4 +
+ testdata/parser/tags/emphasis.json                 |    5 +
+ testdata/parser/tags/emphasis.md                   |    4 +
+ testdata/parser/tags/segmento_vazio.json           |    5 +
+ testdata/parser/tags/segmento_vazio.md             |    5 +
+ testdata/parser/tags/url_fragmento.json            |    1 +
+ testdata/parser/tags/url_fragmento.md              |    4 +
+ testdata/parser/wikilinks/alias.json               |   12 +
+ testdata/parser/wikilinks/alias.md                 |    1 +
+ testdata/parser/wikilinks/aninhado_ambiguo.json    |   19 +
+ testdata/parser/wikilinks/aninhado_ambiguo.md      |    5 +
+ testdata/parser/wikilinks/bloco.json               |   12 +
+ testdata/parser/wikilinks/bloco.md                 |    1 +
+ testdata/parser/wikilinks/caminho.json             |   11 +
+ testdata/parser/wikilinks/caminho.md               |    1 +
+ testdata/parser/wikilinks/embed.json               |   11 +
+ testdata/parser/wikilinks/embed.md                 |    1 +
+ testdata/parser/wikilinks/embed_imagem.json        |   19 +
+ testdata/parser/wikilinks/embed_imagem.md          |    5 +
+ testdata/parser/wikilinks/heading.json             |   12 +
+ testdata/parser/wikilinks/heading.md               |    1 +
+ testdata/parser/wikilinks/heading_alias.json       |   13 +
+ testdata/parser/wikilinks/heading_alias.md         |    1 +
+ testdata/parser/wikilinks/multiplos.json           |   26 +
+ testdata/parser/wikilinks/multiplos.md             |    2 +
+ testdata/parser/wikilinks/simples.json             |   11 +
+ testdata/parser/wikilinks/simples.md               |    1 +
+ testdata/parser/wikilinks/triplo.json              |   11 +
+ testdata/parser/wikilinks/triplo.md                |    7 +
+ 98 files changed, 4835 insertions(+)
+
+## Diff
+diff --git a/.gitattributes b/.gitattributes
+index 8718b01..7ce909c 100644
+--- a/.gitattributes
++++ b/.gitattributes
+@@ -9,10 +9,20 @@
+ *.md       text eol=lf
+ *.yml      text eol=lf
+ *.yaml     text eol=lf
+ *.json     text eol=lf
+ *.txt      text eol=lf
+ Makefile   text eol=lf
+ 
+ # Os scripts de PowerShell ficam em CRLF: e o que o Windows espera, e sao
+ # executados la e so la.
+ *.ps1  text eol=crlf
++
++# Estes tres golden fixtures do parser existem para testar CRLF real e BOM.
++# A regra "*.md text eol=lf" acima normalizaria os dois primeiros para LF no
++# checkout, e a segunda camada de normalizacao (bytes vs. texto) faria o
++# BOM ser tratado como texto comum. "-text" tira os tres da normalizacao de
++# fim de linha do Git inteiramente; sem isso, os casos que estes arquivos
++# existem para testar deixam de existir a partir do proximo checkout.
++testdata/parser/edge/crlf.md       -text
++testdata/parser/edge/crlf_misto.md -text
++testdata/parser/edge/bom.md        -text binary
+diff --git a/internal/parser/golden_test.go b/internal/parser/golden_test.go
+new file mode 100644
+index 0000000..4560ff7
+--- /dev/null
++++ b/internal/parser/golden_test.go
+@@ -0,0 +1,77 @@
++package parser_test
++
++import (
++	"encoding/json"
++	"flag"
++	"io/fs"
++	"os"
++	"path/filepath"
++	"strings"
++	"testing"
++
++	"github.com/jonyd/gobsidian/internal/parser"
++)
++
++var update = flag.Bool("update", false, "regrava os golden files")
++
++// Golden files tornam aceitar uma mudanca intencional de comportamento uma
++// operacao de um comando, e tornam uma regressao acidental imediatamente
++// visivel no diff.
++func TestGolden(t *testing.T) {
++	root := filepath.Join("..", "..", "testdata", "parser")
++
++	var inputs []string
++	err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
++		if err != nil {
++			return err
++		}
++		if !d.IsDir() && strings.HasSuffix(path, ".md") {
++			inputs = append(inputs, path)
++		}
++		return nil
++	})
++	if err != nil {
++		t.Fatalf("varrendo testdata: %v", err)
++	}
++	if len(inputs) == 0 {
++		t.Fatal("nenhum golden file encontrado — testdata/parser esta vazio")
++	}
++
++	for _, in := range inputs {
++		name, _ := filepath.Rel(root, in)
++		t.Run(name, func(t *testing.T) {
++			src, err := os.ReadFile(in)
++			if err != nil {
++				t.Fatalf("lendo entrada: %v", err)
++			}
++
++			note, err := parser.Parse(src)
++			if err != nil {
++				t.Fatalf("Parse: %v", err)
++			}
++
++			got, err := json.MarshalIndent(note, "", "  ")
++			if err != nil {
++				t.Fatalf("serializando: %v", err)
++			}
++			got = append(got, '\n')
++
++			goldenPath := strings.TrimSuffix(in, ".md") + ".json"
++
++			if *update {
++				if err := os.WriteFile(goldenPath, got, 0o644); err != nil {
++					t.Fatalf("gravando golden: %v", err)
++				}
++				return
++			}
++
++			want, err := os.ReadFile(goldenPath)
++			if err != nil {
++				t.Fatalf("lendo golden (rode com -update para criar): %v", err)
++			}
++			if string(got) != string(want) {
++				t.Errorf("divergencia em %s\n--- esperado ---\n%s\n--- obtido ---\n%s", name, want, got)
++			}
++		})
++	}
++}
+diff --git a/testdata/parser/blocks/em_lista.json b/testdata/parser/blocks/em_lista.json
+new file mode 100644
+index 0000000..ecf25d1
+--- /dev/null
++++ b/testdata/parser/blocks/em_lista.json
+@@ -0,0 +1,14 @@
++{
++  "blocks": [
++    {
++      "id": "item1",
++      "start": 161,
++      "end": 181
++    },
++    {
++      "id": "filho1",
++      "start": 186,
++      "end": 208
++    }
++  ]
++}
+diff --git a/testdata/parser/blocks/em_lista.md b/testdata/parser/blocks/em_lista.md
+new file mode 100644
+index 0000000..9b7a713
+--- /dev/null
++++ b/testdata/parser/blocks/em_lista.md
+@@ -0,0 +1,5 @@
++<!-- Block id em item de lista e em item aninhado: Start cai depois do
++marcador de lista ("- " ou a indentacao do filho), nao no inicio absoluto
++da linha. -->
++- primeiro item ^item1
++  - filho aninhado ^filho1
+diff --git a/testdata/parser/blocks/invalido.json b/testdata/parser/blocks/invalido.json
+new file mode 100644
+index 0000000..0967ef4
+--- /dev/null
++++ b/testdata/parser/blocks/invalido.json
+@@ -0,0 +1 @@
++{}
+diff --git a/testdata/parser/blocks/invalido.md b/testdata/parser/blocks/invalido.md
+new file mode 100644
+index 0000000..7ae5791
+--- /dev/null
++++ b/testdata/parser/blocks/invalido.md
+@@ -0,0 +1,11 @@
++<!-- Tres formas rejeitadas, cada uma em seu proprio paragrafo para nao
++interagir: marcador no MEIO da linha (nao no fim), marcador que nao esta na
++ULTIMA linha do paragrafo, e um "^id" seguido de caractere fora do alfabeto
++(espaco seguido de mais texto, nao so espaco em branco ate o fim da linha).
++As tres devem produzir zero blocos. -->
++Marcador no meio da linha ^abc123 mais texto depois.
++
++Primeira linha nao conta ^nope
++Segunda linha e a ultima, sem marcador nenhum.
++
++Caracteres invalidos depois do id ^abc def
+diff --git a/testdata/parser/blocks/multiplos.json b/testdata/parser/blocks/multiplos.json
+new file mode 100644
+index 0000000..6f69276
+--- /dev/null
++++ b/testdata/parser/blocks/multiplos.json
+@@ -0,0 +1,14 @@
++{
++  "blocks": [
++    {
++      "id": "primeiro",
++      "start": 301,
++      "end": 344
++    },
++    {
++      "id": "segundo",
++      "start": 346,
++      "end": 418
++    }
++  ]
++}
+diff --git a/testdata/parser/blocks/multiplos.md b/testdata/parser/blocks/multiplos.md
+new file mode 100644
+index 0000000..687696d
+--- /dev/null
++++ b/testdata/parser/blocks/multiplos.md
+@@ -0,0 +1,9 @@
++<!-- Dois blocos na mesma nota. O segundo paragrafo tem tres linhas com o
++marcador so na ultima — cobre "^id" no fim de um paragrafo de varias linhas
++ao mesmo tempo que cobre "mais de um bloco por nota". Start do segundo
++bloco aponta para a PRIMEIRA linha do paragrafo, nao para a linha do "^". -->
++Primeiro paragrafo, uma linha so. ^primeiro
++
++Segundo paragrafo
++com duas linhas antes
++e o marcador na ultima. ^segundo
+diff --git a/testdata/parser/blocks/simples.json b/testdata/parser/blocks/simples.json
+new file mode 100644
+index 0000000..4730a6d
+--- /dev/null
++++ b/testdata/parser/blocks/simples.json
+@@ -0,0 +1,9 @@
++{
++  "blocks": [
++    {
++      "id": "abc123",
++      "start": 0,
++      "end": 49
++    }
++  ]
++}
+diff --git a/testdata/parser/blocks/simples.md b/testdata/parser/blocks/simples.md
+new file mode 100644
+index 0000000..2e18599
+--- /dev/null
++++ b/testdata/parser/blocks/simples.md
+@@ -0,0 +1 @@
++Um paragrafo simples com marcador no fim. ^abc123
+diff --git a/testdata/parser/codeblocks/cercado.json b/testdata/parser/codeblocks/cercado.json
+new file mode 100644
+index 0000000..0967ef4
+--- /dev/null
++++ b/testdata/parser/codeblocks/cercado.json
+@@ -0,0 +1 @@
++{}
+diff --git a/testdata/parser/codeblocks/cercado.md b/testdata/parser/codeblocks/cercado.md
+new file mode 100644
+index 0000000..3c38663
+--- /dev/null
++++ b/testdata/parser/codeblocks/cercado.md
+@@ -0,0 +1,11 @@
++Um bloco cercado simples, sem info string. Tudo dentro tem que sair de
++Links, Tags e Blocks vazios — e a garantia que a dependencia inteira do
++goldmark existe para dar.
++
++```
++[[nao e link]]
++#nao-e-tag
++texto que termina com marcador ^nao-e-bloco
++```
++
++Texto depois do bloco.
+diff --git a/testdata/parser/codeblocks/cercado_lang.json b/testdata/parser/codeblocks/cercado_lang.json
+new file mode 100644
+index 0000000..0967ef4
+--- /dev/null
++++ b/testdata/parser/codeblocks/cercado_lang.json
+@@ -0,0 +1 @@
++{}
+diff --git a/testdata/parser/codeblocks/cercado_lang.md b/testdata/parser/codeblocks/cercado_lang.md
+new file mode 100644
+index 0000000..6415f6f
+--- /dev/null
++++ b/testdata/parser/codeblocks/cercado_lang.md
+@@ -0,0 +1,7 @@
++Bloco cercado com info string de linguagem — a info string nao muda a
++supressao de inline dentro do bloco.
++
++```go
++// [[nao e link]] #nao-e-tag texto ^nao-e-bloco
++func f() {}
++```
+diff --git a/testdata/parser/codeblocks/colchete_literal.json b/testdata/parser/codeblocks/colchete_literal.json
+new file mode 100644
+index 0000000..0967ef4
+--- /dev/null
++++ b/testdata/parser/codeblocks/colchete_literal.json
+@@ -0,0 +1 @@
++{}
+diff --git a/testdata/parser/codeblocks/colchete_literal.md b/testdata/parser/codeblocks/colchete_literal.md
+new file mode 100644
+index 0000000..fd8937b
+--- /dev/null
++++ b/testdata/parser/codeblocks/colchete_literal.md
+@@ -0,0 +1,2 @@
++Isto [nao] e link, nem [[quase] um link], e nem #123 vira tag porque
++nao tem nenhuma letra no nome.
+diff --git a/testdata/parser/codeblocks/escapado.json b/testdata/parser/codeblocks/escapado.json
+new file mode 100644
+index 0000000..0967ef4
+--- /dev/null
++++ b/testdata/parser/codeblocks/escapado.json
+@@ -0,0 +1 @@
++{}
+diff --git a/testdata/parser/codeblocks/escapado.md b/testdata/parser/codeblocks/escapado.md
+new file mode 100644
+index 0000000..a413c5c
+--- /dev/null
++++ b/testdata/parser/codeblocks/escapado.md
+@@ -0,0 +1,6 @@
++<!-- Fora de qualquer bloco de codigo: o escape do CommonMark consome a barra
++invertida e o caractere seguinte como texto literal antes que wikilink, tag
++ou block-id cheguem a ver o gatilho. Mesmo mecanismo que ja cobre
++TestWikilinkSuppressedInCode/escapado, estendido para os tres tipos de
++marcador de uma vez. -->
++\[\[nao e link\]\] \#nao-e-tag texto \^nao-e-bloco
+diff --git a/testdata/parser/codeblocks/indentado.json b/testdata/parser/codeblocks/indentado.json
+new file mode 100644
+index 0000000..0967ef4
+--- /dev/null
++++ b/testdata/parser/codeblocks/indentado.json
+@@ -0,0 +1 @@
++{}
+diff --git a/testdata/parser/codeblocks/indentado.md b/testdata/parser/codeblocks/indentado.md
+new file mode 100644
+index 0000000..d8b00d2
+--- /dev/null
++++ b/testdata/parser/codeblocks/indentado.md
+@@ -0,0 +1,9 @@
++Paragrafo normal antes do bloco indentado.
++
++    [[nao e link]]
++    #nao-e-tag
++    texto ^nao-e-bloco
++
++Paragrafo normal depois. A linha em branco dos dois lados e obrigatoria:
++sem ela o bloco indentado vira continuacao preguicosa do paragrafo, nao
++um bloco de codigo.
+diff --git a/testdata/parser/codeblocks/inline.json b/testdata/parser/codeblocks/inline.json
+new file mode 100644
+index 0000000..0967ef4
+--- /dev/null
++++ b/testdata/parser/codeblocks/inline.json
+@@ -0,0 +1 @@
++{}
+diff --git a/testdata/parser/codeblocks/inline.md b/testdata/parser/codeblocks/inline.md
+new file mode 100644
+index 0000000..4ee8a77
+--- /dev/null
++++ b/testdata/parser/codeblocks/inline.md
+@@ -0,0 +1,2 @@
++Isto e codigo inline: `[[nao e link]] #nao-e-tag texto ^nao-e-bloco` no
++meio da frase, e o texto ao redor continua normal.
+diff --git a/testdata/parser/codeblocks/til.json b/testdata/parser/codeblocks/til.json
+new file mode 100644
+index 0000000..0967ef4
+--- /dev/null
++++ b/testdata/parser/codeblocks/til.json
+@@ -0,0 +1 @@
++{}
+diff --git a/testdata/parser/codeblocks/til.md b/testdata/parser/codeblocks/til.md
+new file mode 100644
+index 0000000..e2626f9
+--- /dev/null
++++ b/testdata/parser/codeblocks/til.md
+@@ -0,0 +1,7 @@
++Bloco cercado com til em vez de crase — mesma supressao, cerca diferente.
++
++~~~
++[[nao e link]]
++#nao-e-tag
++texto ^nao-e-bloco
++~~~
+diff --git a/testdata/parser/edge/bom.json b/testdata/parser/edge/bom.json
+new file mode 100644
+index 0000000..0967ef4
+--- /dev/null
++++ b/testdata/parser/edge/bom.json
+@@ -0,0 +1 @@
++{}
+diff --git a/testdata/parser/edge/bom.md b/testdata/parser/edge/bom.md
+new file mode 100644
+index 0000000..ac638a5
+Binary files /dev/null and b/testdata/parser/edge/bom.md differ
+diff --git a/testdata/parser/edge/crlf.json b/testdata/parser/edge/crlf.json
+new file mode 100644
+index 0000000..0c4ec11
+--- /dev/null
++++ b/testdata/parser/edge/crlf.json
+@@ -0,0 +1,40 @@
++{
++  "tags": [
++    "civil"
++  ],
++  "headings": [
++    {
++      "level": 1,
++      "text": "Titulo CRLF",
++      "slug": "titulo crlf",
++      "start": 0,
++      "end": 107,
++      "body_start": 15
++    },
++    {
++      "level": 2,
++      "text": "Secao",
++      "slug": "secao",
++      "start": 81,
++      "end": 107,
++      "body_start": 91
++    }
++  ],
++  "blocks": [
++    {
++      "id": "abc123",
++      "start": 17,
++      "end": 77
++    }
++  ],
++  "links": [
++    {
++      "raw": "[[nota]]",
++      "target": "nota",
++      "kind": 0,
++      "start": 36,
++      "end": 44
++    }
++  ],
++  "title": "Titulo CRLF"
++}
+diff --git a/testdata/parser/edge/crlf.md b/testdata/parser/edge/crlf.md
+new file mode 100644
+index 0000000..734d331
+--- /dev/null
++++ b/testdata/parser/edge/crlf.md
+@@ -0,0 +1,7 @@
++# Titulo CRLF
++
++Paragrafo com link [[nota]] e tag #civil e marcador. ^abc123
++
++## Secao
++
++Texto final.
+diff --git a/testdata/parser/edge/crlf_misto.json b/testdata/parser/edge/crlf_misto.json
+new file mode 100644
+index 0000000..c7bdfec
+--- /dev/null
++++ b/testdata/parser/edge/crlf_misto.json
+@@ -0,0 +1,20 @@
++{
++  "headings": [
++    {
++      "level": 1,
++      "text": "Titulo CRLF misto",
++      "slug": "titulo crlf misto",
++      "start": 0,
++      "end": 137,
++      "body_start": 21
++    }
++  ],
++  "blocks": [
++    {
++      "id": "bloco2",
++      "start": 23,
++      "end": 135
++    }
++  ],
++  "title": "Titulo CRLF misto"
++}
+diff --git a/testdata/parser/edge/crlf_misto.md b/testdata/parser/edge/crlf_misto.md
+new file mode 100644
+index 0000000..47b1059
+--- /dev/null
++++ b/testdata/parser/edge/crlf_misto.md
+@@ -0,0 +1,5 @@
++# Titulo CRLF misto
++
++Primeira linha em CRLF ^bloco1
++Segunda linha em LF puro, sem marcador.
++Terceira linha de volta em CRLF. ^bloco2
+diff --git a/testdata/parser/edge/nota_gigante.json b/testdata/parser/edge/nota_gigante.json
+new file mode 100644
+index 0000000..115dec2
+--- /dev/null
++++ b/testdata/parser/edge/nota_gigante.json
+@@ -0,0 +1,2908 @@
++{
++  "frontmatter": {
++    "tags": [
++      "gigante"
++    ],
++    "title": "Nota Gigante"
++  },
++  "tags": [
++    "gigante",
++    "secao/1",
++    "secao/10",
++    "secao/100",
++    "secao/101",
++    "secao/102",
++    "secao/103",
++    "secao/104",
++    "secao/105",
++    "secao/106",
++    "secao/107",
++    "secao/108",
++    "secao/109",
++    "secao/11",
++    "secao/110",
++    "secao/111",
++    "secao/112",
++    "secao/113",
++    "secao/114",
++    "secao/115",
++    "secao/116",
++    "secao/117",
++    "secao/118",
++    "secao/119",
++    "secao/12",
++    "secao/120",
++    "secao/13",
++    "secao/14",
++    "secao/15",
++    "secao/16",
++    "secao/17",
++    "secao/18",
++    "secao/19",
++    "secao/2",
++    "secao/20",
++    "secao/21",
++    "secao/22",
++    "secao/23",
++    "secao/24",
++    "secao/25",
++    "secao/26",
++    "secao/27",
++    "secao/28",
++    "secao/29",
++    "secao/3",
++    "secao/30",
++    "secao/31",
++    "secao/32",
++    "secao/33",
++    "secao/34",
++    "secao/35",
++    "secao/36",
++    "secao/37",
++    "secao/38",
++    "secao/39",
++    "secao/4",
++    "secao/40",
++    "secao/41",
++    "secao/42",
++    "secao/43",
++    "secao/44",
++    "secao/45",
++    "secao/46",
++    "secao/47",
++    "secao/48",
++    "secao/49",
++    "secao/5",
++    "secao/50",
++    "secao/51",
++    "secao/52",
++    "secao/53",
++    "secao/54",
++    "secao/55",
++    "secao/56",
++    "secao/57",
++    "secao/58",
++    "secao/59",
++    "secao/6",
++    "secao/60",
++    "secao/61",
++    "secao/62",
++    "secao/63",
++    "secao/64",
++    "secao/65",
++    "secao/66",
++    "secao/67",
++    "secao/68",
++    "secao/69",
++    "secao/7",
++    "secao/70",
++    "secao/71",
++    "secao/72",
++    "secao/73",
++    "secao/74",
++    "secao/75",
++    "secao/76",
++    "secao/77",
++    "secao/78",
++    "secao/79",
++    "secao/8",
++    "secao/80",
++    "secao/81",
++    "secao/82",
++    "secao/83",
++    "secao/84",
++    "secao/85",
++    "secao/86",
++    "secao/87",
++    "secao/88",
++    "secao/89",
++    "secao/9",
++    "secao/90",
++    "secao/91",
++    "secao/92",
++    "secao/93",
++    "secao/94",
++    "secao/95",
++    "secao/96",
++    "secao/97",
++    "secao/98",
++    "secao/99"
++  ],
++  "headings": [
++    {
++      "level": 1,
++      "text": "Nota Gigante",
++      "slug": "nota gigante",
++      "start": 46,
++      "end": 16361,
++      "body_start": 61
++    },
++    {
++      "level": 2,
++      "text": "Secao 1",
++      "slug": "secao 1",
++      "start": 197,
++      "end": 324,
++      "body_start": 208
++    },
++    {
++      "level": 2,
++      "text": "Secao 2",
++      "slug": "secao 2",
++      "start": 324,
++      "end": 451,
++      "body_start": 335
++    },
++    {
++      "level": 2,
++      "text": "Secao 3",
++      "slug": "secao 3",
++      "start": 451,
++      "end": 578,
++      "body_start": 462
++    },
++    {
++      "level": 2,
++      "text": "Secao 4",
++      "slug": "secao 4",
++      "start": 578,
++      "end": 705,
++      "body_start": 589
++    },
++    {
++      "level": 2,
++      "text": "Secao 5",
++      "slug": "secao 5",
++      "start": 705,
++      "end": 832,
++      "body_start": 716
++    },
++    {
++      "level": 2,
++      "text": "Secao 6",
++      "slug": "secao 6",
++      "start": 832,
++      "end": 959,
++      "body_start": 843
++    },
++    {
++      "level": 2,
++      "text": "Secao 7",
++      "slug": "secao 7",
++      "start": 959,
++      "end": 1086,
++      "body_start": 970
++    },
++    {
++      "level": 2,
++      "text": "Secao 8",
++      "slug": "secao 8",
++      "start": 1086,
++      "end": 1213,
++      "body_start": 1097
++    },
++    {
++      "level": 2,
++      "text": "Secao 9",
++      "slug": "secao 9",
++      "start": 1213,
++      "end": 1340,
++      "body_start": 1224
++    },
++    {
++      "level": 2,
++      "text": "Secao 10",
++      "slug": "secao 10",
++      "start": 1340,
++      "end": 1474,
++      "body_start": 1352
++    },
++    {
++      "level": 2,
++      "text": "Secao 11",
++      "slug": "secao 11",
++      "start": 1474,
++      "end": 1608,
++      "body_start": 1486
++    },
++    {
++      "level": 2,
++      "text": "Secao 12",
++      "slug": "secao 12",
++      "start": 1608,
++      "end": 1742,
++      "body_start": 1620
++    },
++    {
++      "level": 2,
++      "text": "Secao 13",
++      "slug": "secao 13",
++      "start": 1742,
++      "end": 1876,
++      "body_start": 1754
++    },
++    {
++      "level": 2,
++      "text": "Secao 14",
++      "slug": "secao 14",
++      "start": 1876,
++      "end": 2010,
++      "body_start": 1888
++    },
++    {
++      "level": 2,
++      "text": "Secao 15",
++      "slug": "secao 15",
++      "start": 2010,
++      "end": 2144,
++      "body_start": 2022
++    },
++    {
++      "level": 2,
++      "text": "Secao 16",
++      "slug": "secao 16",
++      "start": 2144,
++      "end": 2278,
++      "body_start": 2156
++    },
++    {
++      "level": 2,
++      "text": "Secao 17",
++      "slug": "secao 17",
++      "start": 2278,
++      "end": 2412,
++      "body_start": 2290
++    },
++    {
++      "level": 2,
++      "text": "Secao 18",
++      "slug": "secao 18",
++      "start": 2412,
++      "end": 2546,
++      "body_start": 2424
++    },
++    {
++      "level": 2,
++      "text": "Secao 19",
++      "slug": "secao 19",
++      "start": 2546,
++      "end": 2680,
++      "body_start": 2558
++    },
++    {
++      "level": 2,
++      "text": "Secao 20",
++      "slug": "secao 20",
++      "start": 2680,
++      "end": 2814,
++      "body_start": 2692
++    },
++    {
++      "level": 2,
++      "text": "Secao 21",
++      "slug": "secao 21",
++      "start": 2814,
++      "end": 2948,
++      "body_start": 2826
++    },
++    {
++      "level": 2,
++      "text": "Secao 22",
++      "slug": "secao 22",
++      "start": 2948,
++      "end": 3082,
++      "body_start": 2960
++    },
++    {
++      "level": 2,
++      "text": "Secao 23",
++      "slug": "secao 23",
++      "start": 3082,
++      "end": 3216,
++      "body_start": 3094
++    },
++    {
++      "level": 2,
++      "text": "Secao 24",
++      "slug": "secao 24",
++      "start": 3216,
++      "end": 3350,
++      "body_start": 3228
++    },
++    {
++      "level": 2,
++      "text": "Secao 25",
++      "slug": "secao 25",
++      "start": 3350,
++      "end": 3484,
++      "body_start": 3362
++    },
++    {
++      "level": 2,
++      "text": "Secao 26",
++      "slug": "secao 26",
++      "start": 3484,
++      "end": 3618,
++      "body_start": 3496
++    },
++    {
++      "level": 2,
++      "text": "Secao 27",
++      "slug": "secao 27",
++      "start": 3618,
++      "end": 3752,
++      "body_start": 3630
++    },
++    {
++      "level": 2,
++      "text": "Secao 28",
++      "slug": "secao 28",
++      "start": 3752,
++      "end": 3886,
++      "body_start": 3764
++    },
++    {
++      "level": 2,
++      "text": "Secao 29",
++      "slug": "secao 29",
++      "start": 3886,
++      "end": 4020,
++      "body_start": 3898
++    },
++    {
++      "level": 2,
++      "text": "Secao 30",
++      "slug": "secao 30",
++      "start": 4020,
++      "end": 4154,
++      "body_start": 4032
++    },
++    {
++      "level": 2,
++      "text": "Secao 31",
++      "slug": "secao 31",
++      "start": 4154,
++      "end": 4288,
++      "body_start": 4166
++    },
++    {
++      "level": 2,
++      "text": "Secao 32",
++      "slug": "secao 32",
++      "start": 4288,
++      "end": 4422,
++      "body_start": 4300
++    },
++    {
++      "level": 2,
++      "text": "Secao 33",
++      "slug": "secao 33",
++      "start": 4422,
++      "end": 4556,
++      "body_start": 4434
++    },
++    {
++      "level": 2,
++      "text": "Secao 34",
++      "slug": "secao 34",
++      "start": 4556,
++      "end": 4690,
++      "body_start": 4568
++    },
++    {
++      "level": 2,
++      "text": "Secao 35",
++      "slug": "secao 35",
++      "start": 4690,
++      "end": 4824,
++      "body_start": 4702
++    },
++    {
++      "level": 2,
++      "text": "Secao 36",
++      "slug": "secao 36",
++      "start": 4824,
++      "end": 4958,
++      "body_start": 4836
++    },
++    {
++      "level": 2,
++      "text": "Secao 37",
++      "slug": "secao 37",
++      "start": 4958,
++      "end": 5092,
++      "body_start": 4970
++    },
++    {
++      "level": 2,
++      "text": "Secao 38",
++      "slug": "secao 38",
++      "start": 5092,
++      "end": 5226,
++      "body_start": 5104
++    },
++    {
++      "level": 2,
++      "text": "Secao 39",
++      "slug": "secao 39",
++      "start": 5226,
++      "end": 5360,
++      "body_start": 5238
++    },
++    {
++      "level": 2,
++      "text": "Secao 40",
++      "slug": "secao 40",
++      "start": 5360,
++      "end": 5494,
++      "body_start": 5372
++    },
++    {
++      "level": 2,
++      "text": "Secao 41",
++      "slug": "secao 41",
++      "start": 5494,
++      "end": 5628,
++      "body_start": 5506
++    },
++    {
++      "level": 2,
++      "text": "Secao 42",
++      "slug": "secao 42",
++      "start": 5628,
++      "end": 5762,
++      "body_start": 5640
++    },
++    {
++      "level": 2,
++      "text": "Secao 43",
++      "slug": "secao 43",
++      "start": 5762,
++      "end": 5896,
++      "body_start": 5774
++    },
++    {
++      "level": 2,
++      "text": "Secao 44",
++      "slug": "secao 44",
++      "start": 5896,
++      "end": 6030,
++      "body_start": 5908
++    },
++    {
++      "level": 2,
++      "text": "Secao 45",
++      "slug": "secao 45",
++      "start": 6030,
++      "end": 6164,
++      "body_start": 6042
++    },
++    {
++      "level": 2,
++      "text": "Secao 46",
++      "slug": "secao 46",
++      "start": 6164,
++      "end": 6298,
++      "body_start": 6176
++    },
++    {
++      "level": 2,
++      "text": "Secao 47",
++      "slug": "secao 47",
++      "start": 6298,
++      "end": 6432,
++      "body_start": 6310
++    },
++    {
++      "level": 2,
++      "text": "Secao 48",
++      "slug": "secao 48",
++      "start": 6432,
++      "end": 6566,
++      "body_start": 6444
++    },
++    {
++      "level": 2,
++      "text": "Secao 49",
++      "slug": "secao 49",
++      "start": 6566,
++      "end": 6700,
++      "body_start": 6578
++    },
++    {
++      "level": 2,
++      "text": "Secao 50",
++      "slug": "secao 50",
++      "start": 6700,
++      "end": 6834,
++      "body_start": 6712
++    },
++    {
++      "level": 2,
++      "text": "Secao 51",
++      "slug": "secao 51",
++      "start": 6834,
++      "end": 6968,
++      "body_start": 6846
++    },
++    {
++      "level": 2,
++      "text": "Secao 52",
++      "slug": "secao 52",
++      "start": 6968,
++      "end": 7102,
++      "body_start": 6980
++    },
++    {
++      "level": 2,
++      "text": "Secao 53",
++      "slug": "secao 53",
++      "start": 7102,
++      "end": 7236,
++      "body_start": 7114
++    },
++    {
++      "level": 2,
++      "text": "Secao 54",
++      "slug": "secao 54",
++      "start": 7236,
++      "end": 7370,
++      "body_start": 7248
++    },
++    {
++      "level": 2,
++      "text": "Secao 55",
++      "slug": "secao 55",
++      "start": 7370,
++      "end": 7504,
++      "body_start": 7382
++    },
++    {
++      "level": 2,
++      "text": "Secao 56",
++      "slug": "secao 56",
++      "start": 7504,
++      "end": 7638,
++      "body_start": 7516
++    },
++    {
++      "level": 2,
++      "text": "Secao 57",
++      "slug": "secao 57",
++      "start": 7638,
++      "end": 7772,
++      "body_start": 7650
++    },
++    {
++      "level": 2,
++      "text": "Secao 58",
++      "slug": "secao 58",
++      "start": 7772,
++      "end": 7906,
++      "body_start": 7784
++    },
++    {
++      "level": 2,
++      "text": "Secao 59",
++      "slug": "secao 59",
++      "start": 7906,
++      "end": 8040,
++      "body_start": 7918
++    },
++    {
++      "level": 2,
++      "text": "Secao 60",
++      "slug": "secao 60",
++      "start": 8040,
++      "end": 8174,
++      "body_start": 8052
++    },
++    {
++      "level": 2,
++      "text": "Secao 61",
++      "slug": "secao 61",
++      "start": 8174,
++      "end": 8308,
++      "body_start": 8186
++    },
++    {
++      "level": 2,
++      "text": "Secao 62",
++      "slug": "secao 62",
++      "start": 8308,
++      "end": 8442,
++      "body_start": 8320
++    },
++    {
++      "level": 2,
++      "text": "Secao 63",
++      "slug": "secao 63",
++      "start": 8442,
++      "end": 8576,
++      "body_start": 8454
++    },
++    {
++      "level": 2,
++      "text": "Secao 64",
++      "slug": "secao 64",
++      "start": 8576,
++      "end": 8710,
++      "body_start": 8588
++    },
++    {
++      "level": 2,
++      "text": "Secao 65",
++      "slug": "secao 65",
++      "start": 8710,
++      "end": 8844,
++      "body_start": 8722
++    },
++    {
++      "level": 2,
++      "text": "Secao 66",
++      "slug": "secao 66",
++      "start": 8844,
++      "end": 8978,
++      "body_start": 8856
++    },
++    {
++      "level": 2,
++      "text": "Secao 67",
++      "slug": "secao 67",
++      "start": 8978,
++      "end": 9112,
++      "body_start": 8990
++    },
++    {
++      "level": 2,
++      "text": "Secao 68",
++      "slug": "secao 68",
++      "start": 9112,
++      "end": 9246,
++      "body_start": 9124
++    },
++    {
++      "level": 2,
++      "text": "Secao 69",
++      "slug": "secao 69",
++      "start": 9246,
++      "end": 9380,
++      "body_start": 9258
++    },
++    {
++      "level": 2,
++      "text": "Secao 70",
++      "slug": "secao 70",
++      "start": 9380,
++      "end": 9514,
++      "body_start": 9392
++    },
++    {
++      "level": 2,
++      "text": "Secao 71",
++      "slug": "secao 71",
++      "start": 9514,
++      "end": 9648,
++      "body_start": 9526
++    },
++    {
++      "level": 2,
++      "text": "Secao 72",
++      "slug": "secao 72",
++      "start": 9648,
++      "end": 9782,
++      "body_start": 9660
++    },
++    {
++      "level": 2,
++      "text": "Secao 73",
++      "slug": "secao 73",
++      "start": 9782,
++      "end": 9916,
++      "body_start": 9794
++    },
++    {
++      "level": 2,
++      "text": "Secao 74",
++      "slug": "secao 74",
++      "start": 9916,
++      "end": 10050,
++      "body_start": 9928
++    },
++    {
++      "level": 2,
++      "text": "Secao 75",
++      "slug": "secao 75",
++      "start": 10050,
++      "end": 10184,
++      "body_start": 10062
++    },
++    {
++      "level": 2,
++      "text": "Secao 76",
++      "slug": "secao 76",
++      "start": 10184,
++      "end": 10318,
++      "body_start": 10196
++    },
++    {
++      "level": 2,
++      "text": "Secao 77",
++      "slug": "secao 77",
++      "start": 10318,
++      "end": 10452,
++      "body_start": 10330
++    },
++    {
++      "level": 2,
++      "text": "Secao 78",
++      "slug": "secao 78",
++      "start": 10452,
++      "end": 10586,
++      "body_start": 10464
++    },
++    {
++      "level": 2,
++      "text": "Secao 79",
++      "slug": "secao 79",
++      "start": 10586,
++      "end": 10720,
++      "body_start": 10598
++    },
++    {
++      "level": 2,
++      "text": "Secao 80",
++      "slug": "secao 80",
++      "start": 10720,
++      "end": 10854,
++      "body_start": 10732
++    },
++    {
++      "level": 2,
++      "text": "Secao 81",
++      "slug": "secao 81",
++      "start": 10854,
++      "end": 10988,
++      "body_start": 10866
++    },
++    {
++      "level": 2,
++      "text": "Secao 82",
++      "slug": "secao 82",
++      "start": 10988,
++      "end": 11122,
++      "body_start": 11000
++    },
++    {
++      "level": 2,
++      "text": "Secao 83",
++      "slug": "secao 83",
++      "start": 11122,
++      "end": 11256,
++      "body_start": 11134
++    },
++    {
++      "level": 2,
++      "text": "Secao 84",
++      "slug": "secao 84",
++      "start": 11256,
++      "end": 11390,
++      "body_start": 11268
++    },
++    {
++      "level": 2,
++      "text": "Secao 85",
++      "slug": "secao 85",
++      "start": 11390,
++      "end": 11524,
++      "body_start": 11402
++    },
++    {
++      "level": 2,
++      "text": "Secao 86",
++      "slug": "secao 86",
++      "start": 11524,
++      "end": 11658,
++      "body_start": 11536
++    },
++    {
++      "level": 2,
++      "text": "Secao 87",
++      "slug": "secao 87",
++      "start": 11658,
++      "end": 11792,
++      "body_start": 11670
++    },
++    {
++      "level": 2,
++      "text": "Secao 88",
++      "slug": "secao 88",
++      "start": 11792,
++      "end": 11926,
++      "body_start": 11804
++    },
++    {
++      "level": 2,
++      "text": "Secao 89",
++      "slug": "secao 89",
++      "start": 11926,
++      "end": 12060,
++      "body_start": 11938
++    },
++    {
++      "level": 2,
++      "text": "Secao 90",
++      "slug": "secao 90",
++      "start": 12060,
++      "end": 12194,
++      "body_start": 12072
++    },
++    {
++      "level": 2,
++      "text": "Secao 91",
++      "slug": "secao 91",
++      "start": 12194,
++      "end": 12328,
++      "body_start": 12206
++    },
++    {
++      "level": 2,
++      "text": "Secao 92",
++      "slug": "secao 92",
++      "start": 12328,
++      "end": 12462,
++      "body_start": 12340
++    },
++    {
++      "level": 2,
++      "text": "Secao 93",
++      "slug": "secao 93",
++      "start": 12462,
++      "end": 12596,
++      "body_start": 12474
++    },
++    {
++      "level": 2,
++      "text": "Secao 94",
++      "slug": "secao 94",
++      "start": 12596,
++      "end": 12730,
++      "body_start": 12608
++    },
++    {
++      "level": 2,
++      "text": "Secao 95",
++      "slug": "secao 95",
++      "start": 12730,
++      "end": 12864,
++      "body_start": 12742
++    },
++    {
++      "level": 2,
++      "text": "Secao 96",
++      "slug": "secao 96",
++      "start": 12864,
++      "end": 12998,
++      "body_start": 12876
++    },
++    {
++      "level": 2,
++      "text": "Secao 97",
++      "slug": "secao 97",
++      "start": 12998,
++      "end": 13132,
++      "body_start": 13010
++    },
++    {
++      "level": 2,
++      "text": "Secao 98",
++      "slug": "secao 98",
++      "start": 13132,
++      "end": 13266,
++      "body_start": 13144
++    },
++    {
++      "level": 2,
++      "text": "Secao 99",
++      "slug": "secao 99",
++      "start": 13266,
++      "end": 13400,
++      "body_start": 13278
++    },
++    {
++      "level": 2,
++      "text": "Secao 100",
++      "slug": "secao 100",
++      "start": 13400,
++      "end": 13541,
++      "body_start": 13413
++    },
++    {
++      "level": 2,
++      "text": "Secao 101",
++      "slug": "secao 101",
++      "start": 13541,
++      "end": 13682,
++      "body_start": 13554
++    },
++    {
++      "level": 2,
++      "text": "Secao 102",
++      "slug": "secao 102",
++      "start": 13682,
++      "end": 13823,
++      "body_start": 13695
++    },
++    {
++      "level": 2,
++      "text": "Secao 103",
++      "slug": "secao 103",
++      "start": 13823,
++      "end": 13964,
++      "body_start": 13836
++    },
++    {
++      "level": 2,
++      "text": "Secao 104",
++      "slug": "secao 104",
++      "start": 13964,
++      "end": 14105,
++      "body_start": 13977
++    },
++    {
++      "level": 2,
++      "text": "Secao 105",
++      "slug": "secao 105",
++      "start": 14105,
++      "end": 14246,
++      "body_start": 14118
++    },
++    {
++      "level": 2,
++      "text": "Secao 106",
++      "slug": "secao 106",
++      "start": 14246,
++      "end": 14387,
++      "body_start": 14259
++    },
++    {
++      "level": 2,
++      "text": "Secao 107",
++      "slug": "secao 107",
++      "start": 14387,
++      "end": 14528,
++      "body_start": 14400
++    },
++    {
++      "level": 2,
++      "text": "Secao 108",
++      "slug": "secao 108",
++      "start": 14528,
++      "end": 14669,
++      "body_start": 14541
++    },
++    {
++      "level": 2,
++      "text": "Secao 109",
++      "slug": "secao 109",
++      "start": 14669,
++      "end": 14810,
++      "body_start": 14682
++    },
++    {
++      "level": 2,
++      "text": "Secao 110",
++      "slug": "secao 110",
++      "start": 14810,
++      "end": 14951,
++      "body_start": 14823
++    },
++    {
++      "level": 2,
++      "text": "Secao 111",
++      "slug": "secao 111",
++      "start": 14951,
++      "end": 15092,
++      "body_start": 14964
++    },
++    {
++      "level": 2,
++      "text": "Secao 112",
++      "slug": "secao 112",
++      "start": 15092,
++      "end": 15233,
++      "body_start": 15105
++    },
++    {
++      "level": 2,
++      "text": "Secao 113",
++      "slug": "secao 113",
++      "start": 15233,
++      "end": 15374,
++      "body_start": 15246
++    },
++    {
++      "level": 2,
++      "text": "Secao 114",
++      "slug": "secao 114",
++      "start": 15374,
++      "end": 15515,
++      "body_start": 15387
++    },
++    {
++      "level": 2,
++      "text": "Secao 115",
++      "slug": "secao 115",
++      "start": 15515,
++      "end": 15656,
++      "body_start": 15528
++    },
++    {
++      "level": 2,
++      "text": "Secao 116",
++      "slug": "secao 116",
++      "start": 15656,
++      "end": 15797,
++      "body_start": 15669
++    },
++    {
++      "level": 2,
++      "text": "Secao 117",
++      "slug": "secao 117",
++      "start": 15797,
++      "end": 15938,
++      "body_start": 15810
++    },
++    {
++      "level": 2,
++      "text": "Secao 118",
++      "slug": "secao 118",
++      "start": 15938,
++      "end": 16079,
++      "body_start": 15951
++    },
++    {
++      "level": 2,
++      "text": "Secao 119",
++      "slug": "secao 119",
++      "start": 16079,
++      "end": 16220,
++      "body_start": 16092
++    },
++    {
++      "level": 2,
++      "text": "Secao 120",
++      "slug": "secao 120",
++      "start": 16220,
++      "end": 16361,
++      "body_start": 16233
++    }
++  ],
++  "blocks": [
++    {
++      "id": "bloco1",
++      "start": 282,
++      "end": 322
++    },
++    {
++      "id": "bloco2",
++      "start": 409,
++      "end": 449
++    },
++    {
++      "id": "bloco3",
++      "start": 536,
++      "end": 576
++    },
++    {
++      "id": "bloco4",
++      "start": 663,
++      "end": 703
++    },
++    {
++      "id": "bloco5",
++      "start": 790,
++      "end": 830
++    },
++    {
++      "id": "bloco6",
++      "start": 917,
++      "end": 957
++    },
++    {
++      "id": "bloco7",
++      "start": 1044,
++      "end": 1084
++    },
++    {
++      "id": "bloco8",
++      "start": 1171,
++      "end": 1211
++    },
++    {
++      "id": "bloco9",
++      "start": 1298,
++      "end": 1338
++    },
++    {
++      "id": "bloco10",
++      "start": 1431,
++      "end": 1472
++    },
++    {
++      "id": "bloco11",
++      "start": 1565,
++      "end": 1606
++    },
++    {
++      "id": "bloco12",
++      "start": 1699,
++      "end": 1740
++    },
++    {
++      "id": "bloco13",
++      "start": 1833,
++      "end": 1874
++    },
++    {
++      "id": "bloco14",
++      "start": 1967,
++      "end": 2008
++    },
++    {
++      "id": "bloco15",
++      "start": 2101,
++      "end": 2142
++    },
++    {
++      "id": "bloco16",
++      "start": 2235,
++      "end": 2276
++    },
++    {
++      "id": "bloco17",
++      "start": 2369,
++      "end": 2410
++    },
++    {
++      "id": "bloco18",
++      "start": 2503,
++      "end": 2544
++    },
++    {
++      "id": "bloco19",
++      "start": 2637,
++      "end": 2678
++    },
++    {
++      "id": "bloco20",
++      "start": 2771,
++      "end": 2812
++    },
++    {
++      "id": "bloco21",
++      "start": 2905,
++      "end": 2946
++    },
++    {
++      "id": "bloco22",
++      "start": 3039,
++      "end": 3080
++    },
++    {
++      "id": "bloco23",
++      "start": 3173,
++      "end": 3214
++    },
++    {
++      "id": "bloco24",
++      "start": 3307,
++      "end": 3348
++    },
++    {
++      "id": "bloco25",
++      "start": 3441,
++      "end": 3482
++    },
++    {
++      "id": "bloco26",
++      "start": 3575,
++      "end": 3616
++    },
++    {
++      "id": "bloco27",
++      "start": 3709,
++      "end": 3750
++    },
++    {
++      "id": "bloco28",
++      "start": 3843,
++      "end": 3884
++    },
++    {
++      "id": "bloco29",
++      "start": 3977,
++      "end": 4018
++    },
++    {
++      "id": "bloco30",
++      "start": 4111,
++      "end": 4152
++    },
++    {
++      "id": "bloco31",
++      "start": 4245,
++      "end": 4286
++    },
++    {
++      "id": "bloco32",
++      "start": 4379,
++      "end": 4420
++    },
++    {
++      "id": "bloco33",
++      "start": 4513,
++      "end": 4554
++    },
++    {
++      "id": "bloco34",
++      "start": 4647,
++      "end": 4688
++    },
++    {
++      "id": "bloco35",
++      "start": 4781,
++      "end": 4822
++    },
++    {
++      "id": "bloco36",
++      "start": 4915,
++      "end": 4956
++    },
++    {
++      "id": "bloco37",
++      "start": 5049,
++      "end": 5090
++    },
++    {
++      "id": "bloco38",
++      "start": 5183,
++      "end": 5224
++    },
++    {
++      "id": "bloco39",
++      "start": 5317,
++      "end": 5358
++    },
++    {
++      "id": "bloco40",
++      "start": 5451,
++      "end": 5492
++    },
++    {
++      "id": "bloco41",
++      "start": 5585,
++      "end": 5626
++    },
++    {
++      "id": "bloco42",
++      "start": 5719,
++      "end": 5760
++    },
++    {
++      "id": "bloco43",
++      "start": 5853,
++      "end": 5894
++    },
++    {
++      "id": "bloco44",
++      "start": 5987,
++      "end": 6028
++    },
++    {
++      "id": "bloco45",
++      "start": 6121,
++      "end": 6162
++    },
++    {
++      "id": "bloco46",
++      "start": 6255,
++      "end": 6296
++    },
++    {
++      "id": "bloco47",
++      "start": 6389,
++      "end": 6430
++    },
++    {
++      "id": "bloco48",
++      "start": 6523,
++      "end": 6564
++    },
++    {
++      "id": "bloco49",
++      "start": 6657,
++      "end": 6698
++    },
++    {
++      "id": "bloco50",
++      "start": 6791,
++      "end": 6832
++    },
++    {
++      "id": "bloco51",
++      "start": 6925,
++      "end": 6966
++    },
++    {
++      "id": "bloco52",
++      "start": 7059,
++      "end": 7100
++    },
++    {
++      "id": "bloco53",
++      "start": 7193,
++      "end": 7234
++    },
++    {
++      "id": "bloco54",
++      "start": 7327,
++      "end": 7368
++    },
++    {
++      "id": "bloco55",
++      "start": 7461,
++      "end": 7502
++    },
++    {
++      "id": "bloco56",
++      "start": 7595,
++      "end": 7636
++    },
++    {
++      "id": "bloco57",
++      "start": 7729,
++      "end": 7770
++    },
++    {
++      "id": "bloco58",
++      "start": 7863,
++      "end": 7904
++    },
++    {
++      "id": "bloco59",
++      "start": 7997,
++      "end": 8038
++    },
++    {
++      "id": "bloco60",
++      "start": 8131,
++      "end": 8172
++    },
++    {
++      "id": "bloco61",
++      "start": 8265,
++      "end": 8306
++    },
++    {
++      "id": "bloco62",
++      "start": 8399,
++      "end": 8440
++    },
++    {
++      "id": "bloco63",
++      "start": 8533,
++      "end": 8574
++    },
++    {
++      "id": "bloco64",
++      "start": 8667,
++      "end": 8708
++    },
++    {
++      "id": "bloco65",
++      "start": 8801,
++      "end": 8842
++    },
++    {
++      "id": "bloco66",
++      "start": 8935,
++      "end": 8976
++    },
++    {
++      "id": "bloco67",
++      "start": 9069,
++      "end": 9110
++    },
++    {
++      "id": "bloco68",
++      "start": 9203,
++      "end": 9244
++    },
++    {
++      "id": "bloco69",
++      "start": 9337,
++      "end": 9378
++    },
++    {
++      "id": "bloco70",
++      "start": 9471,
++      "end": 9512
++    },
++    {
++      "id": "bloco71",
++      "start": 9605,
++      "end": 9646
++    },
++    {
++      "id": "bloco72",
++      "start": 9739,
++      "end": 9780
++    },
++    {
++      "id": "bloco73",
++      "start": 9873,
++      "end": 9914
++    },
++    {
++      "id": "bloco74",
++      "start": 10007,
++      "end": 10048
++    },
++    {
++      "id": "bloco75",
++      "start": 10141,
++      "end": 10182
++    },
++    {
++      "id": "bloco76",
++      "start": 10275,
++      "end": 10316
++    },
++    {
++      "id": "bloco77",
++      "start": 10409,
++      "end": 10450
++    },
++    {
++      "id": "bloco78",
++      "start": 10543,
++      "end": 10584
++    },
++    {
++      "id": "bloco79",
++      "start": 10677,
++      "end": 10718
++    },
++    {
++      "id": "bloco80",
++      "start": 10811,
++      "end": 10852
++    },
++    {
++      "id": "bloco81",
++      "start": 10945,
++      "end": 10986
++    },
++    {
++      "id": "bloco82",
++      "start": 11079,
++      "end": 11120
++    },
++    {
++      "id": "bloco83",
++      "start": 11213,
++      "end": 11254
++    },
++    {
++      "id": "bloco84",
++      "start": 11347,
++      "end": 11388
++    },
++    {
++      "id": "bloco85",
++      "start": 11481,
++      "end": 11522
++    },
++    {
++      "id": "bloco86",
++      "start": 11615,
++      "end": 11656
++    },
++    {
++      "id": "bloco87",
++      "start": 11749,
++      "end": 11790
++    },
++    {
++      "id": "bloco88",
++      "start": 11883,
++      "end": 11924
++    },
++    {
++      "id": "bloco89",
++      "start": 12017,
++      "end": 12058
++    },
++    {
++      "id": "bloco90",
++      "start": 12151,
++      "end": 12192
++    },
++    {
++      "id": "bloco91",
++      "start": 12285,
++      "end": 12326
++    },
++    {
++      "id": "bloco92",
++      "start": 12419,
++      "end": 12460
++    },
++    {
++      "id": "bloco93",
++      "start": 12553,
++      "end": 12594
++    },
++    {
++      "id": "bloco94",
++      "start": 12687,
++      "end": 12728
++    },
++    {
++      "id": "bloco95",
++      "start": 12821,
++      "end": 12862
++    },
++    {
++      "id": "bloco96",
++      "start": 12955,
++      "end": 12996
++    },
++    {
++      "id": "bloco97",
++      "start": 13089,
++      "end": 13130
++    },
++    {
++      "id": "bloco98",
++      "start": 13223,
++      "end": 13264
++    },
++    {
++      "id": "bloco99",
++      "start": 13357,
++      "end": 13398
++    },
++    {
++      "id": "bloco100",
++      "start": 13497,
++      "end": 13539
++    },
++    {
++      "id": "bloco101",
++      "start": 13638,
++      "end": 13680
++    },
++    {
++      "id": "bloco102",
++      "start": 13779,
++      "end": 13821
++    },
++    {
++      "id": "bloco103",
++      "start": 13920,
++      "end": 13962
++    },
++    {
++      "id": "bloco104",
++      "start": 14061,
++      "end": 14103
++    },
++    {
++      "id": "bloco105",
++      "start": 14202,
++      "end": 14244
++    },
++    {
++      "id": "bloco106",
++      "start": 14343,
++      "end": 14385
++    },
++    {
++      "id": "bloco107",
++      "start": 14484,
++      "end": 14526
++    },
++    {
++      "id": "bloco108",
++      "start": 14625,
++      "end": 14667
++    },
++    {
++      "id": "bloco109",
++      "start": 14766,
++      "end": 14808
++    },
++    {
++      "id": "bloco110",
++      "start": 14907,
++      "end": 14949
++    },
++    {
++      "id": "bloco111",
++      "start": 15048,
++      "end": 15090
++    },
++    {
++      "id": "bloco112",
++      "start": 15189,
++      "end": 15231
++    },
++    {
++      "id": "bloco113",
++      "start": 15330,
++      "end": 15372
++    },
++    {
++      "id": "bloco114",
++      "start": 15471,
++      "end": 15513
++    },
++    {
++      "id": "bloco115",
++      "start": 15612,
++      "end": 15654
++    },
++    {
++      "id": "bloco116",
++      "start": 15753,
++      "end": 15795
++    },
++    {
++      "id": "bloco117",
++      "start": 15894,
++      "end": 15936
++    },
++    {
++      "id": "bloco118",
++      "start": 16035,
++      "end": 16077
++    },
++    {
++      "id": "bloco119",
++      "start": 16176,
++      "end": 16218
++    },
++    {
++      "id": "bloco120",
++      "start": 16317,
++      "end": 16359
++    }
++  ],
++  "links": [
++    {
++      "raw": "[[nota-1]]",
++      "target": "nota-1",
++      "kind": 0,
++      "start": 235,
++      "end": 245
++    },
++    {
++      "raw": "[[nota-2]]",
++      "target": "nota-2",
++      "kind": 0,
++      "start": 362,
++      "end": 372
++    },
++    {
++      "raw": "[[nota-3]]",
++      "target": "nota-3",
++      "kind": 0,
++      "start": 489,
++      "end": 499
++    },
++    {
++      "raw": "[[nota-4]]",
++      "target": "nota-4",
++      "kind": 0,
++      "start": 616,
++      "end": 626
++    },
++    {
++      "raw": "[[nota-5]]",
++      "target": "nota-5",
++      "kind": 0,
++      "start": 743,
++      "end": 753
++    },
++    {
++      "raw": "[[nota-6]]",
++      "target": "nota-6",
++      "kind": 0,
++      "start": 870,
++      "end": 880
++    },
++    {
++      "raw": "[[nota-7]]",
++      "target": "nota-7",
++      "kind": 0,
++      "start": 997,
++      "end": 1007
++    },
++    {
++      "raw": "[[nota-8]]",
++      "target": "nota-8",
++      "kind": 0,
++      "start": 1124,
++      "end": 1134
++    },
++    {
++      "raw": "[[nota-9]]",
++      "target": "nota-9",
++      "kind": 0,
++      "start": 1251,
++      "end": 1261
++    },
++    {
++      "raw": "[[nota-10]]",
++      "target": "nota-10",
++      "kind": 0,
++      "start": 1380,
++      "end": 1391
++    },
++    {
++      "raw": "[[nota-11]]",
++      "target": "nota-11",
++      "kind": 0,
++      "start": 1514,
++      "end": 1525
++    },
++    {
++      "raw": "[[nota-12]]",
++      "target": "nota-12",
++      "kind": 0,
++      "start": 1648,
++      "end": 1659
++    },
++    {
++      "raw": "[[nota-13]]",
++      "target": "nota-13",
++      "kind": 0,
++      "start": 1782,
++      "end": 1793
++    },
++    {
++      "raw": "[[nota-14]]",
++      "target": "nota-14",
++      "kind": 0,
++      "start": 1916,
++      "end": 1927
++    },
++    {
++      "raw": "[[nota-15]]",
++      "target": "nota-15",
++      "kind": 0,
++      "start": 2050,
++      "end": 2061
++    },
++    {
++      "raw": "[[nota-16]]",
++      "target": "nota-16",
++      "kind": 0,
++      "start": 2184,
++      "end": 2195
++    },
++    {
++      "raw": "[[nota-17]]",
++      "target": "nota-17",
++      "kind": 0,
++      "start": 2318,
++      "end": 2329
++    },
++    {
++      "raw": "[[nota-18]]",
++      "target": "nota-18",
++      "kind": 0,
++      "start": 2452,
++      "end": 2463
++    },
++    {
++      "raw": "[[nota-19]]",
++      "target": "nota-19",
++      "kind": 0,
++      "start": 2586,
++      "end": 2597
++    },
++    {
++      "raw": "[[nota-20]]",
++      "target": "nota-20",
++      "kind": 0,
++      "start": 2720,
++      "end": 2731
++    },
++    {
++      "raw": "[[nota-21]]",
++      "target": "nota-21",
++      "kind": 0,
++      "start": 2854,
++      "end": 2865
++    },
++    {
++      "raw": "[[nota-22]]",
++      "target": "nota-22",
++      "kind": 0,
++      "start": 2988,
++      "end": 2999
++    },
++    {
++      "raw": "[[nota-23]]",
++      "target": "nota-23",
++      "kind": 0,
++      "start": 3122,
++      "end": 3133
++    },
++    {
++      "raw": "[[nota-24]]",
++      "target": "nota-24",
++      "kind": 0,
++      "start": 3256,
++      "end": 3267
++    },
++    {
++      "raw": "[[nota-25]]",
++      "target": "nota-25",
++      "kind": 0,
++      "start": 3390,
++      "end": 3401
++    },
++    {
++      "raw": "[[nota-26]]",
++      "target": "nota-26",
++      "kind": 0,
++      "start": 3524,
++      "end": 3535
++    },
++    {
++      "raw": "[[nota-27]]",
++      "target": "nota-27",
++      "kind": 0,
++      "start": 3658,
++      "end": 3669
++    },
++    {
++      "raw": "[[nota-28]]",
++      "target": "nota-28",
++      "kind": 0,
++      "start": 3792,
++      "end": 3803
++    },
++    {
++      "raw": "[[nota-29]]",
++      "target": "nota-29",
++      "kind": 0,
++      "start": 3926,
++      "end": 3937
++    },
++    {
++      "raw": "[[nota-30]]",
++      "target": "nota-30",
++      "kind": 0,
++      "start": 4060,
++      "end": 4071
++    },
++    {
++      "raw": "[[nota-31]]",
++      "target": "nota-31",
++      "kind": 0,
++      "start": 4194,
++      "end": 4205
++    },
++    {
++      "raw": "[[nota-32]]",
++      "target": "nota-32",
++      "kind": 0,
++      "start": 4328,
++      "end": 4339
++    },
++    {
++      "raw": "[[nota-33]]",
++      "target": "nota-33",
++      "kind": 0,
++      "start": 4462,
++      "end": 4473
++    },
++    {
++      "raw": "[[nota-34]]",
++      "target": "nota-34",
++      "kind": 0,
++      "start": 4596,
++      "end": 4607
++    },
++    {
++      "raw": "[[nota-35]]",
++      "target": "nota-35",
++      "kind": 0,
++      "start": 4730,
++      "end": 4741
++    },
++    {
++      "raw": "[[nota-36]]",
++      "target": "nota-36",
++      "kind": 0,
++      "start": 4864,
++      "end": 4875
++    },
++    {
++      "raw": "[[nota-37]]",
++      "target": "nota-37",
++      "kind": 0,
++      "start": 4998,
++      "end": 5009
++    },
++    {
++      "raw": "[[nota-38]]",
++      "target": "nota-38",
++      "kind": 0,
++      "start": 5132,
++      "end": 5143
++    },
++    {
++      "raw": "[[nota-39]]",
++      "target": "nota-39",
++      "kind": 0,
++      "start": 5266,
++      "end": 5277
++    },
++    {
++      "raw": "[[nota-40]]",
++      "target": "nota-40",
++      "kind": 0,
++      "start": 5400,
++      "end": 5411
++    },
++    {
++      "raw": "[[nota-41]]",
++      "target": "nota-41",
++      "kind": 0,
++      "start": 5534,
++      "end": 5545
++    },
++    {
++      "raw": "[[nota-42]]",
++      "target": "nota-42",
++      "kind": 0,
++      "start": 5668,
++      "end": 5679
++    },
++    {
++      "raw": "[[nota-43]]",
++      "target": "nota-43",
++      "kind": 0,
++      "start": 5802,
++      "end": 5813
++    },
++    {
++      "raw": "[[nota-44]]",
++      "target": "nota-44",
++      "kind": 0,
++      "start": 5936,
++      "end": 5947
++    },
++    {
++      "raw": "[[nota-45]]",
++      "target": "nota-45",
++      "kind": 0,
++      "start": 6070,
++      "end": 6081
++    },
++    {
++      "raw": "[[nota-46]]",
++      "target": "nota-46",
++      "kind": 0,
++      "start": 6204,
++      "end": 6215
++    },
++    {
++      "raw": "[[nota-47]]",
++      "target": "nota-47",
++      "kind": 0,
++      "start": 6338,
++      "end": 6349
++    },
++    {
++      "raw": "[[nota-48]]",
++      "target": "nota-48",
++      "kind": 0,
++      "start": 6472,
++      "end": 6483
++    },
++    {
++      "raw": "[[nota-49]]",
++      "target": "nota-49",
++      "kind": 0,
++      "start": 6606,
++      "end": 6617
++    },
++    {
++      "raw": "[[nota-50]]",
++      "target": "nota-50",
++      "kind": 0,
++      "start": 6740,
++      "end": 6751
++    },
++    {
++      "raw": "[[nota-51]]",
++      "target": "nota-51",
++      "kind": 0,
++      "start": 6874,
++      "end": 6885
++    },
++    {
++      "raw": "[[nota-52]]",
++      "target": "nota-52",
++      "kind": 0,
++      "start": 7008,
++      "end": 7019
++    },
++    {
++      "raw": "[[nota-53]]",
++      "target": "nota-53",
++      "kind": 0,
++      "start": 7142,
++      "end": 7153
++    },
++    {
++      "raw": "[[nota-54]]",
++      "target": "nota-54",
++      "kind": 0,
++      "start": 7276,
++      "end": 7287
++    },
++    {
++      "raw": "[[nota-55]]",
++      "target": "nota-55",
++      "kind": 0,
++      "start": 7410,
++      "end": 7421
++    },
++    {
++      "raw": "[[nota-56]]",
++      "target": "nota-56",
++      "kind": 0,
++      "start": 7544,
++      "end": 7555
++    },
++    {
++      "raw": "[[nota-57]]",
++      "target": "nota-57",
++      "kind": 0,
++      "start": 7678,
++      "end": 7689
++    },
++    {
++      "raw": "[[nota-58]]",
++      "target": "nota-58",
++      "kind": 0,
++      "start": 7812,
++      "end": 7823
++    },
++    {
++      "raw": "[[nota-59]]",
++      "target": "nota-59",
++      "kind": 0,
++      "start": 7946,
++      "end": 7957
++    },
++    {
++      "raw": "[[nota-60]]",
++      "target": "nota-60",
++      "kind": 0,
++      "start": 8080,
++      "end": 8091
++    },
++    {
++      "raw": "[[nota-61]]",
++      "target": "nota-61",
++      "kind": 0,
++      "start": 8214,
++      "end": 8225
++    },
++    {
++      "raw": "[[nota-62]]",
++      "target": "nota-62",
++      "kind": 0,
++      "start": 8348,
++      "end": 8359
++    },
++    {
++      "raw": "[[nota-63]]",
++      "target": "nota-63",
++      "kind": 0,
++      "start": 8482,
++      "end": 8493
++    },
++    {
++      "raw": "[[nota-64]]",
++      "target": "nota-64",
++      "kind": 0,
++      "start": 8616,
++      "end": 8627
++    },
++    {
++      "raw": "[[nota-65]]",
++      "target": "nota-65",
++      "kind": 0,
++      "start": 8750,
++      "end": 8761
++    },
++    {
++      "raw": "[[nota-66]]",
++      "target": "nota-66",
++      "kind": 0,
++      "start": 8884,
++      "end": 8895
++    },
++    {
++      "raw": "[[nota-67]]",
++      "target": "nota-67",
++      "kind": 0,
++      "start": 9018,
++      "end": 9029
++    },
++    {
++      "raw": "[[nota-68]]",
++      "target": "nota-68",
++      "kind": 0,
++      "start": 9152,
++      "end": 9163
++    },
++    {
++      "raw": "[[nota-69]]",
++      "target": "nota-69",
++      "kind": 0,
++      "start": 9286,
++      "end": 9297
++    },
++    {
++      "raw": "[[nota-70]]",
++      "target": "nota-70",
++      "kind": 0,
++      "start": 9420,
++      "end": 9431
++    },
++    {
++      "raw": "[[nota-71]]",
++      "target": "nota-71",
++      "kind": 0,
++      "start": 9554,
++      "end": 9565
++    },
++    {
++      "raw": "[[nota-72]]",
++      "target": "nota-72",
++      "kind": 0,
++      "start": 9688,
++      "end": 9699
++    },
++    {
++      "raw": "[[nota-73]]",
++      "target": "nota-73",
++      "kind": 0,
++      "start": 9822,
++      "end": 9833
++    },
++    {
++      "raw": "[[nota-74]]",
++      "target": "nota-74",
++      "kind": 0,
++      "start": 9956,
++      "end": 9967
++    },
++    {
++      "raw": "[[nota-75]]",
++      "target": "nota-75",
++      "kind": 0,
++      "start": 10090,
++      "end": 10101
++    },
++    {
++      "raw": "[[nota-76]]",
++      "target": "nota-76",
++      "kind": 0,
++      "start": 10224,
++      "end": 10235
++    },
++    {
++      "raw": "[[nota-77]]",
++      "target": "nota-77",
++      "kind": 0,
++      "start": 10358,
++      "end": 10369
++    },
++    {
++      "raw": "[[nota-78]]",
++      "target": "nota-78",
++      "kind": 0,
++      "start": 10492,
++      "end": 10503
++    },
++    {
++      "raw": "[[nota-79]]",
++      "target": "nota-79",
++      "kind": 0,
++      "start": 10626,
++      "end": 10637
++    },
++    {
++      "raw": "[[nota-80]]",
++      "target": "nota-80",
++      "kind": 0,
++      "start": 10760,
++      "end": 10771
++    },
++    {
++      "raw": "[[nota-81]]",
++      "target": "nota-81",
++      "kind": 0,
++      "start": 10894,
++      "end": 10905
++    },
++    {
++      "raw": "[[nota-82]]",
++      "target": "nota-82",
++      "kind": 0,
++      "start": 11028,
++      "end": 11039
++    },
++    {
++      "raw": "[[nota-83]]",
++      "target": "nota-83",
++      "kind": 0,
++      "start": 11162,
++      "end": 11173
++    },
++    {
++      "raw": "[[nota-84]]",
++      "target": "nota-84",
++      "kind": 0,
++      "start": 11296,
++      "end": 11307
++    },
++    {
++      "raw": "[[nota-85]]",
++      "target": "nota-85",
++      "kind": 0,
++      "start": 11430,
++      "end": 11441
++    },
++    {
++      "raw": "[[nota-86]]",
++      "target": "nota-86",
++      "kind": 0,
++      "start": 11564,
++      "end": 11575
++    },
++    {
++      "raw": "[[nota-87]]",
++      "target": "nota-87",
++      "kind": 0,
++      "start": 11698,
++      "end": 11709
++    },
++    {
++      "raw": "[[nota-88]]",
++      "target": "nota-88",
++      "kind": 0,
++      "start": 11832,
++      "end": 11843
++    },
++    {
++      "raw": "[[nota-89]]",
++      "target": "nota-89",
++      "kind": 0,
++      "start": 11966,
++      "end": 11977
++    },
++    {
++      "raw": "[[nota-90]]",
++      "target": "nota-90",
++      "kind": 0,
++      "start": 12100,
++      "end": 12111
++    },
++    {
++      "raw": "[[nota-91]]",
++      "target": "nota-91",
++      "kind": 0,
++      "start": 12234,
++      "end": 12245
++    },
++    {
++      "raw": "[[nota-92]]",
++      "target": "nota-92",
++      "kind": 0,
++      "start": 12368,
++      "end": 12379
++    },
++    {
++      "raw": "[[nota-93]]",
++      "target": "nota-93",
++      "kind": 0,
++      "start": 12502,
++      "end": 12513
++    },
++    {
++      "raw": "[[nota-94]]",
++      "target": "nota-94",
++      "kind": 0,
++      "start": 12636,
++      "end": 12647
++    },
++    {
++      "raw": "[[nota-95]]",
++      "target": "nota-95",
++      "kind": 0,
++      "start": 12770,
++      "end": 12781
++    },
++    {
++      "raw": "[[nota-96]]",
++      "target": "nota-96",
++      "kind": 0,
++      "start": 12904,
++      "end": 12915
++    },
++    {
++      "raw": "[[nota-97]]",
++      "target": "nota-97",
++      "kind": 0,
++      "start": 13038,
++      "end": 13049
++    },
++    {
++      "raw": "[[nota-98]]",
++      "target": "nota-98",
++      "kind": 0,
++      "start": 13172,
++      "end": 13183
++    },
++    {
++      "raw": "[[nota-99]]",
++      "target": "nota-99",
++      "kind": 0,
++      "start": 13306,
++      "end": 13317
++    },
++    {
++      "raw": "[[nota-100]]",
++      "target": "nota-100",
++      "kind": 0,
++      "start": 13442,
++      "end": 13454
++    },
++    {
++      "raw": "[[nota-101]]",
++      "target": "nota-101",
++      "kind": 0,
++      "start": 13583,
++      "end": 13595
++    },
++    {
++      "raw": "[[nota-102]]",
++      "target": "nota-102",
++      "kind": 0,
++      "start": 13724,
++      "end": 13736
++    },
++    {
++      "raw": "[[nota-103]]",
++      "target": "nota-103",
++      "kind": 0,
++      "start": 13865,
++      "end": 13877
++    },
++    {
++      "raw": "[[nota-104]]",
++      "target": "nota-104",
++      "kind": 0,
++      "start": 14006,
++      "end": 14018
++    },
++    {
++      "raw": "[[nota-105]]",
++      "target": "nota-105",
++      "kind": 0,
++      "start": 14147,
++      "end": 14159
++    },
++    {
++      "raw": "[[nota-106]]",
++      "target": "nota-106",
++      "kind": 0,
++      "start": 14288,
++      "end": 14300
++    },
++    {
++      "raw": "[[nota-107]]",
++      "target": "nota-107",
++      "kind": 0,
++      "start": 14429,
++      "end": 14441
++    },
++    {
++      "raw": "[[nota-108]]",
++      "target": "nota-108",
++      "kind": 0,
++      "start": 14570,
++      "end": 14582
++    },
++    {
++      "raw": "[[nota-109]]",
++      "target": "nota-109",
++      "kind": 0,
++      "start": 14711,
++      "end": 14723
++    },
++    {
++      "raw": "[[nota-110]]",
++      "target": "nota-110",
++      "kind": 0,
++      "start": 14852,
++      "end": 14864
++    },
++    {
++      "raw": "[[nota-111]]",
++      "target": "nota-111",
++      "kind": 0,
++      "start": 14993,
++      "end": 15005
++    },
++    {
++      "raw": "[[nota-112]]",
++      "target": "nota-112",
++      "kind": 0,
++      "start": 15134,
++      "end": 15146
++    },
++    {
++      "raw": "[[nota-113]]",
++      "target": "nota-113",
++      "kind": 0,
++      "start": 15275,
++      "end": 15287
++    },
++    {
++      "raw": "[[nota-114]]",
++      "target": "nota-114",
++      "kind": 0,
++      "start": 15416,
++      "end": 15428
++    },
++    {
++      "raw": "[[nota-115]]",
++      "target": "nota-115",
++      "kind": 0,
++      "start": 15557,
++      "end": 15569
++    },
++    {
++      "raw": "[[nota-116]]",
++      "target": "nota-116",
++      "kind": 0,
++      "start": 15698,
++      "end": 15710
++    },
++    {
++      "raw": "[[nota-117]]",
++      "target": "nota-117",
++      "kind": 0,
++      "start": 15839,
++      "end": 15851
++    },
++    {
++      "raw": "[[nota-118]]",
++      "target": "nota-118",
++      "kind": 0,
++      "start": 15980,
++      "end": 15992
++    },
++    {
++      "raw": "[[nota-119]]",
++      "target": "nota-119",
++      "kind": 0,
++      "start": 16121,
++      "end": 16133
++    },
++    {
++      "raw": "[[nota-120]]",
++      "target": "nota-120",
++      "kind": 0,
++      "start": 16262,
++      "end": 16274
++    }
++  ],
++  "inline": {
++    "campo-1": [
++      "valor 1"
++    ],
++    "campo-10": [
++      "valor 10"
++    ],
++    "campo-100": [
++      "valor 100"
++    ],
++    "campo-101": [
++      "valor 101"
++    ],
++    "campo-102": [
++      "valor 102"
++    ],
++    "campo-103": [
++      "valor 103"
++    ],
++    "campo-104": [
++      "valor 104"
++    ],
++    "campo-105": [
++      "valor 105"
++    ],
++    "campo-106": [
++      "valor 106"
++    ],
++    "campo-107": [
++      "valor 107"
++    ],
++    "campo-108": [
++      "valor 108"
++    ],
++    "campo-109": [
++      "valor 109"
++    ],
++    "campo-11": [
++      "valor 11"
++    ],
++    "campo-110": [
++      "valor 110"
++    ],
++    "campo-111": [
++      "valor 111"
++    ],
++    "campo-112": [
++      "valor 112"
++    ],
++    "campo-113": [
++      "valor 113"
++    ],
++    "campo-114": [
++      "valor 114"
++    ],
++    "campo-115": [
++      "valor 115"
++    ],
++    "campo-116": [
++      "valor 116"
++    ],
++    "campo-117": [
++      "valor 117"
++    ],
++    "campo-118": [
++      "valor 118"
++    ],
++    "campo-119": [
++      "valor 119"
++    ],
++    "campo-12": [
++      "valor 12"
++    ],
++    "campo-120": [
++      "valor 120"
++    ],
++    "campo-13": [
++      "valor 13"
++    ],
++    "campo-14": [
++      "valor 14"
++    ],
++    "campo-15": [
++      "valor 15"
++    ],
++    "campo-16": [
++      "valor 16"
++    ],
++    "campo-17": [
++      "valor 17"
++    ],
++    "campo-18": [
++      "valor 18"
++    ],
++    "campo-19": [
++      "valor 19"
++    ],
++    "campo-2": [
++      "valor 2"
++    ],
++    "campo-20": [
++      "valor 20"
++    ],
++    "campo-21": [
++      "valor 21"
++    ],
++    "campo-22": [
++      "valor 22"
++    ],
++    "campo-23": [
++      "valor 23"
++    ],
++    "campo-24": [
++      "valor 24"
++    ],
++    "campo-25": [
++      "valor 25"
++    ],
++    "campo-26": [
++      "valor 26"
++    ],
++    "campo-27": [
++      "valor 27"
++    ],
++    "campo-28": [
++      "valor 28"
++    ],
++    "campo-29": [
++      "valor 29"
++    ],
++    "campo-3": [
++      "valor 3"
++    ],
++    "campo-30": [
++      "valor 30"
++    ],
++    "campo-31": [
++      "valor 31"
++    ],
++    "campo-32": [
++      "valor 32"
++    ],
++    "campo-33": [
++      "valor 33"
++    ],
++    "campo-34": [
++      "valor 34"
++    ],
++    "campo-35": [
++      "valor 35"
++    ],
++    "campo-36": [
++      "valor 36"
++    ],
++    "campo-37": [
++      "valor 37"
++    ],
++    "campo-38": [
++      "valor 38"
++    ],
++    "campo-39": [
++      "valor 39"
++    ],
++    "campo-4": [
++      "valor 4"
++    ],
++    "campo-40": [
++      "valor 40"
++    ],
++    "campo-41": [
++      "valor 41"
++    ],
++    "campo-42": [
++      "valor 42"
++    ],
++    "campo-43": [
++      "valor 43"
++    ],
++    "campo-44": [
++      "valor 44"
++    ],
++    "campo-45": [
++      "valor 45"
++    ],
++    "campo-46": [
++      "valor 46"
++    ],
++    "campo-47": [
++      "valor 47"
++    ],
++    "campo-48": [
++      "valor 48"
++    ],
++    "campo-49": [
++      "valor 49"
++    ],
++    "campo-5": [
++      "valor 5"
++    ],
++    "campo-50": [
++      "valor 50"
++    ],
++    "campo-51": [
++      "valor 51"
++    ],
++    "campo-52": [
++      "valor 52"
++    ],
++    "campo-53": [
++      "valor 53"
++    ],
++    "campo-54": [
++      "valor 54"
++    ],
++    "campo-55": [
++      "valor 55"
++    ],
++    "campo-56": [
++      "valor 56"
++    ],
++    "campo-57": [
++      "valor 57"
++    ],
++    "campo-58": [
++      "valor 58"
++    ],
++    "campo-59": [
++      "valor 59"
++    ],
++    "campo-6": [
++      "valor 6"
++    ],
++    "campo-60": [
++      "valor 60"
++    ],
++    "campo-61": [
++      "valor 61"
++    ],
++    "campo-62": [
++      "valor 62"
++    ],
++    "campo-63": [
++      "valor 63"
++    ],
++    "campo-64": [
++      "valor 64"
++    ],
++    "campo-65": [
++      "valor 65"
++    ],
++    "campo-66": [
++      "valor 66"
++    ],
++    "campo-67": [
++      "valor 67"
++    ],
++    "campo-68": [
++      "valor 68"
++    ],
++    "campo-69": [
++      "valor 69"
++    ],
++    "campo-7": [
++      "valor 7"
++    ],
++    "campo-70": [
++      "valor 70"
++    ],
++    "campo-71": [
++      "valor 71"
++    ],
++    "campo-72": [
++      "valor 72"
++    ],
++    "campo-73": [
++      "valor 73"
++    ],
++    "campo-74": [
++      "valor 74"
++    ],
++    "campo-75": [
++      "valor 75"
++    ],
++    "campo-76": [
++      "valor 76"
++    ],
++    "campo-77": [
++      "valor 77"
++    ],
++    "campo-78": [
++      "valor 78"
++    ],
++    "campo-79": [
++      "valor 79"
++    ],
++    "campo-8": [
++      "valor 8"
++    ],
++    "campo-80": [
++      "valor 80"
++    ],
++    "campo-81": [
++      "valor 81"
++    ],
++    "campo-82": [
++      "valor 82"
++    ],
++    "campo-83": [
++      "valor 83"
++    ],
++    "campo-84": [
++      "valor 84"
++    ],
++    "campo-85": [
++      "valor 85"
++    ],
++    "campo-86": [
++      "valor 86"
++    ],
++    "campo-87": [
++      "valor 87"
++    ],
++    "campo-88": [
++      "valor 88"
++    ],
++    "campo-89": [
++      "valor 89"
++    ],
++    "campo-9": [
++      "valor 9"
++    ],
++    "campo-90": [
++      "valor 90"
++    ],
++    "campo-91": [
++      "valor 91"
++    ],
++    "campo-92": [
++      "valor 92"
++    ],
++    "campo-93": [
++      "valor 93"
++    ],
++    "campo-94": [
++      "valor 94"
++    ],
++    "campo-95": [
++      "valor 95"
++    ],
++    "campo-96": [
++      "valor 96"
++    ],
++    "campo-97": [
++      "valor 97"
++    ],
++    "campo-98": [
++      "valor 98"
++    ],
++    "campo-99": [
++      "valor 99"
++    ]
++  },
++  "title": "Nota Gigante"
++}
+diff --git a/testdata/parser/edge/nota_gigante.md b/testdata/parser/edge/nota_gigante.md
+new file mode 100644
+index 0000000..50f11d1
+--- /dev/null
++++ b/testdata/parser/edge/nota_gigante.md
+@@ -0,0 +1,970 @@
++---
++title: Nota Gigante
++tags:
++  - gigante
++---
++# Nota Gigante
++
++Nota grande de proposito: gera muitas secoes, links, tags, blocos e
++campos inline para verificar que o parser nao degrada com volume.
++
++## Secao 1
++
++Texto da secao 1 com link [[nota-1]] e tag #secao/1.
++
++campo-1:: valor 1
++
++Paragrafo com marcador de bloco. ^bloco1
++
++## Secao 2
++
++Texto da secao 2 com link [[nota-2]] e tag #secao/2.
++
++campo-2:: valor 2
++
++Paragrafo com marcador de bloco. ^bloco2
++
++## Secao 3
++
++Texto da secao 3 com link [[nota-3]] e tag #secao/3.
++
++campo-3:: valor 3
++
++Paragrafo com marcador de bloco. ^bloco3
++
++## Secao 4
++
++Texto da secao 4 com link [[nota-4]] e tag #secao/4.
++
++campo-4:: valor 4
++
++Paragrafo com marcador de bloco. ^bloco4
++
++## Secao 5
++
++Texto da secao 5 com link [[nota-5]] e tag #secao/5.
++
++campo-5:: valor 5
++
++Paragrafo com marcador de bloco. ^bloco5
++
++## Secao 6
++
++Texto da secao 6 com link [[nota-6]] e tag #secao/6.
++
++campo-6:: valor 6
++
++Paragrafo com marcador de bloco. ^bloco6
++
++## Secao 7
++
++Texto da secao 7 com link [[nota-7]] e tag #secao/7.
++
++campo-7:: valor 7
++
++Paragrafo com marcador de bloco. ^bloco7
++
++## Secao 8
++
++Texto da secao 8 com link [[nota-8]] e tag #secao/8.
++
++campo-8:: valor 8
++
++Paragrafo com marcador de bloco. ^bloco8
++
++## Secao 9
++
++Texto da secao 9 com link [[nota-9]] e tag #secao/9.
++
++campo-9:: valor 9
++
++Paragrafo com marcador de bloco. ^bloco9
++
++## Secao 10
++
++Texto da secao 10 com link [[nota-10]] e tag #secao/10.
++
++campo-10:: valor 10
++
++Paragrafo com marcador de bloco. ^bloco10
++
++## Secao 11
++
++Texto da secao 11 com link [[nota-11]] e tag #secao/11.
++
++campo-11:: valor 11
++
++Paragrafo com marcador de bloco. ^bloco11
++
++## Secao 12
++
++Texto da secao 12 com link [[nota-12]] e tag #secao/12.
++
++campo-12:: valor 12
++
++Paragrafo com marcador de bloco. ^bloco12
++
++## Secao 13
++
++Texto da secao 13 com link [[nota-13]] e tag #secao/13.
++
++campo-13:: valor 13
++
++Paragrafo com marcador de bloco. ^bloco13
++
++## Secao 14
++
++Texto da secao 14 com link [[nota-14]] e tag #secao/14.
++
++campo-14:: valor 14
++
++Paragrafo com marcador de bloco. ^bloco14
++
++## Secao 15
++
++Texto da secao 15 com link [[nota-15]] e tag #secao/15.
++
++campo-15:: valor 15
++
++Paragrafo com marcador de bloco. ^bloco15
++
++## Secao 16
++
++Texto da secao 16 com link [[nota-16]] e tag #secao/16.
++
++campo-16:: valor 16
++
++Paragrafo com marcador de bloco. ^bloco16
++
++## Secao 17
++
++Texto da secao 17 com link [[nota-17]] e tag #secao/17.
++
++campo-17:: valor 17
++
++Paragrafo com marcador de bloco. ^bloco17
++
++## Secao 18
++
++Texto da secao 18 com link [[nota-18]] e tag #secao/18.
++
++campo-18:: valor 18
++
++Paragrafo com marcador de bloco. ^bloco18
++
++## Secao 19
++
++Texto da secao 19 com link [[nota-19]] e tag #secao/19.
++
++campo-19:: valor 19
++
++Paragrafo com marcador de bloco. ^bloco19
++
++## Secao 20
++
++Texto da secao 20 com link [[nota-20]] e tag #secao/20.
++
++campo-20:: valor 20
++
++Paragrafo com marcador de bloco. ^bloco20
++
++## Secao 21
++
++Texto da secao 21 com link [[nota-21]] e tag #secao/21.
++
++campo-21:: valor 21
++
++Paragrafo com marcador de bloco. ^bloco21
++
++## Secao 22
++
++Texto da secao 22 com link [[nota-22]] e tag #secao/22.
++
++campo-22:: valor 22
++
++Paragrafo com marcador de bloco. ^bloco22
++
++## Secao 23
++
++Texto da secao 23 com link [[nota-23]] e tag #secao/23.
++
++campo-23:: valor 23
++
++Paragrafo com marcador de bloco. ^bloco23
++
++## Secao 24
++
++Texto da secao 24 com link [[nota-24]] e tag #secao/24.
++
++campo-24:: valor 24
++
++Paragrafo com marcador de bloco. ^bloco24
++
++## Secao 25
++
++Texto da secao 25 com link [[nota-25]] e tag #secao/25.
++
++campo-25:: valor 25
++
++Paragrafo com marcador de bloco. ^bloco25
++
++## Secao 26
++
++Texto da secao 26 com link [[nota-26]] e tag #secao/26.
++
++campo-26:: valor 26
++
++Paragrafo com marcador de bloco. ^bloco26
++
++## Secao 27
++
++Texto da secao 27 com link [[nota-27]] e tag #secao/27.
++
++campo-27:: valor 27
++
++Paragrafo com marcador de bloco. ^bloco27
++
++## Secao 28
++
++Texto da secao 28 com link [[nota-28]] e tag #secao/28.
++
++campo-28:: valor 28
++
++Paragrafo com marcador de bloco. ^bloco28
++
++## Secao 29
++
++Texto da secao 29 com link [[nota-29]] e tag #secao/29.
++
++campo-29:: valor 29
++
++Paragrafo com marcador de bloco. ^bloco29
++
++## Secao 30
++
++Texto da secao 30 com link [[nota-30]] e tag #secao/30.
++
++campo-30:: valor 30
++
++Paragrafo com marcador de bloco. ^bloco30
++
++## Secao 31
++
++Texto da secao 31 com link [[nota-31]] e tag #secao/31.
++
++campo-31:: valor 31
++
++Paragrafo com marcador de bloco. ^bloco31
++
++## Secao 32
++
++Texto da secao 32 com link [[nota-32]] e tag #secao/32.
++
++campo-32:: valor 32
++
++Paragrafo com marcador de bloco. ^bloco32
++
++## Secao 33
++
++Texto da secao 33 com link [[nota-33]] e tag #secao/33.
++
++campo-33:: valor 33
++
++Paragrafo com marcador de bloco. ^bloco33
++
++## Secao 34
++
++Texto da secao 34 com link [[nota-34]] e tag #secao/34.
++
++campo-34:: valor 34
++
++Paragrafo com marcador de bloco. ^bloco34
++
++## Secao 35
++
++Texto da secao 35 com link [[nota-35]] e tag #secao/35.
++
++campo-35:: valor 35
++
++Paragrafo com marcador de bloco. ^bloco35
++
++## Secao 36
++
++Texto da secao 36 com link [[nota-36]] e tag #secao/36.
++
++campo-36:: valor 36
++
++Paragrafo com marcador de bloco. ^bloco36
++
++## Secao 37
++
++Texto da secao 37 com link [[nota-37]] e tag #secao/37.
++
++campo-37:: valor 37
++
++Paragrafo com marcador de bloco. ^bloco37
++
++## Secao 38
++
++Texto da secao 38 com link [[nota-38]] e tag #secao/38.
++
++campo-38:: valor 38
++
++Paragrafo com marcador de bloco. ^bloco38
++
++## Secao 39
++
++Texto da secao 39 com link [[nota-39]] e tag #secao/39.
++
++campo-39:: valor 39
++
++Paragrafo com marcador de bloco. ^bloco39
++
++## Secao 40
++
++Texto da secao 40 com link [[nota-40]] e tag #secao/40.
++
++campo-40:: valor 40
++
++Paragrafo com marcador de bloco. ^bloco40
++
++## Secao 41
++
++Texto da secao 41 com link [[nota-41]] e tag #secao/41.
++
++campo-41:: valor 41
++
++Paragrafo com marcador de bloco. ^bloco41
++
++## Secao 42
++
++Texto da secao 42 com link [[nota-42]] e tag #secao/42.
++
++campo-42:: valor 42
++
++Paragrafo com marcador de bloco. ^bloco42
++
++## Secao 43
++
++Texto da secao 43 com link [[nota-43]] e tag #secao/43.
++
++campo-43:: valor 43
++
++Paragrafo com marcador de bloco. ^bloco43
++
++## Secao 44
++
++Texto da secao 44 com link [[nota-44]] e tag #secao/44.
++
++campo-44:: valor 44
++
++Paragrafo com marcador de bloco. ^bloco44
++
++## Secao 45
++
++Texto da secao 45 com link [[nota-45]] e tag #secao/45.
++
++campo-45:: valor 45
++
++Paragrafo com marcador de bloco. ^bloco45
++
++## Secao 46
++
++Texto da secao 46 com link [[nota-46]] e tag #secao/46.
++
++campo-46:: valor 46
++
++Paragrafo com marcador de bloco. ^bloco46
++
++## Secao 47
++
++Texto da secao 47 com link [[nota-47]] e tag #secao/47.
++
++campo-47:: valor 47
++
++Paragrafo com marcador de bloco. ^bloco47
++
++## Secao 48
++
++Texto da secao 48 com link [[nota-48]] e tag #secao/48.
++
++campo-48:: valor 48
++
++Paragrafo com marcador de bloco. ^bloco48
++
++## Secao 49
++
++Texto da secao 49 com link [[nota-49]] e tag #secao/49.
++
++campo-49:: valor 49
++
++Paragrafo com marcador de bloco. ^bloco49
++
++## Secao 50
++
++Texto da secao 50 com link [[nota-50]] e tag #secao/50.
++
++campo-50:: valor 50
++
++Paragrafo com marcador de bloco. ^bloco50
++
++## Secao 51
++
++Texto da secao 51 com link [[nota-51]] e tag #secao/51.
++
++campo-51:: valor 51
++
++Paragrafo com marcador de bloco. ^bloco51
++
++## Secao 52
++
++Texto da secao 52 com link [[nota-52]] e tag #secao/52.
++
++campo-52:: valor 52
++
++Paragrafo com marcador de bloco. ^bloco52
++
++## Secao 53
++
++Texto da secao 53 com link [[nota-53]] e tag #secao/53.
++
++campo-53:: valor 53
++
++Paragrafo com marcador de bloco. ^bloco53
++
++## Secao 54
++
++Texto da secao 54 com link [[nota-54]] e tag #secao/54.
++
++campo-54:: valor 54
++
++Paragrafo com marcador de bloco. ^bloco54
++
++## Secao 55
++
++Texto da secao 55 com link [[nota-55]] e tag #secao/55.
++
++campo-55:: valor 55
++
++Paragrafo com marcador de bloco. ^bloco55
++
++## Secao 56
++
++Texto da secao 56 com link [[nota-56]] e tag #secao/56.
++
++campo-56:: valor 56
++
++Paragrafo com marcador de bloco. ^bloco56
++
++## Secao 57
++
++Texto da secao 57 com link [[nota-57]] e tag #secao/57.
++
++campo-57:: valor 57
++
++Paragrafo com marcador de bloco. ^bloco57
++
++## Secao 58
++
++Texto da secao 58 com link [[nota-58]] e tag #secao/58.
++
++campo-58:: valor 58
++
++Paragrafo com marcador de bloco. ^bloco58
++
++## Secao 59
++
++Texto da secao 59 com link [[nota-59]] e tag #secao/59.
++
++campo-59:: valor 59
++
++Paragrafo com marcador de bloco. ^bloco59
++
++## Secao 60
++
++Texto da secao 60 com link [[nota-60]] e tag #secao/60.
++
++campo-60:: valor 60
++
++Paragrafo com marcador de bloco. ^bloco60
++
++## Secao 61
++
++Texto da secao 61 com link [[nota-61]] e tag #secao/61.
++
++campo-61:: valor 61
++
++Paragrafo com marcador de bloco. ^bloco61
++
++## Secao 62
++
++Texto da secao 62 com link [[nota-62]] e tag #secao/62.
++
++campo-62:: valor 62
++
++Paragrafo com marcador de bloco. ^bloco62
++
++## Secao 63
++
++Texto da secao 63 com link [[nota-63]] e tag #secao/63.
++
++campo-63:: valor 63
++
++Paragrafo com marcador de bloco. ^bloco63
++
++## Secao 64
++
++Texto da secao 64 com link [[nota-64]] e tag #secao/64.
++
++campo-64:: valor 64
++
++Paragrafo com marcador de bloco. ^bloco64
++
++## Secao 65
++
++Texto da secao 65 com link [[nota-65]] e tag #secao/65.
++
++campo-65:: valor 65
++
++Paragrafo com marcador de bloco. ^bloco65
++
++## Secao 66
++
++Texto da secao 66 com link [[nota-66]] e tag #secao/66.
++
++campo-66:: valor 66
++
++Paragrafo com marcador de bloco. ^bloco66
++
++## Secao 67
++
++Texto da secao 67 com link [[nota-67]] e tag #secao/67.
++
++campo-67:: valor 67
++
++Paragrafo com marcador de bloco. ^bloco67
++
++## Secao 68
++
++Texto da secao 68 com link [[nota-68]] e tag #secao/68.
++
++campo-68:: valor 68
++
++Paragrafo com marcador de bloco. ^bloco68
++
++## Secao 69
++
++Texto da secao 69 com link [[nota-69]] e tag #secao/69.
++
++campo-69:: valor 69
++
++Paragrafo com marcador de bloco. ^bloco69
++
++## Secao 70
++
++Texto da secao 70 com link [[nota-70]] e tag #secao/70.
++
++campo-70:: valor 70
++
++Paragrafo com marcador de bloco. ^bloco70
++
++## Secao 71
++
++Texto da secao 71 com link [[nota-71]] e tag #secao/71.
++
++campo-71:: valor 71
++
++Paragrafo com marcador de bloco. ^bloco71
++
++## Secao 72
++
++Texto da secao 72 com link [[nota-72]] e tag #secao/72.
++
++campo-72:: valor 72
++
++Paragrafo com marcador de bloco. ^bloco72
++
++## Secao 73
++
++Texto da secao 73 com link [[nota-73]] e tag #secao/73.
++
++campo-73:: valor 73
++
++Paragrafo com marcador de bloco. ^bloco73
++
++## Secao 74
++
++Texto da secao 74 com link [[nota-74]] e tag #secao/74.
++
++campo-74:: valor 74
++
++Paragrafo com marcador de bloco. ^bloco74
++
++## Secao 75
++
++Texto da secao 75 com link [[nota-75]] e tag #secao/75.
++
++campo-75:: valor 75
++
++Paragrafo com marcador de bloco. ^bloco75
++
++## Secao 76
++
++Texto da secao 76 com link [[nota-76]] e tag #secao/76.
++
++campo-76:: valor 76
++
++Paragrafo com marcador de bloco. ^bloco76
++
++## Secao 77
++
++Texto da secao 77 com link [[nota-77]] e tag #secao/77.
++
++campo-77:: valor 77
++
++Paragrafo com marcador de bloco. ^bloco77
++
++## Secao 78
++
++Texto da secao 78 com link [[nota-78]] e tag #secao/78.
++
++campo-78:: valor 78
++
++Paragrafo com marcador de bloco. ^bloco78
++
++## Secao 79
++
++Texto da secao 79 com link [[nota-79]] e tag #secao/79.
++
++campo-79:: valor 79
++
++Paragrafo com marcador de bloco. ^bloco79
++
++## Secao 80
++
++Texto da secao 80 com link [[nota-80]] e tag #secao/80.
++
++campo-80:: valor 80
++
++Paragrafo com marcador de bloco. ^bloco80
++
++## Secao 81
++
++Texto da secao 81 com link [[nota-81]] e tag #secao/81.
++
++campo-81:: valor 81
++
++Paragrafo com marcador de bloco. ^bloco81
++
++## Secao 82
++
++Texto da secao 82 com link [[nota-82]] e tag #secao/82.
++
++campo-82:: valor 82
++
++Paragrafo com marcador de bloco. ^bloco82
++
++## Secao 83
++
++Texto da secao 83 com link [[nota-83]] e tag #secao/83.
++
++campo-83:: valor 83
++
++Paragrafo com marcador de bloco. ^bloco83
++
++## Secao 84
++
++Texto da secao 84 com link [[nota-84]] e tag #secao/84.
++
++campo-84:: valor 84
++
++Paragrafo com marcador de bloco. ^bloco84
++
++## Secao 85
++
++Texto da secao 85 com link [[nota-85]] e tag #secao/85.
++
++campo-85:: valor 85
++
++Paragrafo com marcador de bloco. ^bloco85
++
++## Secao 86
++
++Texto da secao 86 com link [[nota-86]] e tag #secao/86.
++
++campo-86:: valor 86
++
++Paragrafo com marcador de bloco. ^bloco86
++
++## Secao 87
++
++Texto da secao 87 com link [[nota-87]] e tag #secao/87.
++
++campo-87:: valor 87
++
++Paragrafo com marcador de bloco. ^bloco87
++
++## Secao 88
++
++Texto da secao 88 com link [[nota-88]] e tag #secao/88.
++
++campo-88:: valor 88
++
++Paragrafo com marcador de bloco. ^bloco88
++
++## Secao 89
++
++Texto da secao 89 com link [[nota-89]] e tag #secao/89.
++
++campo-89:: valor 89
++
++Paragrafo com marcador de bloco. ^bloco89
++
++## Secao 90
++
++Texto da secao 90 com link [[nota-90]] e tag #secao/90.
++
++campo-90:: valor 90
++
++Paragrafo com marcador de bloco. ^bloco90
++
++## Secao 91
++
++Texto da secao 91 com link [[nota-91]] e tag #secao/91.
++
++campo-91:: valor 91
++
++Paragrafo com marcador de bloco. ^bloco91
++
++## Secao 92
++
++Texto da secao 92 com link [[nota-92]] e tag #secao/92.
++
++campo-92:: valor 92
++
++Paragrafo com marcador de bloco. ^bloco92
++
++## Secao 93
++
++Texto da secao 93 com link [[nota-93]] e tag #secao/93.
++
++campo-93:: valor 93
++
++Paragrafo com marcador de bloco. ^bloco93
++
++## Secao 94
++
++Texto da secao 94 com link [[nota-94]] e tag #secao/94.
++
++campo-94:: valor 94
++
++Paragrafo com marcador de bloco. ^bloco94
++
++## Secao 95
++
++Texto da secao 95 com link [[nota-95]] e tag #secao/95.
++
++campo-95:: valor 95
++
++Paragrafo com marcador de bloco. ^bloco95
++
++## Secao 96
++
++Texto da secao 96 com link [[nota-96]] e tag #secao/96.
++
++campo-96:: valor 96
++
++Paragrafo com marcador de bloco. ^bloco96
++
++## Secao 97
++
++Texto da secao 97 com link [[nota-97]] e tag #secao/97.
++
++campo-97:: valor 97
++
++Paragrafo com marcador de bloco. ^bloco97
++
++## Secao 98
++
++Texto da secao 98 com link [[nota-98]] e tag #secao/98.
++
++campo-98:: valor 98
++
++Paragrafo com marcador de bloco. ^bloco98
++
++## Secao 99
++
++Texto da secao 99 com link [[nota-99]] e tag #secao/99.
++
++campo-99:: valor 99
++
++Paragrafo com marcador de bloco. ^bloco99
++
++## Secao 100
++
++Texto da secao 100 com link [[nota-100]] e tag #secao/100.
++
++campo-100:: valor 100
++
++Paragrafo com marcador de bloco. ^bloco100
++
++## Secao 101
++
++Texto da secao 101 com link [[nota-101]] e tag #secao/101.
++
++campo-101:: valor 101
++
++Paragrafo com marcador de bloco. ^bloco101
++
++## Secao 102
++
++Texto da secao 102 com link [[nota-102]] e tag #secao/102.
++
++campo-102:: valor 102
++
++Paragrafo com marcador de bloco. ^bloco102
++
++## Secao 103
++
++Texto da secao 103 com link [[nota-103]] e tag #secao/103.
++
++campo-103:: valor 103
++
++Paragrafo com marcador de bloco. ^bloco103
++
++## Secao 104
++
++Texto da secao 104 com link [[nota-104]] e tag #secao/104.
++
++campo-104:: valor 104
++
++Paragrafo com marcador de bloco. ^bloco104
++
++## Secao 105
++
++Texto da secao 105 com link [[nota-105]] e tag #secao/105.
++
++campo-105:: valor 105
++
++Paragrafo com marcador de bloco. ^bloco105
++
++## Secao 106
++
++Texto da secao 106 com link [[nota-106]] e tag #secao/106.
++
++campo-106:: valor 106
++
++Paragrafo com marcador de bloco. ^bloco106
++
++## Secao 107
++
++Texto da secao 107 com link [[nota-107]] e tag #secao/107.
++
++campo-107:: valor 107
++
++Paragrafo com marcador de bloco. ^bloco107
++
++## Secao 108
++
++Texto da secao 108 com link [[nota-108]] e tag #secao/108.
++
++campo-108:: valor 108
++
++Paragrafo com marcador de bloco. ^bloco108
++
++## Secao 109
++
++Texto da secao 109 com link [[nota-109]] e tag #secao/109.
++
++campo-109:: valor 109
++
++Paragrafo com marcador de bloco. ^bloco109
++
++## Secao 110
++
++Texto da secao 110 com link [[nota-110]] e tag #secao/110.
++
++campo-110:: valor 110
++
++Paragrafo com marcador de bloco. ^bloco110
++
++## Secao 111
++
++Texto da secao 111 com link [[nota-111]] e tag #secao/111.
++
++campo-111:: valor 111
++
++Paragrafo com marcador de bloco. ^bloco111
++
++## Secao 112
++
++Texto da secao 112 com link [[nota-112]] e tag #secao/112.
++
++campo-112:: valor 112
++
++Paragrafo com marcador de bloco. ^bloco112
++
++## Secao 113
++
++Texto da secao 113 com link [[nota-113]] e tag #secao/113.
++
++campo-113:: valor 113
++
++Paragrafo com marcador de bloco. ^bloco113
++
++## Secao 114
++
++Texto da secao 114 com link [[nota-114]] e tag #secao/114.
++
++campo-114:: valor 114
++
++Paragrafo com marcador de bloco. ^bloco114
++
++## Secao 115
++
++Texto da secao 115 com link [[nota-115]] e tag #secao/115.
++
++campo-115:: valor 115
++
++Paragrafo com marcador de bloco. ^bloco115
++
++## Secao 116
++
++Texto da secao 116 com link [[nota-116]] e tag #secao/116.
++
++campo-116:: valor 116
++
++Paragrafo com marcador de bloco. ^bloco116
++
++## Secao 117
++
++Texto da secao 117 com link [[nota-117]] e tag #secao/117.
++
++campo-117:: valor 117
++
++Paragrafo com marcador de bloco. ^bloco117
++
++## Secao 118
++
++Texto da secao 118 com link [[nota-118]] e tag #secao/118.
++
++campo-118:: valor 118
++
++Paragrafo com marcador de bloco. ^bloco118
++
++## Secao 119
++
++Texto da secao 119 com link [[nota-119]] e tag #secao/119.
++
++campo-119:: valor 119
++
++Paragrafo com marcador de bloco. ^bloco119
++
++## Secao 120
++
++Texto da secao 120 com link [[nota-120]] e tag #secao/120.
++
++campo-120:: valor 120
++
++Paragrafo com marcador de bloco. ^bloco120
++
+diff --git a/testdata/parser/edge/sem_newline_final.json b/testdata/parser/edge/sem_newline_final.json
+new file mode 100644
+index 0000000..733e922
+--- /dev/null
++++ b/testdata/parser/edge/sem_newline_final.json
+@@ -0,0 +1,13 @@
++{
++  "headings": [
++    {
++      "level": 1,
++      "text": "Titulo sem quebra final",
++      "slug": "titulo sem quebra final",
++      "start": 0,
++      "end": 71,
++      "body_start": 26
++    }
++  ],
++  "title": "Titulo sem quebra final"
++}
+diff --git a/testdata/parser/edge/sem_newline_final.md b/testdata/parser/edge/sem_newline_final.md
+new file mode 100644
+index 0000000..c0a9ed3
+--- /dev/null
++++ b/testdata/parser/edge/sem_newline_final.md
+@@ -0,0 +1,3 @@
++# Titulo sem quebra final
++
++Texto tambem sem quebra no final do arquivo.
+\ No newline at end of file
+diff --git a/testdata/parser/edge/so_frontmatter.json b/testdata/parser/edge/so_frontmatter.json
+new file mode 100644
+index 0000000..2767c05
+--- /dev/null
++++ b/testdata/parser/edge/so_frontmatter.json
+@@ -0,0 +1,12 @@
++{
++  "frontmatter": {
++    "tags": [
++      "civil"
++    ],
++    "title": "Somente frontmatter"
++  },
++  "tags": [
++    "civil"
++  ],
++  "title": "Somente frontmatter"
++}
+diff --git a/testdata/parser/edge/so_frontmatter.md b/testdata/parser/edge/so_frontmatter.md
+new file mode 100644
+index 0000000..a1ef309
+--- /dev/null
++++ b/testdata/parser/edge/so_frontmatter.md
+@@ -0,0 +1,5 @@
++---
++title: Somente frontmatter
++tags:
++  - civil
++---
+diff --git a/testdata/parser/edge/vazio.json b/testdata/parser/edge/vazio.json
+new file mode 100644
+index 0000000..0967ef4
+--- /dev/null
++++ b/testdata/parser/edge/vazio.json
+@@ -0,0 +1 @@
++{}
+diff --git a/testdata/parser/edge/vazio.md b/testdata/parser/edge/vazio.md
+new file mode 100644
+index 0000000..e69de29
+diff --git a/testdata/parser/frontmatter/aliases.json b/testdata/parser/frontmatter/aliases.json
+new file mode 100644
+index 0000000..10192fd
+--- /dev/null
++++ b/testdata/parser/frontmatter/aliases.json
+@@ -0,0 +1,20 @@
++{
++  "frontmatter": {
++    "aliases": "Ponto 3, P3"
++  },
++  "aliases": [
++    "Ponto 3",
++    "P3"
++  ],
++  "headings": [
++    {
++      "level": 1,
++      "text": "Nota com aliases em string",
++      "slug": "nota com aliases em string",
++      "start": 220,
++      "end": 249,
++      "body_start": 249
++    }
++  ],
++  "title": "Nota com aliases em string"
++}
+diff --git a/testdata/parser/frontmatter/aliases.md b/testdata/parser/frontmatter/aliases.md
+new file mode 100644
+index 0000000..c58c2be
+--- /dev/null
++++ b/testdata/parser/frontmatter/aliases.md
+@@ -0,0 +1,7 @@
++---
++# Aliases em string separada por virgula: mesma normalizacao que tags
++# usa, mas sem a deduplicacao/ordenacao que dedupeTags aplica so a Tags —
++# Aliases preserva a ordem do frontmatter.
++aliases: "Ponto 3, P3"
++---
++# Nota com aliases em string
+diff --git a/testdata/parser/frontmatter/ausente.json b/testdata/parser/frontmatter/ausente.json
+new file mode 100644
+index 0000000..11d9f32
+--- /dev/null
++++ b/testdata/parser/frontmatter/ausente.json
+@@ -0,0 +1,13 @@
++{
++  "headings": [
++    {
++      "level": 1,
++      "text": "Nota sem frontmatter",
++      "slug": "nota sem frontmatter",
++      "start": 0,
++      "end": 60,
++      "body_start": 23
++    }
++  ],
++  "title": "Nota sem frontmatter"
++}
+diff --git a/testdata/parser/frontmatter/ausente.md b/testdata/parser/frontmatter/ausente.md
+new file mode 100644
+index 0000000..8226e6d
+--- /dev/null
++++ b/testdata/parser/frontmatter/ausente.md
+@@ -0,0 +1,3 @@
++# Nota sem frontmatter
++
++Texto normal, sem bloco YAML antes.
+diff --git a/testdata/parser/frontmatter/completo.json b/testdata/parser/frontmatter/completo.json
+new file mode 100644
+index 0000000..0f4de9b
+--- /dev/null
++++ b/testdata/parser/frontmatter/completo.json
+@@ -0,0 +1,44 @@
++{
++  "frontmatter": {
++    "aliases": [
++      "PDC",
++      "Ponto Civil"
++    ],
++    "autor": "Fulano",
++    "data": "2026-01-15T00:00:00Z",
++    "tags": [
++      "civil",
++      "obrigacoes"
++    ],
++    "title": "Ponto de Direito Civil"
++  },
++  "tags": [
++    "civil",
++    "obrigacoes",
++    "tributario"
++  ],
++  "aliases": [
++    "PDC",
++    "Ponto Civil"
++  ],
++  "headings": [
++    {
++      "level": 1,
++      "text": "Titulo do Corpo",
++      "slug": "titulo do corpo",
++      "start": 133,
++      "end": 362,
++      "body_start": 151
++    }
++  ],
++  "links": [
++    {
++      "raw": "[[outra-nota]]",
++      "target": "outra-nota",
++      "kind": 0,
++      "start": 162,
++      "end": 176
++    }
++  ],
++  "title": "Ponto de Direito Civil"
++}
+diff --git a/testdata/parser/frontmatter/completo.md b/testdata/parser/frontmatter/completo.md
+new file mode 100644
+index 0000000..76b0eea
+--- /dev/null
++++ b/testdata/parser/frontmatter/completo.md
+@@ -0,0 +1,16 @@
++---
++title: Ponto de Direito Civil
++tags:
++  - civil
++  - obrigacoes
++aliases:
++  - PDC
++  - Ponto Civil
++autor: Fulano
++data: 2026-01-15
++---
++# Titulo do Corpo
++
++Texto com [[outra-nota]] e uma tag #tributario no corpo. Este fixture
++exercita o bodyOffset de ponta a ponta: o offset do heading abaixo tem
++que apontar para depois do frontmatter, nao para o inicio do buffer.
+diff --git a/testdata/parser/frontmatter/malformado.json b/testdata/parser/frontmatter/malformado.json
+new file mode 100644
+index 0000000..96d4723
+--- /dev/null
++++ b/testdata/parser/frontmatter/malformado.json
+@@ -0,0 +1,14 @@
++{
++  "headings": [
++    {
++      "level": 1,
++      "text": "Corpo apos frontmatter quebrado",
++      "slug": "corpo apos frontmatter quebrado",
++      "start": 286,
++      "end": 369,
++      "body_start": 320
++    }
++  ],
++  "title": "Corpo apos frontmatter quebrado",
++  "frontmatter_err": "decodificando frontmatter: yaml: line 4: did not find expected ',' or ']'"
++}
+diff --git a/testdata/parser/frontmatter/malformado.md b/testdata/parser/frontmatter/malformado.md
+new file mode 100644
+index 0000000..4f7ad79
+--- /dev/null
++++ b/testdata/parser/frontmatter/malformado.md
+@@ -0,0 +1,11 @@
++---
++# YAML invalido de proposito: colchete de lista nunca fechado. Pina a
++# garantia de que frontmatter quebrado nao derruba o parse — o corpo
++# abaixo continua tendo heading, e FrontmatterErr registra o motivo em
++# vez de Parse devolver erro.
++titulo: [Direito Civil
++tags: [civil
++---
++# Corpo apos frontmatter quebrado
++
++Este texto ainda precisa aparecer nos headings.
+diff --git a/testdata/parser/frontmatter/nao_fechado.json b/testdata/parser/frontmatter/nao_fechado.json
+new file mode 100644
+index 0000000..94ac8fc
+--- /dev/null
++++ b/testdata/parser/frontmatter/nao_fechado.json
+@@ -0,0 +1,13 @@
++{
++  "headings": [
++    {
++      "level": 1,
++      "text": "Resto vira corpo",
++      "slug": "resto vira corpo",
++      "start": 23,
++      "end": 341,
++      "body_start": 42
++    }
++  ],
++  "title": "Resto vira corpo"
++}
+diff --git a/testdata/parser/frontmatter/nao_fechado.md b/testdata/parser/frontmatter/nao_fechado.md
+new file mode 100644
+index 0000000..f052bba
+--- /dev/null
++++ b/testdata/parser/frontmatter/nao_fechado.md
+@@ -0,0 +1,8 @@
++---
++title: Nunca fecha
++# Resto vira corpo
++
++<!-- Delimitador de abertura sem fechamento correspondente: SplitFrontmatter
++devolve que nao ha frontmatter nenhum, e as linhas "---"/"title: ..." viram
++corpo literal. A terceira linha comeca com '#' e vira heading mesmo assim,
++porque para o parser de corpo ela e so mais uma linha do arquivo. -->
+diff --git a/testdata/parser/frontmatter/tags_lista.json b/testdata/parser/frontmatter/tags_lista.json
+new file mode 100644
+index 0000000..146442c
+--- /dev/null
++++ b/testdata/parser/frontmatter/tags_lista.json
+@@ -0,0 +1,12 @@
++{
++  "frontmatter": {
++    "tags": [
++      "#civil",
++      "obrigacoes"
++    ]
++  },
++  "tags": [
++    "civil",
++    "obrigacoes"
++  ]
++}
+diff --git a/testdata/parser/frontmatter/tags_lista.md b/testdata/parser/frontmatter/tags_lista.md
+new file mode 100644
+index 0000000..d835563
+--- /dev/null
++++ b/testdata/parser/frontmatter/tags_lista.md
+@@ -0,0 +1,8 @@
++---
++tags:
++  # Uma entrada ja vem com '#' — tagsFromFrontmatter tem que cortar o
++  # prefixo tambem nas entradas de lista, nao so nas separadas por virgula.
++  - "#civil"
++  - obrigacoes
++---
++Nota sem nenhuma tag inline.
+diff --git a/testdata/parser/frontmatter/tags_string.json b/testdata/parser/frontmatter/tags_string.json
+new file mode 100644
+index 0000000..c2ba02a
+--- /dev/null
++++ b/testdata/parser/frontmatter/tags_string.json
+@@ -0,0 +1,11 @@
++{
++  "frontmatter": {
++    "tags": "civil, obrigacoes, contratos"
++  },
++  "tags": [
++    "civil",
++    "contratos",
++    "obrigacoes",
++    "penal"
++  ]
++}
+diff --git a/testdata/parser/frontmatter/tags_string.md b/testdata/parser/frontmatter/tags_string.md
+new file mode 100644
+index 0000000..1bf640f
+--- /dev/null
++++ b/testdata/parser/frontmatter/tags_string.md
+@@ -0,0 +1,5 @@
++---
++tags: civil, obrigacoes, contratos
++---
++Texto com uma tag inline #penal, que se junta as tags do frontmatter
++apos dedupeTags ordenar tudo.
+diff --git a/testdata/parser/frontmatter/vazio.json b/testdata/parser/frontmatter/vazio.json
+new file mode 100644
+index 0000000..d7d097e
+--- /dev/null
++++ b/testdata/parser/frontmatter/vazio.json
+@@ -0,0 +1,13 @@
++{
++  "headings": [
++    {
++      "level": 1,
++      "text": "Corpo com frontmatter vazio",
++      "slug": "corpo com frontmatter vazio",
++      "start": 8,
++      "end": 192,
++      "body_start": 38
++    }
++  ],
++  "title": "Corpo com frontmatter vazio"
++}
+diff --git a/testdata/parser/frontmatter/vazio.md b/testdata/parser/frontmatter/vazio.md
+new file mode 100644
+index 0000000..f6713ad
+--- /dev/null
++++ b/testdata/parser/frontmatter/vazio.md
+@@ -0,0 +1,7 @@
++---
++---
++# Corpo com frontmatter vazio
++
++O bloco de delimitadores existe mas nao tem chaves — DecodeFrontmatter
++nem chega a ser chamado porque SplitFrontmatter devolve fm de
++comprimento zero.
+diff --git a/testdata/parser/headings/acentos.json b/testdata/parser/headings/acentos.json
+new file mode 100644
+index 0000000..6608a9b
+--- /dev/null
++++ b/testdata/parser/headings/acentos.json
+@@ -0,0 +1,12 @@
++{
++  "headings": [
++    {
++      "level": 2,
++      "text": "Capítulo 118",
++      "slug": "capitulo 118",
++      "start": 198,
++      "end": 257,
++      "body_start": 215
++    }
++  ]
++}
+diff --git a/testdata/parser/headings/acentos.md b/testdata/parser/headings/acentos.md
+new file mode 100644
+index 0000000..1a2e0d0
+--- /dev/null
++++ b/testdata/parser/headings/acentos.md
+@@ -0,0 +1,6 @@
++<!-- Slug precisa normalizar acento: "Capítulo 118" tem que virar o slug
++"capitulo 118", que e o que faz [[nota#Capitulo 118]] (sem acento, grafia do
++usuario apressado) casar com este heading. -->
++## Capítulo 118
++
++Texto sobre o capítulo cento e dezoito.
+diff --git a/testdata/parser/headings/cerca_quatro_crases.json b/testdata/parser/headings/cerca_quatro_crases.json
+new file mode 100644
+index 0000000..2447bae
+--- /dev/null
++++ b/testdata/parser/headings/cerca_quatro_crases.json
+@@ -0,0 +1,21 @@
++{
++  "headings": [
++    {
++      "level": 1,
++      "text": "Antes",
++      "slug": "antes",
++      "start": 374,
++      "end": 429,
++      "body_start": 382
++    },
++    {
++      "level": 1,
++      "text": "Depois",
++      "slug": "depois",
++      "start": 429,
++      "end": 438,
++      "body_start": 438
++    }
++  ],
++  "title": "Antes"
++}
+diff --git a/testdata/parser/headings/cerca_quatro_crases.md b/testdata/parser/headings/cerca_quatro_crases.md
+new file mode 100644
+index 0000000..7a3b8c1
+--- /dev/null
++++ b/testdata/parser/headings/cerca_quatro_crases.md
+@@ -0,0 +1,14 @@
++<!-- CommonMark exige que a cerca de fechamento tenha PELO MENOS o comprimento
++da de abertura: uma linha de tres crases dentro de uma cerca de quatro NAO a
++fecha. Sem essa regra "# Depois" seria lido como heading real, quando na
++verdade ainda esta dentro do bloco de codigo — a hierarquia inteira sairia
++errada numa nota que documenta Markdown com exemplos aninhados. -->
++# Antes
++
++````go
++codigo
++```
++ainda dentro da cerca
++````
++
++# Depois
+diff --git a/testdata/parser/headings/duplicados.json b/testdata/parser/headings/duplicados.json
+new file mode 100644
+index 0000000..79f3a09
+--- /dev/null
++++ b/testdata/parser/headings/duplicados.json
+@@ -0,0 +1,20 @@
++{
++  "headings": [
++    {
++      "level": 2,
++      "text": "Introducao",
++      "slug": "introducao",
++      "start": 197,
++      "end": 223,
++      "body_start": 211
++    },
++    {
++      "level": 2,
++      "text": "Introducao",
++      "slug": "introducao",
++      "start": 223,
++      "end": 250,
++      "body_start": 237
++    }
++  ]
++}
+diff --git a/testdata/parser/headings/duplicados.md b/testdata/parser/headings/duplicados.md
+new file mode 100644
+index 0000000..69f030f
+--- /dev/null
++++ b/testdata/parser/headings/duplicados.md
+@@ -0,0 +1,10 @@
++<!-- Dois headings com o mesmo texto (e portanto o mesmo Slug): deduplicar ou
++desambiguar e responsabilidade do indice, nao do parser — ExtractHeadings
++devolve os dois exatamente como estao. -->
++## Introducao
++
++Texto um.
++
++## Introducao
++
++Texto dois.
+diff --git a/testdata/parser/headings/fechamento.json b/testdata/parser/headings/fechamento.json
+new file mode 100644
+index 0000000..f54c71a
+--- /dev/null
++++ b/testdata/parser/headings/fechamento.json
+@@ -0,0 +1,21 @@
++{
++  "headings": [
++    {
++      "level": 2,
++      "text": "Titulo com fechamento",
++      "slug": "titulo com fechamento",
++      "start": 322,
++      "end": 351,
++      "body_start": 350
++    },
++    {
++      "level": 1,
++      "text": "Notas sobre C#",
++      "slug": "notas sobre c",
++      "start": 351,
++      "end": 368,
++      "body_start": 368
++    }
++  ],
++  "title": "Notas sobre C#"
++}
+diff --git a/testdata/parser/headings/fechamento.md b/testdata/parser/headings/fechamento.md
+new file mode 100644
+index 0000000..84bc1ce
+--- /dev/null
++++ b/testdata/parser/headings/fechamento.md
+@@ -0,0 +1,8 @@
++<!-- Duas regras opostas de fechamento no mesmo fixture: a sequencia de
++cerquilhas precedida de espaco e removida, mas uma cerquilha colada direto
++ao texto (sem espaco antes) NAO e fechamento — "# Notas sobre C#" tem que
++continuar terminando em "C#", senao o heading deixa de ser enderecavel por
++ancora de wikilink. -->
++## Titulo com fechamento ##
++
++# Notas sobre C#
+diff --git a/testdata/parser/headings/hierarquia.json b/testdata/parser/headings/hierarquia.json
+new file mode 100644
+index 0000000..4fa70ff
+--- /dev/null
++++ b/testdata/parser/headings/hierarquia.json
+@@ -0,0 +1,37 @@
++{
++  "headings": [
++    {
++      "level": 1,
++      "text": "Titulo",
++      "slug": "titulo",
++      "start": 0,
++      "end": 93,
++      "body_start": 9
++    },
++    {
++      "level": 2,
++      "text": "Capitulo 1",
++      "slug": "capitulo 1",
++      "start": 20,
++      "end": 69,
++      "body_start": 34
++    },
++    {
++      "level": 3,
++      "text": "Subsecao",
++      "slug": "subsecao",
++      "start": 45,
++      "end": 69,
++      "body_start": 58
++    },
++    {
++      "level": 2,
++      "text": "Capitulo 2",
++      "slug": "capitulo 2",
++      "start": 69,
++      "end": 93,
++      "body_start": 83
++    }
++  ],
++  "title": "Titulo"
++}
+diff --git a/testdata/parser/headings/hierarquia.md b/testdata/parser/headings/hierarquia.md
+new file mode 100644
+index 0000000..7d5d14e
+--- /dev/null
++++ b/testdata/parser/headings/hierarquia.md
+@@ -0,0 +1,15 @@
++# Titulo
++
++Texto A.
++
++## Capitulo 1
++
++Texto B.
++
++### Subsecao
++
++Texto C.
++
++## Capitulo 2
++
++Texto D.
+diff --git a/testdata/parser/headings/nivel_pulado.json b/testdata/parser/headings/nivel_pulado.json
+new file mode 100644
+index 0000000..a01852e
+--- /dev/null
++++ b/testdata/parser/headings/nivel_pulado.json
+@@ -0,0 +1,21 @@
++{
++  "headings": [
++    {
++      "level": 1,
++      "text": "Titulo",
++      "slug": "titulo",
++      "start": 115,
++      "end": 170,
++      "body_start": 124
++    },
++    {
++      "level": 3,
++      "text": "Subsecao sem H2 pai",
++      "slug": "subsecao sem h2 pai",
++      "start": 133,
++      "end": 170,
++      "body_start": 157
++    }
++  ],
++  "title": "Titulo"
++}
+diff --git a/testdata/parser/headings/nivel_pulado.md b/testdata/parser/headings/nivel_pulado.md
+new file mode 100644
+index 0000000..5f006a2
+--- /dev/null
++++ b/testdata/parser/headings/nivel_pulado.md
+@@ -0,0 +1,9 @@
++<!-- H1 seguido direto de H3, sem H2 no meio: o parser nao valida nem
++renumera nivel, so le a contagem de '#'. -->
++# Titulo
++
++Texto.
++
++### Subsecao sem H2 pai
++
++Mais texto.
+diff --git a/testdata/parser/inline_fields/multiplos_por_linha.json b/testdata/parser/inline_fields/multiplos_por_linha.json
+new file mode 100644
+index 0000000..274b1eb
+--- /dev/null
++++ b/testdata/parser/inline_fields/multiplos_por_linha.json
+@@ -0,0 +1,11 @@
++{
++  "inline": {
++    "a": [
++      "1 b:: 2",
++      "1"
++    ],
++    "b": [
++      "2"
++    ]
++  }
++}
+diff --git a/testdata/parser/inline_fields/multiplos_por_linha.md b/testdata/parser/inline_fields/multiplos_por_linha.md
+new file mode 100644
+index 0000000..9917230
+--- /dev/null
++++ b/testdata/parser/inline_fields/multiplos_por_linha.md
+@@ -0,0 +1,11 @@
++<!-- Duas formas do Dataview lado a lado: sem colchetes, so um campo por
++linha vale (o valor de "a" absorve "1 b:: 2" inteiro, regra 2 barra o
++segundo "::" de virar campo novo porque "1 b" nao comeca a linha). Entre
++colchetes, cada campo tem seu proprio terminador ']' e os dois contam.
++Como as duas formas usam a mesma chave "a", Inline["a"] acumula as DUAS
++ocorrencias na ordem do documento — ["1 b:: 2", "1"] — a mesma regra de
++chave repetida que TestInlineFieldRepeatedKey cobre, so que entre formas
++diferentes em vez da mesma forma duas vezes. -->
++a:: 1 b:: 2
++
++[a:: 1] [b:: 2]
+diff --git a/testdata/parser/inline_fields/valor_wikilink.json b/testdata/parser/inline_fields/valor_wikilink.json
+new file mode 100644
+index 0000000..2af88bf
+--- /dev/null
++++ b/testdata/parser/inline_fields/valor_wikilink.json
+@@ -0,0 +1,16 @@
++{
++  "links": [
++    {
++      "raw": "[[STJ]]",
++      "target": "STJ",
++      "kind": 0,
++      "start": 214,
++      "end": 221
++    }
++  ],
++  "inline": {
++    "fonte": [
++      "[[STJ]]"
++    ]
++  }
++}
+diff --git a/testdata/parser/inline_fields/valor_wikilink.md b/testdata/parser/inline_fields/valor_wikilink.md
+new file mode 100644
+index 0000000..c2fe919
+--- /dev/null
++++ b/testdata/parser/inline_fields/valor_wikilink.md
+@@ -0,0 +1,4 @@
++<!-- O parser de campo inline avanca so sobre "chave::", sem consumir o
++valor — por isso um wikilink dentro do valor ainda e coletado em Links,
++alem de aparecer por inteiro (com colchetes) em Inline. -->
++fonte:: [[STJ]]
+diff --git a/testdata/parser/tags/emphasis.json b/testdata/parser/tags/emphasis.json
+new file mode 100644
+index 0000000..508767d
+--- /dev/null
++++ b/testdata/parser/tags/emphasis.json
+@@ -0,0 +1,5 @@
++{
++  "tags": [
++    "civil"
++  ]
++}
+diff --git a/testdata/parser/tags/emphasis.md b/testdata/parser/tags/emphasis.md
+new file mode 100644
+index 0000000..72868cb
+--- /dev/null
++++ b/testdata/parser/tags/emphasis.md
+@@ -0,0 +1,4 @@
++<!-- '*' e categoria Unicode Po/Pc, nao pontuacao de abertura — mas
++"**#civil**" (tag em negrito) e idioma comum no Obsidian, e tagPrecedingOK
++autoriza os tres marcadores de enfase (*, _, ~) por regra separada. -->
++**#civil**
+diff --git a/testdata/parser/tags/segmento_vazio.json b/testdata/parser/tags/segmento_vazio.json
+new file mode 100644
+index 0000000..9ef6d74
+--- /dev/null
++++ b/testdata/parser/tags/segmento_vazio.json
+@@ -0,0 +1,5 @@
++{
++  "tags": [
++    "a/b"
++  ]
++}
+diff --git a/testdata/parser/tags/segmento_vazio.md b/testdata/parser/tags/segmento_vazio.md
+new file mode 100644
+index 0000000..2e26fc7
+--- /dev/null
++++ b/testdata/parser/tags/segmento_vazio.md
+@@ -0,0 +1,5 @@
++<!-- Barra dupla interna produz um segmento vazio de hierarquia ao dividir por
++'/' — collapseTagSlashes colapsa para "a/b", nao "a//b". Sem isso tag_list
++com hierarchical:true criaria um no sem nome onde toda tag com segmento
++vazio na mesma profundidade colide. -->
++Veja #a//b depois.
+diff --git a/testdata/parser/tags/url_fragmento.json b/testdata/parser/tags/url_fragmento.json
+new file mode 100644
+index 0000000..0967ef4
+--- /dev/null
++++ b/testdata/parser/tags/url_fragmento.json
+@@ -0,0 +1 @@
++{}
+diff --git a/testdata/parser/tags/url_fragmento.md b/testdata/parser/tags/url_fragmento.md
+new file mode 100644
+index 0000000..b69505e
+--- /dev/null
++++ b/testdata/parser/tags/url_fragmento.md
+@@ -0,0 +1,4 @@
++<!-- '#' precedido de letra (o fim de "pagina") nao autoriza tag — sem essa
++checagem qualquer URL com fragmento no cofre viraria uma tag falsa, o
++falso positivo de maior volume possivel. -->
++Veja https://exemplo.com/pagina#secao para mais detalhes.
+diff --git a/testdata/parser/wikilinks/alias.json b/testdata/parser/wikilinks/alias.json
+new file mode 100644
+index 0000000..2f7a55c
+--- /dev/null
++++ b/testdata/parser/wikilinks/alias.json
+@@ -0,0 +1,12 @@
++{
++  "links": [
++    {
++      "raw": "[[nota-longa|apelido curto]]",
++      "target": "nota-longa",
++      "alias": "apelido curto",
++      "kind": 0,
++      "start": 24,
++      "end": 52
++    }
++  ]
++}
+diff --git a/testdata/parser/wikilinks/alias.md b/testdata/parser/wikilinks/alias.md
+new file mode 100644
+index 0000000..c33effe
+--- /dev/null
++++ b/testdata/parser/wikilinks/alias.md
+@@ -0,0 +1 @@
++Referencia com apelido: [[nota-longa|apelido curto]].
+diff --git a/testdata/parser/wikilinks/aninhado_ambiguo.json b/testdata/parser/wikilinks/aninhado_ambiguo.json
+new file mode 100644
+index 0000000..65e1e1b
+--- /dev/null
++++ b/testdata/parser/wikilinks/aninhado_ambiguo.json
+@@ -0,0 +1,19 @@
++{
++  "links": [
++    {
++      "raw": "d.md",
++      "target": "d.md",
++      "alias": " b",
++      "kind": 2,
++      "start": -1,
++      "end": -1
++    },
++    {
++      "raw": "[[a]]",
++      "target": "a",
++      "kind": 0,
++      "start": 307,
++      "end": 312
++    }
++  ]
++}
+diff --git a/testdata/parser/wikilinks/aninhado_ambiguo.md b/testdata/parser/wikilinks/aninhado_ambiguo.md
+new file mode 100644
+index 0000000..bacf0b3
+--- /dev/null
++++ b/testdata/parser/wikilinks/aninhado_ambiguo.md
+@@ -0,0 +1,5 @@
++<!-- Exemplo citado no comentario de wikilinkParser.Parse: um terceiro colchete
++faz o parser recusar "[[[a]]" em vez de chutar onde o wikilink comeca. Sem a
++recusa, o link Markdown para d.md desapareceria — um link real perdido sob
++qualquer leitura. Este fixture prova que o link markdown sobrevive. -->
++[[[a]] b](d.md)
+diff --git a/testdata/parser/wikilinks/bloco.json b/testdata/parser/wikilinks/bloco.json
+new file mode 100644
+index 0000000..81612db
+--- /dev/null
++++ b/testdata/parser/wikilinks/bloco.json
+@@ -0,0 +1,12 @@
++{
++  "links": [
++    {
++      "raw": "[[nota#^abc123]]",
++      "target": "nota",
++      "anchor": "^abc123",
++      "kind": 0,
++      "start": 23,
++      "end": 39
++    }
++  ]
++}
+diff --git a/testdata/parser/wikilinks/bloco.md b/testdata/parser/wikilinks/bloco.md
+new file mode 100644
+index 0000000..4fccaf4
+--- /dev/null
++++ b/testdata/parser/wikilinks/bloco.md
+@@ -0,0 +1 @@
++Referencia a um bloco: [[nota#^abc123]].
+diff --git a/testdata/parser/wikilinks/caminho.json b/testdata/parser/wikilinks/caminho.json
+new file mode 100644
+index 0000000..8482565
+--- /dev/null
++++ b/testdata/parser/wikilinks/caminho.json
+@@ -0,0 +1,11 @@
++{
++  "links": [
++    {
++      "raw": "[[Civil/PONTO 03]]",
++      "target": "Civil/PONTO 03",
++      "kind": 0,
++      "start": 24,
++      "end": 42
++    }
++  ]
++}
+diff --git a/testdata/parser/wikilinks/caminho.md b/testdata/parser/wikilinks/caminho.md
+new file mode 100644
+index 0000000..fe744fc
+--- /dev/null
++++ b/testdata/parser/wikilinks/caminho.md
+@@ -0,0 +1 @@
++Referencia por caminho: [[Civil/PONTO 03]].
+diff --git a/testdata/parser/wikilinks/embed.json b/testdata/parser/wikilinks/embed.json
+new file mode 100644
+index 0000000..49ae4a4
+--- /dev/null
++++ b/testdata/parser/wikilinks/embed.json
+@@ -0,0 +1,11 @@
++{
++  "links": [
++    {
++      "raw": "![[outra-nota]]",
++      "target": "outra-nota",
++      "kind": 1,
++      "start": 23,
++      "end": 38
++    }
++  ]
++}
+diff --git a/testdata/parser/wikilinks/embed.md b/testdata/parser/wikilinks/embed.md
+new file mode 100644
+index 0000000..29156ed
+--- /dev/null
++++ b/testdata/parser/wikilinks/embed.md
+@@ -0,0 +1 @@
++Embute a nota inteira: ![[outra-nota]].
+diff --git a/testdata/parser/wikilinks/embed_imagem.json b/testdata/parser/wikilinks/embed_imagem.json
+new file mode 100644
+index 0000000..261527b
+--- /dev/null
++++ b/testdata/parser/wikilinks/embed_imagem.json
+@@ -0,0 +1,19 @@
++{
++  "links": [
++    {
++      "raw": "![[imagem.png]]",
++      "target": "imagem.png",
++      "kind": 1,
++      "start": 63,
++      "end": 78
++    },
++    {
++      "raw": "imagem.png",
++      "target": "imagem.png",
++      "alias": "alt",
++      "kind": 1,
++      "start": -1,
++      "end": -1
++    }
++  ]
++}
+diff --git a/testdata/parser/wikilinks/embed_imagem.md b/testdata/parser/wikilinks/embed_imagem.md
+new file mode 100644
+index 0000000..cd3944d
+--- /dev/null
++++ b/testdata/parser/wikilinks/embed_imagem.md
+@@ -0,0 +1,5 @@
++Duas grafias diferentes para o mesmo tipo de embed: a wikilink
++![[imagem.png]] e a markdown ![alt](imagem.png). Ambas tem que
++aparecer em Links com Kind=embed — sem o caso Markdown em collect,
++metade dos anexos do cofre fica invisivel dependendo de como a nota
++foi escrita.
+diff --git a/testdata/parser/wikilinks/heading.json b/testdata/parser/wikilinks/heading.json
+new file mode 100644
+index 0000000..c95b923
+--- /dev/null
++++ b/testdata/parser/wikilinks/heading.json
+@@ -0,0 +1,12 @@
++{
++  "links": [
++    {
++      "raw": "[[nota#Capitulo 1]]",
++      "target": "nota",
++      "anchor": "Capitulo 1",
++      "kind": 0,
++      "start": 24,
++      "end": 43
++    }
++  ]
++}
+diff --git a/testdata/parser/wikilinks/heading.md b/testdata/parser/wikilinks/heading.md
+new file mode 100644
+index 0000000..0faced1
+--- /dev/null
++++ b/testdata/parser/wikilinks/heading.md
+@@ -0,0 +1 @@
++Referencia a uma secao: [[nota#Capitulo 1]].
+diff --git a/testdata/parser/wikilinks/heading_alias.json b/testdata/parser/wikilinks/heading_alias.json
+new file mode 100644
+index 0000000..d8f6cf8
+--- /dev/null
++++ b/testdata/parser/wikilinks/heading_alias.json
+@@ -0,0 +1,13 @@
++{
++  "links": [
++    {
++      "raw": "[[nota#Capitulo 1|Cap 1]]",
++      "target": "nota",
++      "alias": "Cap 1",
++      "anchor": "Capitulo 1",
++      "kind": 0,
++      "start": 19,
++      "end": 44
++    }
++  ]
++}
+diff --git a/testdata/parser/wikilinks/heading_alias.md b/testdata/parser/wikilinks/heading_alias.md
+new file mode 100644
+index 0000000..d5663ba
+--- /dev/null
++++ b/testdata/parser/wikilinks/heading_alias.md
+@@ -0,0 +1 @@
++Secao com apelido: [[nota#Capitulo 1|Cap 1]].
+diff --git a/testdata/parser/wikilinks/multiplos.json b/testdata/parser/wikilinks/multiplos.json
+new file mode 100644
+index 0000000..1a67007
+--- /dev/null
++++ b/testdata/parser/wikilinks/multiplos.json
+@@ -0,0 +1,26 @@
++{
++  "links": [
++    {
++      "raw": "[[nota-a]]",
++      "target": "nota-a",
++      "kind": 0,
++      "start": 9,
++      "end": 19
++    },
++    {
++      "raw": "[[nota-b|apelido]]",
++      "target": "nota-b",
++      "alias": "apelido",
++      "kind": 0,
++      "start": 28,
++      "end": 46
++    },
++    {
++      "raw": "![[diagrama.pdf]]",
++      "target": "diagrama.pdf",
++      "kind": 1,
++      "start": 67,
++      "end": 84
++    }
++  ]
++}
+diff --git a/testdata/parser/wikilinks/multiplos.md b/testdata/parser/wikilinks/multiplos.md
+new file mode 100644
+index 0000000..6ce3197
+--- /dev/null
++++ b/testdata/parser/wikilinks/multiplos.md
+@@ -0,0 +1,2 @@
++Primeiro [[nota-a]], depois [[nota-b|apelido]], e por fim um anexo
++![[diagrama.pdf]].
+diff --git a/testdata/parser/wikilinks/simples.json b/testdata/parser/wikilinks/simples.json
+new file mode 100644
+index 0000000..42f547c
+--- /dev/null
++++ b/testdata/parser/wikilinks/simples.json
+@@ -0,0 +1,11 @@
++{
++  "links": [
++    {
++      "raw": "[[outra-nota]]",
++      "target": "outra-nota",
++      "kind": 0,
++      "start": 24,
++      "end": 38
++    }
++  ]
++}
+diff --git a/testdata/parser/wikilinks/simples.md b/testdata/parser/wikilinks/simples.md
+new file mode 100644
+index 0000000..f1f2f07
+--- /dev/null
++++ b/testdata/parser/wikilinks/simples.md
+@@ -0,0 +1 @@
++Uma nota que referencia [[outra-nota]] no meio da frase.
+diff --git a/testdata/parser/wikilinks/triplo.json b/testdata/parser/wikilinks/triplo.json
+new file mode 100644
+index 0000000..7889274
+--- /dev/null
++++ b/testdata/parser/wikilinks/triplo.json
+@@ -0,0 +1,11 @@
++{
++  "links": [
++    {
++      "raw": "[[triplo]]",
++      "target": "triplo",
++      "kind": 0,
++      "start": 465,
++      "end": 475
++    }
++  ]
++}
+diff --git a/testdata/parser/wikilinks/triplo.md b/testdata/parser/wikilinks/triplo.md
+new file mode 100644
+index 0000000..7a4cb0a
+--- /dev/null
++++ b/testdata/parser/wikilinks/triplo.md
+@@ -0,0 +1,7 @@
++<!-- Pina o comportamento documentado em wikilinkParser.Parse para colchete
++triplo: o parser recusa a primeira oferta do gatilho (offset+2 acha '['), e o
++goldmark reoferece o gatilho um byte adiante — onde a analise deixa de ser
++ambigua. O resultado exato (link para "triplo" ou nenhum link) e questao de
++paridade em aberto para a Task 25; este golden fixa o que o codigo de hoje
++produz para que uma mudanca futura seja uma decisao visivel, nao um acidente. -->
++[[[triplo]]]

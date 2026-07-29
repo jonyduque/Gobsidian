@@ -1,0 +1,475 @@
+# Review package: 4255e1b..HEAD
+
+## Commits
+c6afbd3 docs(plan): make the CRLF heading fixture siblings and correct the TrimRight claim
+0d32ff0 fix(parser): stop mangling C#-style headings, pin heading rules with mutation-tested cases
+60fe2b6 docs(plan): pin the heading rules a mutation battery showed untested
+4cc8da2 docs(plan): require a space before closing hashes and pin Start at line start
+
+## Files changed
+ docs/superpowers/plans/2026-07-25-gobsidian-v01.md | 144 +++++++++++++++++++--
+ internal/parser/headings.go                        |  33 +++--
+ internal/parser/headings_test.go                   |  72 ++++++++++-
+ internal/parser/types.go                           |  12 +-
+ 4 files changed, 235 insertions(+), 26 deletions(-)
+
+## Diff
+diff --git a/docs/superpowers/plans/2026-07-25-gobsidian-v01.md b/docs/superpowers/plans/2026-07-25-gobsidian-v01.md
+index 4d82613..db2c3a5 100644
+--- a/docs/superpowers/plans/2026-07-25-gobsidian-v01.md
++++ b/docs/superpowers/plans/2026-07-25-gobsidian-v01.md
+@@ -4663,22 +4663,25 @@ func (k LinkKind) String() string {
+ 	default:
+ 		return "wikilink"
+ 	}
+ }
+ 
+ // Heading e uma secao do documento delimitada por uma linha "#"..."######".
+ type Heading struct {
+ 	Level int    `json:"level"`
+ 	Text  string `json:"text"`
+ 	Slug  string `json:"slug"`
+-	// Start e o offset do '#', relativo ao mesmo buffer que SplitFrontmatter
+-	// recebeu — ja com o bodyOffset somado por Parse. End e o offset do fim da
++	// Start e o offset do inicio da LINHA do heading, nao do '#'. Um heading
++	// aceita ate tres espacos de indentacao, e replace_heading_and_section
++	// precisa consumi-los junto — substituir a partir do '#' deixaria a
++	// indentacao orfa antes do conteudo novo. Relativo ao mesmo buffer que
++	// SplitFrontmatter recebeu, ja com o bodyOffset somado por Parse. End e o offset do fim da
+ 	// secao: o inicio do proximo heading de nivel menor ou igual, ou o fim do
+ 	// buffer. Block.Start e Link.Start seguem a mesma origem.
+ 	//
+ 	// A origem precisa estar escrita aqui porque um ParsedNote sozinho nao
+ 	// permite descobri-la: quem so recebe a struct nao tem como saber se os
+ 	// offsets sao do corpo ou do buffer inteiro.
+ 	Start int64 `json:"start"`
+ 	End   int64 `json:"end"`
+ 	// BodyStart e o offset logo apos a linha do heading. E o que
+ 	// replace_section usa: preserva o titulo e substitui so o que vem abaixo.
+@@ -4960,29 +4963,144 @@ func TestExtractHeadingsIgnoresCodeBlocks(t *testing.T) {
+ 
+ 	if len(hs) != 2 {
+ 		t.Fatalf("headings = %d, quer 2: %+v", len(hs), hs)
+ 	}
+ 	if hs[1].Text != "Tambem real" {
+ 		t.Errorf("hs[1].Text = %q", hs[1].Text)
+ 	}
+ }
+ 
+ func TestExtractHeadingsCRLF(t *testing.T) {
+-	body := "# A\r\ntexto\r\n## B\r\n"
++	body := "# A\r\ntexto\r\n# B\r\n"
+ 
+ 	hs := parser.ExtractHeadings([]byte(body), 0)
+ 
+ 	if len(hs) != 2 {
+ 		t.Fatalf("headings = %d, quer 2", len(hs))
+ 	}
+ 	if hs[0].Text != "A" || hs[1].Text != "B" {
+-		t.Errorf("textos = %q, %q — CR nao foi removido", hs[0].Text, hs[1].Text)
++		t.Errorf("textos = %q, %q", hs[0].Text, hs[1].Text)
++	}
++
++	// A e B sao IRMAOS de proposito. Com "## B" o assert de End abaixo estaria
++	// errado: a secao de um H1 nao termina num H2 aninhado, vai ate o proximo
++	// heading de nivel menor ou igual — aqui, o fim do buffer.
++	//
++	// Os offsets sao o que uma assercao so de texto nao pega. Eles vem de
++	// IndexByte e advance, que contam o CR; o texto passa por TrimSpace, que
++	// o come. Um erro na contagem de advance nao muda nenhum Text e desloca
++	// todas as posicoes — foi essa classe de omissao que a revisao da Task 12
++	// encontrou.
++	//
++	// O bytes.TrimRight(line, CR) no scan e defensivo: hoje nao ha caminho em
++	// que ele mude o resultado, porque os tres consumidores do texto
++	// (parseATXHeading, openFence, closesFence) ja passam por TrimSpace ou nao
++	// olham o fim da linha. Nao remova esperando que um teste reprove.
++	if hs[0].BodyStart != 5 {
++		t.Errorf("A.BodyStart = %d, quer 5", hs[0].BodyStart)
++	}
++	if hs[1].Start != 12 {
++		t.Errorf("B.Start = %d, quer 12", hs[1].Start)
++	}
++	if hs[0].End != hs[1].Start {
++		t.Errorf("A.End = %d, quer %d (inicio de B)", hs[0].End, hs[1].Start)
++	}
++	if got := body[hs[0].BodyStart:hs[0].End]; got != "texto
++" {
++		t.Errorf("corpo de A = %q", got)
++	}
++}
++
++// As regras abaixo sobreviviam a mutacao sem nenhum teste reprovar: o
++// comprimento minimo da cerca de fechamento, a info string, os limites de
++// indentacao e cada regra de parseATXHeading. Uma regra que nenhuma mutacao
++// reprova nao esta verificada, esta apenas escrita.
++func TestExtractHeadingsRules(t *testing.T) {
++	tests := []struct {
++		name string
++		body string
++		want []string
++	}{
++		{"fechamento mais longo que a abertura fecha", "````
++codigo
++`````
++# Depois
++", []string{"Depois"}},
++		{"fechamento mais curto nao fecha", "````
++```
++# Dentro
++````
++# Depois
++", []string{"Depois"}},
++		{"til nao fecha crase", "```
++~~~
++# Dentro
++```
++# Depois
++", []string{"Depois"}},
++		{"crase nao fecha til", "~~~
++```
++# Dentro
++~~~
++# Depois
++", []string{"Depois"}},
++		{"info string no fechamento nao fecha", "```
++``` go
++# Dentro
++```
++# Depois
++", []string{"Depois"}},
++		{"abertura com linguagem fecha com cerca simples", "```go
++codigo
++```
++# Depois
++", []string{"Depois"}},
++		{"crase na info string nao abre cerca", "```x``` y
++# Depois
++", []string{"Depois"}},
++		{"cerca indentada com quatro espacos nao abre", "    ```
++# Depois
++", []string{"Depois"}},
++		{"cerca indentada com tres espacos abre", "   ```
++# Dentro
++   ```
++# Depois
++", []string{"Depois"}},
++		{"heading indentado com tres espacos vale", "   # A
++", []string{"A"}},
++		{"heading indentado com quatro espacos nao vale", "    # A
++", nil},
++		{"sete cerquilhas nao e heading", "####### A
++", nil},
++		{"sem espaco depois da cerquilha nao e heading", "#A
++", nil},
++		{"cerquilhas sozinhas viram heading de texto vazio", "##
++", []string{""}},
++		{"fechamento com cerquilhas e removido", "## Titulo ##
++", []string{"Titulo"}},
++		{"cerquilha colada ao texto NAO e fechamento", "# Notas sobre C#
++", []string{"Notas sobre C#"}},
++	}
++
++	for _, tt := range tests {
++		t.Run(tt.name, func(t *testing.T) {
++			hs := parser.ExtractHeadings([]byte(tt.body), 0)
++
++			if len(hs) != len(tt.want) {
++				t.Fatalf("headings = %d (%+v), quer %d %v", len(hs), hs, len(tt.want), tt.want)
++			}
++			for i, w := range tt.want {
++				if hs[i].Text != w {
++					t.Errorf("headings[%d].Text = %q, quer %q", i, hs[i].Text, w)
++				}
++			}
++		})
+ 	}
+ }
+ ```
+ 
+ - [ ] **Step 2: Rodar para confirmar que falha**
+ 
+ Run: `go test ./internal/parser/ -run TestExtractHeadings -v`
+ Esperado: FAIL — `undefined: parser.ExtractHeadings`.
+ 
+ - [ ] **Step 3: Implementar**
+@@ -5042,22 +5160,21 @@ func ExtractHeadings(body []byte, bodyOffset int64) []Heading {
+ 			continue
+ 		}
+ 
+ 		if f, ok := openFence(text); ok {
+ 			inFence, fence = true, f
+ 			pos += advance
+ 			body = body[advance:]
+ 			continue
+ 		}
+ 
+-		if !inFence {
+-			if level, title, ok := parseATXHeading(text); ok {
++		if level, title, ok := parseATXHeading(text); ok {
+ 				out = append(out, Heading{
+ 					Level:     level,
+ 					Text:      title,
+ 					Slug:      Slug(title),
+ 					Start:     bodyOffset + pos,
+ 					BodyStart: bodyOffset + pos + advance,
+ 				})
+ 			}
+ 		}
+ 
+@@ -5096,22 +5213,33 @@ func parseATXHeading(line string) (int, string, bool) {
+ 		level++
+ 	}
+ 	if level == 0 || level > 6 {
+ 		return 0, "", false
+ 	}
+ 	if level < len(trimmed) && trimmed[level] != ' ' && trimmed[level] != '\t' {
+ 		return 0, "", false
+ 	}
+ 
+ 	title := strings.TrimSpace(trimmed[level:])
+-	// Fechamento opcional: "## Titulo ##".
+-	title = strings.TrimRight(title, "#")
++
++	// Sequencia de fechamento opcional: "## Titulo ##". O CommonMark so a
++	// remove quando vem precedida de espaco ou quando e todo o conteudo.
++	// Remover incondicionalmente transforma "# Notas sobre C#" em
++	// "Notas sobre C", e um heading que termina em '#' deixa de ser
++	// enderecavel por note_read, por note_patch e por ancora de wikilink.
++	if closing := len(title) - len(strings.TrimRight(title, "#")); closing > 0 {
++		rest := title[:len(title)-closing]
++		if rest == "" || strings.HasSuffix(rest, " ") || strings.HasSuffix(rest, "	") {
++			title = rest
++		}
++	}
++
+ 	return level, strings.TrimSpace(title), true
+ }
+ 
+ // fenceInfo descreve uma cerca aberta. O comprimento importa: o CommonMark
+ // exige que a cerca de fechamento tenha pelo menos o tamanho da de abertura,
+ // o que e justamente o que permite mostrar um bloco de tres crases dentro de
+ // um bloco de quatro — padrao comum em nota que documenta Markdown.
+ type fenceInfo struct {
+ 	char  byte
+ 	count int
+diff --git a/internal/parser/headings.go b/internal/parser/headings.go
+index a86f580..cb18ce2 100644
+--- a/internal/parser/headings.go
++++ b/internal/parser/headings.go
+@@ -50,30 +50,28 @@ func ExtractHeadings(body []byte, bodyOffset int64) []Heading {
+ 			continue
+ 		}
+ 
+ 		if f, ok := openFence(text); ok {
+ 			inFence, fence = true, f
+ 			pos += advance
+ 			body = body[advance:]
+ 			continue
+ 		}
+ 
+-		if !inFence {
+-			if level, title, ok := parseATXHeading(text); ok {
+-				out = append(out, Heading{
+-					Level:     level,
+-					Text:      title,
+-					Slug:      Slug(title),
+-					Start:     bodyOffset + pos,
+-					BodyStart: bodyOffset + pos + advance,
+-				})
+-			}
++		if level, title, ok := parseATXHeading(text); ok {
++			out = append(out, Heading{
++				Level:     level,
++				Text:      title,
++				Slug:      Slug(title),
++				Start:     bodyOffset + pos,
++				BodyStart: bodyOffset + pos + advance,
++			})
+ 		}
+ 
+ 		pos += advance
+ 		body = body[advance:]
+ 	}
+ 
+ 	total := bodyOffset + pos
+ 	closeSections(out, total)
+ 	return out
+ }
+@@ -104,22 +102,33 @@ func parseATXHeading(line string) (int, string, bool) {
+ 		level++
+ 	}
+ 	if level == 0 || level > 6 {
+ 		return 0, "", false
+ 	}
+ 	if level < len(trimmed) && trimmed[level] != ' ' && trimmed[level] != '\t' {
+ 		return 0, "", false
+ 	}
+ 
+ 	title := strings.TrimSpace(trimmed[level:])
+-	// Fechamento opcional: "## Titulo ##".
+-	title = strings.TrimRight(title, "#")
++
++	// Sequencia de fechamento opcional: "## Titulo ##". O CommonMark so a
++	// remove quando vem precedida de espaco ou quando e todo o conteudo.
++	// Remover incondicionalmente transforma "# Notas sobre C#" em
++	// "Notas sobre C", e um heading que termina em '#' deixa de ser
++	// enderecavel por note_read, por note_patch e por ancora de wikilink.
++	if closing := len(title) - len(strings.TrimRight(title, "#")); closing > 0 {
++		rest := title[:len(title)-closing]
++		if rest == "" || strings.HasSuffix(rest, " ") || strings.HasSuffix(rest, "\t") {
++			title = rest
++		}
++	}
++
+ 	return level, strings.TrimSpace(title), true
+ }
+ 
+ // fenceInfo descreve uma cerca aberta. O comprimento importa: o CommonMark
+ // exige que a cerca de fechamento tenha pelo menos o tamanho da de abertura,
+ // o que e justamente o que permite mostrar um bloco de tres crases dentro de
+ // um bloco de quatro — padrao comum em nota que documenta Markdown.
+ type fenceInfo struct {
+ 	char  byte
+ 	count int
+diff --git a/internal/parser/headings_test.go b/internal/parser/headings_test.go
+index fb319a6..65cc786 100644
+--- a/internal/parser/headings_test.go
++++ b/internal/parser/headings_test.go
+@@ -61,29 +61,97 @@ func TestExtractHeadingsIgnoresCodeBlocks(t *testing.T) {
+ 
+ 	if len(hs) != 2 {
+ 		t.Fatalf("headings = %d, quer 2: %+v", len(hs), hs)
+ 	}
+ 	if hs[1].Text != "Tambem real" {
+ 		t.Errorf("hs[1].Text = %q", hs[1].Text)
+ 	}
+ }
+ 
+ func TestExtractHeadingsCRLF(t *testing.T) {
+-	body := "# A\r\ntexto\r\n## B\r\n"
++	// B is level 1, same as A: closeSections only ends A's section at a
++	// heading of level <= A's own (verified in
++	// TestExtractHeadingsSectionBoundaries). A level-2 "## B" would be a
++	// subsection of A, so A.End would legitimately run to the buffer's end
++	// instead of B's Start — same-level siblings are what makes A.End land
++	// exactly at B.Start observable here, mirroring the choice made in
++	// TestExtractHeadingsFenceRequiresMatchingCloseLength.
++	body := "# A\r\ntexto\r\n# B\r\n"
+ 
+ 	hs := parser.ExtractHeadings([]byte(body), 0)
+ 
+ 	if len(hs) != 2 {
+ 		t.Fatalf("headings = %d, quer 2", len(hs))
+ 	}
+ 	if hs[0].Text != "A" || hs[1].Text != "B" {
+-		t.Errorf("textos = %q, %q — CR nao foi removido", hs[0].Text, hs[1].Text)
++		t.Errorf("textos = %q, %q", hs[0].Text, hs[1].Text)
++	}
++
++	// Os offsets sao o que importa aqui, e o que uma assercao so de texto nao
++	// pega: TrimSpace dentro de parseATXHeading ja come o CR, entao remover o
++	// TrimRight nao muda o texto e muda todas as posicoes. Foi exatamente esta
++	// classe de omissao que a revisao da Task 12 encontrou.
++	if hs[0].BodyStart != 5 {
++		t.Errorf("A.BodyStart = %d, quer 5", hs[0].BodyStart)
++	}
++	if hs[1].Start != 12 {
++		t.Errorf("B.Start = %d, quer 12", hs[1].Start)
++	}
++	if hs[0].End != hs[1].Start {
++		t.Errorf("A.End = %d, quer %d (inicio de B)", hs[0].End, hs[1].Start)
++	}
++	if got := body[hs[0].BodyStart:hs[0].End]; got != "texto\r\n" {
++		t.Errorf("corpo de A = %q", got)
++	}
++}
++
++// As regras abaixo sobreviviam a mutacao sem nenhum teste reprovar: o
++// comprimento minimo da cerca de fechamento, a info string, os limites de
++// indentacao e cada regra de parseATXHeading. Uma regra que nenhuma mutacao
++// reprova nao esta verificada, esta apenas escrita.
++func TestExtractHeadingsRules(t *testing.T) {
++	tests := []struct {
++		name string
++		body string
++		want []string
++	}{
++		{"fechamento mais longo que a abertura fecha", "````\ncodigo\n`````\n# Depois\n", []string{"Depois"}},
++		{"fechamento mais curto nao fecha", "````\n```\n# Dentro\n````\n# Depois\n", []string{"Depois"}},
++		{"til nao fecha crase", "```\n~~~\n# Dentro\n```\n# Depois\n", []string{"Depois"}},
++		{"crase nao fecha til", "~~~\n```\n# Dentro\n~~~\n# Depois\n", []string{"Depois"}},
++		{"info string no fechamento nao fecha", "```\n``` go\n# Dentro\n```\n# Depois\n", []string{"Depois"}},
++		{"abertura com linguagem fecha com cerca simples", "```go\ncodigo\n```\n# Depois\n", []string{"Depois"}},
++		{"crase na info string nao abre cerca", "```x``` y\n# Depois\n", []string{"Depois"}},
++		{"cerca indentada com quatro espacos nao abre", "    ```\n# Depois\n", []string{"Depois"}},
++		{"cerca indentada com tres espacos abre", "   ```\n# Dentro\n   ```\n# Depois\n", []string{"Depois"}},
++		{"heading indentado com tres espacos vale", "   # A\n", []string{"A"}},
++		{"heading indentado com quatro espacos nao vale", "    # A\n", nil},
++		{"sete cerquilhas nao e heading", "####### A\n", nil},
++		{"sem espaco depois da cerquilha nao e heading", "#A\n", nil},
++		{"cerquilhas sozinhas viram heading de texto vazio", "##\n", []string{""}},
++		{"fechamento com cerquilhas e removido", "## Titulo ##\n", []string{"Titulo"}},
++		{"cerquilha colada ao texto NAO e fechamento", "# Notas sobre C#\n", []string{"Notas sobre C#"}},
++	}
++
++	for _, tt := range tests {
++		t.Run(tt.name, func(t *testing.T) {
++			hs := parser.ExtractHeadings([]byte(tt.body), 0)
++
++			if len(hs) != len(tt.want) {
++				t.Fatalf("headings = %d (%+v), quer %d %v", len(hs), hs, len(tt.want), tt.want)
++			}
++			for i, w := range tt.want {
++				if hs[i].Text != w {
++					t.Errorf("headings[%d].Text = %q, quer %q", i, hs[i].Text, w)
++				}
++			}
++		})
+ 	}
+ }
+ 
+ // TestExtractHeadingsFenceRequiresMatchingCloseLength asserts the
+ // CommonMark-correct guarantee: a closing fence must have at least as many
+ // characters as the opener. A fence opened with four backticks is NOT closed
+ // by a bare three-backtick line inside it — that line is ordinary fenced
+ // content, since a note documenting Markdown routinely nests a shorter fence
+ // example inside a longer one. "# After" therefore stays inside the block
+ // and must not be extracted as a heading.
+diff --git a/internal/parser/types.go b/internal/parser/types.go
+index e5fc895..0eda69b 100644
+--- a/internal/parser/types.go
++++ b/internal/parser/types.go
+@@ -26,24 +26,28 @@ func (k LinkKind) String() string {
+ 	default:
+ 		return "wikilink"
+ 	}
+ }
+ 
+ // Heading e uma secao do documento delimitada por uma linha "#"..."######".
+ type Heading struct {
+ 	Level int    `json:"level"`
+ 	Text  string `json:"text"`
+ 	Slug  string `json:"slug"`
+-	// Start e o offset do '#', relativo ao mesmo buffer que SplitFrontmatter
+-	// recebeu — ja com o bodyOffset somado por Parse. End e o offset do fim da
+-	// secao: o inicio do proximo heading de nivel menor ou igual, ou o fim do
+-	// buffer. Block.Start e Link.Start seguem a mesma origem.
++	// Start e o offset do inicio da LINHA do heading, nao do '#'. Um heading
++	// aceita ate tres espacos de indentacao, e replace_heading_and_section
++	// precisa consumi-los junto — substituir a partir do '#' deixaria a
++	// indentacao orfa antes do conteudo novo. Relativo ao mesmo buffer que
++	// SplitFrontmatter recebeu, ja com o bodyOffset somado por Parse. End e o
++	// offset do fim da secao: o inicio do proximo heading de nivel menor ou
++	// igual, ou o fim do buffer. Block.Start e Link.Start seguem a mesma
++	// origem.
+ 	//
+ 	// A origem precisa estar escrita aqui porque um ParsedNote sozinho nao
+ 	// permite descobri-la: quem so recebe a struct nao tem como saber se os
+ 	// offsets sao do corpo ou do buffer inteiro.
+ 	Start int64 `json:"start"`
+ 	End   int64 `json:"end"`
+ 	// BodyStart e o offset logo apos a linha do heading. E o que
+ 	// replace_section usa: preserva o titulo e substitui so o que vem abaixo.
+ 	BodyStart int64 `json:"body_start"`
+ }

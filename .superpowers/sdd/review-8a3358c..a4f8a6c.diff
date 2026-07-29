@@ -1,0 +1,382 @@
+# Review package: 8a3358c..HEAD
+
+## Commits
+a4f8a6c feat(lifecycle): watch parent process identity, not just PID
+3e0a6ff docs: fix live-parent test deadlock and subreaper-safe unix parent identity
+
+## Files changed
+ docs/superpowers/plans/2026-07-25-gobsidian-v01.md | 47 +++++++----
+ internal/lifecycle/parent.go                       | 44 ++++++++++-
+ internal/lifecycle/parent_test.go                  | 91 ++++++++++++++++++++++
+ internal/lifecycle/parent_unix.go                  | 45 +++++++++++
+ internal/lifecycle/parent_windows.go               | 38 +++++++++
+ 5 files changed, 250 insertions(+), 15 deletions(-)
+
+## Diff
+diff --git a/docs/superpowers/plans/2026-07-25-gobsidian-v01.md b/docs/superpowers/plans/2026-07-25-gobsidian-v01.md
+index ccd1899..6d34b69 100644
+--- a/docs/superpowers/plans/2026-07-25-gobsidian-v01.md
++++ b/docs/superpowers/plans/2026-07-25-gobsidian-v01.md
+@@ -1028,32 +1028,47 @@ func TestParentGoneCancelsContext(t *testing.T) {
+ 		t.Errorf("Reason() = %q, quer %q", got, "parent-gone")
+ 	}
+ 	lc.Wait()
+ }
+ 
+ func TestLiveParentKeepsContextAlive(t *testing.T) {
+ 	pr, pw := io.Pipe()
+ 	t.Cleanup(func() { _ = pw.Close() })
+ 
+ 	// O proprio processo de teste como pai: esta vivo por definicao.
+-	ctx, lc := lifecycle.New(context.Background(), lifecycle.Options{
++	parent, cancelParent := context.WithCancel(context.Background())
++	ctx, lc := lifecycle.New(parent, lifecycle.Options{
+ 		Stdin:               pr,
+ 		ParentPID:           os.Getpid(),
+ 		ParentCheckInterval: 50 * time.Millisecond,
+ 	})
+ 
+ 	select {
+ 	case <-ctx.Done():
+ 		t.Fatal("context cancelado com o pai vivo")
+ 	case <-time.After(500 * time.Millisecond):
+ 	}
+-	lc.Wait()
++
++	// Esta e a unica assercao do teste, e ela ja foi feita. O cancelamento
++	// abaixo existe para desenrolar as goroutines: tanto o vigia de sinais
++	// quanto o do pai bloqueiam em ctx.Done(), entao Wait() so retorna depois
++	// que o context morre. Chamar Wait() sem cancelar antes trava para sempre.
++	cancelParent()
++
++	done := make(chan struct{})
++	go func() { lc.Wait(); close(done) }()
++
++	select {
++	case <-done:
++	case <-time.After(2 * time.Second):
++		t.Fatal("Wait() nao retornou apos o cancelamento do context")
++	}
+ }
+ ```
+ 
+ Adicione `"os"` aos imports.
+ 
+ - [ ] **Step 2: Rodar para confirmar que falha**
+ 
+ Run: `go test ./internal/lifecycle/ -run TestParent -v`
+ Esperado: FAIL — `TestParentGoneCancelsContext` estoura o timeout, porque o stub não faz nada.
+ 
+@@ -1162,47 +1177,53 @@ func sameProcess(a, b identity) bool {
+ 
+ package lifecycle
+ 
+ import (
+ 	"fmt"
+ 	"os"
+ 	"syscall"
+ )
+ 
+ // No Unix nao ha equivalente barato e portavel de creation time, e nao ha
+-// necessidade: quando o pai morre, o filho e reparentado para o init, e
+-// os.Getppid() passa a devolver 1. Esse e o sinal, e ele nao sofre de
+-// reutilizacao de PID.
++// necessidade: quando o pai morre, o filho e reparentado, e os.Getppid()
++// muda. Essa mudanca e o sinal, e ela nao sofre de reutilizacao de PID.
++//
++// O que a identidade guarda e o ppid observado no momento da captura, nao a
++// constante 1. Comparar contra 1 parece equivalente e nao e: em containers e
++// sob supervisores modernos o reaper nao e o init. Docker com tini, systemd
++// com um servico de usuario e s6 todos reparentam para um PID que nao e 1, e
++// uma verificacao de `Getppid() == 1` nunca dispara nesses ambientes — o pai
++// morre e o processo sobrevive indefinidamente, que e exatamente a falha que
++// este pacote existe para eliminar.
++//
++// Comparar o ppid atual com o inicial funciona em qualquer um deles: se
++// mudou, fomos reparentados, e so ha um motivo para isso.
+ type identity struct {
+-	pid     int
+-	reaped  bool
++	pid  int
++	ppid int
+ }
+ 
+ func parentIdentity(pid int) (identity, error) {
+-	if os.Getppid() == 1 && pid != 1 {
+-		return identity{pid: pid, reaped: true}, nil
+-	}
+-
+ 	proc, err := os.FindProcess(pid)
+ 	if err != nil {
+ 		return identity{}, fmt.Errorf("localizando processo %d: %w", pid, err)
+ 	}
+ 	// Sinal 0 nao entrega nada; so testa existencia e permissao.
+ 	if err := proc.Signal(syscall.Signal(0)); err != nil {
+ 		return identity{}, fmt.Errorf("processo %d inacessivel: %w", pid, err)
+ 	}
+ 
+-	return identity{pid: pid}, nil
++	return identity{pid: pid, ppid: os.Getppid()}, nil
+ }
+ 
+ func sameProcess(a, b identity) bool {
+-	return a.pid == b.pid && !b.reaped
++	return a.pid == b.pid && a.ppid == b.ppid
+ }
+ ```
+ 
+ - [ ] **Step 6: Rodar para confirmar que passa**
+ 
+ Run: `go test -race ./internal/lifecycle/ -v`
+ Esperado: PASS, quatro testes (um SKIP no Windows).
+ 
+ - [ ] **Step 7: Commit**
+ 
+diff --git a/internal/lifecycle/parent.go b/internal/lifecycle/parent.go
+index b368d16..1a8796d 100644
+--- a/internal/lifecycle/parent.go
++++ b/internal/lifecycle/parent.go
+@@ -1,9 +1,49 @@
+-// parent.go — removido na Task 5
+ package lifecycle
+ 
+ import (
+ 	"context"
+ 	"time"
+ )
+ 
+-func (l *Lifecycle) watchParent(ctx context.Context, pid int, interval time.Duration) {}
++// watchParent e a rede de seguranca, para o caso em que o host morre de forma
++// que deixe o stdin do filho sem fechar: reparentamento, heranca de handle por
++// outro processo, comportamento anomalo do host.
++//
++// A verificacao compara identidade, nao apenas existencia. PIDs sao reciclados
++// agressivamente no Windows, e checar so o PID produz falso negativo quando o
++// PID do pai morto e atribuido a um processo novo.
++//
++// Como watchSignals, esta goroutine vai para o WaitGroup: o select cobre
++// tanto o tick do ticker quanto o cancelamento do contexto, entao ela sempre
++// tem uma saida real, diferente da goroutine de stdin presa num Read
++// bloqueante.
++func (l *Lifecycle) watchParent(ctx context.Context, pid int, interval time.Duration) {
++	initial, err := parentIdentity(pid)
++	if err != nil {
++		// Nao da para vigiar o que nao da para identificar. Os outros dois
++		// mecanismos continuam de pe.
++		l.log.Warn("vigilia do processo pai desabilitada", "pid", pid, "err", err)
++		return
++	}
++
++	l.wg.Add(1)
++	go func() {
++		defer l.wg.Done()
++
++		ticker := time.NewTicker(interval)
++		defer ticker.Stop()
++
++		for {
++			select {
++			case <-ctx.Done():
++				return
++			case <-ticker.C:
++				current, err := parentIdentity(pid)
++				if err != nil || !sameProcess(initial, current) {
++					l.trigger("parent-gone")
++					return
++				}
++			}
++		}
++	}()
++}
+diff --git a/internal/lifecycle/parent_test.go b/internal/lifecycle/parent_test.go
+new file mode 100644
+index 0000000..0f2f6c9
+--- /dev/null
++++ b/internal/lifecycle/parent_test.go
+@@ -0,0 +1,91 @@
++package lifecycle_test
++
++import (
++	"context"
++	"io"
++	"os"
++	"os/exec"
++	"runtime"
++	"testing"
++	"time"
++
++	"github.com/jonyd/gobsidian/internal/lifecycle"
++)
++
++func TestParentGoneCancelsContext(t *testing.T) {
++	// Um processo de vida longa serve de "pai" sintetico. Ele precisa estar
++	// VIVO quando New e chamado: parentIdentity captura a identidade inicial
++	// no startup, e se essa captura falhar a vigilia se desabilita em vez de
++	// disparar — comportamento correto para um PID que nunca foi observavel,
++	// e que tornaria este teste vacuo se o processo ja estivesse morto aqui.
++	var cmd *exec.Cmd
++	if runtime.GOOS == "windows" {
++		cmd = exec.Command("cmd", "/c", "ping", "-n", "30", "127.0.0.1")
++	} else {
++		cmd = exec.Command("sleep", "30")
++	}
++	if err := cmd.Start(); err != nil {
++		t.Fatalf("Start: %v", err)
++	}
++	pid := cmd.Process.Pid
++
++	pr, pw := io.Pipe()
++	t.Cleanup(func() { _ = pw.Close() })
++
++	ctx, lc := lifecycle.New(context.Background(), lifecycle.Options{
++		Stdin:               pr,
++		ParentPID:           pid,
++		ParentCheckInterval: 50 * time.Millisecond,
++	})
++
++	// Agora que a identidade inicial foi capturada, mate o pai.
++	if err := cmd.Process.Kill(); err != nil {
++		t.Fatalf("Kill: %v", err)
++	}
++	_ = cmd.Wait() // libera o handle; sem isso o PID continua consultavel
++
++	select {
++	case <-ctx.Done():
++	case <-time.After(3 * time.Second):
++		t.Fatal("context nao foi cancelado apos o pai morrer")
++	}
++
++	if got := lc.Reason(); got != "parent-gone" {
++		t.Errorf("Reason() = %q, quer %q", got, "parent-gone")
++	}
++	lc.Wait()
++}
++
++func TestLiveParentKeepsContextAlive(t *testing.T) {
++	pr, pw := io.Pipe()
++	t.Cleanup(func() { _ = pw.Close() })
++
++	// O proprio processo de teste como pai: esta vivo por definicao.
++	parent, cancelParent := context.WithCancel(context.Background())
++	ctx, lc := lifecycle.New(parent, lifecycle.Options{
++		Stdin:               pr,
++		ParentPID:           os.Getpid(),
++		ParentCheckInterval: 50 * time.Millisecond,
++	})
++
++	select {
++	case <-ctx.Done():
++		t.Fatal("context cancelado com o pai vivo")
++	case <-time.After(500 * time.Millisecond):
++	}
++
++	// Esta e a unica assercao do teste, e ela ja foi feita. O cancelamento
++	// abaixo existe para desenrolar as goroutines: tanto o vigia de sinais
++	// quanto o do pai bloqueiam em ctx.Done(), entao Wait() so retorna depois
++	// que o context morre. Chamar Wait() sem cancelar antes trava para sempre.
++	cancelParent()
++
++	done := make(chan struct{})
++	go func() { lc.Wait(); close(done) }()
++
++	select {
++	case <-done:
++	case <-time.After(2 * time.Second):
++		t.Fatal("Wait() nao retornou apos o cancelamento do context")
++	}
++}
+diff --git a/internal/lifecycle/parent_unix.go b/internal/lifecycle/parent_unix.go
+new file mode 100644
+index 0000000..268ddb4
+--- /dev/null
++++ b/internal/lifecycle/parent_unix.go
+@@ -0,0 +1,45 @@
++//go:build !windows
++
++package lifecycle
++
++import (
++	"fmt"
++	"os"
++	"syscall"
++)
++
++// No Unix nao ha equivalente barato e portavel de creation time, e nao ha
++// necessidade: quando o pai morre, o filho e reparentado, e os.Getppid()
++// muda. Essa mudanca e o sinal, e ela nao sofre de reutilizacao de PID.
++//
++// O que a identidade guarda e o ppid observado no momento da captura, nao a
++// constante 1. Comparar contra 1 parece equivalente e nao e: em containers e
++// sob supervisores modernos o reaper nao e o init. Docker com tini, systemd
++// com um servico de usuario e s6 todos reparentam para um PID que nao e 1, e
++// uma verificacao de `Getppid() == 1` nunca dispara nesses ambientes — o pai
++// morre e o processo sobrevive indefinidamente, que e exatamente a falha que
++// este pacote existe para eliminar.
++//
++// Comparar o ppid atual com o inicial funciona em qualquer um deles: se
++// mudou, fomos reparentados, e so ha um motivo para isso.
++type identity struct {
++	pid  int
++	ppid int
++}
++
++func parentIdentity(pid int) (identity, error) {
++	proc, err := os.FindProcess(pid)
++	if err != nil {
++		return identity{}, fmt.Errorf("localizando processo %d: %w", pid, err)
++	}
++	// Sinal 0 nao entrega nada; so testa existencia e permissao.
++	if err := proc.Signal(syscall.Signal(0)); err != nil {
++		return identity{}, fmt.Errorf("processo %d inacessivel: %w", pid, err)
++	}
++
++	return identity{pid: pid, ppid: os.Getppid()}, nil
++}
++
++func sameProcess(a, b identity) bool {
++	return a.pid == b.pid && a.ppid == b.ppid
++}
+diff --git a/internal/lifecycle/parent_windows.go b/internal/lifecycle/parent_windows.go
+new file mode 100644
+index 0000000..3b16b6d
+--- /dev/null
++++ b/internal/lifecycle/parent_windows.go
+@@ -0,0 +1,38 @@
++//go:build windows
++
++package lifecycle
++
++import (
++	"fmt"
++
++	"golang.org/x/sys/windows"
++)
++
++// identity e PID mais creation time. So o par identifica um processo de forma
++// estavel: o PID sozinho e reciclado, e o creation time sozinho colide entre
++// processos iniciados no mesmo tick.
++type identity struct {
++	pid     int
++	created windows.Filetime
++}
++
++func parentIdentity(pid int) (identity, error) {
++	h, err := windows.OpenProcess(windows.PROCESS_QUERY_LIMITED_INFORMATION, false, uint32(pid))
++	if err != nil {
++		return identity{}, fmt.Errorf("abrindo processo %d: %w", pid, err)
++	}
++	defer func() { _ = windows.CloseHandle(h) }()
++
++	var creation, exit, kernel, user windows.Filetime
++	if err := windows.GetProcessTimes(h, &creation, &exit, &kernel, &user); err != nil {
++		return identity{}, fmt.Errorf("lendo tempos do processo %d: %w", pid, err)
++	}
++
++	return identity{pid: pid, created: creation}, nil
++}
++
++func sameProcess(a, b identity) bool {
++	return a.pid == b.pid &&
++		a.created.HighDateTime == b.created.HighDateTime &&
++		a.created.LowDateTime == b.created.LowDateTime
++}

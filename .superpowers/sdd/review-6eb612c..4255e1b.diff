@@ -1,0 +1,554 @@
+# Review package: 6eb612c..HEAD
+
+## Commits
+4255e1b fix(parser): match closing fence length to the opener
+f18ff98 docs(plan): require closing fences to match the opener length
+1ad5432 feat(parser): heading hierarchy with section end offsets
+
+## Files changed
+ docs/superpowers/plans/2026-07-25-gobsidian-v01.md |  84 +++++++--
+ internal/parser/headings.go                        | 179 +++++++++++++++++++
+ internal/parser/headings_test.go                   | 192 +++++++++++++++++++++
+ 3 files changed, 444 insertions(+), 11 deletions(-)
+
+## Diff
+diff --git a/docs/superpowers/plans/2026-07-25-gobsidian-v01.md b/docs/superpowers/plans/2026-07-25-gobsidian-v01.md
+index d1984d6..4d82613 100644
+--- a/docs/superpowers/plans/2026-07-25-gobsidian-v01.md
++++ b/docs/superpowers/plans/2026-07-25-gobsidian-v01.md
+@@ -5002,49 +5002,60 @@ import (
+ //
+ // A varredura e propria em vez de vir da AST do goldmark por um motivo:
+ // precisamos do offset de FIM de secao, que e uma propriedade da hierarquia,
+ // nao do no. O goldmark da a posicao de cada heading; o fim de uma secao e o
+ // inicio do proximo heading de nivel menor ou igual, e calcular isso exige
+ // uma passada com pilha de qualquer forma.
+ func ExtractHeadings(body []byte, bodyOffset int64) []Heading {
+ 	var out []Heading
+ 
+ 	inFence := false
+-	var fenceMarker string
++	var fence fenceInfo
+ 
+ 	pos := int64(0)
+ 	for len(body) > 0 {
+ 		nl := bytes.IndexByte(body, '\n')
+ 		var line []byte
+ 		var advance int64
+ 		if nl < 0 {
+ 			line, advance = body, int64(len(body))
+ 		} else {
+ 			line, advance = body[:nl], int64(nl)+1
+ 		}
+ 
+ 		trimmed := bytes.TrimRight(line, "\r")
+ 		text := string(trimmed)
+ 
+ 		// Blocos de codigo cercados. Um '#' dentro de um deles nao e heading,
+ 		// e ignorar isso e a forma mais rapida de produzir hierarquia falsa.
+-		if marker := fenceMarkerOf(text); marker != "" {
+-			if !inFence {
+-				inFence, fenceMarker = true, marker
+-			} else if strings.HasPrefix(strings.TrimSpace(text), fenceMarker) {
+-				inFence, fenceMarker = false, ""
++		//
++		// Dentro de uma cerca so interessa saber se a linha a FECHA. Tratar
++		// qualquer linha de crases como abertura-ou-fechamento indiferente faz
++		// uma cerca de quatro crases ser fechada por uma linha de tres — e a
++		// partir dali toda a hierarquia sai errada, porque o conteudo que
++		// ainda esta dentro do bloco passa a ser lido como estrutura.
++		if inFence {
++			if closesFence(text, fence) {
++				inFence = false
+ 			}
+ 			pos += advance
+ 			body = body[advance:]
+ 			continue
+ 		}
+ 
++		if f, ok := openFence(text); ok {
++			inFence, fence = true, f
++			pos += advance
++			body = body[advance:]
++			continue
++		}
++
+ 		if !inFence {
+ 			if level, title, ok := parseATXHeading(text); ok {
+ 				out = append(out, Heading{
+ 					Level:     level,
+ 					Text:      title,
+ 					Slug:      Slug(title),
+ 					Start:     bodyOffset + pos,
+ 					BodyStart: bodyOffset + pos + advance,
+ 				})
+ 			}
+@@ -5090,29 +5101,80 @@ func parseATXHeading(line string) (int, string, bool) {
+ 	if level < len(trimmed) && trimmed[level] != ' ' && trimmed[level] != '\t' {
+ 		return 0, "", false
+ 	}
+ 
+ 	title := strings.TrimSpace(trimmed[level:])
+ 	// Fechamento opcional: "## Titulo ##".
+ 	title = strings.TrimRight(title, "#")
+ 	return level, strings.TrimSpace(title), true
+ }
+ 
+-func fenceMarkerOf(line string) string {
+-	t := strings.TrimSpace(line)
++// fenceInfo descreve uma cerca aberta. O comprimento importa: o CommonMark
++// exige que a cerca de fechamento tenha pelo menos o tamanho da de abertura,
++// o que e justamente o que permite mostrar um bloco de tres crases dentro de
++// um bloco de quatro — padrao comum em nota que documenta Markdown.
++type fenceInfo struct {
++	char  byte
++	count int
++}
++
++// openFence reconhece uma linha que ABRE uma cerca e devolve o caractere e
++// quantos dele. Ate tres espacos de indentacao sao permitidos; quatro fazem a
++// linha virar bloco de codigo indentado.
++func openFence(line string) (fenceInfo, bool) {
++	t := strings.TrimLeft(line, " ")
++	if len(line)-len(t) > 3 {
++		return fenceInfo{}, false
++	}
++
++	var c byte
+ 	switch {
+ 	case strings.HasPrefix(t, "```"):
+-		return "```"
++		c = '`'
+ 	case strings.HasPrefix(t, "~~~"):
+-		return "~~~"
++		c = '~'
++	default:
++		return fenceInfo{}, false
+ 	}
+-	return ""
++
++	n := 0
++	for n < len(t) && t[n] == c {
++		n++
++	}
++
++	// A info string de uma cerca de crase nao pode conter crase — senao
++	// `` `x` `` em texto corrido abriria um bloco.
++	if c == '`' && strings.ContainsRune(t[n:], '`') {
++		return fenceInfo{}, false
++	}
++
++	return fenceInfo{char: c, count: n}, true
++}
++
++// closesFence diz se a linha fecha a cerca aberta. Precisa do mesmo caractere,
++// pelo menos o mesmo comprimento, e nada alem de espaco depois — uma cerca de
++// fechamento nao aceita info string.
++func closesFence(line string, open fenceInfo) bool {
++	t := strings.TrimLeft(line, " ")
++	if len(line)-len(t) > 3 {
++		return false
++	}
++
++	n := 0
++	for n < len(t) && t[n] == open.char {
++		n++
++	}
++	if n < open.count {
++		return false
++	}
++
++	return strings.TrimSpace(t[n:]) == ""
+ }
+ ```
+ 
+ - [ ] **Step 4: Rodar para confirmar que passa**
+ 
+ Run: `go test -race ./internal/parser/ -v`
+ Esperado: PASS, quatro testes de heading.
+ 
+ - [ ] **Step 5: Commit**
+ 
+diff --git a/internal/parser/headings.go b/internal/parser/headings.go
+new file mode 100644
+index 0000000..a86f580
+--- /dev/null
++++ b/internal/parser/headings.go
+@@ -0,0 +1,179 @@
++package parser
++
++import (
++	"bytes"
++	"strings"
++)
++
++// ExtractHeadings percorre o corpo linha a linha e devolve a hierarquia com
++// os offsets de secao ja calculados.
++//
++// A varredura e propria em vez de vir da AST do goldmark por um motivo:
++// precisamos do offset de FIM de secao, que e uma propriedade da hierarquia,
++// nao do no. O goldmark da a posicao de cada heading; o fim de uma secao e o
++// inicio do proximo heading de nivel menor ou igual, e calcular isso exige
++// uma passada com pilha de qualquer forma.
++func ExtractHeadings(body []byte, bodyOffset int64) []Heading {
++	var out []Heading
++
++	inFence := false
++	var fence fenceInfo
++
++	pos := int64(0)
++	for len(body) > 0 {
++		nl := bytes.IndexByte(body, '\n')
++		var line []byte
++		var advance int64
++		if nl < 0 {
++			line, advance = body, int64(len(body))
++		} else {
++			line, advance = body[:nl], int64(nl)+1
++		}
++
++		trimmed := bytes.TrimRight(line, "\r")
++		text := string(trimmed)
++
++		// Blocos de codigo cercados. Um '#' dentro de um deles nao e heading,
++		// e ignorar isso e a forma mais rapida de produzir hierarquia falsa.
++		//
++		// Dentro de uma cerca so interessa saber se a linha a FECHA. Tratar
++		// qualquer linha de crases como abertura-ou-fechamento indiferente faz
++		// uma cerca de quatro crases ser fechada por uma linha de tres — e a
++		// partir dali toda a hierarquia sai errada, porque o conteudo que
++		// ainda esta dentro do bloco passa a ser lido como estrutura.
++		if inFence {
++			if closesFence(text, fence) {
++				inFence = false
++			}
++			pos += advance
++			body = body[advance:]
++			continue
++		}
++
++		if f, ok := openFence(text); ok {
++			inFence, fence = true, f
++			pos += advance
++			body = body[advance:]
++			continue
++		}
++
++		if !inFence {
++			if level, title, ok := parseATXHeading(text); ok {
++				out = append(out, Heading{
++					Level:     level,
++					Text:      title,
++					Slug:      Slug(title),
++					Start:     bodyOffset + pos,
++					BodyStart: bodyOffset + pos + advance,
++				})
++			}
++		}
++
++		pos += advance
++		body = body[advance:]
++	}
++
++	total := bodyOffset + pos
++	closeSections(out, total)
++	return out
++}
++
++// closeSections preenche End: o inicio do proximo heading de nivel menor ou
++// igual, ou o fim do arquivo.
++func closeSections(hs []Heading, total int64) {
++	for i := range hs {
++		hs[i].End = total
++		for j := i + 1; j < len(hs); j++ {
++			if hs[j].Level <= hs[i].Level {
++				hs[i].End = hs[j].Start
++				break
++			}
++		}
++	}
++}
++
++func parseATXHeading(line string) (int, string, bool) {
++	// Ate tres espacos de indentacao sao permitidos pelo CommonMark.
++	trimmed := strings.TrimLeft(line, " ")
++	if len(line)-len(trimmed) > 3 {
++		return 0, "", false
++	}
++
++	level := 0
++	for level < len(trimmed) && trimmed[level] == '#' {
++		level++
++	}
++	if level == 0 || level > 6 {
++		return 0, "", false
++	}
++	if level < len(trimmed) && trimmed[level] != ' ' && trimmed[level] != '\t' {
++		return 0, "", false
++	}
++
++	title := strings.TrimSpace(trimmed[level:])
++	// Fechamento opcional: "## Titulo ##".
++	title = strings.TrimRight(title, "#")
++	return level, strings.TrimSpace(title), true
++}
++
++// fenceInfo descreve uma cerca aberta. O comprimento importa: o CommonMark
++// exige que a cerca de fechamento tenha pelo menos o tamanho da de abertura,
++// o que e justamente o que permite mostrar um bloco de tres crases dentro de
++// um bloco de quatro — padrao comum em nota que documenta Markdown.
++type fenceInfo struct {
++	char  byte
++	count int
++}
++
++// openFence reconhece uma linha que ABRE uma cerca e devolve o caractere e
++// quantos dele. Ate tres espacos de indentacao sao permitidos; quatro fazem a
++// linha virar bloco de codigo indentado.
++func openFence(line string) (fenceInfo, bool) {
++	t := strings.TrimLeft(line, " ")
++	if len(line)-len(t) > 3 {
++		return fenceInfo{}, false
++	}
++
++	var c byte
++	switch {
++	case strings.HasPrefix(t, "```"):
++		c = '`'
++	case strings.HasPrefix(t, "~~~"):
++		c = '~'
++	default:
++		return fenceInfo{}, false
++	}
++
++	n := 0
++	for n < len(t) && t[n] == c {
++		n++
++	}
++
++	// A info string de uma cerca de crase nao pode conter crase — senao
++	// `` `x` `` em texto corrido abriria um bloco.
++	if c == '`' && strings.ContainsRune(t[n:], '`') {
++		return fenceInfo{}, false
++	}
++
++	return fenceInfo{char: c, count: n}, true
++}
++
++// closesFence diz se a linha fecha a cerca aberta. Precisa do mesmo caractere,
++// pelo menos o mesmo comprimento, e nada alem de espaco depois — uma cerca de
++// fechamento nao aceita info string.
++func closesFence(line string, open fenceInfo) bool {
++	t := strings.TrimLeft(line, " ")
++	if len(line)-len(t) > 3 {
++		return false
++	}
++
++	n := 0
++	for n < len(t) && t[n] == open.char {
++		n++
++	}
++	if n < open.count {
++		return false
++	}
++
++	return strings.TrimSpace(t[n:]) == ""
++}
+diff --git a/internal/parser/headings_test.go b/internal/parser/headings_test.go
+new file mode 100644
+index 0000000..fb319a6
+--- /dev/null
++++ b/internal/parser/headings_test.go
+@@ -0,0 +1,192 @@
++package parser_test
++
++import (
++	"testing"
++
++	"github.com/jonyd/gobsidian/internal/parser"
++)
++
++func TestExtractHeadingsSectionBoundaries(t *testing.T) {
++	body := "# Titulo\ntexto a\n\n## Cap 1\ntexto b\n\n### Sub\ntexto c\n\n## Cap 2\ntexto d\n"
++
++	hs := parser.ExtractHeadings([]byte(body), 0)
++
++	if len(hs) != 4 {
++		t.Fatalf("headings = %d, quer 4: %+v", len(hs), hs)
++	}
++
++	// "## Cap 1" termina onde "## Cap 2" comeca — inclui "### Sub", que e
++	// subsecao dele, e NAO vai ate o fim do arquivo.
++	cap1 := hs[1]
++	if cap1.Text != "Cap 1" || cap1.Level != 2 {
++		t.Fatalf("hs[1] = %+v", cap1)
++	}
++	cap2Start := hs[3].Start
++	if cap1.End != cap2Start {
++		t.Errorf("Cap 1 End = %d, quer %d (inicio de Cap 2)", cap1.End, cap2Start)
++	}
++
++	// "### Sub" termina no proximo heading de nivel <= 3, que e "## Cap 2".
++	if hs[2].End != cap2Start {
++		t.Errorf("Sub End = %d, quer %d", hs[2].End, cap2Start)
++	}
++
++	// O ultimo heading vai ate o fim.
++	if hs[3].End != int64(len(body)) {
++		t.Errorf("Cap 2 End = %d, quer %d", hs[3].End, len(body))
++	}
++
++	// BodyStart pula a linha do titulo.
++	if got := body[cap1.BodyStart:cap1.End]; got != "texto b\n\n### Sub\ntexto c\n\n" {
++		t.Errorf("corpo de Cap 1 = %q", got)
++	}
++}
++
++func TestExtractHeadingsRespectsBodyOffset(t *testing.T) {
++	body := "# Titulo\n"
++	hs := parser.ExtractHeadings([]byte(body), 100)
++
++	if len(hs) != 1 {
++		t.Fatalf("headings = %d, quer 1", len(hs))
++	}
++	if hs[0].Start != 100 {
++		t.Errorf("Start = %d, quer 100 — offsets sao relativos ao arquivo", hs[0].Start)
++	}
++}
++
++func TestExtractHeadingsIgnoresCodeBlocks(t *testing.T) {
++	body := "# Real\n\n```\n# Nao e heading\n```\n\n## Tambem real\n"
++
++	hs := parser.ExtractHeadings([]byte(body), 0)
++
++	if len(hs) != 2 {
++		t.Fatalf("headings = %d, quer 2: %+v", len(hs), hs)
++	}
++	if hs[1].Text != "Tambem real" {
++		t.Errorf("hs[1].Text = %q", hs[1].Text)
++	}
++}
++
++func TestExtractHeadingsCRLF(t *testing.T) {
++	body := "# A\r\ntexto\r\n## B\r\n"
++
++	hs := parser.ExtractHeadings([]byte(body), 0)
++
++	if len(hs) != 2 {
++		t.Fatalf("headings = %d, quer 2", len(hs))
++	}
++	if hs[0].Text != "A" || hs[1].Text != "B" {
++		t.Errorf("textos = %q, %q — CR nao foi removido", hs[0].Text, hs[1].Text)
++	}
++}
++
++// TestExtractHeadingsFenceRequiresMatchingCloseLength asserts the
++// CommonMark-correct guarantee: a closing fence must have at least as many
++// characters as the opener. A fence opened with four backticks is NOT closed
++// by a bare three-backtick line inside it — that line is ordinary fenced
++// content, since a note documenting Markdown routinely nests a shorter fence
++// example inside a longer one. "# After" therefore stays inside the block
++// and must not be extracted as a heading.
++//
++// closesFence compares n >= open.count rather than n == open.count on
++// purpose: CommonMark only requires the closer to be at least as long as the
++// opener, not exactly as long. A five-backtick line must still close a
++// four-backtick fence.
++//
++// "After" is level 1, same as "Before": that makes closeSections end
++// "Before"'s section exactly at "After"'s Start, so a truncated End (the
++// bug this guards) is directly observable instead of hidden behind a
++// level-nesting rule.
++func TestExtractHeadingsFenceRequiresMatchingCloseLength(t *testing.T) {
++	body := "# Before\n````go\ncode\n```\nstill in fence?\n````\n# After\n"
++
++	hs := parser.ExtractHeadings([]byte(body), 0)
++
++	// The inner ``` does not close the ```` fence, so "# After" is still
++	// inside the block and must not be read as structure.
++	if len(hs) != 2 {
++		t.Fatalf("headings = %d, quer 2: %+v", len(hs), hs)
++	}
++	if hs[0].Text != "Before" {
++		t.Errorf("hs[0].Text = %q", hs[0].Text)
++	}
++	if hs[1].Text != "After" {
++		t.Errorf("hs[1].Text = %q", hs[1].Text)
++	}
++
++	// The section-offset consequence matters as much as the count: "Before"
++	// must span the whole fenced block, including the inner ``` line, up to
++	// where "## After" actually starts. A correct heading count with a
++	// truncated End is still a broken note_read.
++	afterStart := hs[1].Start
++	if hs[0].End != afterStart {
++		t.Errorf("Before.End = %d, quer %d (inicio de After — cerca inteira incluida)", hs[0].End, afterStart)
++	}
++}
++
++// TestExtractHeadingsUnterminatedFenceSwallowsRestOfBuffer covers a fence
++// that opens and never closes before the buffer ends: everything after the
++// opener, including any headings, stays inside the (still open) block and
++// must not be extracted.
++func TestExtractHeadingsUnterminatedFenceSwallowsRestOfBuffer(t *testing.T) {
++	body := "# Before\n```\ncode\n## Not a heading\nmore code\n"
++
++	hs := parser.ExtractHeadings([]byte(body), 0)
++
++	if len(hs) != 1 {
++		t.Fatalf("headings = %d, quer 1: %+v", len(hs), hs)
++	}
++	if hs[0].Text != "Before" {
++		t.Errorf("hs[0].Text = %q", hs[0].Text)
++	}
++	if hs[0].End != int64(len(body)) {
++		t.Errorf("Before.End = %d, quer %d (fim do buffer, cerca nunca fechou)", hs[0].End, len(body))
++	}
++}
++
++// TestExtractHeadingsFenceClosesOnBarePlainFence covers a fence opened with
++// a language tag: the info string is only checked at open time, so a plain
++// closing line with no tag still closes it.
++func TestExtractHeadingsFenceClosesOnBarePlainFence(t *testing.T) {
++	body := "# Before\n```go\ncode\n```\n## After\n"
++
++	hs := parser.ExtractHeadings([]byte(body), 0)
++
++	if len(hs) != 2 {
++		t.Fatalf("headings = %d, quer 2: %+v", len(hs), hs)
++	}
++	if hs[1].Text != "After" {
++		t.Errorf("hs[1].Text = %q", hs[1].Text)
++	}
++}
++
++// TestExtractHeadingsFenceCharactersDoNotCrossClose covers the two fence
++// characters not closing each other: a "~~~" line inside a "```" block is
++// ordinary content, and vice versa.
++func TestExtractHeadingsFenceCharactersDoNotCrossClose(t *testing.T) {
++	t.Run("tilde dentro de crase", func(t *testing.T) {
++		body := "# Before\n```\n~~~\nstill fenced\n```\n## After\n"
++
++		hs := parser.ExtractHeadings([]byte(body), 0)
++
++		if len(hs) != 2 {
++			t.Fatalf("headings = %d, quer 2: %+v", len(hs), hs)
++		}
++		if hs[1].Text != "After" {
++			t.Errorf("hs[1].Text = %q", hs[1].Text)
++		}
++	})
++
++	t.Run("crase dentro de til", func(t *testing.T) {
++		body := "# Before\n~~~\n```\nstill fenced\n~~~\n## After\n"
++
++		hs := parser.ExtractHeadings([]byte(body), 0)
++
++		if len(hs) != 2 {
++			t.Fatalf("headings = %d, quer 2: %+v", len(hs), hs)
++		}
++		if hs[1].Text != "After" {
++			t.Errorf("hs[1].Text = %q", hs[1].Text)
++		}
++	})
++}

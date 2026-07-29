@@ -1,0 +1,349 @@
+# Review package: 79bd036..HEAD
+
+## Commits
+d139e5d docs: record that the stdin watcher is not waited on
+7882017 fix(lifecycle): don't wait on the unkillable stdin goroutine
+930eaa1 feat(lifecycle): cancel root context on stdin EOF
+
+## Files changed
+ docs/superpowers/plans/2026-07-25-gobsidian-v01.md | 18 ++++-
+ internal/lifecycle/lifecycle.go                    | 93 ++++++++++++++++++++++
+ internal/lifecycle/parent.go                       |  9 +++
+ internal/lifecycle/signals.go                      |  5 ++
+ internal/lifecycle/stdin.go                        | 41 ++++++++++
+ internal/lifecycle/stdin_test.go                   | 89 +++++++++++++++++++++
+ 6 files changed, 251 insertions(+), 4 deletions(-)
+
+## Diff
+diff --git a/docs/superpowers/plans/2026-07-25-gobsidian-v01.md b/docs/superpowers/plans/2026-07-25-gobsidian-v01.md
+index 108f4de..d80acd8 100644
+--- a/docs/superpowers/plans/2026-07-25-gobsidian-v01.md
++++ b/docs/superpowers/plans/2026-07-25-gobsidian-v01.md
+@@ -730,46 +730,56 @@ func (l *Lifecycle) trigger(reason string) {
+ 	l.mu.Unlock()
+ 	l.cancel()
+ }
+ 
+ func (l *Lifecycle) Reason() string {
+ 	l.mu.Lock()
+ 	defer l.mu.Unlock()
+ 	return l.reason
+ }
+ 
+-// Wait bloqueia ate todas as goroutines do lifecycle terminarem.
++// Wait bloqueia ate as goroutines desenrolaveis do lifecycle terminarem: o
++// handler de sinais e a vigilia do pai. NAO espera o monitor de stdin, que
++// pode estar parado em uma leitura bloqueante impossivel de interromper —
++// ver watchStdin.
+ func (l *Lifecycle) Wait() { l.wg.Wait() }
+ 
+ // ParentPID devolve o PID do processo pai no momento da chamada.
+ func ParentPID() int { return os.Getppid() }
+ ```
+ 
+ `internal/lifecycle/stdin.go`:
+ 
+ ```go
+ package lifecycle
+ 
+ import (
+ 	"context"
+ 	"errors"
+ 	"io"
+ )
+ 
+ // watchStdin encerra o processo quando o host MCP fecha o stdin do filho.
+ // E o mecanismo primario e o mais confiavel no Windows: o sistema operacional
+ // fecha os handles de um processo morto, inclusive apos taskkill /F.
++//
++// Esta goroutine NAO entra no WaitGroup, e a omissao e deliberada. Uma
++// goroutine parada em Read nao pode ser desbloqueada por cancelamento de
++// context — nao ha forma portavel de interromper leitura bloqueante em um
++// io.Reader qualquer. Se ela fosse esperada em Wait, um encerramento disparado
++// por sinal ou pela morte do pai, com o stdin ainda aberto, travaria o
++// shutdown para sempre. E um shutdown travado e funcionalmente identico ao
++// processo orfao que este pacote existe para impedir.
++//
++// O caminho de saida desta goroutine e o encerramento do processo.
+ func (l *Lifecycle) watchStdin(ctx context.Context, r io.Reader) {
+-	l.wg.Add(1)
+ 	go func() {
+-		defer l.wg.Done()
+-
+ 		buf := make([]byte, 4096)
+ 		for {
+ 			_, err := r.Read(buf)
+ 			if err == nil {
+ 				continue
+ 			}
+ 			if errors.Is(err, io.EOF) {
+ 				l.trigger("stdin-eof")
+ 				return
+ 			}
+diff --git a/internal/lifecycle/lifecycle.go b/internal/lifecycle/lifecycle.go
+new file mode 100644
+index 0000000..02358bd
+--- /dev/null
++++ b/internal/lifecycle/lifecycle.go
+@@ -0,0 +1,93 @@
++// Package lifecycle decide quando o processo deve morrer, e garante que ele
++// morra. Tres mecanismos independentes cancelam o mesmo context raiz:
++// EOF em stdin, sinais do sistema operacional e vigilia do processo pai.
++// A redundancia e deliberada — cada um falha em cenarios diferentes.
++package lifecycle
++
++import (
++	"context"
++	"io"
++	"log/slog"
++	"os"
++	"sync"
++	"time"
++)
++
++type Options struct {
++	// Stdin e a fonte cujo EOF encerra o processo. os.Stdin em producao;
++	// um io.Reader controlado nos testes.
++	Stdin io.Reader
++
++	// ParentPID e o processo cuja morte deve encerrar este. Zero desliga
++	// a vigilia.
++	ParentPID int
++
++	ParentCheckInterval time.Duration
++
++	Logger *slog.Logger
++}
++
++type Lifecycle struct {
++	cancel context.CancelFunc
++	wg     sync.WaitGroup
++
++	mu     sync.Mutex
++	reason string
++
++	log *slog.Logger
++}
++
++// New devolve um context que e cancelado quando qualquer um dos mecanismos
++// dispara, e o Lifecycle que os coordena.
++func New(parent context.Context, opts Options) (context.Context, *Lifecycle) {
++	if opts.Logger == nil {
++		opts.Logger = slog.New(slog.NewTextHandler(io.Discard, nil))
++	}
++	if opts.ParentCheckInterval == 0 {
++		opts.ParentCheckInterval = 5 * time.Second
++	}
++
++	ctx, cancel := context.WithCancel(parent)
++	lc := &Lifecycle{cancel: cancel, log: opts.Logger}
++
++	if opts.Stdin != nil {
++		lc.watchStdin(ctx, opts.Stdin)
++	}
++	lc.watchSignals(ctx)
++	if opts.ParentPID > 0 {
++		lc.watchParent(ctx, opts.ParentPID, opts.ParentCheckInterval)
++	}
++
++	return ctx, lc
++}
++
++// trigger cancela o context, registrando o primeiro motivo que chegou.
++// Chamadas subsequentes nao sobrescrevem o motivo: o que importa e quem
++// disparou primeiro.
++func (l *Lifecycle) trigger(reason string) {
++	l.mu.Lock()
++	if l.reason == "" {
++		l.reason = reason
++		l.log.Info("encerramento solicitado", "reason", reason)
++	}
++	l.mu.Unlock()
++	l.cancel()
++}
++
++func (l *Lifecycle) Reason() string {
++	l.mu.Lock()
++	defer l.mu.Unlock()
++	return l.reason
++}
++
++// Wait bloqueia ate todas as goroutines do lifecycle que podem ser
++// desenroladas terminarem — hoje o handler de sinais (Task 4) e a vigilia
++// do processo pai (Task 5). Deliberadamente NAO espera pela goroutine de
++// stdin: uma leitura bloqueada em io.Reader nao tem saida por cancelamento
++// de context, entao inclui-la no WaitGroup faria Wait() travar sempre que
++// outro mecanismo disparasse o desligamento primeiro e stdin permanecesse
++// aberto. Ver o comentario de watchStdin em stdin.go.
++func (l *Lifecycle) Wait() { l.wg.Wait() }
++
++// ParentPID devolve o PID do processo pai no momento da chamada.
++func ParentPID() int { return os.Getppid() }
+diff --git a/internal/lifecycle/parent.go b/internal/lifecycle/parent.go
+new file mode 100644
+index 0000000..b368d16
+--- /dev/null
++++ b/internal/lifecycle/parent.go
+@@ -0,0 +1,9 @@
++// parent.go — removido na Task 5
++package lifecycle
++
++import (
++	"context"
++	"time"
++)
++
++func (l *Lifecycle) watchParent(ctx context.Context, pid int, interval time.Duration) {}
+diff --git a/internal/lifecycle/signals.go b/internal/lifecycle/signals.go
+new file mode 100644
+index 0000000..52ca4ff
+--- /dev/null
++++ b/internal/lifecycle/signals.go
+@@ -0,0 +1,5 @@
++package lifecycle
++
++import "context"
++
++func (l *Lifecycle) watchSignals(ctx context.Context) {}
+diff --git a/internal/lifecycle/stdin.go b/internal/lifecycle/stdin.go
+new file mode 100644
+index 0000000..48976f2
+--- /dev/null
++++ b/internal/lifecycle/stdin.go
+@@ -0,0 +1,41 @@
++package lifecycle
++
++import (
++	"context"
++	"errors"
++	"io"
++)
++
++// watchStdin encerra o processo quando o host MCP fecha o stdin do filho.
++// E o mecanismo primario e o mais confiavel no Windows: o sistema operacional
++// fecha os handles de um processo morto, inclusive apos taskkill /F.
++//
++// Esta goroutine e deliberadamente NAO registrada no WaitGroup. Read bloqueia
++// e nao ha forma portavel de interromper uma leitura bloqueada num io.Reader
++// arbitrario via cancelamento de context — ctx aqui so existe para consistencia
++// de assinatura, nao e observado dentro do loop. Se ela estivesse no
++// WaitGroup, o dia em que sinais (Task 4) ou vigilia do pai (Task 5)
++// disparassem o desligamento primeiro, Wait() bloquearia para sempre esperando
++// uma leitura que nunca retorna enquanto stdin permanecer aberto. A saida
++// documentada desta goroutine e o encerramento do processo, nao um retorno
++// de funcao aguardado por alguem.
++func (l *Lifecycle) watchStdin(ctx context.Context, r io.Reader) {
++	go func() {
++		buf := make([]byte, 4096)
++		for {
++			_, err := r.Read(buf)
++			if err == nil {
++				continue
++			}
++			if errors.Is(err, io.EOF) {
++				l.trigger("stdin-eof")
++				return
++			}
++			// Qualquer outro erro de leitura em stdin tambem significa que
++			// o canal com o host morreu. Tratar diferente seria fingir que
++			// ha um estado de recuperacao que nao existe.
++			l.trigger("stdin-error")
++			return
++		}
++	}()
++}
+diff --git a/internal/lifecycle/stdin_test.go b/internal/lifecycle/stdin_test.go
+new file mode 100644
+index 0000000..c4a06e3
+--- /dev/null
++++ b/internal/lifecycle/stdin_test.go
+@@ -0,0 +1,89 @@
++package lifecycle_test
++
++import (
++	"context"
++	"io"
++	"strings"
++	"testing"
++	"time"
++
++	"github.com/jonyd/gobsidian/internal/lifecycle"
++)
++
++func TestStdinEOFCancelsContext(t *testing.T) {
++	ctx, lc := lifecycle.New(context.Background(), lifecycle.Options{
++		Stdin: strings.NewReader(""), // leitura imediata devolve EOF
++	})
++
++	select {
++	case <-ctx.Done():
++	case <-time.After(2 * time.Second):
++		t.Fatal("context nao foi cancelado apos EOF em stdin")
++	}
++
++	if got := lc.Reason(); got != "stdin-eof" {
++		t.Errorf("Reason() = %q, quer %q", got, "stdin-eof")
++	}
++	lc.Wait()
++}
++
++func TestStdinOpenKeepsContextAlive(t *testing.T) {
++	pr, pw := io.Pipe()
++	t.Cleanup(func() { _ = pw.Close() })
++
++	ctx, lc := lifecycle.New(context.Background(), lifecycle.Options{Stdin: pr})
++
++	select {
++	case <-ctx.Done():
++		t.Fatal("context cancelado com stdin ainda aberto")
++	case <-time.After(200 * time.Millisecond):
++	}
++
++	_ = pw.Close()
++	select {
++	case <-ctx.Done():
++	case <-time.After(2 * time.Second):
++		t.Fatal("context nao foi cancelado apos fechar o writer")
++	}
++	lc.Wait()
++}
++
++// TestWaitReturnsWhenShutdownTriggeredWithStdinOpen cobre o cenario que a
++// Task 4 (sinais) e a Task 5 (vigilia do pai) vao introduzir: um mecanismo
++// diferente de stdin dispara o desligamento enquanto stdin continua aberto.
++// Como nao ha como usar sinais ou vigilia do pai ainda (sao stubs), o
++// disparo e simulado cancelando o context pai passado para New — e assim
++// que um chamador real acionaria qualquer um dos outros mecanismos. Se a
++// goroutine de watchStdin estiver registrada no WaitGroup, ela fica presa
++// para sempre em Read (o pipe nunca e fechado neste teste) e Wait() trava.
++func TestWaitReturnsWhenShutdownTriggeredWithStdinOpen(t *testing.T) {
++	pr, pw := io.Pipe()
++	t.Cleanup(func() { _ = pw.Close() })
++
++	parentCtx, cancelParent := context.WithCancel(context.Background())
++	defer cancelParent()
++
++	ctx, lc := lifecycle.New(parentCtx, lifecycle.Options{Stdin: pr})
++
++	// Dispara o desligamento por um caminho que nao e stdin: cancelar o
++	// context pai, como sinais ou vigilia do pai fariam.
++	cancelParent()
++
++	select {
++	case <-ctx.Done():
++	case <-time.After(2 * time.Second):
++		t.Fatal("context nao foi cancelado apos cancelar o context pai")
++	}
++
++	done := make(chan struct{})
++	go func() {
++		lc.Wait()
++		close(done)
++	}()
++
++	select {
++	case <-done:
++	case <-time.After(2 * time.Second):
++		t.Fatal("Wait() nao retornou com stdin ainda aberto apos desligamento externo; a goroutine de watchStdin nao deveria estar no WaitGroup")
++	}
++}

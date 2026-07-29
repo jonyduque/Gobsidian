@@ -1,0 +1,833 @@
+# Review package: 39fff94..HEAD
+
+## Commits
+5000de1 test(vault): make exclusion fixtures load-bearing, add missing regression tests
+
+## Files changed
+ docs/superpowers/plans/2026-07-25-gobsidian-v01.md | 159 ++++++++++++++++++++-
+ internal/vault/skip_internal_test.go               |  62 ++++++++
+ internal/vault/vault.go                            |  16 +++
+ internal/vault/walk.go                             |   9 ++
+ internal/vault/walk_test.go                        |  85 ++++++++++-
+ internal/vault/walk_windows_test.go                |  87 +++++++++++
+ 6 files changed, 408 insertions(+), 10 deletions(-)
+
+## Diff
+diff --git a/docs/superpowers/plans/2026-07-25-gobsidian-v01.md b/docs/superpowers/plans/2026-07-25-gobsidian-v01.md
+index 5202435..90a5b17 100644
+--- a/docs/superpowers/plans/2026-07-25-gobsidian-v01.md
++++ b/docs/superpowers/plans/2026-07-25-gobsidian-v01.md
+@@ -2034,20 +2034,21 @@ func TestStripBOM(t *testing.T) {
+ 
+ - [ ] **Step 2: Escrever o teste de varredura**
+ 
+ `internal/vault/walk_test.go`:
+ 
+ ```go
+ package vault_test
+ 
+ import (
+ 	"context"
++	"math"
+ 	"os"
+ 	"path/filepath"
+ 	"sort"
+ 	"testing"
+ 
+ 	"github.com/jonyd/gobsidian/internal/vault"
+ )
+ 
+ func writeFile(t *testing.T, root, rel, content string) {
+ 	t.Helper()
+@@ -2059,25 +2060,59 @@ func writeFile(t *testing.T, root, rel, content string) {
+ 		t.Fatalf("WriteFile: %v", err)
+ 	}
+ }
+ 
+ func TestWalkExcludesAndClassifies(t *testing.T) {
+ 	root := t.TempDir()
+ 
+ 	writeFile(t, root, "Civil/PONTO 03.md", "# A\n")
+ 	writeFile(t, root, "Penal/B.md", "# B\n")
+ 	writeFile(t, root, "Anexos/diagrama.png", "\x89PNG")
++
++	// Todo diretorio de excludedDirs recebe um arquivo .md que SERIA uma nota
++	// se a poda nao acontecesse. Isso importa: o arquivo de exemplo original
++	// de cada pasta (workspace.json, config, syncthing.db) nao tem extensao
++	// de nota nem de anexo, entao o filtro de extensao (o "if !isNote &&
++	// !isAsset { return nil }" no fim de Walk) ja o descartaria de qualquer
++	// jeito — apagar a entrada correspondente de excludedDirs nao mudaria a
++	// contagem, e a fixture "provaria" uma poda que na verdade nunca era
++	// exercitada. Os arquivos .md abaixo sao o que faz a poda ter efeito
++	// observavel.
+ 	writeFile(t, root, ".obsidian/workspace.json", "{}")
++	writeFile(t, root, ".obsidian/Nota.md", "# obsidian\n")
+ 	writeFile(t, root, ".git/config", "[core]")
++	writeFile(t, root, ".git/Nota.md", "# git\n")
+ 	writeFile(t, root, ".trash/velha.md", "# velha\n")
+-	writeFile(t, root, "desktop.ini", "[.ShellClassInfo]")
++	writeFile(t, root, ".stfolder/syncthing.db", "lixo-binario")
++	writeFile(t, root, ".stfolder/Nota.md", "# stfolder\n")
++
++	// Ramos de isNoise alcancaveis por efeito: cada um recebe um nome cuja
++	// extensao e ".md" — isto e, um nome que SERIA classificado como nota se
++	// isNoise nao o interceptasse primeiro. ".~lock.Penal.md#" virou
++	// ".~lock.Penal.md" (sem o "#" final): com o "#", filepath.Ext devolve
++	// ".md#", que o filtro de extensao ja rejeita sozinho, e apagar o ramo
++	// ".~lock." de isNoise nao mudaria a contagem.
+ 	writeFile(t, root, "~$temp.md", "lixo")
++	writeFile(t, root, ".~lock.Penal.md", "usuario,host,pid,")
++	writeFile(t, root, ".gobsidian-tmp-abc123.md", "escrita atomica em andamento")
++
++	// Ramos de isNoise defensivos, NAO alcancaveis por efeito: nomes fixos
++	// (desktop.ini, Thumbs.db, .DS_Store) ou uma extensao fora de assetExts
++	// (.tmp) que o filtro de extensao ja descarta sozinho, com ou sem
++	// isNoise. Mantidos aqui como documentacao de que esses arquivos existem
++	// em cofres reais — mas apagar os ramos correspondentes em walk.go nao
++	// faz este teste falhar. Ver o comentario acima deles em walk.go.
++	writeFile(t, root, "desktop.ini", "[.ShellClassInfo]")
++	writeFile(t, root, "Thumbs.db", "lixo-binario")
++	writeFile(t, root, ".DS_Store", "lixo-binario")
++	writeFile(t, root, "rascunho.tmp", "conteudo temporario")
++
+ 	writeFile(t, root, "notas.txt", "nao e nota")
+ 
+ 	v, err := vault.New(root)
+ 	if err != nil {
+ 		t.Fatalf("New: %v", err)
+ 	}
+ 
+ 	var notes, assets []string
+ 	err = v.Walk(context.Background(), func(e vault.Entry) error {
+ 		if e.IsNote {
+@@ -2109,39 +2144,117 @@ func TestWalkExcludesAndClassifies(t *testing.T) {
+ 		t.Errorf("anexos = %v, quer %v", assets, wantAssets)
+ 	}
+ }
+ 
+ func TestNewRejectsMissingRoot(t *testing.T) {
+ 	if _, err := vault.New(filepath.Join(t.TempDir(), "nao-existe")); err == nil {
+ 		t.Fatal("New com raiz inexistente deveria falhar")
+ 	}
+ }
+ 
++// TestWalkFailsWhenRootRemoved e a regressao permanente para o Finding 1 do
++// fix pass anterior: um cofre que existia em New e some antes de Walk (unidade
++// removivel desconectada, pasta de nuvem movida, share de rede caido) precisa
++// devolver um erro nao-nulo, nao sucesso silencioso com zero entradas. Sem
++// este teste, nada no suite comittado pegaria uma regressao para o antigo
++// "return nil" silencioso em walk.go.
++func TestWalkFailsWhenRootRemoved(t *testing.T) {
++	root := t.TempDir()
++
++	v, err := vault.New(root)
++	if err != nil {
++		t.Fatalf("New: %v", err)
++	}
++
++	if err := os.RemoveAll(root); err != nil {
++		t.Fatalf("RemoveAll: %v", err)
++	}
++
++	err = v.Walk(context.Background(), func(vault.Entry) error {
++		t.Fatal("callback nao deveria ser chamado: a raiz nao existe mais")
++		return nil
++	})
++	if err == nil {
++		t.Fatal("Walk com raiz removida apos New deveria falhar, nao devolver sucesso com zero entradas")
++	}
++}
++
+ func TestReadRange(t *testing.T) {
+ 	root := t.TempDir()
+ 	writeFile(t, root, "A.md", "0123456789")
+ 
+ 	v, err := vault.New(root)
+ 	if err != nil {
+ 		t.Fatalf("New: %v", err)
+ 	}
+ 
+ 	got, err := v.ReadRange(context.Background(), "A.md", 2, 5)
+ 	if err != nil {
+ 		t.Fatalf("ReadRange: %v", err)
+ 	}
+ 	if string(got) != "234" {
+ 		t.Errorf("ReadRange = %q, quer %q", got, "234")
+ 	}
+ }
++
++// TestReadRangeRejectsHugeRange confirms that an absurd requested range is
++// rejected before any allocation, rather than attempting to allocate a
++// buffer sized by an unchecked end-start.
++func TestReadRangeRejectsHugeRange(t *testing.T) {
++	root := t.TempDir()
++	writeFile(t, root, "A.md", "0123456789")
++
++	v, err := vault.New(root)
++	if err != nil {
++		t.Fatalf("New: %v", err)
++	}
++
++	_, err = v.ReadRange(context.Background(), "A.md", 0, 1<<40)
++	if err == nil {
++		t.Fatal("ReadRange com faixa absurda deveria falhar")
++	}
++}
++
++// TestReadRangeRejectsOverflowPair confirms the pathological pair
++// start=math.MinInt64, end=math.MaxInt64 is rejected without panicking.
++// Before the fix, end-start wrapped around int64's range to a negative
++// value, sailed past the "> maxReadRangeBytes" check (a negative number is
++// never greater than a positive cap), and reached make([]byte, end-start)
++// with a negative length — a guaranteed panic in the exact code path the cap
++// exists to protect.
++func TestReadRangeRejectsOverflowPair(t *testing.T) {
++	root := t.TempDir()
++	writeFile(t, root, "A.md", "0123456789")
++
++	v, err := vault.New(root)
++	if err != nil {
++		t.Fatalf("New: %v", err)
++	}
++
++	_, err = v.ReadRange(context.Background(), "A.md", math.MinInt64, math.MaxInt64)
++	if err == nil {
++		t.Fatal("ReadRange com par start/end que estoura int64 deveria falhar, nao entrar em panic")
++	}
++}
+ ```
+ 
++Alem deste arquivo, o pacote tambem ganhou dois testes permanentes fora deste
++snippet original (nao fazem parte do `walk_test.go` acima, sao arquivos
++proprios): `internal/vault/skip_internal_test.go` (`package vault`, testa
++`recordSkip`/`SkippedEntries` diretamente — teto de `maxSkippedSamples`, o
++retorno sendo copia e nao alias, e o contador sobrevivendo ao teto) e
++`internal/vault/walk_windows_test.go` (`//go:build windows`, testa o caminho
++de `recordSkip` disparado por uma rejeicao de `Canonicalize` em uma entrada
++que a varredura realmente alcanca, via um diretorio terminado em ponto criado
++atras do prefixo `\\?\`; pula com `t.Skip` se o ambiente recusar a criacao do
++nome).
++
+ - [ ] **Step 3: Rodar para confirmar que falha**
+ 
+ Run: `go test ./internal/vault/ -v`
+ Esperado: FAIL — `undefined: vault.New`.
+ 
+ - [ ] **Step 4: Implementar EOL e BOM**
+ 
+ `internal/vault/eol.go`:
+ 
+ ```go
+@@ -2169,20 +2282,26 @@ func (e EOLStyle) Bytes() []byte {
+ 		return []byte("\r\n")
+ 	}
+ 	return []byte("\n")
+ }
+ 
+ var bom = []byte{0xEF, 0xBB, 0xBF}
+ 
+ // DetectEOL devolve o estilo predominante do arquivo. Arquivos com mistura
+ // existem, e converter o arquivo inteiro para um estilo so seria reescrever
+ // o que o usuario nao pediu — a escrita normaliza apenas o conteudo novo.
++//
++// CR solto (Mac classico, pre-OS X) nao tem representacao em EOLStyle: como
++// o tipo so modela LF e CRLF, um arquivo sem nenhum "\r\n" nem "\n" conta
++// zero quebras dos dois tipos e cai no default, EOLLF. Isso e consequencia
++// direta do desenho de dois valores, nao um bug — e o conteudo antigo em CR
++// solto nunca e reescrito, porque NormalizeEOL so processa o texto novo.
+ func DetectEOL(data []byte) EOLStyle {
+ 	crlf := bytes.Count(data, []byte("\r\n"))
+ 	lf := bytes.Count(data, []byte("\n")) - crlf
+ 
+ 	if crlf > lf {
+ 		return EOLCRLF
+ 	}
+ 	return EOLLF
+ }
+ 
+@@ -2345,33 +2464,45 @@ type Vault struct {
+ 	skipped        atomic.Int64
+ 	skippedMu      sync.Mutex
+ 	skippedSamples []string
+ }
+ 
+ // maxSkippedSamples limita quantos caminhos descartados sao guardados. O
+ // contador diz quantos; a amostra diz quais, o suficiente para diagnosticar
+ // sem crescer sem limite em um cofre com milhares de nomes problematicos.
+ const maxSkippedSamples = 50
+ 
++// maxReadRangeBytes e o teto de alocacao de uma unica chamada a ReadRange.
++// Sem ele, um `end` absurdo (por erro do chamador ou por um offset corrompido
++// vindo do indice) aloca antes de qualquer I/O acontecer — o processo pode
++// estourar memoria so por causa de dois numeros, nunca por causa do que esta
++// no disco.
++const maxReadRangeBytes = 64 << 20 // 64 MiB
++
+ func (v *Vault) recordSkip(abs string, cause error) {
+ 	v.skipped.Add(1)
+ 
+ 	v.skippedMu.Lock()
+ 	defer v.skippedMu.Unlock()
+ 	if len(v.skippedSamples) < maxSkippedSamples {
+ 		v.skippedSamples = append(v.skippedSamples, fmt.Sprintf("%s: %v", abs, cause))
+ 	}
+ }
+ 
+ // SkippedEntries devolve quantas entradas foram descartadas e uma amostra dos
+ // motivos. Exposto em vault_stats, e o que transforma "sumiu uma nota" em um
+ // diagnostico.
++//
++// O contador e cumulativo entre chamadas de Walk — nunca reseta sozinho.
++// Isso e proposital: e um sinal de saude do cofre ao longo do tempo, nao o
++// resultado de uma unica varredura. Um chamador que precisa do descarte de
++// uma varredura especifica tem que ler o valor antes e depois e subtrair.
+ func (v *Vault) SkippedEntries() (int64, []string) {
+ 	v.skippedMu.Lock()
+ 	defer v.skippedMu.Unlock()
+ 
+ 	out := make([]string, len(v.skippedSamples))
+ 	copy(out, v.skippedSamples)
+ 	return v.skipped.Load(), out
+ }
+ 
+ func New(root string) (*Vault, error) {
+@@ -2404,23 +2535,37 @@ func (v *Vault) Open(p CanonicalPath) (*os.File, error) {
+ 	}
+ 	return f, nil
+ }
+ 
+ // ReadRange le apenas a faixa pedida. Uma secao de 2 KB em uma nota de 500 KB
+ // custa 2 KB — e a razao de o indice guardar offsets em vez de conteudo.
+ func (v *Vault) ReadRange(ctx context.Context, p CanonicalPath, start, end int64) ([]byte, error) {
+ 	if err := ctx.Err(); err != nil {
+ 		return nil, err
+ 	}
++	// start negativo precisa ser rejeitado antes de qualquer subtracao.
++	// end-start so pode estourar o int64 quando start e suficientemente
++	// negativo (o caso patologico e start=math.MinInt64, end=math.MaxInt64:
++	// a diferenca matematica excede o range de int64 e o resultado
++	// envolve para um numero negativo, que passa pelo teto abaixo sem ser
++	// pego e derruba make() com um tamanho negativo). Com start >= 0
++	// garantido aqui e end >= start garantido a seguir, end-start fica em
++	// [0, math.MaxInt64] sempre — nunca estoura.
++	if start < 0 {
++		return nil, fmt.Errorf("faixa invalida em %q: start negativo (%d)", p, start)
++	}
+ 	if end < start {
+ 		return nil, fmt.Errorf("faixa invalida em %q: %d..%d", p, start, end)
+ 	}
++	if end-start > maxReadRangeBytes {
++		return nil, fmt.Errorf("faixa grande demais em %q: %d..%d excede o teto de %d bytes", p, start, end, int64(maxReadRangeBytes))
++	}
+ 
+ 	f, err := v.Open(p)
+ 	if err != nil {
+ 		return nil, err
+ 	}
+ 	defer func() { _ = f.Close() }()
+ 
+ 	buf := make([]byte, end-start)
+ 	n, err := f.ReadAt(buf, start)
+ 	if err != nil && err != io.EOF {
+@@ -2441,20 +2586,21 @@ func (v *Vault) ReadAll(ctx context.Context, p CanonicalPath) ([]byte, error) {
+ }
+ ```
+ 
+ `internal/vault/walk.go`:
+ 
+ ```go
+ package vault
+ 
+ import (
+ 	"context"
++	"fmt"
+ 	"io/fs"
+ 	"path/filepath"
+ 	"strings"
+ 	"time"
+ )
+ 
+ type Entry struct {
+ 	Path      CanonicalPath
+ 	Size      int64
+ 	ModTime   time.Time
+@@ -2483,22 +2629,31 @@ var assetExts = map[string]bool{
+ 
+ // Arquivos de controle de sincronizador e de editor, que geram evento e nunca
+ // interessam (WINDOWS.md §1.4).
+ func isNoise(name string) bool {
+ 	lower := strings.ToLower(name)
+ 	switch {
+ 	case strings.HasPrefix(name, "~$"):
+ 		return true
+ 	case strings.HasPrefix(lower, ".~lock."):
+ 		return true
++	// desktop.ini, Thumbs.db e .DS_Store sao nomes fixos cuja extensao nunca
++	// e ".md" nem uma extensao de assetExts (".ini", ".db" ou nenhuma
++	// extensao, respectivamente). O filtro de extensao logo abaixo ja os
++	// descartaria de qualquer forma, com ou sem este ramo — defensivo
++	// (belt-and-braces), nao alcancavel por efeito. Nao existe fixture capaz
++	// de provar este ramo sem inventar um nome que o Windows nunca produz.
+ 	case lower == "desktop.ini", lower == "thumbs.db", lower == ".ds_store":
+ 		return true
++	// *.tmp: ".tmp" nao esta em assetExts, entao qualquer arquivo que caia
++	// aqui ja seria descartado pelo filtro de extensao mesmo sem isNoise.
++	// Defensivo pelo mesmo motivo do ramo acima, nao alcancavel por efeito.
+ 	case strings.HasSuffix(lower, ".tmp"):
+ 		return true
+ 	case strings.HasPrefix(name, ".gobsidian-tmp-"):
+ 		return true
+ 	}
+ 	return false
+ }
+ 
+ // Walk percorre o cofre aplicando as exclusoes e classificando cada arquivo
+ // como nota ou anexo. Arquivos que nao sao nem um nem outro sao ignorados.
+@@ -2526,22 +2681,20 @@ func (v *Vault) Walk(ctx context.Context, fn func(Entry) error) error {
+ 			v.recordSkip(abs, err)
+ 			return nil
+ 		}
+ 		if ctxErr := ctx.Err(); ctxErr != nil {
+ 			return ctxErr
+ 		}
+ 
+ 		name := d.Name()
+ 
+ 		if d.IsDir() {
+-			// Comparar com walkRoot, nao com root: WalkDir foi chamado com
+-			// walkRoot, entao e essa a forma que chega em abs.
+ 			if abs == v.walkRoot {
+ 				return nil
+ 			}
+ 			if excludedDirs[strings.ToLower(name)] {
+ 				return fs.SkipDir
+ 			}
+ 			return nil
+ 		}
+ 
+ 		if isNoise(name) {
+diff --git a/internal/vault/skip_internal_test.go b/internal/vault/skip_internal_test.go
+new file mode 100644
+index 0000000..4bdb825
+--- /dev/null
++++ b/internal/vault/skip_internal_test.go
+@@ -0,0 +1,62 @@
++package vault
++
++import (
++	"errors"
++	"fmt"
++	"testing"
++)
++
++// TestRecordSkipCapsSamplesButNotCount is a whitebox permanent test for
++// recordSkip/SkippedEntries, the fallback Finding 2 (fix pass 2) asks for in
++// case the Windows Canonicalize-rejection scenario proves too brittle to run
++// reliably in CI. It exercises three properties directly, without needing a
++// real filesystem edge case:
++//
++//  1. The count (skipped.Load()) keeps incrementing past maxSkippedSamples —
++//     it is not capped, only the sample slice is.
++//  2. The sample slice stops growing at maxSkippedSamples.
++//  3. SkippedEntries returns a copy, not an alias to the internal slice: a
++//     caller mutating the returned slice must not corrupt v.skippedSamples.
++func TestRecordSkipCapsSamplesButNotCount(t *testing.T) {
++	v := &Vault{}
++
++	total := maxSkippedSamples + 5
++	for i := 0; i < total; i++ {
++		v.recordSkip(fmt.Sprintf("caminho-%d", i), errors.New("motivo"))
++	}
++
++	count, samples := v.SkippedEntries()
++	if count != int64(total) {
++		t.Errorf("count = %d, quer %d — o contador nao deveria ser limitado pelo teto de amostras", count, total)
++	}
++	if len(samples) != maxSkippedSamples {
++		t.Errorf("len(samples) = %d, quer %d (maxSkippedSamples)", len(samples), maxSkippedSamples)
++	}
++
++	// A amostra guardada deve conter as primeiras entradas, nao as ultimas —
++	// recordSkip para de anexar assim que o teto e atingido.
++	if len(samples) > 0 && samples[0] != "caminho-0: motivo" {
++		t.Errorf("samples[0] = %q, quer conter a primeira entrada registrada", samples[0])
++	}
++
++	// SkippedEntries deve devolver uma copia: mutar o slice devolvido nao
++	// pode corromper v.skippedSamples para a proxima chamada.
++	if len(samples) > 0 {
++		samples[0] = "adulterado"
++	}
++	_, samplesAgain := v.SkippedEntries()
++	if len(samplesAgain) > 0 && samplesAgain[0] == "adulterado" {
++		t.Fatal("SkippedEntries devolveu um alias do slice interno, nao uma copia — mutar o retorno corrompeu o estado do Vault")
++	}
++
++	// Uma chamada adicional depois do teto continua incrementando o
++	// contador, mas nao a amostra.
++	v.recordSkip("mais-um", errors.New("motivo"))
++	count, samples = v.SkippedEntries()
++	if count != int64(total)+1 {
++		t.Errorf("count apos mais um recordSkip = %d, quer %d", count, total+1)
++	}
++	if len(samples) != maxSkippedSamples {
++		t.Errorf("len(samples) apos o teto continua crescendo: %d, quer %d", len(samples), maxSkippedSamples)
++	}
++}
+diff --git a/internal/vault/vault.go b/internal/vault/vault.go
+index b055d68..862e156 100644
+--- a/internal/vault/vault.go
++++ b/internal/vault/vault.go
+@@ -49,20 +49,25 @@ func (v *Vault) recordSkip(abs string, cause error) {
+ 	v.skippedMu.Lock()
+ 	defer v.skippedMu.Unlock()
+ 	if len(v.skippedSamples) < maxSkippedSamples {
+ 		v.skippedSamples = append(v.skippedSamples, fmt.Sprintf("%s: %v", abs, cause))
+ 	}
+ }
+ 
+ // SkippedEntries devolve quantas entradas foram descartadas e uma amostra dos
+ // motivos. Exposto em vault_stats, e o que transforma "sumiu uma nota" em um
+ // diagnostico.
++//
++// O contador e cumulativo entre chamadas de Walk — nunca reseta sozinho.
++// Isso e proposital: e um sinal de saude do cofre ao longo do tempo, nao o
++// resultado de uma unica varredura. Um chamador que precisa do descarte de
++// uma varredura especifica tem que ler o valor antes e depois e subtrair.
+ func (v *Vault) SkippedEntries() (int64, []string) {
+ 	v.skippedMu.Lock()
+ 	defer v.skippedMu.Unlock()
+ 
+ 	out := make([]string, len(v.skippedSamples))
+ 	copy(out, v.skippedSamples)
+ 	return v.skipped.Load(), out
+ }
+ 
+ func New(root string) (*Vault, error) {
+@@ -95,20 +100,31 @@ func (v *Vault) Open(p CanonicalPath) (*os.File, error) {
+ 	}
+ 	return f, nil
+ }
+ 
+ // ReadRange le apenas a faixa pedida. Uma secao de 2 KB em uma nota de 500 KB
+ // custa 2 KB — e a razao de o indice guardar offsets em vez de conteudo.
+ func (v *Vault) ReadRange(ctx context.Context, p CanonicalPath, start, end int64) ([]byte, error) {
+ 	if err := ctx.Err(); err != nil {
+ 		return nil, err
+ 	}
++	// start negativo precisa ser rejeitado antes de qualquer subtracao.
++	// end-start so pode estourar o int64 quando start e suficientemente
++	// negativo (o caso patologico e start=math.MinInt64, end=math.MaxInt64:
++	// a diferenca matematica excede o range de int64 e o resultado
++	// envolve para um numero negativo, que passa pelo teto abaixo sem ser
++	// pego e derruba make() com um tamanho negativo). Com start >= 0
++	// garantido aqui e end >= start garantido a seguir, end-start fica em
++	// [0, math.MaxInt64] sempre — nunca estoura.
++	if start < 0 {
++		return nil, fmt.Errorf("faixa invalida em %q: start negativo (%d)", p, start)
++	}
+ 	if end < start {
+ 		return nil, fmt.Errorf("faixa invalida em %q: %d..%d", p, start, end)
+ 	}
+ 	if end-start > maxReadRangeBytes {
+ 		return nil, fmt.Errorf("faixa grande demais em %q: %d..%d excede o teto de %d bytes", p, start, end, int64(maxReadRangeBytes))
+ 	}
+ 
+ 	f, err := v.Open(p)
+ 	if err != nil {
+ 		return nil, err
+diff --git a/internal/vault/walk.go b/internal/vault/walk.go
+index 716fcff..26370b6 100644
+--- a/internal/vault/walk.go
++++ b/internal/vault/walk.go
+@@ -38,22 +38,31 @@ var assetExts = map[string]bool{
+ 
+ // Arquivos de controle de sincronizador e de editor, que geram evento e nunca
+ // interessam (WINDOWS.md §1.4).
+ func isNoise(name string) bool {
+ 	lower := strings.ToLower(name)
+ 	switch {
+ 	case strings.HasPrefix(name, "~$"):
+ 		return true
+ 	case strings.HasPrefix(lower, ".~lock."):
+ 		return true
++	// desktop.ini, Thumbs.db e .DS_Store sao nomes fixos cuja extensao nunca
++	// e ".md" nem uma extensao de assetExts (".ini", ".db" ou nenhuma
++	// extensao, respectivamente). O filtro de extensao logo abaixo ja os
++	// descartaria de qualquer forma, com ou sem este ramo — defensivo
++	// (belt-and-braces), nao alcancavel por efeito. Nao existe fixture capaz
++	// de provar este ramo sem inventar um nome que o Windows nunca produz.
+ 	case lower == "desktop.ini", lower == "thumbs.db", lower == ".ds_store":
+ 		return true
++	// *.tmp: ".tmp" nao esta em assetExts, entao qualquer arquivo que caia
++	// aqui ja seria descartado pelo filtro de extensao mesmo sem isNoise.
++	// Defensivo pelo mesmo motivo do ramo acima, nao alcancavel por efeito.
+ 	case strings.HasSuffix(lower, ".tmp"):
+ 		return true
+ 	case strings.HasPrefix(name, ".gobsidian-tmp-"):
+ 		return true
+ 	}
+ 	return false
+ }
+ 
+ // Walk percorre o cofre aplicando as exclusoes e classificando cada arquivo
+ // como nota ou anexo. Arquivos que nao sao nem um nem outro sao ignorados.
+diff --git a/internal/vault/walk_test.go b/internal/vault/walk_test.go
+index 1b41316..4c28538 100644
+--- a/internal/vault/walk_test.go
++++ b/internal/vault/walk_test.go
+@@ -1,14 +1,15 @@
+ package vault_test
+ 
+ import (
+ 	"context"
++	"math"
+ 	"os"
+ 	"path/filepath"
+ 	"sort"
+ 	"testing"
+ 
+ 	"github.com/jonyd/gobsidian/internal/vault"
+ )
+ 
+ func writeFile(t *testing.T, root, rel, content string) {
+ 	t.Helper()
+@@ -21,36 +22,57 @@ func writeFile(t *testing.T, root, rel, content string) {
+ 	}
+ }
+ 
+ func TestWalkExcludesAndClassifies(t *testing.T) {
+ 	root := t.TempDir()
+ 
+ 	writeFile(t, root, "Civil/PONTO 03.md", "# A\n")
+ 	writeFile(t, root, "Penal/B.md", "# B\n")
+ 	writeFile(t, root, "Anexos/diagrama.png", "\x89PNG")
+ 
+-	// Todo diretorio de excludedDirs, para que a poda seja exercitada em cada
+-	// um, nao apenas nos tres primeiros.
++	// Todo diretorio de excludedDirs recebe um arquivo .md que SERIA uma nota
++	// se a poda nao acontecesse. Isso importa: o arquivo de exemplo original
++	// de cada pasta (workspace.json, config, syncthing.db) nao tem extensao
++	// de nota nem de anexo, entao o filtro de extensao (o "if !isNote &&
++	// !isAsset { return nil }" no fim de Walk) ja o descartaria de qualquer
++	// jeito — apagar a entrada correspondente de excludedDirs nao mudaria a
++	// contagem, e a fixture "provaria" uma poda que na verdade nunca era
++	// exercitada. Os arquivos .md abaixo sao o que faz a poda ter efeito
++	// observavel.
+ 	writeFile(t, root, ".obsidian/workspace.json", "{}")
++	writeFile(t, root, ".obsidian/Nota.md", "# obsidian\n")
+ 	writeFile(t, root, ".git/config", "[core]")
++	writeFile(t, root, ".git/Nota.md", "# git\n")
+ 	writeFile(t, root, ".trash/velha.md", "# velha\n")
+ 	writeFile(t, root, ".stfolder/syncthing.db", "lixo-binario")
++	writeFile(t, root, ".stfolder/Nota.md", "# stfolder\n")
++
++	// Ramos de isNoise alcancaveis por efeito: cada um recebe um nome cuja
++	// extensao e ".md" — isto e, um nome que SERIA classificado como nota se
++	// isNoise nao o interceptasse primeiro. ".~lock.Penal.md#" virou
++	// ".~lock.Penal.md" (sem o "#" final): com o "#", filepath.Ext devolve
++	// ".md#", que o filtro de extensao ja rejeita sozinho, e apagar o ramo
++	// ".~lock." de isNoise nao mudaria a contagem.
++	writeFile(t, root, "~$temp.md", "lixo")
++	writeFile(t, root, ".~lock.Penal.md", "usuario,host,pid,")
++	writeFile(t, root, ".gobsidian-tmp-abc123.md", "escrita atomica em andamento")
+ 
+-	// Todo ramo de isNoise, para que cada padrao de arquivo de controle seja
+-	// exercitado, nao apenas o prefixo "~$" e "desktop.ini".
++	// Ramos de isNoise defensivos, NAO alcancaveis por efeito: nomes fixos
++	// (desktop.ini, Thumbs.db, .DS_Store) ou uma extensao fora de assetExts
++	// (.tmp) que o filtro de extensao ja descarta sozinho, com ou sem
++	// isNoise. Mantidos aqui como documentacao de que esses arquivos existem
++	// em cofres reais — mas apagar os ramos correspondentes em walk.go nao
++	// faz este teste falhar. Ver o comentario acima deles em walk.go.
+ 	writeFile(t, root, "desktop.ini", "[.ShellClassInfo]")
+-	writeFile(t, root, "~$temp.md", "lixo")
+-	writeFile(t, root, ".~lock.Penal.md#", "usuario,host,pid,")
+ 	writeFile(t, root, "Thumbs.db", "lixo-binario")
+ 	writeFile(t, root, ".DS_Store", "lixo-binario")
+ 	writeFile(t, root, "rascunho.tmp", "conteudo temporario")
+-	writeFile(t, root, ".gobsidian-tmp-abc123.md", "escrita atomica em andamento")
+ 
+ 	writeFile(t, root, "notas.txt", "nao e nota")
+ 
+ 	v, err := vault.New(root)
+ 	if err != nil {
+ 		t.Fatalf("New: %v", err)
+ 	}
+ 
+ 	var notes, assets []string
+ 	err = v.Walk(context.Background(), func(e vault.Entry) error {
+@@ -83,20 +105,47 @@ func TestWalkExcludesAndClassifies(t *testing.T) {
+ 		t.Errorf("anexos = %v, quer %v", assets, wantAssets)
+ 	}
+ }
+ 
+ func TestNewRejectsMissingRoot(t *testing.T) {
+ 	if _, err := vault.New(filepath.Join(t.TempDir(), "nao-existe")); err == nil {
+ 		t.Fatal("New com raiz inexistente deveria falhar")
+ 	}
+ }
+ 
++// TestWalkFailsWhenRootRemoved e a regressao permanente para o Finding 1 do
++// fix pass anterior: um cofre que existia em New e some antes de Walk (unidade
++// removivel desconectada, pasta de nuvem movida, share de rede caido) precisa
++// devolver um erro nao-nulo, nao sucesso silencioso com zero entradas. Sem
++// este teste, nada no suite comittado pegaria uma regressao para o antigo
++// "return nil" silencioso em walk.go.
++func TestWalkFailsWhenRootRemoved(t *testing.T) {
++	root := t.TempDir()
++
++	v, err := vault.New(root)
++	if err != nil {
++		t.Fatalf("New: %v", err)
++	}
++
++	if err := os.RemoveAll(root); err != nil {
++		t.Fatalf("RemoveAll: %v", err)
++	}
++
++	err = v.Walk(context.Background(), func(vault.Entry) error {
++		t.Fatal("callback nao deveria ser chamado: a raiz nao existe mais")
++		return nil
++	})
++	if err == nil {
++		t.Fatal("Walk com raiz removida apos New deveria falhar, nao devolver sucesso com zero entradas")
++	}
++}
++
+ func TestReadRange(t *testing.T) {
+ 	root := t.TempDir()
+ 	writeFile(t, root, "A.md", "0123456789")
+ 
+ 	v, err := vault.New(root)
+ 	if err != nil {
+ 		t.Fatalf("New: %v", err)
+ 	}
+ 
+ 	got, err := v.ReadRange(context.Background(), "A.md", 2, 5)
+@@ -118,10 +167,32 @@ func TestReadRangeRejectsHugeRange(t *testing.T) {
+ 	v, err := vault.New(root)
+ 	if err != nil {
+ 		t.Fatalf("New: %v", err)
+ 	}
+ 
+ 	_, err = v.ReadRange(context.Background(), "A.md", 0, 1<<40)
+ 	if err == nil {
+ 		t.Fatal("ReadRange com faixa absurda deveria falhar")
+ 	}
+ }
++
++// TestReadRangeRejectsOverflowPair confirms the pathological pair
++// start=math.MinInt64, end=math.MaxInt64 is rejected without panicking.
++// Before the fix, end-start wrapped around int64's range to a negative
++// value, sailed past the "> maxReadRangeBytes" check (a negative number is
++// never greater than a positive cap), and reached make([]byte, end-start)
++// with a negative length — a guaranteed panic in the exact code path the cap
++// exists to protect.
++func TestReadRangeRejectsOverflowPair(t *testing.T) {
++	root := t.TempDir()
++	writeFile(t, root, "A.md", "0123456789")
++
++	v, err := vault.New(root)
++	if err != nil {
++		t.Fatalf("New: %v", err)
++	}
++
++	_, err = v.ReadRange(context.Background(), "A.md", math.MinInt64, math.MaxInt64)
++	if err == nil {
++		t.Fatal("ReadRange com par start/end que estoura int64 deveria falhar, nao entrar em panic")
++	}
++}
+diff --git a/internal/vault/walk_windows_test.go b/internal/vault/walk_windows_test.go
+new file mode 100644
+index 0000000..c9c042f
+--- /dev/null
++++ b/internal/vault/walk_windows_test.go
+@@ -0,0 +1,87 @@
++//go:build windows
++
++package vault_test
++
++import (
++	"context"
++	"os"
++	"path/filepath"
++	"strings"
++	"testing"
++
++	"github.com/jonyd/gobsidian/internal/vault"
++)
++
++// TestWalkRecordsSkipOnCanonicalizeRejection is the permanent regression test
++// for Finding 2 (fix pass 2): the recordSkip-on-Canonicalize-rejection path
++// was previously verified only with a throwaway test file, deleted after the
++// run. Nothing in the committed suite caught a regression to a silent drop.
++//
++// The scenario: a note that genuinely exists on disk, that filepath.WalkDir
++// reaches, but whose parent directory name ends in a dot — a form Win32
++// normally strips silently at open time. That normalization only happens on
++// the traditional (non-\\?\) path parsing route, so a vault root padded past
++// longPathThreshold (which makes Vault.walkRoot carry the \\?\ prefix per
++// LongPath) lets WalkDir enumerate and descend into the trailing-dot
++// directory without the OS ever trimming it away — and lets Canonicalize see
++// (and reject) the trailing-dot component for what it is.
++//
++// Creating the trailing-dot directory itself requires the same \\?\ bypass.
++// If directory/file creation is refused in this environment for any reason,
++// the test skips rather than failing: what is under test is Walk's response
++// to a Canonicalize rejection, not this environment's tolerance for
++// trailing-dot names.
++func TestWalkRecordsSkipOnCanonicalizeRejection(t *testing.T) {
++	base := t.TempDir()
++
++	// Pad the root past longPathThreshold (240 bytes) so Vault.walkRoot
++	// carries the \\?\ prefix and WalkDir can descend into "Pasta ." without
++	// Win32 trimming the trailing dot away first.
++	padding := strings.Repeat("a", 220)
++	root := filepath.Join(base, padding)
++	if err := os.MkdirAll(vault.LongPath(root), 0o755); err != nil {
++		t.Skipf("nao foi possivel criar raiz com padding para exceder o limiar de caminho longo: %v", err)
++	}
++
++	dotDir := filepath.Join(root, "Pasta .")
++	if err := os.Mkdir(vault.LongPath(dotDir), 0o755); err != nil {
++		t.Skipf("filesystem/SO recusou diretorio terminado em ponto, mesmo via \\\\?\\: %v", err)
++	}
++
++	notePath := filepath.Join(dotDir, "Nota.md")
++	if err := os.WriteFile(vault.LongPath(notePath), []byte("# nota\n"), 0o644); err != nil {
++		t.Skipf("filesystem/SO recusou arquivo dentro de diretorio terminado em ponto: %v", err)
++	}
++
++	v, err := vault.New(root)
++	if err != nil {
++		t.Fatalf("New: %v", err)
++	}
++
++	var visited int
++	err = v.Walk(context.Background(), func(vault.Entry) error {
++		visited++
++		return nil
++	})
++	if err != nil {
++		t.Fatalf("Walk: %v", err)
++	}
++	if visited != 0 {
++		t.Fatalf("visited = %d, quer 0 — Nota.md dentro de \"Pasta .\" deveria ser rejeitada por Canonicalize, nunca chegar ao callback", visited)
++	}
++
++	count, samples := v.SkippedEntries()
++	if count == 0 {
++		t.Fatal("SkippedEntries count = 0, quer >0 apos a rejeicao de Canonicalize")
++	}
++	found := false
++	for _, s := range samples {
++		if strings.Contains(s, "Nota.md") {
++			found = true
++			break
++		}
++	}
++	if !found {
++		t.Fatalf("SkippedEntries samples = %v, quer uma amostra citando Nota.md", samples)
++	}
++}

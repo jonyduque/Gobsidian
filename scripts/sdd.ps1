@@ -37,6 +37,24 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 
 $ProjectRoot = Split-Path -Parent $PSScriptRoot
+
+# O `sdd-workspace` do plugin grava um .gitignore com "*" em .superpowers/sdd/
+# (linha 39 dele: printf '*\n' > "$base/.gitignore"). Este projeto versiona os
+# artefatos de proposito — o ledger e a unica coisa que atravessa sessoes, e um
+# ledger que existe so na copia de trabalho se perde junto com ela. Um
+# .gitignore aninhado com "*" nao e cancelavel por negacao no diretorio pai,
+# entao a unica defesa e apagar o arquivo toda vez. Sem isto, artefato NOVO
+# para de ser versionado em silencio na proxima vez que o plugin rodar; os ja
+# rastreados sobrevivem, o que torna a falha parcial e mais dificil de notar.
+function Remove-PluginGitignore {
+    foreach ($Dir in @((Join-Path $ProjectRoot ".superpowers\sdd"), $SddDir)) {
+        $Nested = Join-Path $Dir ".gitignore"
+        if (Test-Path $Nested) {
+            Remove-Item $Nested -Force
+            Write-Output "[i] Removido .gitignore do plugin em $Dir (artefatos sao versionados aqui)."
+        }
+    }
+}
 $Plan = Join-Path $ProjectRoot "docs\superpowers\plans\2026-07-25-gobsidian-v01.md"
 $PlanName = [System.IO.Path]::GetFileNameWithoutExtension($Plan)
 
@@ -93,6 +111,8 @@ function Get-GitBash {
 }
 
 $BaseFile = Join-Path $SddDir "task-$Task-base.txt"
+
+Remove-PluginGitignore
 
 switch ($Command) {
     "brief" {

@@ -1,0 +1,820 @@
+# Review package: 1d93417..HEAD
+
+## Commits
+6628d42 feat(doctor): environment diagnostics with ASCII report and blocking exit code
+
+## Files changed
+ cmd/gobsidian/doctor.go              |  50 ++++++--
+ internal/doctor/checks.go            | 237 +++++++++++++++++++++++++++++++++++
+ internal/doctor/checks_other.go      |  29 +++++
+ internal/doctor/checks_windows.go    | 151 ++++++++++++++++++++++
+ internal/doctor/doctor.go            |  76 +++++++++++
+ internal/doctor/doctor_extra_test.go | 132 +++++++++++++++++++
+ internal/doctor/doctor_test.go       |  73 +++++++++++
+ 7 files changed, 739 insertions(+), 9 deletions(-)
+
+## Diff
+diff --git a/cmd/gobsidian/doctor.go b/cmd/gobsidian/doctor.go
+index a404b81..164b7ad 100644
+--- a/cmd/gobsidian/doctor.go
++++ b/cmd/gobsidian/doctor.go
+@@ -1,24 +1,56 @@
+ package main
+ 
+ import (
+ 	"fmt"
++	"os"
+ 
++	"github.com/jonyd/gobsidian/internal/config"
++	"github.com/jonyd/gobsidian/internal/doctor"
+ 	"github.com/spf13/cobra"
+ )
+ 
+-// newDoctorCmd e um placeholder ate a Task 10 implementar o diagnostico de
+-// verdade. Ele so precisa existir para o binario compilar e para
+-// "gobsidian doctor" nao ser um comando desconhecido do cobra; o
+-// comportamento real (checar vault, cache, permissoes) fica fora do escopo
+-// da Task 9. Ao contrario de serve, doctor e um comando CLI comum, entao
+-// escrever em stdout aqui e correto.
+ func newDoctorCmd() *cobra.Command {
+-	return &cobra.Command{
++	var flags config.Flags
++
++	cmd := &cobra.Command{
+ 		Use:   "doctor",
+-		Short: "Diagnostica o ambiente (placeholder ate a Task 10)",
++		Short: "Diagnostica o ambiente: permissoes, OneDrive, MAX_PATH, casing",
+ 		RunE: func(cmd *cobra.Command, _ []string) error {
+-			fmt.Fprintln(cmd.OutOrStdout(), "doctor: ainda nao implementado (ver Task 10)")
++			// Sem esta linha, --read-only nao chega a Config e a verificacao
++			// de permissao de escrita roda mesmo quando o usuario pediu para
++			// nao rodar. Toda chamada a config.Load precisa preencher os
++			// companheiros das flags que o comando expoe.
++			flags.ReadOnlySet = cmd.Flags().Changed("read-only")
++
++			cfg, err := config.Load(flags)
++			if err != nil {
++				return err
++			}
++
++			results := doctor.Run(cmd.Context(), cfg)
++
++			// doctor imprime em stdout de proposito: e um comando de CLI,
++			// nao um servidor. Nenhum JSON-RPC trafega aqui.
++			out := cmd.OutOrStdout()
++			for _, r := range results {
++				fmt.Fprintf(out, "%s %s\n", r.Status.Marker(), r.Name)
++				if r.Detail != "" {
++					fmt.Fprintf(out, "     %s\n", r.Detail)
++				}
++			}
++
++			code := doctor.ExitCode(results)
++			if code != 0 {
++				fmt.Fprintln(out, "[!] Ha falhas bloqueantes acima")
++				os.Exit(code)
++			}
++			fmt.Fprintln(out, "[OK] Ambiente apto")
+ 			return nil
+ 		},
+ 	}
++
++	cmd.Flags().StringVar(&flags.VaultPath, "vault", "", "caminho da raiz do cofre (obrigatorio)")
++	cmd.Flags().BoolVar(&flags.ReadOnly, "read-only", false, "nao verifica permissao de escrita")
++
++	return cmd
+ }
+diff --git a/internal/doctor/checks.go b/internal/doctor/checks.go
+new file mode 100644
+index 0000000..2ff052c
+--- /dev/null
++++ b/internal/doctor/checks.go
+@@ -0,0 +1,237 @@
++package doctor
++
++import (
++	"context"
++	"fmt"
++	"os"
++	"path/filepath"
++	"strings"
++
++	"github.com/jonyd/gobsidian/internal/config"
++	"github.com/jonyd/gobsidian/internal/vault"
++)
++
++// longPathThreshold espelha o limiar conservador de internal/vault (240, com
++// folga abaixo do MAX_PATH de 260 do Windows para o nome temporario que a
++// escrita atomica cria ao lado do alvo). Duplicado aqui de proposito: o
++// original em internal/vault nao e exportado, e doctor mede um caminho
++// diferente dele (o caminho absoluto tradicional, sem o prefixo \\?\, que e o
++// que ferramentas externas ao gobsidian — Explorer, clientes de nuvem, git —
++// realmente recebem).
++const longPathThreshold = 240
++
++// minFreeSpaceFailBytes e minFreeSpaceWarnBytes definem os tetos de espaco
++// livre em disco. Abaixo do primeiro, escritas atomicas (que exigem espaco
++// para o arquivo temporario ao lado do original) podem comecar a falhar;
++// abaixo do segundo, ainda funcionam mas o usuario esta perto do limite.
++const (
++	minFreeSpaceFailBytes = 10 << 20  // 10 MB
++	minFreeSpaceWarnBytes = 100 << 20 // 100 MB
++)
++
++// checkRootExists verifica que a raiz do cofre existe e e um diretorio. E a
++// unica verificacao cuja falha interrompe as demais: sem raiz acessivel, todo
++// resultado subsequente seria derivado e o relatorio viraria ruido.
++func checkRootExists(_ context.Context, cfg config.Config) Result {
++	const name = "raiz do cofre existe"
++
++	info, err := os.Stat(vault.LongPath(cfg.VaultPath))
++	if err != nil {
++		return Result{
++			Name:   name,
++			Status: StatusFail,
++			Detail: fmt.Sprintf("%q: %v", cfg.VaultPath, err),
++		}
++	}
++	if !info.IsDir() {
++		return Result{
++			Name:   name,
++			Status: StatusFail,
++			Detail: fmt.Sprintf("%q existe mas nao e um diretorio", cfg.VaultPath),
++		}
++	}
++	return Result{Name: name, Status: StatusOK}
++}
++
++// checkReadable verifica que o processo consegue listar a raiz do cofre.
++func checkReadable(_ context.Context, cfg config.Config) Result {
++	const name = "permissao de leitura"
++
++	entries, err := os.ReadDir(vault.LongPath(cfg.VaultPath))
++	if err != nil {
++		return Result{
++			Name:   name,
++			Status: StatusFail,
++			Detail: fmt.Sprintf("nao foi possivel listar %q: %v", cfg.VaultPath, err),
++		}
++	}
++	return Result{Name: name, Status: StatusOK, Detail: fmt.Sprintf("%d entradas na raiz", len(entries))}
++}
++
++// checkWritable cria e apaga um arquivo temporario na raiz do cofre. A
++// verificacao roda mesmo com --read-only ligado — e o unico jeito de saber se
++// a falha aconteceria, o que muda apenas a gravidade do resultado: falha
++// bloqueante quando o produto precisa escrever, aviso quando o usuario ja
++// pediu para nao escrever e portanto a resposta nao importa para o exit code.
++func checkWritable(_ context.Context, cfg config.Config) Result {
++	const name = "permissao de escrita"
++
++	root := vault.LongPath(cfg.VaultPath)
++	f, err := os.CreateTemp(root, ".gobsidian-doctor-*.tmp")
++	if err == nil {
++		path := f.Name()
++		closeErr := f.Close()
++		removeErr := os.Remove(path)
++		switch {
++		case closeErr != nil:
++			err = closeErr
++		case removeErr != nil:
++			err = removeErr
++		}
++	}
++
++	if err != nil {
++		detail := fmt.Sprintf("nao foi possivel escrever em %q: %v", cfg.VaultPath, err)
++		if cfg.ReadOnly {
++			return Result{Name: name, Status: StatusWarn, Detail: detail}
++		}
++		return Result{Name: name, Status: StatusFail, Detail: detail}
++	}
++	return Result{Name: name, Status: StatusOK}
++}
++
++// checkObsidianDir avisa quando a pasta .obsidian/ nao existe. Nunca falha: o
++// produto funciona sobre qualquer pasta de Markdown, e exigir .obsidian/ seria
++// arbitrario.
++func checkObsidianDir(_ context.Context, cfg config.Config) Result {
++	const name = ".obsidian presente"
++
++	info, err := os.Stat(vault.LongPath(filepath.Join(cfg.VaultPath, ".obsidian")))
++	if err != nil || !info.IsDir() {
++		return Result{
++			Name:   name,
++			Status: StatusWarn,
++			Detail: "pasta .obsidian ausente: configuracoes, temas e plugins do Obsidian nao serao detectados",
++		}
++	}
++	return Result{Name: name, Status: StatusOK}
++}
++
++// checkNoteCount conta as notas .md do cofre. Nunca falha; zero notas e
++// aviso, nao erro — um cofre vazio e um fato, nao uma quebra.
++func checkNoteCount(ctx context.Context, cfg config.Config) Result {
++	const name = "contagem de notas"
++
++	var count int
++	err := walkVault(ctx, cfg, func(e vault.Entry) {
++		if e.IsNote {
++			count++
++		}
++	})
++	if err != nil {
++		return Result{Name: name, Status: StatusWarn, Detail: fmt.Sprintf("varredura interrompida: %v", err)}
++	}
++	if count == 0 {
++		return Result{Name: name, Status: StatusWarn, Detail: "nenhuma nota .md encontrada"}
++	}
++	return Result{Name: name, Status: StatusOK, Detail: fmt.Sprintf("%d notas", count)}
++}
++
++// checkLongestPath mede o maior caminho absoluto entre as entradas do cofre,
++// na forma tradicional (sem o prefixo \\?\ que internal/vault usa
++// internamente nas suas proprias chamadas de sistema). E essa forma tradicional
++// que o Explorer, clientes de sincronizacao de nuvem e outras ferramentas
++// externas recebem, e por isso o limiar existe: o MAX_PATH de 260 delas.
++func checkLongestPath(ctx context.Context, cfg config.Config) Result {
++	const name = "comprimento de caminho"
++
++	length, longest, err := longestVaultPath(ctx, cfg)
++	if err != nil {
++		return Result{Name: name, Status: StatusWarn, Detail: fmt.Sprintf("varredura interrompida: %v", err)}
++	}
++	if length > longPathThreshold {
++		return Result{
++			Name:   name,
++			Status: StatusWarn,
++			Detail: fmt.Sprintf("%d caracteres, acima do limiar de %d: %s", length, longPathThreshold, longest),
++		}
++	}
++	return Result{Name: name, Status: StatusOK, Detail: fmt.Sprintf("maior caminho: %d caracteres", length)}
++}
++
++// checkCacheDir verifica que o diretorio de cache pode ser criado. Nunca
++// falha: sem cache o produto reindexação do zero, mais lento, mas funcional.
++func checkCacheDir(_ context.Context, cfg config.Config) Result {
++	const name = "diretorio de cache"
++
++	if strings.TrimSpace(cfg.CacheDir) == "" {
++		// So acontece quando o chamador monta Config fora de config.Load
++		// (por exemplo, um teste que usa config.Defaults() direto). Em uso
++		// real config.Load sempre preenche um default fora do cofre.
++		return Result{Name: name, Status: StatusOK, Detail: "nenhum diretorio de cache configurado"}
++	}
++
++	if err := os.MkdirAll(cfg.CacheDir, 0o755); err != nil {
++		return Result{
++			Name:   name,
++			Status: StatusWarn,
++			Detail: fmt.Sprintf("nao foi possivel criar %q: %v", cfg.CacheDir, err),
++		}
++	}
++	return Result{Name: name, Status: StatusOK, Detail: cfg.CacheDir}
++}
++
++// checkFreeSpace verifica o espaco livre no volume que contem a raiz do
++// cofre. Falha (bloqueante) abaixo de 10 MB, porque escritas atomicas podem
++// comecar a falhar; aviso abaixo de 100 MB.
++func checkFreeSpace(_ context.Context, cfg config.Config) Result {
++	const name = "espaco em disco"
++
++	free, err := diskFreeBytes(cfg.VaultPath)
++	if err != nil {
++		return Result{Name: name, Status: StatusWarn, Detail: fmt.Sprintf("nao foi possivel medir espaco livre: %v", err)}
++	}
++
++	detail := fmt.Sprintf("%d MB livres", free/(1<<20))
++	switch {
++	case free < minFreeSpaceFailBytes:
++		return Result{Name: name, Status: StatusFail, Detail: detail}
++	case free < minFreeSpaceWarnBytes:
++		return Result{Name: name, Status: StatusWarn, Detail: detail}
++	default:
++		return Result{Name: name, Status: StatusOK, Detail: detail}
++	}
++}
++
++// walkVault varre o cofre chamando fn para cada entrada (nota ou anexo). E o
++// unico ponto que abre um vault.Vault a partir de cfg — cada verificacao que
++// precisa varrer chama esta funcao, e nao abre arquivos: vault.Walk ja evita
++// tocar em placeholders de nuvem.
++func walkVault(ctx context.Context, cfg config.Config, fn func(vault.Entry)) error {
++	v, err := vault.New(cfg.VaultPath)
++	if err != nil {
++		return fmt.Errorf("abrindo cofre: %w", err)
++	}
++	return v.Walk(ctx, func(e vault.Entry) error {
++		fn(e)
++		return nil
++	})
++}
++
++// longestVaultPath devolve o comprimento e o valor do maior caminho absoluto
++// tradicional (sem prefixo \\?\) entre as entradas do cofre. Compartilhada
++// entre checkLongestPath e a verificacao de caminhos longos do Windows, que
++// precisa do mesmo dado para decidir se o registro importa.
++func longestVaultPath(ctx context.Context, cfg config.Config) (length int, longest string, err error) {
++	walkErr := walkVault(ctx, cfg, func(e vault.Entry) {
++		abs := filepath.Join(cfg.VaultPath, filepath.FromSlash(string(e.Path)))
++		if n := len(abs); n > length {
++			length = n
++			longest = abs
++		}
++	})
++	if walkErr != nil {
++		return length, longest, walkErr
++	}
++	return length, longest, nil
++}
+diff --git a/internal/doctor/checks_other.go b/internal/doctor/checks_other.go
+new file mode 100644
+index 0000000..adcda3d
+--- /dev/null
++++ b/internal/doctor/checks_other.go
+@@ -0,0 +1,29 @@
++//go:build !windows
++
++package doctor
++
++import (
++	"fmt"
++
++	"golang.org/x/sys/unix"
++)
++
++// platformChecks devolve vazio fora do Windows: caminhos longos exigem um
++// opt-in de registro que so existe la, arquivos somente-nuvem sao detectados
++// por atributo NTFS especifico do OneDrive, e colisao de casing so importa
++// em sistema de arquivos insensivel a maiusculas.
++func platformChecks() []check {
++	return nil
++}
++
++// diskFreeBytes usa statfs(2). Bavail (espaco disponivel a um usuario sem
++// privilegio) e o numero relevante para saber se uma escrita do produto vai
++// caber — Bfree inclui a reserva do superusuario, que o processo normalmente
++// nao pode gastar.
++func diskFreeBytes(path string) (uint64, error) {
++	var buf unix.Statfs_t
++	if err := unix.Statfs(path, &buf); err != nil {
++		return 0, fmt.Errorf("statfs(%q): %w", path, err)
++	}
++	return uint64(buf.Bsize) * buf.Bavail, nil
++}
+diff --git a/internal/doctor/checks_windows.go b/internal/doctor/checks_windows.go
+new file mode 100644
+index 0000000..4432aea
+--- /dev/null
++++ b/internal/doctor/checks_windows.go
+@@ -0,0 +1,151 @@
++//go:build windows
++
++package doctor
++
++import (
++	"context"
++	"fmt"
++	"path/filepath"
++	"strings"
++
++	"github.com/jonyd/gobsidian/internal/config"
++	"github.com/jonyd/gobsidian/internal/vault"
++	"golang.org/x/sys/windows"
++	"golang.org/x/sys/windows/registry"
++)
++
++// platformChecks adiciona as verificacoes que so fazem sentido no Windows:
++// caminhos longos exigem opt-in do sistema operacional, arquivos
++// somente-nuvem sao um mecanismo de OneDrive/atributo NTFS, e colisao de
++// casing so importa porque o sistema de arquivos e insensivel a maiusculas.
++func platformChecks() []check {
++	return []check{
++		checkLongPathsEnabled,
++		checkCloudOnlyFiles,
++		checkCasingCollisions,
++	}
++}
++
++// checkLongPathsEnabled avisa quando ha um caminho acima do limiar e o
++// registro nao tem o opt-in de caminhos longos do Windows ligado. Sem os
++// dois, e apenas informativo: caminho curto nao precisa do opt-in, e opt-in
++// ligado ja resolve o caminho longo.
++func checkLongPathsEnabled(ctx context.Context, cfg config.Config) Result {
++	const name = "caminhos longos habilitados"
++
++	length, longest, err := longestVaultPath(ctx, cfg)
++	if err != nil {
++		return Result{Name: name, Status: StatusWarn, Detail: fmt.Sprintf("varredura interrompida: %v", err)}
++	}
++	if length <= longPathThreshold {
++		return Result{Name: name, Status: StatusOK}
++	}
++
++	if !longPathsEnabled() {
++		return Result{
++			Name:   name,
++			Status: StatusWarn,
++			Detail: fmt.Sprintf("LongPathsEnabled != 1 no registro e ha caminho de %d caracteres: %s", length, longest),
++		}
++	}
++	return Result{Name: name, Status: StatusOK}
++}
++
++// longPathsEnabled le HKLM\SYSTEM\CurrentControlSet\Control\FileSystem!LongPathsEnabled.
++// Qualquer falha ao ler (chave ou valor ausente) e tratada como "desligado":
++// e o comportamento padrao do Windows quando o opt-in nunca foi aplicado.
++func longPathsEnabled() bool {
++	k, err := registry.OpenKey(registry.LOCAL_MACHINE, `SYSTEM\CurrentControlSet\Control\FileSystem`, registry.QUERY_VALUE)
++	if err != nil {
++		return false
++	}
++	defer k.Close()
++
++	val, _, err := k.GetIntegerValue("LongPathsEnabled")
++	if err != nil {
++		return false
++	}
++	return val == 1
++}
++
++// checkCloudOnlyFiles avisa quando alguma nota ainda nao foi baixada pelo
++// sincronizador de nuvem (OneDrive Files On-Demand e equivalentes). A
++// deteccao e por atributo de arquivo (vault.IsCloudOnly, via vault.Walk) —
++// nunca abre o arquivo, que e exatamente o que dispararia a hidratacao que
++// esta verificacao existe para evitar.
++func checkCloudOnlyFiles(ctx context.Context, cfg config.Config) Result {
++	const name = "arquivos somente-nuvem"
++
++	var count int
++	err := walkVault(ctx, cfg, func(e vault.Entry) {
++		if e.IsNote && e.CloudOnly {
++			count++
++		}
++	})
++	if err != nil {
++		return Result{Name: name, Status: StatusWarn, Detail: fmt.Sprintf("varredura interrompida: %v", err)}
++	}
++	if count > 0 {
++		return Result{
++			Name:   name,
++			Status: StatusWarn,
++			Detail: fmt.Sprintf("%d nota(s) ainda nao baixada(s) pelo sincronizador de nuvem", count),
++		}
++	}
++	return Result{Name: name, Status: StatusOK}
++}
++
++// checkCasingCollisions avisa quando duas notas distintas no disco tem o
++// mesmo caminho ao comparar em minusculas. NTFS e insensivel a maiusculas por
++// padrao, mas preserva a grafia — duas notas assim colidem de formas sutis em
++// qualquer ferramenta que normalize o caminho antes de usar como chave.
++func checkCasingCollisions(ctx context.Context, cfg config.Config) Result {
++	const name = "colisoes de casing"
++
++	seen := make(map[string]string)
++	var collisions []string
++	err := walkVault(ctx, cfg, func(e vault.Entry) {
++		if !e.IsNote {
++			return
++		}
++		key := strings.ToLower(string(e.Path))
++		if prev, ok := seen[key]; ok {
++			if prev != string(e.Path) {
++				collisions = append(collisions, fmt.Sprintf("%s <-> %s", prev, e.Path))
++			}
++			return
++		}
++		seen[key] = string(e.Path)
++	})
++	if err != nil {
++		return Result{Name: name, Status: StatusWarn, Detail: fmt.Sprintf("varredura interrompida: %v", err)}
++	}
++	if len(collisions) > 0 {
++		return Result{
++			Name:   name,
++			Status: StatusWarn,
++			Detail: fmt.Sprintf("%d colisao(oes): %s", len(collisions), strings.Join(collisions, "; ")),
++		}
++	}
++	return Result{Name: name, Status: StatusOK}
++}
++
++// diskFreeBytes consulta o espaco livre do volume que contem path, sem exigir
++// que path seja a raiz do volume — GetDiskFreeSpaceEx aceita qualquer
++// diretorio e resolve o volume sozinho.
++func diskFreeBytes(path string) (uint64, error) {
++	abs, err := filepath.Abs(path)
++	if err != nil {
++		return 0, fmt.Errorf("resolvendo %q: %w", path, err)
++	}
++	p, err := windows.UTF16PtrFromString(vault.LongPath(abs))
++	if err != nil {
++		return 0, fmt.Errorf("convertendo %q: %w", abs, err)
++	}
++
++	var freeAvailable, total, totalFree uint64
++	if err := windows.GetDiskFreeSpaceEx(p, &freeAvailable, &total, &totalFree); err != nil {
++		return 0, fmt.Errorf("GetDiskFreeSpaceEx(%q): %w", abs, err)
++	}
++	return freeAvailable, nil
++}
+diff --git a/internal/doctor/doctor.go b/internal/doctor/doctor.go
+new file mode 100644
+index 0000000..40939ae
+--- /dev/null
++++ b/internal/doctor/doctor.go
+@@ -0,0 +1,76 @@
++// Package doctor verifica o ambiente antes que o resto do produto tente
++// funcionar nele. E o primeiro comando a rodar quando algo nao funciona.
++package doctor
++
++import (
++	"context"
++
++	"github.com/jonyd/gobsidian/internal/config"
++)
++
++type Status int
++
++const (
++	StatusOK Status = iota
++	StatusWarn
++	StatusFail
++)
++
++func (s Status) Marker() string {
++	switch s {
++	case StatusOK:
++		return "[OK]"
++	case StatusWarn:
++		return "[!]"
++	default:
++		return "[!]"
++	}
++}
++
++type Result struct {
++	Name   string
++	Status Status
++	Detail string
++}
++
++type check func(context.Context, config.Config) Result
++
++// Run executa todas as verificacoes na ordem em que importam: as que
++// invalidam as seguintes vem primeiro.
++func Run(ctx context.Context, cfg config.Config) []Result {
++	checks := []check{
++		checkRootExists,
++		checkReadable,
++		checkWritable,
++		checkObsidianDir,
++		checkNoteCount,
++		checkLongestPath,
++		checkCacheDir,
++		checkFreeSpace,
++	}
++	checks = append(checks, platformChecks()...)
++
++	out := make([]Result, 0, len(checks))
++	for _, c := range checks {
++		res := c(ctx, cfg)
++		out = append(out, res)
++
++		// Sem raiz acessivel, todas as verificacoes seguintes reportariam
++		// falhas derivadas e o relatorio viraria ruido.
++		if res.Status == StatusFail && res.Name == "raiz do cofre existe" {
++			break
++		}
++	}
++	return out
++}
++
++// ExitCode e zero quando nao ha falha bloqueante. Avisos nao alteram o codigo:
++// um cofre com arquivos somente-nuvem funciona, apenas de forma incompleta.
++func ExitCode(results []Result) int {
++	for _, r := range results {
++		if r.Status == StatusFail {
++			return 1
++		}
++	}
++	return 0
++}
+diff --git a/internal/doctor/doctor_extra_test.go b/internal/doctor/doctor_extra_test.go
+new file mode 100644
+index 0000000..4d43d6e
+--- /dev/null
++++ b/internal/doctor/doctor_extra_test.go
+@@ -0,0 +1,132 @@
++package doctor_test
++
++// Testes adicionais aos dois exigidos pela Task 10, cobrindo comportamentos
++// que a brief pede para confirmar mas cujos testes nao escreve: ExitCode com
++// slice vazio, propagacao de cancelamento de contexto para as verificacoes
++// que varrem o cofre, limpeza do arquivo temporario da verificacao de
++// escrita, e a medida correta da verificacao de comprimento de caminho.
++
++import (
++	"context"
++	"os"
++	"path/filepath"
++	"strconv"
++	"strings"
++	"testing"
++
++	"github.com/jonyd/gobsidian/internal/config"
++	"github.com/jonyd/gobsidian/internal/doctor"
++)
++
++func TestExitCodeEmptyResults(t *testing.T) {
++	if code := doctor.ExitCode(nil); code != 0 {
++		t.Errorf("ExitCode(nil) = %d, esperava 0", code)
++	}
++	if code := doctor.ExitCode([]doctor.Result{}); code != 0 {
++		t.Errorf("ExitCode([]Result{}) = %d, esperava 0", code)
++	}
++}
++
++// TestRunContextCancelledStopsWalk confirma que um contexto ja cancelado
++// impede as verificacoes que varrem o cofre de completar a varredura. Sem
++// isso, um cofre grande sincronizado na nuvem faria doctor travar em vez de
++// respeitar o cancelamento do chamador.
++func TestRunContextCancelledStopsWalk(t *testing.T) {
++	root := t.TempDir()
++	for _, name := range []string{"A.md", "B.md", "C.md", "D.md", "E.md"} {
++		if err := os.WriteFile(filepath.Join(root, name), []byte("# nota\n"), 0o644); err != nil {
++			t.Fatalf("WriteFile: %v", err)
++		}
++	}
++
++	cfg := config.Defaults()
++	cfg.VaultPath = root
++
++	ctx, cancel := context.WithCancel(context.Background())
++	cancel() // cancelado antes mesmo de Run comecar
++
++	results := doctor.Run(ctx, cfg)
++
++	if doctor.ExitCode(results) != 0 {
++		t.Errorf("cancelamento de contexto nao deveria virar falha bloqueante: %+v", results)
++	}
++
++	found := false
++	for _, r := range results {
++		if r.Name != "contagem de notas" {
++			continue
++		}
++		found = true
++		if !strings.Contains(r.Detail, "interrompida") {
++			t.Errorf("contagem de notas deveria reportar varredura interrompida com contexto cancelado, recebi: %+v", r)
++		}
++		if strings.Contains(r.Detail, "5 notas") {
++			t.Errorf("contagem de notas completou a varredura apesar do contexto cancelado: %+v", r)
++		}
++	}
++	if !found {
++		t.Fatal("verificacao de contagem de notas nao encontrada nos resultados")
++	}
++}
++
++// TestCheckWritableNoLeftoverTempFile confirma que a verificacao de escrita
++// nao deixa nenhum arquivo temporario para tras na raiz do cofre.
++func TestCheckWritableNoLeftoverTempFile(t *testing.T) {
++	root := t.TempDir()
++	if err := os.WriteFile(filepath.Join(root, "A.md"), []byte("# A\n"), 0o644); err != nil {
++		t.Fatalf("WriteFile: %v", err)
++	}
++
++	cfg := config.Defaults()
++	cfg.VaultPath = root
++
++	_ = doctor.Run(context.Background(), cfg)
++
++	entries, err := os.ReadDir(root)
++	if err != nil {
++		t.Fatalf("ReadDir: %v", err)
++	}
++	for _, e := range entries {
++		if strings.Contains(strings.ToLower(e.Name()), "gobsidian-doctor") {
++			t.Errorf("arquivo temporario da verificacao de escrita nao foi limpo: %s", e.Name())
++		}
++	}
++}
++
++// TestCheckLongestPathMeasuresAbsolutePath confirma que a verificacao de
++// comprimento de caminho mede o caminho absoluto completo (o que um syscall
++// receberia), nao apenas a porcao relativa a raiz do cofre — caso contrario
++// o limiar de 240 caracteres, que existe por causa do MAX_PATH absoluto do
++// Windows, nunca dispararia para um cofre com nomes de arquivo curtos mas
++// localizado em um caminho profundo.
++func TestCheckLongestPathMeasuresAbsolutePath(t *testing.T) {
++	root := t.TempDir()
++	const name = "A.md"
++	if err := os.WriteFile(filepath.Join(root, name), []byte("# A\n"), 0o644); err != nil {
++		t.Fatalf("WriteFile: %v", err)
++	}
++
++	cfg := config.Defaults()
++	cfg.VaultPath = root
++
++	results := doctor.Run(context.Background(), cfg)
++
++	wantLen := len(filepath.Join(root, name))
++	relLen := len(name)
++
++	for _, r := range results {
++		if r.Name != "comprimento de caminho" {
++			continue
++		}
++		wantSubstr := strconv.Itoa(wantLen)
++		if !strings.Contains(r.Detail, wantSubstr) {
++			t.Errorf("esperava o comprimento do caminho absoluto (%d) no detalhe, recebi %q", wantLen, r.Detail)
++		}
++		relSubstr := strconv.Itoa(relLen)
++		if wantSubstr != relSubstr && strings.Contains(r.Detail, relSubstr) && !strings.Contains(r.Detail, wantSubstr) {
++			t.Errorf("detalhe parece medir o caminho relativo (%d), nao o absoluto (%d): %q", relLen, wantLen, r.Detail)
++		}
++		return
++	}
++	t.Fatal("verificacao de comprimento de caminho nao encontrada nos resultados")
++}
+diff --git a/internal/doctor/doctor_test.go b/internal/doctor/doctor_test.go
+new file mode 100644
+index 0000000..0d04d3c
+--- /dev/null
++++ b/internal/doctor/doctor_test.go
+@@ -0,0 +1,73 @@
++package doctor_test
++
++import (
++	"context"
++	"os"
++	"path/filepath"
++	"testing"
++
++	"github.com/jonyd/gobsidian/internal/config"
++	"github.com/jonyd/gobsidian/internal/doctor"
++)
++
++func TestRunFlagsMissingVault(t *testing.T) {
++	cfg := config.Defaults()
++	cfg.VaultPath = filepath.Join(t.TempDir(), "nao-existe")
++
++	results := doctor.Run(context.Background(), cfg)
++
++	if doctor.ExitCode(results) == 0 {
++		t.Fatal("doctor deveria falhar com raiz inexistente")
++	}
++	if !hasFailure(results, "raiz do cofre") {
++		t.Errorf("nenhuma verificacao de raiz falhou: %+v", results)
++	}
++}
++
++func TestRunWarnsWithoutObsidianDir(t *testing.T) {
++	root := t.TempDir()
++	if err := os.WriteFile(filepath.Join(root, "A.md"), []byte("# A\n"), 0o644); err != nil {
++		t.Fatalf("WriteFile: %v", err)
++	}
++
++	cfg := config.Defaults()
++	cfg.VaultPath = root
++
++	results := doctor.Run(context.Background(), cfg)
++
++	// Ausencia de .obsidian/ e aviso, nao falha: o produto funciona sobre
++	// qualquer pasta de Markdown, e forcar a presenca seria arbitrario.
++	if doctor.ExitCode(results) != 0 {
++		t.Errorf("doctor falhou em cofre valido sem .obsidian: %+v", results)
++	}
++	if !hasStatus(results, ".obsidian", doctor.StatusWarn) {
++		t.Errorf("esperava aviso sobre .obsidian ausente: %+v", results)
++	}
++}
++
++func hasFailure(results []doctor.Result, substr string) bool {
++	return hasStatus(results, substr, doctor.StatusFail)
++}
++
++func hasStatus(results []doctor.Result, substr string, want doctor.Status) bool {
++	for _, r := range results {
++		if r.Status == want && contains(r.Name, substr) {
++			return true
++		}
++	}
++	return false
++}
++
++func contains(haystack, needle string) bool {
++	return len(needle) == 0 || len(haystack) >= len(needle) &&
++		(haystack == needle || indexOf(haystack, needle) >= 0)
++}
++
++func indexOf(h, n string) int {
++	for i := 0; i+len(n) <= len(h); i++ {
++		if h[i:i+len(n)] == n {
++			return i
++		}
++	}
++	return -1
++}

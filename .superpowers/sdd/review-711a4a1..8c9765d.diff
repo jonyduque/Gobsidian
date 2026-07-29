@@ -1,0 +1,486 @@
+# Review package: 711a4a1..HEAD
+
+## Commits
+8c9765d fix(mcpsrv): close review findings on Task 9 (stdin EOF, shutdown race, error payload)
+460c6de docs: propagate stdin EOF to the lifecycle and fix the drained in-flight step
+
+## Files changed
+ cmd/gobsidian/main.go                              |  9 ++++-
+ cmd/gobsidian/serve.go                             | 45 ++++++++++++++++++++--
+ docs/superpowers/plans/2026-07-25-gobsidian-v01.md | 45 ++++++++++++++++++++--
+ internal/mcpsrv/convert.go                         | 27 ++++++-------
+ internal/mcpsrv/recover.go                         |  5 ++-
+ internal/mcpsrv/server.go                          |  2 +-
+ internal/mcpsrv/server_test.go                     | 17 ++++++++
+ internal/service/errors.go                         | 11 ++++++
+ internal/service/service.go                        |  2 +-
+ 9 files changed, 134 insertions(+), 29 deletions(-)
+
+## Diff
+diff --git a/cmd/gobsidian/main.go b/cmd/gobsidian/main.go
+index f19cd74..c431df8 100644
+--- a/cmd/gobsidian/main.go
++++ b/cmd/gobsidian/main.go
+@@ -1,27 +1,34 @@
+ package main
+ 
+ import (
+ 	"fmt"
+ 	"os"
+ 
++	"github.com/jonyd/gobsidian/internal/mcpsrv"
+ 	"github.com/spf13/cobra"
+ )
+ 
+-// Injetados pelo linker. Ver scripts/build.ps1.
++// Injetados pelo linker. O script de build que os define e trabalho
++// pendente da Task 11 (scripts/ hoje so tem check_net.ps1); ate la, builds
++// locais caem no fallback "dev".
+ var (
+ 	version   = "dev"
+ 	commit    = "unknown"
+ 	buildDate = "unknown"
+ )
+ 
+ func main() {
++	// Propaga a versao injetada pelo linker para o handshake MCP — sem isso
++	// o cliente ve sempre "dev", mesmo em build de release.
++	mcpsrv.Version = version
++
+ 	root := &cobra.Command{
+ 		Use:           "gobsidian",
+ 		Short:         "Servidor MCP para cofres locais do Obsidian",
+ 		SilenceUsage:  true,
+ 		SilenceErrors: true,
+ 	}
+ 
+ 	root.AddCommand(newServeCmd(), newDoctorCmd(), newVersionCmd())
+ 
+ 	if err := root.Execute(); err != nil {
+diff --git a/cmd/gobsidian/serve.go b/cmd/gobsidian/serve.go
+index 3a39f69..7050982 100644
+--- a/cmd/gobsidian/serve.go
++++ b/cmd/gobsidian/serve.go
+@@ -50,58 +50,95 @@ func runServe(parent context.Context, cfg config.Config) error {
+ 	// stderr, sempre. stdout carrega o JSON-RPC e um unico byte estranho
+ 	// corrompe a sessao.
+ 	log := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: cfg.LogLevel}))
+ 
+ 	v, err := vault.New(cfg.VaultPath)
+ 	if err != nil {
+ 		return err
+ 	}
+ 
+ 	// O monitor de stdin consome bytes, e o stdin aqui pertence ao JSON-RPC.
+-	// A saida e espelhar: o SDK le do TeeReader, e o lifecycle observa a copia.
+-	// Quando o host fecha o stdin, ambos veem EOF.
++	// A saida e espelhar: o SDK le do espelho, e o lifecycle observa a copia.
+ 	pr, pw := io.Pipe()
+-	teed := io.TeeReader(os.Stdin, pw)
++	teed := &mirrorReader{src: os.Stdin, dst: pw}
+ 
+ 	ctx, lc := lifecycle.New(parent, lifecycle.Options{
+ 		Stdin:     pr,
+ 		ParentPID: lifecycle.ParentPID(),
+ 		Logger:    log,
+ 	})
+ 
+ 	svc := service.New(v, nil, service.Options{
+ 		ReadOnly:   cfg.ReadOnly,
+ 		MaxResults: cfg.MaxResults,
+ 	})
+ 	srv := mcpsrv.New(svc, cfg, log)
+ 
+ 	log.Info("servidor pronto", "vault", cfg.VaultPath, "read_only", cfg.ReadOnly)
+ 
+ 	serveErr := make(chan error, 1)
+ 	go func() { serveErr <- srv.Serve(ctx, teed, os.Stdout) }()
+ 
++	// serveErr tem capacidade 1 e recebe exatamente um valor. Se o select
++	// abaixo ja o consumiu, a etapa in-flight nao pode tentar le-lo de novo —
++	// ficaria bloqueada ate estourar o orcamento, atrasando todo encerramento
++	// normal em 3 segundos e registrando uma falha que nao aconteceu.
++	serveReturned := false
++	var loopErr error
++
+ 	select {
+ 	case err := <-serveErr:
++		serveReturned = true
++		loopErr = err
+ 		if err != nil {
+ 			log.Error("servidor encerrou com erro", "err", err)
+ 		}
+ 	case <-ctx.Done():
+ 	}
+ 
+ 	lifecycle.Shutdown(log, 6*time.Second,
+ 		lifecycle.Step{Name: "in-flight", Budget: 3 * time.Second, Fn: func(ctx context.Context) error {
++			if serveReturned {
++				return nil
++			}
+ 			select {
+-			case <-serveErr:
++			case err := <-serveErr:
++				loopErr = err
+ 			case <-ctx.Done():
+ 				return ctx.Err()
+ 			}
+ 			return nil
+ 		}},
+ 		lifecycle.Step{Name: "close-pipe", Budget: 500 * time.Millisecond, Fn: func(context.Context) error {
+ 			return pw.Close()
+ 		}},
+ 	)
+ 
+ 	lc.Wait()
++	if loopErr != nil {
++		os.Exit(1)
++	}
+ 	os.Exit(0)
+ 	return nil
+ }
++
++// mirrorReader espelha o que le para dst e, crucialmente, propaga o fim da
++// leitura fechando dst. E o que faz o EOF do host chegar ao monitor de stdin
++// do lifecycle — io.TeeReader nao serve aqui porque so copia bytes, e EOF nao
++// e um byte.
++type mirrorReader struct {
++	src io.Reader
++	dst *io.PipeWriter
++}
++
++func (m *mirrorReader) Read(p []byte) (int, error) {
++	n, err := m.src.Read(p)
++	if n > 0 {
++		if _, werr := m.dst.Write(p[:n]); werr != nil {
++			return n, werr
++		}
++	}
++	if err != nil {
++		_ = m.dst.CloseWithError(err)
++	}
++	return n, err
++}
+diff --git a/docs/superpowers/plans/2026-07-25-gobsidian-v01.md b/docs/superpowers/plans/2026-07-25-gobsidian-v01.md
+index 6d3b62a..7d7518f 100644
+--- a/docs/superpowers/plans/2026-07-25-gobsidian-v01.md
++++ b/docs/superpowers/plans/2026-07-25-gobsidian-v01.md
+@@ -3344,71 +3344,108 @@ func runServe(parent context.Context, cfg config.Config) error {
+ 	// stderr, sempre. stdout carrega o JSON-RPC e um unico byte estranho
+ 	// corrompe a sessao.
+ 	log := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: cfg.LogLevel}))
+ 
+ 	v, err := vault.New(cfg.VaultPath)
+ 	if err != nil {
+ 		return err
+ 	}
+ 
+ 	// O monitor de stdin consome bytes, e o stdin aqui pertence ao JSON-RPC.
+-	// A saida e espelhar: o SDK le do TeeReader, e o lifecycle observa a copia.
+-	// Quando o host fecha o stdin, ambos veem EOF.
++	// A saida e espelhar: o SDK le do espelho, e o lifecycle observa a copia.
+ 	pr, pw := io.Pipe()
+-	teed := io.TeeReader(os.Stdin, pw)
++	teed := &mirrorReader{src: os.Stdin, dst: pw}
+ 
+ 	ctx, lc := lifecycle.New(parent, lifecycle.Options{
+ 		Stdin:     pr,
+ 		ParentPID: lifecycle.ParentPID(),
+ 		Logger:    log,
+ 	})
+ 
+ 	svc := service.New(v, nil, service.Options{
+ 		ReadOnly:   cfg.ReadOnly,
+ 		MaxResults: cfg.MaxResults,
+ 	})
+ 	srv := mcpsrv.New(svc, cfg, log)
+ 
+ 	log.Info("servidor pronto", "vault", cfg.VaultPath, "read_only", cfg.ReadOnly)
+ 
+ 	serveErr := make(chan error, 1)
+ 	go func() { serveErr <- srv.Serve(ctx, teed, os.Stdout) }()
+ 
++	// serveErr tem capacidade 1 e recebe exatamente um valor. Se o select
++	// abaixo ja o consumiu, a etapa in-flight nao pode tentar le-lo de novo —
++	// ficaria bloqueada ate estourar o orcamento, atrasando todo encerramento
++	// normal em 3 segundos e registrando uma falha que nao aconteceu.
++	serveReturned := false
++
+ 	select {
+ 	case err := <-serveErr:
++		serveReturned = true
+ 		if err != nil {
+ 			log.Error("servidor encerrou com erro", "err", err)
+ 		}
+ 	case <-ctx.Done():
+ 	}
+ 
+ 	lifecycle.Shutdown(log, 6*time.Second,
+ 		lifecycle.Step{Name: "in-flight", Budget: 3 * time.Second, Fn: func(ctx context.Context) error {
++			if serveReturned {
++				return nil
++			}
+ 			select {
+ 			case <-serveErr:
+ 			case <-ctx.Done():
+ 				return ctx.Err()
+ 			}
+ 			return nil
+ 		}},
+ 		lifecycle.Step{Name: "close-pipe", Budget: 500 * time.Millisecond, Fn: func(context.Context) error {
+ 			return pw.Close()
+ 		}},
+ 	)
+ 
+ 	lc.Wait()
+ 	os.Exit(0)
+ 	return nil
+ }
+ ```
+ 
+-**Nota sobre o `TeeReader`.** Ele resolve o conflito de leitor único, e tem um custo: cada byte do JSON-RPC é copiado para o pipe. Se o lifecycle não drenar, o `TeeReader` bloqueia e o servidor trava. O monitor de stdin drena em laço e descarta, que é exatamente o comportamento necessário. Verifique isso ao rodar o Step 8: se o servidor congelar após a primeira mensagem, é aqui.
++**Por que não `io.TeeReader`.** Ele copia apenas os bytes que leu, e EOF não é um byte. Quando `os.Stdin` fecha, o `TeeReader` devolve `io.EOF` ao SDK e **não fecha o pipe** — o monitor do lifecycle fica bloqueado em `Read` para sempre, `trigger("stdin-eof")` nunca dispara, e o mecanismo que a documentação chama de primário não contribui nada. Pior: `lc.Wait()` passa a retornar apenas porque a etapa `close-pipe` do encerramento fecha o pipe depois, o que inverte a ordem e faz o motivo do encerramento ser registrado após o encerramento já ter acontecido. Reordenar as etapas ou acrescentar uma antes dela trava `Wait()` indefinidamente.
++
++`mirrorReader` corrige isso propagando o fim da leitura:
++
++```go
++// mirrorReader espelha o que le para dst e, crucialmente, propaga o fim da
++// leitura fechando dst. E o que faz o EOF do host chegar ao monitor de stdin
++// do lifecycle — io.TeeReader nao serve aqui porque so copia bytes, e EOF nao
++// e um byte.
++type mirrorReader struct {
++	src io.Reader
++	dst *io.PipeWriter
++}
++
++func (m *mirrorReader) Read(p []byte) (int, error) {
++	n, err := m.src.Read(p)
++	if n > 0 {
++		if _, werr := m.dst.Write(p[:n]); werr != nil {
++			return n, werr
++		}
++	}
++	if err != nil {
++		_ = m.dst.CloseWithError(err)
++	}
++	return n, err
++}
++```
++
++**Nota sobre o espelhamento.** Ele resolve o conflito de leitor único, e tem um custo: cada byte do JSON-RPC é copiado para o pipe. Se o lifecycle não drenar, o `TeeReader` bloqueia e o servidor trava. O monitor de stdin drena em laço e descarta, que é exatamente o comportamento necessário. Verifique isso ao rodar o Step 8: se o servidor congelar após a primeira mensagem, é aqui.
+ 
+ **Confirme a forma exata de `IOTransport` antes de escrever o código.** O SDK expõe `IOTransport`, mas os nomes dos campos precisam ser verificados na versão fixada:
+ 
+ ```powershell
+ go doc github.com/modelcontextprotocol/go-sdk/mcp.IOTransport
+ ```
+ 
+ Se os campos não forem `Reader` e `Writer`, ajuste a chamada — **não** volte para `StdioTransport`, que reintroduz o conflito de leitor. Se `IOTransport` não existir nesta versão, pare e reporte: o desenho do lifecycle em `serve` depende dele.
+ 
+ - [ ] **Step 8: Verificar o handshake manualmente**
+diff --git a/internal/mcpsrv/convert.go b/internal/mcpsrv/convert.go
+index 0a85c6b..405cfcc 100644
+--- a/internal/mcpsrv/convert.go
++++ b/internal/mcpsrv/convert.go
+@@ -1,25 +1,20 @@
+ package mcpsrv
+ 
+ import (
++	"fmt"
++
+ 	"github.com/jonyd/gobsidian/internal/service"
+-	"github.com/modelcontextprotocol/go-sdk/mcp"
+ )
+ 
+ const codeInternal = service.CodeInternal
+ 
+-// errorResult monta o resultado de erro no formato que o host entende, com
+-// codigo legivel por maquina no inicio da mensagem.
+-func errorResult(code, message string) *mcp.CallToolResult {
+-	return &mcp.CallToolResult{
+-		IsError: true,
+-		Content: []mcp.Content{
+-			&mcp.TextContent{Text: code + ": " + message},
+-		},
+-	}
+-}
+-
+-// toolError traduz um erro de dominio em resultado MCP. Erros nunca sobem
+-// como erro de protocolo: o cliente precisa poder ler a mensagem e se corrigir.
+-func toolError(err error) *mcp.CallToolResult {
+-	return errorResult(string(service.CodeOf(err)), err.Error())
++// toolErr traduz um erro de dominio em um erro Go cujo texto comeca com o
++// codigo legivel por maquina. Devolvido como error (nao como resultado), para
++// que o SDK monte o CallToolResult de erro sozinho e nao serialize o valor
++// zero de Out em StructuredContent — o SDK so pula StructuredContent quando o
++// handler devolve um error Go nao-nulo. Sintetizar o resultado manualmente,
++// como a versao anterior fazia, deixava structuredContent com um objeto
++// zerado indistinguivel de um cofre legitimamente vazio.
++func toolErr(err error) error {
++	return fmt.Errorf("%s: %s", service.CodeOf(err), err.Error())
+ }
+diff --git a/internal/mcpsrv/recover.go b/internal/mcpsrv/recover.go
+index 607a0c3..5451552 100644
+--- a/internal/mcpsrv/recover.go
++++ b/internal/mcpsrv/recover.go
+@@ -18,17 +18,18 @@ func guard[In, Out any](
+ 	name string,
+ 	fn func(context.Context, *mcp.CallToolRequest, In) (*mcp.CallToolResult, Out, error),
+ ) func(context.Context, *mcp.CallToolRequest, In) (*mcp.CallToolResult, Out, error) {
+ 	return func(ctx context.Context, req *mcp.CallToolRequest, in In) (res *mcp.CallToolResult, out Out, err error) {
+ 		defer func() {
+ 			if r := recover(); r != nil {
+ 				log.Error("panic em handler de tool",
+ 					"tool", name,
+ 					"panic", fmt.Sprint(r),
+ 					"stack", string(debug.Stack()))
+-				res = errorResult(string(codeInternal), "falha interna em "+name+"; detalhes registrados em stderr")
+-				err = nil
++				res = nil
++				out = *new(Out)
++				err = fmt.Errorf("%s: falha interna em %s; detalhes registrados em stderr", codeInternal, name)
+ 			}
+ 		}()
+ 		return fn(ctx, req, in)
+ 	}
+ }
+diff --git a/internal/mcpsrv/server.go b/internal/mcpsrv/server.go
+index 44fb7bc..f4b19ea 100644
+--- a/internal/mcpsrv/server.go
++++ b/internal/mcpsrv/server.go
+@@ -52,21 +52,21 @@ func (s *Server) registerReadTools() {
+ 			Name:        "vault_stats",
+ 			Description: "Estado do cofre e saude do servidor: contagens, orfas, links quebrados, anexos.",
+ 		},
+ 		guard(s.log, "vault_stats",
+ 			func(ctx context.Context, _ *mcp.CallToolRequest, in statsInput) (*mcp.CallToolResult, service.StatsResult, error) {
+ 				out, err := s.svc.VaultStats(ctx, service.StatsRequest{
+ 					IncludeHealth:  in.IncludeHealth,
+ 					IncludeRuntime: in.IncludeRuntime,
+ 				})
+ 				if err != nil {
+-					return toolError(err), service.StatsResult{}, nil
++					return nil, service.StatsResult{}, toolErr(err)
+ 				}
+ 				return nil, out, nil
+ 			}),
+ 	)
+ }
+ 
+ // registerWriteTools fica vazia ate M4. A separacao existe desde ja porque
+ // --read-only precisa REMOVER as tools da lista anunciada, nao apenas
+ // rejeitar a chamada (PRD RF-55): um host que ve a tool na lista vai tentar
+ // usa-la, e a recusa vira uma rodada desperdicada.
+diff --git a/internal/mcpsrv/server_test.go b/internal/mcpsrv/server_test.go
+index b68029a..d6edeee 100644
+--- a/internal/mcpsrv/server_test.go
++++ b/internal/mcpsrv/server_test.go
+@@ -1,14 +1,15 @@
+ package mcpsrv_test
+ 
+ import (
+ 	"context"
++	"encoding/json"
+ 	"io"
+ 	"log/slog"
+ 	"os"
+ 	"path/filepath"
+ 	"testing"
+ 	"time"
+ 
+ 	"github.com/jonyd/gobsidian/internal/config"
+ 	"github.com/jonyd/gobsidian/internal/mcpsrv"
+ 	"github.com/jonyd/gobsidian/internal/service"
+@@ -95,20 +96,36 @@ func TestVaultStatsCountsNotes(t *testing.T) {
+ 	}
+ 	defer func() { _ = session.Close() }()
+ 
+ 	res, err := session.CallTool(ctx, &mcp.CallToolParams{Name: "vault_stats"})
+ 	if err != nil {
+ 		t.Fatalf("CallTool: %v", err)
+ 	}
+ 	if res.IsError {
+ 		t.Fatalf("vault_stats devolveu erro: %+v", res.Content)
+ 	}
++
++	raw, err := json.Marshal(res.StructuredContent)
++	if err != nil {
++		t.Fatalf("marshal StructuredContent: %v", err)
++	}
++	var stats service.StatsResult
++	if err := json.Unmarshal(raw, &stats); err != nil {
++		t.Fatalf("unmarshal StructuredContent: %v", err)
++	}
++
++	if stats.Notes != 2 {
++		t.Errorf("Notes = %d, want 2", stats.Notes)
++	}
++	if stats.Assets != 0 {
++		t.Errorf("Assets = %d, want 0", stats.Assets)
++	}
+ }
+ 
+ // Uma tool que entra em panic nao pode derrubar o servidor (RNF-13).
+ func TestPanicInHandlerBecomesToolError(t *testing.T) {
+ 	srv := newTestServer(t, t.TempDir())
+ 	srv.RegisterPanicProbeForTest()
+ 
+ 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+ 	defer cancel()
+ 
+diff --git a/internal/service/errors.go b/internal/service/errors.go
+index c2f9c3e..5c61b03 100644
+--- a/internal/service/errors.go
++++ b/internal/service/errors.go
+@@ -35,20 +35,31 @@ const (
+ // listando os headings disponiveis permite que o cliente se corrija sozinho.
+ type Error struct {
+ 	Code    Code
+ 	Message string
+ 	Err     error
+ }
+ 
+ func (e *Error) Error() string { return e.Message }
+ func (e *Error) Unwrap() error { return e.Err }
+ 
++// Is permite errors.Is(err, &service.Error{Code: service.CodeNoteNotFound})
++// sem exigir mensagem ou causa identicas — o codigo e o unico campo que
++// identifica a categoria do erro para quem chama.
++func (e *Error) Is(target error) bool {
++	t, ok := target.(*Error)
++	if !ok {
++		return false
++	}
++	return e.Code == t.Code
++}
++
+ func Errorf(code Code, format string, args ...any) *Error {
+ 	return &Error{Code: code, Message: sprintf(format, args...)}
+ }
+ 
+ func Wrap(code Code, err error, format string, args ...any) *Error {
+ 	return &Error{Code: code, Message: sprintf(format, args...), Err: err}
+ }
+ 
+ // CodeOf extrai o codigo de um erro, ou INTERNAL se ele nao carregar um.
+ func CodeOf(err error) Code {
+diff --git a/internal/service/service.go b/internal/service/service.go
+index 8f4cb90..adb170c 100644
+--- a/internal/service/service.go
++++ b/internal/service/service.go
+@@ -56,14 +56,14 @@ func (s *Service) VaultStats(ctx context.Context, req StatsRequest) (StatsResult
+ 	err := s.vault.Walk(ctx, func(e vault.Entry) error {
+ 		if e.IsNote {
+ 			out.Notes++
+ 		} else {
+ 			out.Assets++
+ 		}
+ 		out.TotalSize += e.Size
+ 		return nil
+ 	})
+ 	if err != nil {
+-		return StatsResult{}, Wrap(CodeVaultUnavailable, err, "varrendo o cofre: %v", err)
++		return StatsResult{}, Wrap(CodeVaultUnavailable, err, "varrendo o cofre")
+ 	}
+ 	return out, nil
+ }

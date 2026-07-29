@@ -1,0 +1,923 @@
+# Review package: 21cf25a..HEAD
+
+## Commits
+f1147ab fix(parser): scope plain inline fields to line start
+93747a6 docs(plan): make the plain inline field a line-level construct
+61484c6 fix(parser): stop inline fields eating links, scope block ids to the last line, widen tag prefixes
+9116b0c docs(plan): stop inline fields eating links, scope block ids to the last line, widen tag prefixes
+
+## Files changed
+ docs/superpowers/plans/2026-07-25-gobsidian-v01.md |  21 +++-
+ internal/parser/ext_blockid.go                     |  15 +++
+ internal/parser/ext_blockid_test.go                |  93 ++++++++++++--
+ internal/parser/ext_inline_field.go                |  79 ++++++++++--
+ internal/parser/ext_inline_field_test.go           | 138 ++++++++++++++++++---
+ internal/parser/ext_tag.go                         |  49 +++++++-
+ internal/parser/ext_tag_test.go                    |  65 ++++++++--
+ internal/parser/types.go                           |  32 ++++-
+ 8 files changed, 437 insertions(+), 55 deletions(-)
+
+## Diff
+diff --git a/docs/superpowers/plans/2026-07-25-gobsidian-v01.md b/docs/superpowers/plans/2026-07-25-gobsidian-v01.md
+index 7f987f0..6e04f13 100644
+--- a/docs/superpowers/plans/2026-07-25-gobsidian-v01.md
++++ b/docs/superpowers/plans/2026-07-25-gobsidian-v01.md
+@@ -5863,22 +5863,27 @@ func TestBlockIDRejectsNonTerminal(t *testing.T) {
+ Run: `go test ./internal/parser/ -run TestBlockID -v`
+ Esperado: FAIL — o stub não produz nós.
+ 
+ - [ ] **Step 3: Implementar**
+ 
+ `internal/parser/ext_blockid.go` segue a mesma forma da Task 14: um `gast.NewNodeKind("BlockID")`, um inline parser com `Trigger() []byte{'^'}`, e um `Extend` que registra com `util.Prioritized(&blockIDParser{}, 100)`.
+ 
+ Regras que o parser precisa aplicar, cada uma correspondendo a um caso do teste:
+ 
+ 1. O `^` precisa estar **no fim da linha** — nada além de espaço em branco depois do id. Um `^` no meio é texto literal.
++1b. O `^id` precisa estar na **última linha do bloco**. Um `^id` no meio de um parágrafo de várias linhas não é um block id no Obsidian, e aceitá-lo aqui produz uma faixa incoerente: `Start` vem da primeira linha do bloco e `End` da linha do marcador, então `replace_block` sobrescreveria linhas que o usuário nunca referenciou, e dois ids no mesmo parágrafo geram faixas que se sobrepõem. Recuse.
+ 2. O id aceita apenas `[A-Za-z0-9-]`. Espaço encerra o candidato e o invalida.
+ 3. `Start` é o offset do início do **bloco pai** (parágrafo, item de lista), não do `^`. Obtenha-o de `parent.Lines().At(0).Start`; `End` é o fim do marcador.
++
++   Em um item de lista isso cai **depois** do `- `, e é o comportamento certo: `replace_block` fica responsável apenas pelo texto, e não por reemitir um marcador de lista e a indentação exata que determina a profundidade do aninhamento. Ler devolve o texto interno, substituir troca o texto interno, a estrutura não se move.
++
++   **Limite conhecido, que M4 precisa tratar:** em um bloco de várias linhas a faixa é contígua, então os prefixos das linhas de continuação (`> `, indentação de item) ficam *dentro* dela, enquanto o da primeira linha ficou fora. `replace_block` com conteúdo de várias linhas precisa reemitir esses prefixos. Documente em `Block.Start`.
+ 4. Dentro de bloco de código o parser nunca é oferecido — o goldmark cuida disso, que é o motivo de a extensão existir em vez de uma regex.
+ 
+ - [ ] **Step 4: Rodar para confirmar que passa**
+ 
+ Run: `go test -race ./internal/parser/ -run TestBlockID -v`
+ Esperado: PASS, cinco subcasos.
+ 
+ - [ ] **Step 5: Commit**
+ 
+ ```bash
+@@ -5966,22 +5971,26 @@ func TestTagsFromFrontmatterMerge(t *testing.T) {
+ - [ ] **Step 2: Rodar para confirmar que falha**
+ 
+ Run: `go test ./internal/parser/ -run "TestInlineTags|TestTag" -v`
+ Esperado: FAIL.
+ 
+ - [ ] **Step 3: Implementar**
+ 
+ `internal/parser/ext_tag.go`, mesma forma das anteriores, com `Trigger() []byte{'#'}` e prioridade 120. Regras, uma por caso de teste:
+ 
+ 1. O `#` precisa ser precedido por início de linha, espaço ou pontuação de abertura. `a#b` e `url#secao` não são tags.
++
++   O conjunto precisa incluir os marcadores de ênfase `*`, `_` e `~`. Eles são `Po`/`Pc` em Unicode, não pontuação de abertura, então uma checagem por categoria os deixa de fora — e `**#civil**` é idioma comum no Obsidian, que o indexa. Sem eles a tag some de `tag_list`, do filtro `tags` e do índice. Nenhuma URL tem fragmento precedido por `*`, `_` ou `~`, então incluí-los não custa nada contra a regra de falso positivo.
+ 2. O nome aceita letras, dígitos, `-`, `_` e `/`. Precisa conter **pelo menos uma letra**: `#123` não é tag no Obsidian.
+ 3. `/` produz hierarquia e é preservado literalmente. `civil/obrigacoes` é uma tag, não duas.
++
++   Segmento vazio não pode chegar em `Tags`. `#a//b`, `#/civil` e `#a//b/c` produzem um segmento vazio ao serem divididos por `/`, e `tag_list` com `hierarchical: true` constrói a árvore justamente assim — o resultado são nós sem nome, e todas as tags com segmento vazio na mesma profundidade colidem em um só. O parâmetro `prefix` também erra a subárvore. Colapse sequências de `/` e remova as das pontas, nas três posições: inicial, interna e final.
+ 4. Um `#` seguido de espaço não é tag — é heading (tratado por `ExtractHeadings`) ou texto.
+ 5. Contexto de código é responsabilidade do goldmark.
+ 
+ - [ ] **Step 4: Rodar para confirmar que passa**
+ 
+ Run: `go test -race ./internal/parser/ -v`
+ Esperado: PASS.
+ 
+ - [ ] **Step 5: Commit**
+ 
+@@ -6053,21 +6062,31 @@ func TestInlineFieldNotInCode(t *testing.T) {
+ 
+ Run: `go test ./internal/parser/ -run TestInlineField -v`
+ Esperado: FAIL.
+ 
+ - [ ] **Step 3: Implementar**
+ 
+ `internal/parser/ext_inline_field.go`, com `Trigger() []byte{':', '['}` e prioridade 130. Regras:
+ 
+ 1. Exatamente **dois** `:` seguidos. Um só é pontuação normal e não pode virar campo — é o caso mais comum de falso positivo.
+ 2. A chave é o texto imediatamente à esquerda, até o início da linha ou até `[`. Aceita letras, dígitos, espaço, `-` e `_`.
+-3. O valor vai até o fim da linha, ou até `]` na forma entre colchetes.
++
++   Na forma **simples**, a chave precisa começar no **início da linha** — depois de um marcador de lista ou prefixo de citação, mas sem nada de texto antes. O campo simples do Dataview é de linha, não de trecho.
++
++   Sem essa restrição, dois artefatos aparecem, os dois inventando metadado que ninguém escreveu. `a:: 1 b:: 2` produz `Inline["a"]` e também `Inline["1 b"]`, porque o parser redispara no segundo `::` — e redispara justamente porque a regra 3 deixou de consumir o valor. E `#tag::valor` produz um campo cuja chave é montada com bytes que o parser de tag já reivindicou. A forma entre colchetes continua valendo em qualquer posição, que é como o Dataview permite mais de um campo por linha.
++3. O valor vai até o fim da linha, ou até `]` na forma entre colchetes — mas o parser **não consome o valor**.
++
++   Esta é a regra que decide se a extensão é aceitável. Consumir o span do valor faz com que nenhum outro parser inline seja oferecido ali, e `fonte:: [[STJ]]`, `capa:: ![[img.png]]` e `fonte:: [STJ](stj.md)` **deixam de produzir link nenhum** — links que o commit anterior já coletava. Uma feature P1 não tem direito de apagar dado P0, e campo do Dataview guardando link é idioma comum de cofre.
++
++   A saída: leia o valor com `PeekLine` para registrá-lo no nó, e avance **apenas** sobre `chave::`. O goldmark então analisa o resto da linha normalmente, os links voltam ao grafo, e o valor continua registrado em `Inline`. Vale para as duas formas; na forma entre colchetes o `]` restante vira um nó de texto que `collect` ignora.
++
++3b. Na forma entre colchetes, recuse quando o `]` for imediatamente seguido de `(` ou `[`. Sem isso `[Nota:: veja](destino.md)` é consumido como campo e o link Markdown para `destino.md` desaparece — a mesma falha que a Task 14 já pagou em `[[[a]] b](d.md)`, pelo mesmo motivo: prioridade 130 vem antes do parser de link do CommonMark.
+ 4. Chave repetida acumula em lista — é por isso que `Inline` é `map[string][]string` e não `map[string]string`.
+ 5. RF-18 é P1: se esta extensão atrasar, ela pode ser adiada sem bloquear a v0.1. Nesse caso, registre `InlineFieldExtension` como no-op e mantenha os testes marcados com `t.Skip`.
+ 
+ - [ ] **Step 4: Rodar para confirmar que passa**
+ 
+ Run: `go test -race ./internal/parser/ -v`
+ Esperado: PASS.
+ 
+ - [ ] **Step 5: Commit**
+ 
+diff --git a/internal/parser/ext_blockid.go b/internal/parser/ext_blockid.go
+index bd1eb30..5d6603b 100644
+--- a/internal/parser/ext_blockid.go
++++ b/internal/parser/ext_blockid.go
+@@ -81,20 +81,35 @@ func (p *blockIDParser) Parse(parent gast.Node, block text.Reader, _ gparser.Con
+ 	// "parent" e sempre esse bloco-folha. Sua primeira linha comeca onde o
+ 	// bloco comeca, com os prefixos de sintaxe (marcador de lista, "> " de
+ 	// citacao) ja descontados pelo parser de bloco correspondente.
+ 	lines := parent.Lines()
+ 	if lines == nil || lines.Len() == 0 {
+ 		// Nao deveria acontecer: o goldmark so chama este Parse quando o
+ 		// bloco pai tem ao menos uma linha (e dela que PeekLine tirou "line"
+ 		// acima). Recusar em vez de indexar fora dos limites.
+ 		return nil
+ 	}
++
++	// Regra 1b: o marcador precisa estar na ULTIMA linha do bloco. Um
++	// paragrafo com quebra suave (um unico Enter, que o Markdown nao trata
++	// como novo paragrafo) tem varias linhas dentro do MESMO bloco; um
++	// "^id" no meio delas nao e um block id no Obsidian — e texto literal.
++	// Sem esta checagem, "linha um\nlinha dois ^b\nlinha tres ^c" produziria
++	// dois blocos com faixas sobrepostas: Start vem sempre da primeira linha
++	// do bloco (regra 3), entao "b" e "c" comecariam no mesmo lugar e so o
++	// End diferiria — replace_block em "b" sobrescreveria "linha tres", que
++	// pertence a "c".
++	lastLine := lines.At(lines.Len() - 1)
++	if segment.Start < lastLine.Start || segment.Start >= lastLine.Stop {
++		return nil
++	}
++
+ 	start := int64(lines.At(0).Start)
+ 
+ 	node := &BlockIDNode{
+ 		ID:    id,
+ 		Start: start,
+ 		End:   int64(segment.Start + i),
+ 	}
+ 
+ 	block.Advance(i)
+ 	return node
+diff --git a/internal/parser/ext_blockid_test.go b/internal/parser/ext_blockid_test.go
+index 36a381f..b47aa07 100644
+--- a/internal/parser/ext_blockid_test.go
++++ b/internal/parser/ext_blockid_test.go
+@@ -92,41 +92,110 @@ func TestBlockIDBlockquote(t *testing.T) {
+ 	}
+ 	if len(note.Blocks) != 1 {
+ 		t.Fatalf("blocos = %d, quer 1: %+v", len(note.Blocks), note.Blocks)
+ 	}
+ 	got := src[note.Blocks[0].Start:note.Blocks[0].End]
+ 	if got != "uma citacao ^cite1" {
+ 		t.Errorf("bloco = %q, quer %q", got, "uma citacao ^cite1")
+ 	}
+ }
+ 
+-// TestBlockIDMultiplePerParagraph confirma que dois marcadores na mesma nota
+-// produzem dois blocos, e que dois marcadores dentro do MESMO paragrafo
+-// (linhas soft-wrapped) tambem sao capturados independentemente, cada um com
+-// Start no inicio do paragrafo (o mesmo paragrafo para os dois).
++// TestBlockIDMultiplePerParagraph confirma que um "^id" que NAO esta na
++// ultima linha do paragrafo (linha soft-wrapped) e recusado — o Obsidian
++// trata um "^id" no meio de um paragrafo como texto literal, nao como block
++// id. Sem esta regra, "^um" (linha 1 de 2) produziria uma faixa que se
++// sobrepoe com a de "^dois" (linha 2 de 2): mesmo Start, End diferente, e
++// replace_block em "um" sobrescreveria "segunda linha", que pertence a
++// "dois". So o marcador da ultima linha do bloco conta.
+ func TestBlockIDMultiplePerParagraph(t *testing.T) {
+ 	src := "primeira linha ^um\nsegunda linha ^dois\n"
+ 
+ 	note, err := parser.Parse([]byte(src))
+ 	if err != nil {
+ 		t.Fatalf("Parse: %v", err)
+ 	}
+-	if len(note.Blocks) != 2 {
+-		t.Fatalf("blocos = %d, quer 2: %+v", len(note.Blocks), note.Blocks)
++	if len(note.Blocks) != 1 {
++		t.Fatalf("blocos = %d, quer 1 (so o marcador da ultima linha do paragrafo conta): %+v", len(note.Blocks), note.Blocks)
++	}
++	if note.Blocks[0].ID != "dois" {
++		t.Errorf("ID = %q, quer %q — \"^um\" no meio do paragrafo nao e block id", note.Blocks[0].ID, "dois")
++	}
++	got := src[note.Blocks[0].Start:note.Blocks[0].End]
++	want := "primeira linha ^um\nsegunda linha ^dois"
++	if got != want {
++		t.Errorf("bloco = %q, quer %q", got, want)
++	}
++}
++
++// TestBlockIDThreeLineParagraphOnlyLastMarkerCounts cobre o caso de tres
++// linhas com dois marcadores intermediario+final: so o ultimo produz bloco,
++// e a faixa cobre o paragrafo inteiro ate ele.
++func TestBlockIDThreeLineParagraphOnlyLastMarkerCounts(t *testing.T) {
++	src := "linha um\nlinha dois ^b\nlinha tres ^c\n"
++
++	note, err := parser.Parse([]byte(src))
++	if err != nil {
++		t.Fatalf("Parse: %v", err)
++	}
++	if len(note.Blocks) != 1 {
++		t.Fatalf("blocos = %d, quer 1: %+v", len(note.Blocks), note.Blocks)
+ 	}
+-	if note.Blocks[0].ID != "um" || note.Blocks[1].ID != "dois" {
+-		t.Errorf("IDs = %q, %q", note.Blocks[0].ID, note.Blocks[1].ID)
++	if note.Blocks[0].ID != "c" {
++		t.Errorf("ID = %q, quer %q — \"^b\" no meio nao e block id", note.Blocks[0].ID, "c")
+ 	}
+-	// Os dois marcadores pertencem ao mesmo paragrafo: mesmo Start.
+-	if note.Blocks[0].Start != note.Blocks[1].Start {
+-		t.Errorf("Start[0] = %d, Start[1] = %d, queria iguais (mesmo paragrafo)",
+-			note.Blocks[0].Start, note.Blocks[1].Start)
++	got := src[note.Blocks[0].Start:note.Blocks[0].End]
++	want := "linha um\nlinha dois ^b\nlinha tres ^c"
++	if got != want {
++		t.Errorf("bloco = %q, quer %q", got, want)
++	}
++}
++
++// TestBlockIDMultilineBlockquotePrefixAsymmetry documenta o limite descrito
++// em Block.Start: numa citacao de varias linhas, o "> " da PRIMEIRA linha
++// fica fora da faixa (Start comeca depois dele), mas o "> " de qualquer
++// linha de CONTINUACAO fica dentro — a faixa e um intervalo contiguo no
++// buffer bruto, entao nao ha como excluir os dois ao mesmo tempo. Fixa o
++// formato para que M4 descubra a assimetria em vez de ser surpreendido.
++func TestBlockIDMultilineBlockquotePrefixAsymmetry(t *testing.T) {
++	src := "> linha um\n> linha dois ^abc\n"
++
++	note, err := parser.Parse([]byte(src))
++	if err != nil {
++		t.Fatalf("Parse: %v", err)
++	}
++	if len(note.Blocks) != 1 {
++		t.Fatalf("blocos = %d, quer 1: %+v", len(note.Blocks), note.Blocks)
++	}
++	got := src[note.Blocks[0].Start:note.Blocks[0].End]
++	want := "linha um\n> linha dois ^abc"
++	if got != want {
++		t.Errorf("bloco = %q, quer %q (\"> \" da 1a linha fora, da 2a dentro)", got, want)
++	}
++}
++
++// TestBlockIDMultilineListItemPrefixAsymmetry e o mesmo limite que
++// TestBlockIDMultilineBlockquotePrefixAsymmetry, para item de lista: a
++// indentacao da linha de continuacao fica dentro da faixa.
++func TestBlockIDMultilineListItemPrefixAsymmetry(t *testing.T) {
++	src := "- linha um\n  linha dois ^abc\n"
++
++	note, err := parser.Parse([]byte(src))
++	if err != nil {
++		t.Fatalf("Parse: %v", err)
++	}
++	if len(note.Blocks) != 1 {
++		t.Fatalf("blocos = %d, quer 1: %+v", len(note.Blocks), note.Blocks)
++	}
++	got := src[note.Blocks[0].Start:note.Blocks[0].End]
++	want := "linha um\n  linha dois ^abc"
++	if got != want {
++		t.Errorf("bloco = %q, quer %q (\"- \" da 1a linha fora, indentacao da 2a dentro)", got, want)
+ 	}
+ }
+ 
+ // TestBlockIDDuplicateAcrossNote confirma que o mesmo id usado duas vezes na
+ // nota produz dois blocos distintos — a deduplicacao (se houver) e
+ // responsabilidade de outra camada, nao do parser.
+ func TestBlockIDDuplicateAcrossNote(t *testing.T) {
+ 	src := "primeiro ^dup\n\nsegundo ^dup\n"
+ 
+ 	note, err := parser.Parse([]byte(src))
+diff --git a/internal/parser/ext_inline_field.go b/internal/parser/ext_inline_field.go
+index c6e66aa..105b0ba 100644
+--- a/internal/parser/ext_inline_field.go
++++ b/internal/parser/ext_inline_field.go
+@@ -103,37 +103,63 @@ func (p *inlineFieldParser) parseFromColon(parent gast.Node, block text.Reader,
+ 	if !ok {
+ 		return nil
+ 	}
+ 
+ 	// Regra 3: o valor vai ate o fim da linha. Isso inclui qualquer "::"
+ 	// seguinte na mesma linha — a forma sem colchetes nao suporta mais de um
+ 	// campo por linha, do mesmo jeito que o Dataview real: so a forma entre
+ 	// colchetes tem terminador proprio.
+ 	value := strings.TrimSpace(string(bytes.TrimRight(line[2:], "\r\n")))
+ 
+-	block.Advance(len(line))
++	// Nao consumir o valor: avancar so sobre "chave::" deixa o resto da
++	// linha para o goldmark oferecer a outros parsers inline. Consumir o
++	// span inteiro (como antes) impede qualquer wikilink, embed ou link
++	// Markdown dentro do valor de ser oferecido a nenhum outro parser —
++	// "fonte:: [[STJ]]" parava de aparecer em note.Links, apagando um dado
++	// que o commit anterior ja coletava. O valor continua registrado aqui,
++	// lido do PeekLine antes deste Advance.
++	block.Advance(2)
+ 	return &InlineFieldNode{Key: key, Value: value}
+ }
+ 
+ // scanInlineFieldKeyBackward le pra tras a partir de pos, sem passar de
+ // lower, acumulando runas do alfabeto de chave. Devolve ok=false quando nao
+ // ha nenhum caractere de chave imediatamente a esquerda — e o caso de "::
+-// valor" sem chave nenhuma.
++// valor" sem chave nenhuma — e tambem quando o passo pra tras encontra um
++// caractere fora do alfabeto de chave ANTES de alcancar lower.
++//
++// Essa segunda condicao e a regra 2 (forma simples e de LINHA, nao de
++// trecho): a chave precisa comecar no inicio da linha — apos marcador de
++// lista ou prefixo de citacao, que Lines() ja descontou de lower — sem nada
++// de texto antes. Se o passo pra tras para cedo, sobrou algo entre lower e
++// a chave, e essa chave nao comeca a linha.
++//
++// E o mesmo bound de "lower" que ja existia pra nao deixar o marcador de
++// lista vazar pra dentro da chave; a diferenca e so que agora um caractere
++// que interrompe o passo pra tras rejeita o campo inteiro, em vez de so
++// truncar a chave ali. Sem isso, "a:: 1 b:: 2" reoferece o valor "1 b:: 2"
++// aos parsers inline (regra 3), o segundo "::" dispara este parser de novo,
++// e o passo pra tras encontra o ':' do primeiro par antes de chegar a lower
++// — a chave que nasceria dali ("1 b") e bytes que ja pertenciam ao valor de
++// "a". Da mesma forma, "#tag::valor": o parser de tag ja avancou sobre
++// "#tag", mas o buffer bruto continua com o '#' ali, e o passo pra tras a
++// partir do "::" para nesse '#' antes de chegar a lower — "tag" seria uma
++// chave montada com bytes que o parser de tag ja reivindicou.
+ func scanInlineFieldKeyBackward(source []byte, lower, pos int) (string, bool) {
+ 	i := pos
+ 	for i > lower {
+ 		r, size := utf8.DecodeLastRune(source[lower:i])
+ 		if r == utf8.RuneError && size <= 1 {
+-			break
++			return "", false
+ 		}
+ 		if !inlineFieldKeyChar(r) {
+-			break
++			return "", false
+ 		}
+ 		i -= size
+ 	}
+ 	key := strings.TrimSpace(string(source[i:pos]))
+ 	if key == "" {
+ 		return "", false
+ 	}
+ 	return key, true
+ }
+ 
+@@ -160,31 +186,66 @@ func (p *inlineFieldParser) parseFromBracket(block text.Reader, line []byte) gas
+ 	}
+ 
+ 	// Regra 1 vale aqui tambem: exatamente dois ':' logo apos a chave.
+ 	if i+1 >= len(line) || line[i] != ':' || line[i+1] != ':' {
+ 		return nil
+ 	}
+ 	if i+2 < len(line) && line[i+2] == ':' {
+ 		return nil
+ 	}
+ 
+-	// Regra 3, forma entre colchetes: o valor vai ate o ']'. Sem fechamento
+-	// nesta linha, isso nao e um campo entre colchetes valido.
++	// Regra 3, forma entre colchetes: o valor vai ate o ']' que fecha ESTE
++	// campo, no rastreamento de profundidade, nao o primeiro ']' encontrado
++	// em qualquer nivel. Um wikilink dentro do valor ("[fonte:: [[STJ]]]")
++	// tem seu proprio par de colchetes; parar no primeiro ']' truncaria o
++	// valor em "[[STJ". Sem fechamento nesta linha, isso nao e um campo
++	// entre colchetes valido.
+ 	rest := line[i+2:]
+-	closeIdx := bytes.IndexByte(rest, ']')
++	closeIdx := -1
++	depth := 0
++	for idx := 0; idx < len(rest); idx++ {
++		switch rest[idx] {
++		case '[':
++			depth++
++		case ']':
++			if depth == 0 {
++				closeIdx = idx
++			} else {
++				depth--
++			}
++		}
++		if closeIdx >= 0 {
++			break
++		}
++	}
+ 	if closeIdx < 0 {
+ 		return nil
+ 	}
+ 	value := strings.TrimSpace(string(rest[:closeIdx]))
+ 
+-	total := i + 2 + closeIdx + 1 // ate e incluindo ']'
+-	block.Advance(total)
++	// Se o ']' de fechamento for seguido imediatamente de '(' ou '[', isto
++	// pode ser o texto de um link Markdown ou de outro wikilink —
++	// "[Nota:: veja](destino.md)" seria consumido como campo nesta
++	// prioridade (130), antes do parser de link do CommonMark (~200), e o
++	// destino nunca chegaria a ser interpretado. E a mesma classe de defeito
++	// que "[[[a]] b](d.md)" ja pagou no parser de wikilink. Recusar aqui
++	// devolve o '[' inicial intacto para o proximo parser da fila.
++	after := closeIdx + 1
++	if after < len(rest) && (rest[after] == '(' || rest[after] == '[') {
++		return nil
++	}
++
++	// Nao consumir o valor nem o ']' de fechamento — so "[chave::", pelo
++	// mesmo motivo da forma sem colchetes. O ']' que sobra vira um no de
++	// texto que collect ignora, e o valor volta a ser oferecido a outros
++	// parsers inline.
++	block.Advance(i + 2)
+ 	return &InlineFieldNode{Key: key, Value: value}
+ }
+ 
+ // InlineFieldExtension registra o inline parser no goldmark.
+ type InlineFieldExtension struct{}
+ 
+ func (InlineFieldExtension) Extend(md goldmark.Markdown) {
+ 	md.Parser().AddOptions(
+ 		gparser.WithInlineParsers(
+ 			// Prioridade abaixo de wikilink (150) e do link padrao do
+diff --git a/internal/parser/ext_inline_field_test.go b/internal/parser/ext_inline_field_test.go
+index cfdecbe..8a6c66a 100644
+--- a/internal/parser/ext_inline_field_test.go
++++ b/internal/parser/ext_inline_field_test.go
+@@ -141,38 +141,70 @@ func TestInlineFieldKeyWithSpace(t *testing.T) {
+ func TestInlineFieldBracketedTrailingText(t *testing.T) {
+ 	note, err := parser.Parse([]byte("[chave:: valor] texto depois\n"))
+ 	if err != nil {
+ 		t.Fatalf("Parse: %v", err)
+ 	}
+ 	if got := note.Inline["chave"]; len(got) != 1 || got[0] != "valor" {
+ 		t.Errorf("chave = %v, quer [valor]", got)
+ 	}
+ }
+ 
+-// TestInlineFieldTwoPerLine documenta o comportamento real de "a:: 1 b:: 2":
+-// a forma sem colchetes consome o RESTO DA LINHA como valor (regra 3), entao
+-// so um campo nasce daqui, com "b:: 2" dentro do valor de "a" — o mesmo
+-// comportamento do Dataview real, que exige colchetes para varios campos por
+-// linha.
++// TestInlineFieldTwoPerLine documenta o comportamento real de "a:: 1 b:: 2".
++// A regra 3 do Dataview continua valendo para o VALOR: a forma sem
++// colchetes nao tem terminador proprio, entao o valor registrado para "a" e
++// a linha inteira depois de "a::", incluindo o "b:: 2" — exatamente como o
++// Dataview real, que exige colchetes para mais de um campo por linha.
++//
++// Como o parser nao consome mais esse valor (regra 3b — precisa permanecer
++// visivel para outros parsers inline, ver TestInlineFieldValueWithWikilink),
++// o segundo "::" dentro dele tambem dispara o parser inline de novo. Sem a
++// regra 2 (chave so no INICIO DA LINHA), o passo pra tras a partir desse
++// segundo "::" pararia no primeiro ':' do par "a::" e inventaria a chave
++// espuria "1 b" com bytes que ja pertenciam ao valor de "a". Com a regra 2,
++// esse passo pra tras encontra o ':' antes de alcancar o inicio da linha e
++// rejeita — "1 b" nao comeca a linha, entao nao vira campo. Ver
++// TestInlineFieldBracketedTwoPerLine para a forma que SUPORTA mais de um
++// campo por linha de proposito.
+ func TestInlineFieldTwoPerLine(t *testing.T) {
+ 	note, err := parser.Parse([]byte("a:: 1 b:: 2\n"))
+ 	if err != nil {
+ 		t.Fatalf("Parse: %v", err)
+ 	}
+-	if len(note.Inline) != 1 {
+-		t.Fatalf("inline = %v, quer 1 chave", note.Inline)
+-	}
+ 	if got := note.Inline["a"]; len(got) != 1 || got[0] != "1 b:: 2" {
+ 		t.Errorf("a = %v, quer [\"1 b:: 2\"]", got)
+ 	}
+-	if _, ok := note.Inline["b"]; ok {
+-		t.Error("b nao deveria existir — foi absorvido pelo valor de a")
++	if _, ok := note.Inline["1 b"]; ok {
++		t.Errorf("inline = %v, \"1 b\" nao deveria existir (regra 2: campo simples e de linha)", note.Inline)
++	}
++	if len(note.Inline) != 1 {
++		t.Fatalf("inline = %v, quer so a chave \"a\"", note.Inline)
++	}
++}
++
++// TestInlineFieldAfterTagNotField confirma o segundo artefato que a regra 2
++// fecha: "#tag::valor" nao pode produzir um campo cuja chave e montada com
++// bytes que o parser de tag (prioridade 120, dispara antes) ja reivindicou.
++// O parser de tag avanca sobre "#tag", mas o buffer bruto por tras continua
++// com o '#' ali; o passo pra tras a partir do "::" encontraria "tag" antes
++// de alcancar o inicio da linha, e regra 2 rejeita porque "tag" nao comeca a
++// linha — o '#' esta antes dele. A tag em si continua sendo extraida
++// normalmente pelo TagExtension; este teste olha so para note.Inline.
++func TestInlineFieldAfterTagNotField(t *testing.T) {
++	note, err := parser.Parse([]byte("#tag::valor\n"))
++	if err != nil {
++		t.Fatalf("Parse: %v", err)
++	}
++	if len(note.Inline) != 0 {
++		t.Errorf("inline = %v, quer vazio (\"tag\" nao pode virar chave de campo)", note.Inline)
++	}
++	if len(note.Tags) != 1 || note.Tags[0] != "tag" {
++		t.Errorf("tags = %v, quer [tag] (a tag em si continua valendo)", note.Tags)
+ 	}
+ }
+ 
+ // TestInlineFieldBracketedTwoPerLine confirma que a forma entre colchetes
+ // SIM suporta varios campos na mesma linha, porque cada um tem seu proprio
+ // terminador ']'.
+ func TestInlineFieldBracketedTwoPerLine(t *testing.T) {
+ 	note, err := parser.Parse([]byte("[a:: 1] [b:: 2]\n"))
+ 	if err != nil {
+ 		t.Fatalf("Parse: %v", err)
+@@ -204,34 +236,108 @@ func TestInlineFieldInListItem(t *testing.T) {
+ func TestInlineFieldInBlockquote(t *testing.T) {
+ 	note, err := parser.Parse([]byte("> autor:: Fulano\n"))
+ 	if err != nil {
+ 		t.Fatalf("Parse: %v", err)
+ 	}
+ 	if got := note.Inline["autor"]; len(got) != 1 || got[0] != "Fulano" {
+ 		t.Errorf("autor = %v, quer [Fulano]", got)
+ 	}
+ }
+ 
+-// TestInlineFieldValueWithWikilink documenta que um wikilink dentro do valor
+-// de um campo nao e coletado separadamente como link: a forma sem colchetes
+-// consome o resto da linha, opaco a outros parsers inline — o mesmo
+-// comportamento que WikilinkNode ja tem para o texto do alias.
++// TestInlineFieldValueWithWikilink confirma que um wikilink dentro do valor
++// de um campo AINDA e coletado como link: o parser nao consome o valor, so
++// avanca sobre "chave::" e deixa o goldmark oferecer o resto da linha a
++// outros parsers inline. O valor continua registrado em Inline por inteiro.
++// Sem isto, "fonte:: [[STJ]]" apagaria um link que o commit anterior ao
++// Task 17 ja coletava — Dataview field guardando link e idioma comum de
++// cofre.
+ func TestInlineFieldValueWithWikilink(t *testing.T) {
+ 	note, err := parser.Parse([]byte("fonte:: [[STJ]]\n"))
+ 	if err != nil {
+ 		t.Fatalf("Parse: %v", err)
+ 	}
+ 	if got := note.Inline["fonte"]; len(got) != 1 || got[0] != "[[STJ]]" {
+ 		t.Errorf("fonte = %v, quer [\"[[STJ]]\"]", got)
+ 	}
+-	if len(note.Links) != 0 {
+-		t.Errorf("links = %+v, quer nenhum — o valor do campo e opaco", note.Links)
++	if len(note.Links) != 1 || note.Links[0].Target != "STJ" {
++		t.Errorf("links = %+v, quer um link para STJ", note.Links)
++	}
++}
++
++// TestInlineFieldValueWithEmbed e o mesmo que
++// TestInlineFieldValueWithWikilink, para a forma de embed ("![[...]]").
++func TestInlineFieldValueWithEmbed(t *testing.T) {
++	note, err := parser.Parse([]byte("capa:: ![[img.png]]\n"))
++	if err != nil {
++		t.Fatalf("Parse: %v", err)
++	}
++	if got := note.Inline["capa"]; len(got) != 1 || got[0] != "![[img.png]]" {
++		t.Errorf("capa = %v, quer [\"![[img.png]]\"]", got)
++	}
++	if len(note.Links) != 1 || note.Links[0].Target != "img.png" || note.Links[0].Kind != parser.LinkEmbed {
++		t.Errorf("links = %+v, quer um embed para img.png", note.Links)
++	}
++}
++
++// TestInlineFieldValueWithMarkdownLink e o mesmo, para a grafia Markdown de
++// link ("[texto](destino)").
++func TestInlineFieldValueWithMarkdownLink(t *testing.T) {
++	note, err := parser.Parse([]byte("fonte:: [STJ](stj.md)\n"))
++	if err != nil {
++		t.Fatalf("Parse: %v", err)
++	}
++	if got := note.Inline["fonte"]; len(got) != 1 || got[0] != "[STJ](stj.md)" {
++		t.Errorf("fonte = %v, quer [\"[STJ](stj.md)\"]", got)
++	}
++	found := false
++	for _, l := range note.Links {
++		if l.Target == "stj.md" && l.Kind == parser.LinkMarkdown {
++			found = true
++		}
++	}
++	if !found {
++		t.Errorf("links = %+v, quer um link markdown para stj.md", note.Links)
++	}
++}
++
++// TestInlineFieldBracketedNestedWikilinkValue confirma que o valor de um
++// campo entre colchetes cujo valor e ele mesmo um wikilink nao trunca no
++// primeiro ']' (que pertence ao wikilink): o rastreamento de profundidade
++// encontra o ']' que fecha o CAMPO, nao o do wikilink aninhado.
++func TestInlineFieldBracketedNestedWikilinkValue(t *testing.T) {
++	note, err := parser.Parse([]byte("[fonte:: [[STJ]]]\n"))
++	if err != nil {
++		t.Fatalf("Parse: %v", err)
++	}
++	if got := note.Inline["fonte"]; len(got) != 1 || got[0] != "[[STJ]]" {
++		t.Errorf("fonte = %v, quer [\"[[STJ]]\"]", got)
++	}
++}
++
++// TestInlineFieldBracketedDeclinesBeforeMarkdownLink confirma o Critical 2:
++// quando o ']' da forma entre colchetes e seguido imediatamente de '(', o
++// texto inteiro e o de um link Markdown, nao um campo — mesma prioridade
++// (130) vem antes do parser de link do CommonMark (~200), entao sem esta
++// recusa "destino.md" nunca seria interpretado como link.
++func TestInlineFieldBracketedDeclinesBeforeMarkdownLink(t *testing.T) {
++	note, err := parser.Parse([]byte("[Nota:: veja](destino.md)\n"))
++	if err != nil {
++		t.Fatalf("Parse: %v", err)
++	}
++	found := false
++	for _, l := range note.Links {
++		if l.Target == "destino.md" && l.Kind == parser.LinkMarkdown {
++			found = true
++		}
++	}
++	if !found {
++		t.Errorf("links = %+v, quer um link markdown para destino.md", note.Links)
+ 	}
+ }
+ 
+ // TestInlineFieldInlineCodeSpan confirma que "::" dentro de um span de
+ // codigo inline nao produz campo — o goldmark ja suprime parsers inline ali.
+ func TestInlineFieldInlineCodeSpan(t *testing.T) {
+ 	note, err := parser.Parse([]byte("texto `autor:: Fulano` fim\n"))
+ 	if err != nil {
+ 		t.Fatalf("Parse: %v", err)
+ 	}
+diff --git a/internal/parser/ext_tag.go b/internal/parser/ext_tag.go
+index 799b1dc..1921aab 100644
+--- a/internal/parser/ext_tag.go
++++ b/internal/parser/ext_tag.go
+@@ -1,13 +1,14 @@
+ package parser
+ 
+ import (
++	"strings"
+ 	"unicode"
+ 	"unicode/utf8"
+ 
+ 	"github.com/yuin/goldmark"
+ 	gast "github.com/yuin/goldmark/ast"
+ 	gparser "github.com/yuin/goldmark/parser"
+ 	"github.com/yuin/goldmark/text"
+ 	"github.com/yuin/goldmark/util"
+ )
+ 
+@@ -37,26 +38,42 @@ func tagNameChar(r rune) bool {
+ // tagPrecedingOK diz se o caractere que vem antes do '#' autoriza uma tag
+ // ali: inicio de linha ou de documento (o goldmark reporta isso como '\n'),
+ // espaco, ou pontuacao de abertura. Sem essa checagem, "url#secao" e
+ // "a#b" produzem tags que nao existem — o falso positivo de maior volume
+ // possivel, porque qualquer URL com fragmento no cofre vira uma tag.
+ //
+ // "Pontuacao de abertura" cobre parenteses/colchetes/chaves e variantes
+ // Unicode (categoria Ps), aspas curvas e guillemets de abertura (categoria
+ // Pi), e pontuacao de travessao — hifen, en dash, em dash (categoria Pd).
+ // Aspa dupla reta e aspa simples reta entram a parte: sao categoria Po no
+-// Unicode, mas abrem citacao no uso comum.
++// Unicode, mas abrem citacao no uso comum. '*', '_' e '~' tambem entram a
++// parte: sao marcadores de enfase/tachado (negrito, italico, ~~riscado~~),
++// categoria Po/Pc no Unicode — nao pontuacao de abertura —, mas
++// "**#civil**" e idioma comum no Obsidian, que indexa a tag. Nenhuma URL
++// tem fragmento precedido por um desses tres, entao admiti-los nao custa
++// nada contra o falso positivo que esta funcao existe pra barrar.
++//
++// Isto NAO e o que impede uma tag dentro do destino de um link Markdown
++// valido: "[texto](#introducao)" nao produz tag porque o parser de link do
++// CommonMark consome "(#introducao)" inteiro antes de qualquer outro
++// parser inline ver aquele '#' — o '(' nunca chega a ser oferecido a
++// tagPrecedingOK como caractere precedente, porque o '#' nunca dispara o
++// gatilho. A prova de que a protecao e essa, e nao a regra de pontuacao de
++// abertura acima (que TAMBEM aceitaria '(' se chegasse a ser consultada): um
++// link malformado como "[S] (#introducao)" (espaco entre ']' e '(', que o
++// CommonMark nao aceita como link) ainda produz uma tag — o '(' sobra como
++// texto solto, tagPrecedingOK e consultada de verdade, e responde "sim".
+ func tagPrecedingOK(r rune) bool {
+ 	if r == '\n' || unicode.IsSpace(r) {
+ 		return true
+ 	}
+-	if r == '"' || r == '\'' {
++	if r == '"' || r == '\'' || r == '*' || r == '_' || r == '~' {
+ 		return true
+ 	}
+ 	return unicode.In(r, unicode.Ps, unicode.Pi, unicode.Pd)
+ }
+ 
+ type tagParser struct{}
+ 
+ // Trigger dispara este parser em cada '#' oferecido pelo goldmark. O
+ // goldmark ja suprime o gatilho dentro de blocos de codigo cercados,
+ // indentados, spans de codigo inline e blocos/comentarios HTML — nao ha
+@@ -87,40 +104,64 @@ func (p *tagParser) Parse(_ gast.Node, block text.Reader, _ gparser.Context) gas
+ 			break
+ 		}
+ 		if unicode.IsLetter(r) {
+ 			hasLetter = true
+ 		}
+ 		width += size
+ 	}
+ 
+ 	// Uma ou mais barras no FIM do nome nao fecham segmento de hierarquia
+ 	// nenhum — "#tag/" e a tag "tag", nao "tag/" com um segmento vazio. A
+-	// barra sobra como texto literal depois da tag.
++	// barra sobra como texto literal depois da tag. So a faixa consumida
++	// (Advance) usa este limite; o NOME gravado no no ainda passa por
++	// collapseTagSlashes abaixo, que cobre as outras duas posicoes.
+ 	trimmed := width
+ 	for trimmed > 0 && rest[trimmed-1] == '/' {
+ 		trimmed--
+ 	}
+ 
+ 	// Regra 2: precisa conter ao menos uma letra. "#123" nao e tag no
+ 	// Obsidian — e referencia de issue, numero de titulo, nota de rodape.
+ 	// Regra 4: '#' seguido de espaco (ou de nada que pertenca ao alfabeto)
+ 	// nao produz nome nenhum aqui, e cai neste mesmo caso.
+ 	if trimmed == 0 || !hasLetter {
+ 		return nil
+ 	}
+ 
+-	node := &TagNode{Name: string(rest[:trimmed])}
++	// Regra 3: segmento vazio de hierarquia nao pode chegar em Tags. Barra
++	// dupla interna ("#a//b") e barra inicial ("#/civil") produzem segmento
++	// vazio ao serem divididas por '/' — o mesmo problema que a barra final
++	// ja tratava acima, so que nas outras duas posicoes. tag_list com
++	// hierarchical:true monta a arvore dividindo por '/', e um segmento
++	// vazio vira no sem nome onde toda tag com segmento vazio na mesma
++	// profundidade colide num so; o parametro prefix erra a subarvore do
++	// mesmo jeito.
++	node := &TagNode{Name: collapseTagSlashes(string(rest[:trimmed]))}
+ 
+ 	block.Advance(1 + trimmed)
+ 	return node
+ }
+ 
++// collapseTagSlashes remove segmentos vazios de hierarquia colapsando
++// sequencias de '/' e removendo-as das pontas — ver comentario de regra 3
++// em tagParser.Parse.
++func collapseTagSlashes(s string) string {
++	parts := strings.Split(s, "/")
++	out := parts[:0]
++	for _, p := range parts {
++		if p != "" {
++			out = append(out, p)
++		}
++	}
++	return strings.Join(out, "/")
++}
++
+ // TagExtension registra o inline parser no goldmark.
+ type TagExtension struct{}
+ 
+ func (TagExtension) Extend(md goldmark.Markdown) {
+ 	md.Parser().AddOptions(
+ 		gparser.WithInlineParsers(
+ 			// Prioridade sem concorrencia conhecida com wikilink (150) ou
+ 			// block-id (100): '#' nao aparece no gatilho de nenhum dos dois.
+ 			util.Prioritized(&tagParser{}, 120),
+ 		),
+diff --git a/internal/parser/ext_tag_test.go b/internal/parser/ext_tag_test.go
+index aa51c67..a24356a 100644
+--- a/internal/parser/ext_tag_test.go
++++ b/internal/parser/ext_tag_test.go
+@@ -94,31 +94,42 @@ func TestTagPunctuationBoundary(t *testing.T) {
+ func TestTagTrailingSlash(t *testing.T) {
+ 	note, err := parser.Parse([]byte("veja #tag/ depois\n"))
+ 	if err != nil {
+ 		t.Fatalf("Parse: %v", err)
+ 	}
+ 	if len(note.Tags) != 1 || note.Tags[0] != "tag" {
+ 		t.Errorf("tags = %v, quer [tag]", note.Tags)
+ 	}
+ }
+ 
+-// TestTagDoubleSlash documenta o comportamento (nao necessariamente
+-// "correto") de uma barra dupla: como '/' e preservado literalmente (regra
+-// 3), "#a//b" produz uma unica tag "a//b" em vez de recusar o segmento
+-// vazio. E um caso de canto conhecido, nao um requisito do brief.
+-func TestTagDoubleSlash(t *testing.T) {
+-	note, err := parser.Parse([]byte("veja #a//b depois\n"))
+-	if err != nil {
+-		t.Fatalf("Parse: %v", err)
++// TestTagEmptyHierarchySegments confirma que segmento vazio de hierarquia
++// nao chega em Tags: barra dupla interna e barra inicial sao colapsadas do
++// mesmo jeito que a barra final ja era (TestTagTrailingSlash). Sem isto,
++// "#a//b" e "#/civil" produzem segmento vazio ao serem divididos por '/' por
++// tag_list (hierarchical:true), e todas as tags com segmento vazio na mesma
++// profundidade colidem num so no sem nome.
++func TestTagEmptyHierarchySegments(t *testing.T) {
++	tests := []struct{ name, in, want string }{
++		{"barra dupla interna", "veja #a//b depois\n", "a/b"},
++		{"barra inicial", "veja #/civil depois\n", "civil"},
++		{"barra dupla e final compostas", "veja #a//b/c depois\n", "a/b/c"},
+ 	}
+-	if len(note.Tags) != 1 || note.Tags[0] != "a//b" {
+-		t.Errorf("tags = %v, quer [\"a//b\"]", note.Tags)
++	for _, tt := range tests {
++		t.Run(tt.name, func(t *testing.T) {
++			note, err := parser.Parse([]byte(tt.in))
++			if err != nil {
++				t.Fatalf("Parse: %v", err)
++			}
++			if len(note.Tags) != 1 || note.Tags[0] != tt.want {
++				t.Errorf("tags = %v, quer [%q]", note.Tags, tt.want)
++			}
++		})
+ 	}
+ }
+ 
+ // TestTagCharset confirma hifen, underscore, maiuscula e letras acentuadas.
+ func TestTagCharset(t *testing.T) {
+ 	tests := []struct{ name, in, want string }{
+ 		{"hifen", "#tag-com-hifen\n", "tag-com-hifen"},
+ 		{"underscore", "#tag_com_underscore\n", "tag_com_underscore"},
+ 		{"maiuscula", "#Maiuscula\n", "Maiuscula"},
+ 		{"acentuada", "#Maiúscula\n", "Maiúscula"},
+@@ -230,20 +241,54 @@ func TestTagInsideWikilinkAlias(t *testing.T) {
+ func TestTagInHeading(t *testing.T) {
+ 	note, err := parser.Parse([]byte("## Titulo #tag\n"))
+ 	if err != nil {
+ 		t.Fatalf("Parse: %v", err)
+ 	}
+ 	if len(note.Tags) != 1 || note.Tags[0] != "tag" {
+ 		t.Errorf("tags = %v, quer [tag]", note.Tags)
+ 	}
+ }
+ 
++// TestTagAdjacentToEmphasisMarkers confirma que '*', '_' e '~' autorizam uma
++// tag logo depois deles: "**#civil**", "*#civil*", "_#civil_" e "~~#civil~~"
++// sao idioma comum no Obsidian (tag em negrito/italico/riscado), que a
++// aplicacao real indexa. Sem isto a tag desaparece de tag_list, do filtro
++// tags e do indice inteiro, porque esses tres caracteres sao categoria
++// Unicode Po/Pc — nao pontuacao de abertura — e ficavam de fora da checagem.
++func TestTagAdjacentToEmphasisMarkers(t *testing.T) {
++	tests := []struct{ name, in, want string }{
++		{"negrito", "**#civil**\n", "civil"},
++		{"italico asterisco", "*#civil*\n", "civil"},
++		// O '_' de fechamento entra no NOME, nao so na checagem de abertura:
++		// '_' ja fazia parte do alfabeto de tagNameChar antes desta correcao
++		// (para "#tag_com_underscore"), entao um '_' colado no fim e
++		// consumido pela mesma regra que aceita "#tag_com_underscore" — nao
++		// ha como distinguir "underscore de tag" de "underscore de italico"
++		// olhando so pro caractere. Ambiguidade pre-existente do alfabeto,
++		// ortogonal ao que esta checagem (regra 1, caractere PRECEDENTE)
++		// resolve.
++		{"italico underscore", "_#civil_\n", "civil_"},
++		{"riscado", "~~#civil~~\n", "civil"},
++	}
++	for _, tt := range tests {
++		t.Run(tt.name, func(t *testing.T) {
++			note, err := parser.Parse([]byte(tt.in))
++			if err != nil {
++				t.Fatalf("Parse: %v", err)
++			}
++			if len(note.Tags) != 1 || note.Tags[0] != tt.want {
++				t.Errorf("tags = %v, quer [%q]", note.Tags, tt.want)
++			}
++		})
++	}
++}
++
+ // TestTagRealURLs confirma que fragmentos de URLs realistas nao viram tags,
+ // para tres formatos comuns de URL com fragmento.
+ func TestTagRealURLs(t *testing.T) {
+ 	tests := []struct{ name, in string }{
+ 		{"wikipedia com parenteses", "https://en.wikipedia.org/wiki/Go_(programming_language)#Concurrency\n"},
+ 		{"github readme", "https://github.com/user/repo#readme\n"},
+ 		{"docs python", "https://docs.python.org/3/library/re.html#re.match\n"},
+ 	}
+ 	for _, tt := range tests {
+ 		t.Run(tt.name, func(t *testing.T) {
+diff --git a/internal/parser/types.go b/internal/parser/types.go
+index 0048b67..8be3581 100644
+--- a/internal/parser/types.go
++++ b/internal/parser/types.go
+@@ -47,23 +47,49 @@ type Heading struct {
+ 	// offsets sao do corpo ou do buffer inteiro.
+ 	Start int64 `json:"start"`
+ 	End   int64 `json:"end"`
+ 	// BodyStart e o offset logo apos a linha do heading. E o que
+ 	// replace_section usa: preserva o titulo e substitui so o que vem abaixo.
+ 	BodyStart int64 `json:"body_start"`
+ }
+ 
+ // Block e um bloco identificado por um marcador "^id" no fim de linha.
+ type Block struct {
+-	ID    string `json:"id"` // sem o '^'
+-	Start int64  `json:"start"`
+-	End   int64  `json:"end"`
++	ID string `json:"id"` // sem o '^'
++	// Start e o offset do inicio do BLOCO pai (paragrafo, item de lista,
++	// linha de citacao), nao do '^'. Em um item de lista isso cai depois do
++	// "- ": replace_block e responsavel so pelo texto, nao por reemitir o
++	// marcador de lista nem a indentacao que determina a profundidade do
++	// aninhamento.
++	//
++	// LIMITE CONHECIDO em bloco de varias linhas (paragrafo com quebra
++	// suave, ou citacao/item de lista com mais de uma linha): Start..End e
++	// uma faixa CONTIGUA no buffer bruto. O prefixo de sintaxe ("> " de
++	// citacao, marcador+indentacao de lista) so fica de fora da faixa na
++	// PRIMEIRA linha, porque Start vem de Lines().At(0).Start, que so
++	// descontou esse prefixo ali. Como a faixa e contigua no buffer, o
++	// prefixo de QUALQUER linha de continuacao (a segunda em diante) fica
++	// DENTRO dela — nao ha como excluir os dois ao mesmo tempo com um unico
++	// intervalo [Start,End). E assimetria inerente a essa escolha, nao um
++	// bug: exemplo, "> linha um\n> linha dois ^abc" produz Start=2 End=28,
++	// e src[Start:End] == "linha um\n> linha dois ^abc" — o "> " da primeira
++	// linha ficou fora, o da segunda ficou dentro. O mesmo vale para
++	// indentacao de item de lista em vez de "> ".
++	//
++	// M4's replace_block, ao escrever conteudo de varias linhas de volta no
++	// lugar deste bloco, precisa reemitir esses prefixos de continuacao — o
++	// "> " de cada linha de citacao, a indentacao de cada linha de item de
++	// lista — porque o range aqui devolvido ja descontou o prefixo da
++	// PRIMEIRA linha mas nao o das demais. Escrever de volta sem reemiti-los
++	// quebra a sintaxe do bloco.
++	Start int64 `json:"start"`
++	End   int64 `json:"end"`
+ }
+ 
+ // offsetUnknown marca um offset que o parser nao conseguiu determinar. Ver o
+ // comentario de Link.Start.
+ const offsetUnknown int64 = -1
+ 
+ // Link e uma referencia a outra nota ou a um recurso, na sintaxe wikilink,
+ // embed ou markdown.
+ type Link struct {
+ 	Raw    string   `json:"raw"` // texto original, para reescrita fiel

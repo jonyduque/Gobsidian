@@ -1,0 +1,508 @@
+# Review package: 1027d19..HEAD
+
+## Commits
+79d424d docs: scope ctx constraint to blocking calls; record flag-set companions
+d44d820 fix(config): honor flag>env>default precedence for read-only and debounce
+
+## Files changed
+ docs/ESTRUTURA.md                                  |   4 +-
+ docs/superpowers/plans/2026-07-25-gobsidian-v01.md |  13 +-
+ internal/config/config.go                          |  79 ++++++++--
+ internal/config/config_test.go                     | 168 ++++++++++++++++++++-
+ 4 files changed, 241 insertions(+), 23 deletions(-)
+
+## Diff
+diff --git a/docs/ESTRUTURA.md b/docs/ESTRUTURA.md
+index d749703..567bbf8 100644
+--- a/docs/ESTRUTURA.md
++++ b/docs/ESTRUTURA.md
+@@ -184,21 +184,23 @@ Um arquivo chamado `helpers.go` ou `utils.go` é sinal de que uma preocupação
+ ### Separação por build tag para código de plataforma
+ 
+ `parent_windows.go` e `parent_unix.go`, `cloud_windows.go`, `checks_windows.go`. Código específico de sistema operacional fica isolado atrás de build tags, nunca dentro de um `if runtime.GOOS == "windows"` no meio de lógica compartilhada.
+ 
+ ---
+ 
+ ## 3. Convenções de código
+ 
+ ### Contexto
+ 
+-Toda função que faz I/O ou pode bloquear recebe `ctx context.Context` como primeiro parâmetro e o respeita. O context raiz vem de `lifecycle`; cancelá-lo derruba tudo em cascata. Isso é o que faz o shutdown funcionar de verdade em vez de apenas parecer funcionar.
++Toda função que pode **bloquear** recebe `ctx context.Context` como primeiro parâmetro e o respeita: leitura e escrita de arquivo, varredura do cofre, worker pool, watcher, chamadas MCP. O context raiz vem de `lifecycle`; cancelá-lo derruba tudo em cascata. Isso é o que faz o shutdown funcionar de verdade em vez de apenas parecer funcionar.
++
++O critério é espera real, não contato com o sistema operacional. Consulta de variável de ambiente, resolução de caminho e cálculo em memória não recebem `ctx`, porque não há nada a cancelar. Um `ctx` que nenhum corpo de função verifica é pior que ausente: ensina o revisor a não olhar para `ctx`, e o parâmetro perde o significado justamente onde ele importa.
+ 
+ ### Erros
+ 
+ Erros são embrulhados com `fmt.Errorf("...: %w", err)` em cada camada, acrescentando contexto sem perder a cadeia. Erros de domínio são valores sentinela declarados em `service/errors.go`, verificáveis com `errors.Is`.
+ 
+ Erro que o usuário verá inclui o dado que permite corrigi-lo — o caminho, o heading procurado, as alternativas disponíveis. Ver ARCHITECTURE §8.3.
+ 
+ ### Logging
+ 
+ `log/slog`, sempre em **stderr**. Nunca em stdout, sem exceção: stdout carrega o JSON-RPC e um único byte estranho corrompe a sessão.
+diff --git a/docs/superpowers/plans/2026-07-25-gobsidian-v01.md b/docs/superpowers/plans/2026-07-25-gobsidian-v01.md
+index 210bd60..19b3bc2 100644
+--- a/docs/superpowers/plans/2026-07-25-gobsidian-v01.md
++++ b/docs/superpowers/plans/2026-07-25-gobsidian-v01.md
+@@ -13,21 +13,21 @@
+ ---
+ 
+ ## Global Constraints
+ 
+ Requisitos de projeto inteiro. Valem implicitamente para toda tarefa.
+ 
+ - **Go 1.25+.** `go.mod` declara `go 1.25`.
+ - **Módulo:** `github.com/jonyd/gobsidian`. Binário `gobsidian.exe`. Nenhuma ocorrência de `cofre` como nome de produto no código.
+ - **stdout pertence ao JSON-RPC.** Todo log vai para stderr via `log/slog`, sem exceção. Um `fmt.Println` em código de servidor é bug de bloqueio de release.
+ - **Nenhum pacote sob `internal/` ou `cmd/` importa `net` ou `net/*`.** Verificado no CI (PRD §6.4). `net/http` transitivo do SDK é esperado e aceito.
+-- **Contexto sempre primeiro.** Toda função que faz I/O ou pode bloquear recebe `ctx context.Context` como primeiro parâmetro e o respeita.
++- **Contexto onde há espera real.** Toda função que pode **bloquear** recebe `ctx context.Context` como primeiro parâmetro e o respeita: leitura e escrita de arquivo, varredura do cofre, worker pool, watcher, chamadas MCP. Consulta de variável de ambiente, resolução de caminho e cálculo em memória não recebem `ctx`. Um `ctx` que nenhum corpo de função verifica ensina o revisor a não olhar para `ctx` — o parâmetro só tem valor onde há algo a cancelar.
+ - **Toda goroutine tem dono e caminho de encerramento.** `sync.WaitGroup` no shutdown. Goroutine sem saída é vazamento.
+ - **Testes com `-race` sempre.** `go test -race ./...` é o comando padrão; a versão sem `-race` não conta.
+ - **Caminho canônico:** relativo à raiz do cofre, separador `/`, sem `./` inicial, com a grafia exata do disco.
+ - **Erros embrulhados** com `fmt.Errorf("...: %w", err)` em cada camada. Erros de domínio são sentinelas em `service/errors.go`, verificáveis com `errors.Is`.
+ - **Saída de CLI em ASCII puro:** `[OK]`, `[!]`, `[*]`, `[i]`, `[...]`. Nada de emoji nem de caracteres fora de ASCII no console.
+ - **Sem `helpers.go`, `utils.go`, `common.go`.** Arquivo assim é sinal de preocupação não nomeada.
+ - **Commits em inglês**, Conventional Commits, um commit por passo de commit do plano.
+ - **Protocolo MCP `2025-11-25`**, fixado. Nenhum código fora de `internal/mcpsrv/` menciona tipos do SDK.
+ 
+ ---
+@@ -332,21 +332,23 @@ git commit -m "chore: bootstrap module, CI, and network-import analyzer"
+ 
+ ---
+ 
+ ### Task 2: Configuração
+ 
+ **Files:**
+ - Create: `internal/config/config.go`, `internal/config/defaults.go`, `internal/config/config_test.go`
+ 
+ **Interfaces:**
+ - Consumes: nada
+-- Produces: `config.Config` com campos `VaultPath string`, `LogLevel slog.Level`, `ReadOnly bool`, `DebounceMS int`, `CacheDir string`, `MaxResults int`; `config.Load(flags Flags) (Config, error)`; `config.Defaults() Config`
++- Produces: `config.Config` com campos `VaultPath string`, `LogLevel slog.Level`, `ReadOnly bool`, `DebounceMS int`, `CacheDir string`, `MaxResults int`; `config.Flags` com os campos da CLI mais os companheiros `ReadOnlySet bool` e `DebounceMSSet bool`; `config.Load(flags Flags) (Config, error)`; `config.Defaults() Config`
++
++**Sobre `ReadOnlySet` e `DebounceMSSet`.** Uma flag booleana ou inteira não distingue "omitida" de "definida com o valor zero". Sem esses companheiros, `--read-only=false` não consegue sobrepor `GOBSIDIAN_READ_ONLY=true`, e `--debounce-ms=0` — que é um valor legítimo — fica inalcançável pela linha de comando embora seja alcançável pela variável de ambiente. O subcomando os preenche depois do parse, com `cmd.Flags().Changed(nome)`, o que mantém o binding de `BoolVar` e `IntVar` intacto.
+ 
+ - [ ] **Step 1: Escrever o teste de precedência**
+ 
+ `internal/config/config_test.go`:
+ 
+ ```go
+ package config_test
+ 
+ import (
+ 	"log/slog"
+@@ -2674,20 +2676,27 @@ import (
+ 	"github.com/spf13/cobra"
+ )
+ 
+ func newServeCmd() *cobra.Command {
+ 	var flags config.Flags
+ 
+ 	cmd := &cobra.Command{
+ 		Use:   "serve",
+ 		Short: "Serve o cofre via MCP sobre stdio",
+ 		RunE: func(cmd *cobra.Command, _ []string) error {
++			// Flags booleanas e inteiras nao distinguem "omitida" de "definida
++			// com o valor zero". Sem isso, --read-only=false nao consegue
++			// sobrepor GOBSIDIAN_READ_ONLY=true, e --debounce-ms=0 e
++			// indistinguivel de nao passar a flag.
++			flags.ReadOnlySet = cmd.Flags().Changed("read-only")
++			flags.DebounceMSSet = cmd.Flags().Changed("debounce-ms")
++
+ 			cfg, err := config.Load(flags)
+ 			if err != nil {
+ 				return err
+ 			}
+ 			return runServe(cmd.Context(), cfg)
+ 		},
+ 	}
+ 
+ 	cmd.Flags().StringVar(&flags.VaultPath, "vault", "", "caminho da raiz do cofre (obrigatorio)")
+ 	cmd.Flags().StringVar(&flags.LogLevel, "log-level", "", "debug, info, warn ou error")
+diff --git a/internal/config/config.go b/internal/config/config.go
+index e61f477..b92d502 100644
+--- a/internal/config/config.go
++++ b/internal/config/config.go
+@@ -6,26 +6,36 @@ import (
+ 	"os"
+ 	"path/filepath"
+ 	"strconv"
+ 	"strings"
+ 
+ 	"github.com/cespare/xxhash/v2"
+ )
+ 
+ // Flags espelha exatamente o que a CLI aceita. cobra preenche esta struct
+ // e nada mais; a traducao para Config acontece em Load.
++//
++// ReadOnlySet e DebounceMSSet indicam se a flag correspondente foi
++// explicitamente fornecida na linha de comando. Sem isso, um bool ou int
++// no valor zero fica indistinguivel de "flag omitida", o que torna a
++// direcao "flag desliga o que o env ligou" da precedencia flag > env >
++// default inalcancavel. cobra preenche os campos de valor via BoolVar /
++// IntVar; os campos *Set sao preenchidos depois do parse, lendo
++// cmd.Flags().Changed(nome).
+ type Flags struct {
+-	VaultPath  string
+-	LogLevel   string
+-	ReadOnly   bool
+-	DebounceMS int
+-	CacheDir   string
++	VaultPath     string
++	LogLevel      string
++	ReadOnly      bool
++	ReadOnlySet   bool
++	DebounceMS    int
++	DebounceMSSet bool
++	CacheDir      string
+ }
+ 
+ type Config struct {
+ 	VaultPath  string
+ 	LogLevel   slog.Level
+ 	ReadOnly   bool
+ 	DebounceMS int
+ 	CacheDir   string
+ 	MaxResults int
+ }
+@@ -52,34 +62,41 @@ func Load(f Flags) (Config, error) {
+ 	}
+ 	if f.LogLevel != "" {
+ 		lvl, err := parseLevel(f.LogLevel)
+ 		if err != nil {
+ 			return Config{}, fmt.Errorf("--log-level: %w", err)
+ 		}
+ 		cfg.LogLevel = lvl
+ 	}
+ 
+ 	if v := os.Getenv("GOBSIDIAN_READ_ONLY"); v != "" {
+-		cfg.ReadOnly = v == "1" || strings.EqualFold(v, "true")
++		b, err := parseReadOnly(v)
++		if err != nil {
++			return Config{}, fmt.Errorf("GOBSIDIAN_READ_ONLY: %w", err)
++		}
++		cfg.ReadOnly = b
+ 	}
+-	if f.ReadOnly {
+-		cfg.ReadOnly = true
++	if f.ReadOnlySet {
++		cfg.ReadOnly = f.ReadOnly
+ 	}
+ 
+ 	if v := os.Getenv("GOBSIDIAN_DEBOUNCE_MS"); v != "" {
+-		n, err := strconv.Atoi(v)
+-		if err != nil || n < 0 {
+-			return Config{}, fmt.Errorf("GOBSIDIAN_DEBOUNCE_MS invalido: %q", v)
++		n, err := parseDebounceMS(v)
++		if err != nil {
++			return Config{}, fmt.Errorf("GOBSIDIAN_DEBOUNCE_MS: %w", err)
+ 		}
+ 		cfg.DebounceMS = n
+ 	}
+-	if f.DebounceMS > 0 {
++	if f.DebounceMSSet {
++		if err := validateDebounceMS(f.DebounceMS); err != nil {
++			return Config{}, fmt.Errorf("--debounce-ms: %w", err)
++		}
+ 		cfg.DebounceMS = f.DebounceMS
+ 	}
+ 
+ 	cfg.CacheDir = f.CacheDir
+ 	if cfg.CacheDir == "" {
+ 		cfg.CacheDir = defaultCacheDir(cfg.VaultPath)
+ 	}
+ 
+ 	return cfg, nil
+ }
+@@ -92,20 +109,58 @@ func parseLevel(s string) (slog.Level, error) {
+ 		return slog.LevelInfo, nil
+ 	case "warn", "warning":
+ 		return slog.LevelWarn, nil
+ 	case "error":
+ 		return slog.LevelError, nil
+ 	default:
+ 		return 0, fmt.Errorf("nivel de log desconhecido: %q (use debug, info, warn ou error)", s)
+ 	}
+ }
+ 
++// parseReadOnly aceita um conjunto explicito de grafias verdadeiras/falsas,
++// case-insensitive, e rejeita qualquer outra coisa em vez de silenciosamente
++// coagir para false (um "ture" digitado errado nao pode desligar o modo
++// somente-leitura de alguem sem aviso).
++func parseReadOnly(s string) (bool, error) {
++	switch strings.ToLower(strings.TrimSpace(s)) {
++	case "1", "true", "t", "yes", "y":
++		return true, nil
++	case "0", "false", "f", "no", "n":
++		return false, nil
++	default:
++		return false, fmt.Errorf("valor desconhecido: %q (use 1, true, t, yes, y, 0, false, f, no ou n)", s)
++	}
++}
++
++// parseDebounceMS converte e valida um valor de debounce vindo de texto
++// (variavel de ambiente). O erro do strconv.Atoi e preservado com %w.
++func parseDebounceMS(v string) (int, error) {
++	n, err := strconv.Atoi(v)
++	if err != nil {
++		return 0, fmt.Errorf("valor invalido %q (use um inteiro >= 0): %w", v, err)
++	}
++	if err := validateDebounceMS(n); err != nil {
++		return 0, err
++	}
++	return n, nil
++}
++
++// validateDebounceMS aplica a mesma regra de aceitacao independente da
++// origem do valor (flag ou env): qualquer inteiro >= 0 e valido, incluindo
++// zero (que significa "sem debounce").
++func validateDebounceMS(n int) error {
++	if n < 0 {
++		return fmt.Errorf("valor invalido %d (use um inteiro >= 0)", n)
++	}
++	return nil
++}
++
+ // defaultCacheDir deriva o diretorio de cache de um hash do caminho absoluto
+ // do cofre, sempre FORA do cofre (PRD D1).
+ func defaultCacheDir(vaultPath string) string {
+ 	sum := xxhash.Sum64String(strings.ToLower(vaultPath))
+ 	name := strconv.FormatUint(sum, 16)
+ 
+ 	base, err := os.UserCacheDir()
+ 	if err != nil {
+ 		base = os.TempDir()
+ 	}
+diff --git a/internal/config/config_test.go b/internal/config/config_test.go
+index f78832e..ebb978b 100644
+--- a/internal/config/config_test.go
++++ b/internal/config/config_test.go
+@@ -1,66 +1,218 @@
+ package config_test
+ 
+ import (
+-	"log/slog"
++	"path/filepath"
++	"strings"
+ 	"testing"
+ 
++	"log/slog"
++
+ 	"github.com/jonyd/gobsidian/internal/config"
+ )
+ 
+ func TestLoadPrecedence(t *testing.T) {
+ 	tests := []struct {
+-		name  string
+-		flags config.Flags
+-		env   map[string]string
+-		want  func(config.Config) bool
++		name    string
++		flags   config.Flags
++		env     map[string]string
++		want    func(config.Config) bool
++		wantErr bool
+ 	}{
+ 		{
+ 			name:  "default log level is info",
+ 			flags: config.Flags{VaultPath: "C:/vault"},
+ 			want:  func(c config.Config) bool { return c.LogLevel == slog.LevelInfo },
+ 		},
+ 		{
+-			name:  "env overrides default",
++			name:  "log level env overrides default",
+ 			flags: config.Flags{VaultPath: "C:/vault"},
+ 			env:   map[string]string{"GOBSIDIAN_LOG_LEVEL": "debug"},
+ 			want:  func(c config.Config) bool { return c.LogLevel == slog.LevelDebug },
+ 		},
+ 		{
+-			name:  "flag overrides env",
++			name:  "log level flag overrides env",
+ 			flags: config.Flags{VaultPath: "C:/vault", LogLevel: "error"},
+ 			env:   map[string]string{"GOBSIDIAN_LOG_LEVEL": "debug"},
+ 			want:  func(c config.Config) bool { return c.LogLevel == slog.LevelError },
+ 		},
++		{
++			name:    "invalid log level env is rejected and lists accepted values",
++			flags:   config.Flags{VaultPath: "C:/vault"},
++			env:     map[string]string{"GOBSIDIAN_LOG_LEVEL": "verbose"},
++			wantErr: true,
++		},
++
++		// ReadOnly
+ 		{
+ 			name:  "read only defaults to false",
+ 			flags: config.Flags{VaultPath: "C:/vault"},
+ 			want:  func(c config.Config) bool { return !c.ReadOnly },
+ 		},
++		{
++			name:  "read only env sets true",
++			flags: config.Flags{VaultPath: "C:/vault"},
++			env:   map[string]string{"GOBSIDIAN_READ_ONLY": "true"},
++			want:  func(c config.Config) bool { return c.ReadOnly },
++		},
++		{
++			name:  "read only flag false overrides env true",
++			flags: config.Flags{VaultPath: "C:/vault", ReadOnly: false, ReadOnlySet: true},
++			env:   map[string]string{"GOBSIDIAN_READ_ONLY": "true"},
++			want:  func(c config.Config) bool { return !c.ReadOnly },
++		},
++		{
++			name:  "read only flag true overrides env absent",
++			flags: config.Flags{VaultPath: "C:/vault", ReadOnly: true, ReadOnlySet: true},
++			want:  func(c config.Config) bool { return c.ReadOnly },
++		},
++		{
++			name:    "read only env garbage is rejected",
++			flags:   config.Flags{VaultPath: "C:/vault"},
++			env:     map[string]string{"GOBSIDIAN_READ_ONLY": "ture"},
++			wantErr: true,
++		},
++
++		// DebounceMS
+ 		{
+ 			name:  "debounce defaults to 250ms",
+ 			flags: config.Flags{VaultPath: "C:/vault"},
+-			want:  func(c config.Config) bool { return c.DebounceMS == 250 },
++			want:  func(c config.Config) bool { return c.DebounceMS == config.DefaultDebounceMS },
++		},
++		{
++			name:  "debounce env overrides default",
++			flags: config.Flags{VaultPath: "C:/vault"},
++			env:   map[string]string{"GOBSIDIAN_DEBOUNCE_MS": "500"},
++			want:  func(c config.Config) bool { return c.DebounceMS == 500 },
++		},
++		{
++			name:  "debounce flag overrides env",
++			flags: config.Flags{VaultPath: "C:/vault", DebounceMS: 700, DebounceMSSet: true},
++			env:   map[string]string{"GOBSIDIAN_DEBOUNCE_MS": "500"},
++			want:  func(c config.Config) bool { return c.DebounceMS == 700 },
++		},
++		{
++			name:  "debounce explicit zero reachable from env",
++			flags: config.Flags{VaultPath: "C:/vault"},
++			env:   map[string]string{"GOBSIDIAN_DEBOUNCE_MS": "0"},
++			want:  func(c config.Config) bool { return c.DebounceMS == 0 },
++		},
++		{
++			name:  "debounce explicit zero reachable from flag",
++			flags: config.Flags{VaultPath: "C:/vault", DebounceMS: 0, DebounceMSSet: true},
++			env:   map[string]string{"GOBSIDIAN_DEBOUNCE_MS": "500"},
++			want:  func(c config.Config) bool { return c.DebounceMS == 0 },
++		},
++		{
++			name:    "debounce negative rejected from env",
++			flags:   config.Flags{VaultPath: "C:/vault"},
++			env:     map[string]string{"GOBSIDIAN_DEBOUNCE_MS": "-5"},
++			wantErr: true,
++		},
++		{
++			name:    "debounce negative rejected from flag",
++			flags:   config.Flags{VaultPath: "C:/vault", DebounceMS: -5, DebounceMSSet: true},
++			wantErr: true,
+ 		},
+ 	}
+ 
+ 	for _, tt := range tests {
+ 		t.Run(tt.name, func(t *testing.T) {
+ 			for k, v := range tt.env {
+ 				t.Setenv(k, v)
+ 			}
+ 			got, err := config.Load(tt.flags)
++			if tt.wantErr {
++				if err == nil {
++					t.Fatalf("Load() esperava erro, obteve config = %+v", got)
++				}
++				return
++			}
+ 			if err != nil {
+ 				t.Fatalf("Load() error = %v", err)
+ 			}
+ 			if !tt.want(got) {
+ 				t.Errorf("Load() = %+v, falhou a condicao do caso", got)
+ 			}
+ 		})
+ 	}
+ }
+ 
++func TestLoadDebounceErrorNamesTheValue(t *testing.T) {
++	t.Run("env", func(t *testing.T) {
++		t.Setenv("GOBSIDIAN_DEBOUNCE_MS", "-5")
++		_, err := config.Load(config.Flags{VaultPath: "C:/vault"})
++		if err == nil {
++			t.Fatal("Load() esperava erro")
++		}
++		if !strings.Contains(err.Error(), "-5") {
++			t.Errorf("erro nao menciona o valor ofensor: %v", err)
++		}
++	})
++
++	t.Run("flag", func(t *testing.T) {
++		_, err := config.Load(config.Flags{VaultPath: "C:/vault", DebounceMS: -5, DebounceMSSet: true})
++		if err == nil {
++			t.Fatal("Load() esperava erro")
++		}
++		if !strings.Contains(err.Error(), "-5") {
++			t.Errorf("erro nao menciona o valor ofensor: %v", err)
++		}
++	})
++}
++
+ func TestLoadRejectsEmptyVault(t *testing.T) {
+ 	if _, err := config.Load(config.Flags{}); err == nil {
+ 		t.Fatal("Load() sem vault deveria falhar")
+ 	}
+ }
++
++func TestLoadCacheDir(t *testing.T) {
++	t.Run("default derivation is deterministic for the same vault path", func(t *testing.T) {
++		c1, err := config.Load(config.Flags{VaultPath: "C:/vault/one"})
++		if err != nil {
++			t.Fatalf("Load() error = %v", err)
++		}
++		c2, err := config.Load(config.Flags{VaultPath: "C:/vault/one"})
++		if err != nil {
++			t.Fatalf("Load() error = %v", err)
++		}
++		if c1.CacheDir != c2.CacheDir {
++			t.Errorf("CacheDir nao e deterministico: %q != %q", c1.CacheDir, c2.CacheDir)
++		}
++	})
++
++	t.Run("different vault paths produce different directories", func(t *testing.T) {
++		c1, err := config.Load(config.Flags{VaultPath: "C:/vault/one"})
++		if err != nil {
++			t.Fatalf("Load() error = %v", err)
++		}
++		c2, err := config.Load(config.Flags{VaultPath: "C:/vault/two"})
++		if err != nil {
++			t.Fatalf("Load() error = %v", err)
++		}
++		if c1.CacheDir == c2.CacheDir {
++			t.Errorf("CacheDir colidiu para cofres diferentes: %q", c1.CacheDir)
++		}
++	})
++
++	t.Run("derived path is not inside the vault", func(t *testing.T) {
++		c, err := config.Load(config.Flags{VaultPath: "C:/vault/three"})
++		if err != nil {
++			t.Fatalf("Load() error = %v", err)
++		}
++		rel, err := filepath.Rel(c.VaultPath, c.CacheDir)
++		if err == nil && !strings.HasPrefix(rel, "..") {
++			t.Errorf("CacheDir %q esta dentro do cofre %q (rel = %q)", c.CacheDir, c.VaultPath, rel)
++		}
++	})
++
++	t.Run("explicit cache dir wins over derivation", func(t *testing.T) {
++		c, err := config.Load(config.Flags{VaultPath: "C:/vault/four", CacheDir: "C:/explicit/cache"})
++		if err != nil {
++			t.Fatalf("Load() error = %v", err)
++		}
++		if c.CacheDir != "C:/explicit/cache" {
++			t.Errorf("CacheDir = %q, esperado o valor explicito da flag", c.CacheDir)
++		}
++	})
++}

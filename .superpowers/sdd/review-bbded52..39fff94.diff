@@ -1,0 +1,673 @@
+# Review package: bbded52..HEAD
+
+## Commits
+39fff94 docs: compare walk root against walkRoot, not root
+8120b26 fix(vault): fail loudly on missing vault root, record skipped walk entries, use long paths in traversal
+9a9ba21 docs: fix escaped long-path prefix in comment
+6e4ee74 docs: surface skipped walk entries and fail loudly on root walk error
+
+## Files changed
+ docs/superpowers/plans/2026-07-25-gobsidian-v01.md | 76 +++++++++++++++++--
+ internal/vault/eol.go                              |  6 ++
+ internal/vault/longpath_other_test.go              | 31 ++++++++
+ internal/vault/longpath_windows_test.go            | 86 ++++++++++++++++++++++
+ internal/vault/vault.go                            | 58 ++++++++++++++-
+ internal/vault/walk.go                             | 25 ++++++-
+ internal/vault/walk_test.go                        | 31 ++++++++
+ 7 files changed, 302 insertions(+), 11 deletions(-)
+
+## Diff
+diff --git a/docs/superpowers/plans/2026-07-25-gobsidian-v01.md b/docs/superpowers/plans/2026-07-25-gobsidian-v01.md
+index 517f771..5202435 100644
+--- a/docs/superpowers/plans/2026-07-25-gobsidian-v01.md
++++ b/docs/superpowers/plans/2026-07-25-gobsidian-v01.md
+@@ -1963,21 +1963,21 @@ git commit -m "feat(vault): canonical paths with component-wise confinement chec
+ ### Task 8: Varredura, EOL, BOM, caminho longo e placeholder de nuvem
+ 
+ **Files:**
+ - Create: `internal/vault/vault.go`, `internal/vault/walk.go`, `internal/vault/eol.go`
+ - Create: `internal/vault/longpath_windows.go`, `internal/vault/longpath_other.go`
+ - Create: `internal/vault/cloud_windows.go`, `internal/vault/cloud_other.go`
+ - Create: `internal/vault/walk_test.go`, `internal/vault/eol_test.go`
+ 
+ **Interfaces:**
+ - Consumes: `vault.CanonicalPath`, `vault.Canonicalize` da Task 7
+-- Produces: `vault.Vault` com `Root() string`, `Open(CanonicalPath) (*os.File, error)`, `ReadRange(ctx, CanonicalPath, start, end int64) ([]byte, error)`, `ReadAll(ctx, CanonicalPath) ([]byte, error)`; `vault.New(root string) (*Vault, error)`; `vault.Entry{Path CanonicalPath, Size int64, ModTime time.Time, IsNote bool, CloudOnly bool}`; `(*Vault).Walk(ctx, func(Entry) error) error`; `vault.DetectEOL([]byte) EOLStyle`; `vault.StripBOM([]byte) (body []byte, hadBOM bool)`; `vault.LongPath(abs string) string`
++- Produces: `vault.Vault` com `Root() string`, `SkippedEntries() (int64, []string)`, `Open(CanonicalPath) (*os.File, error)`, `ReadRange(ctx, CanonicalPath, start, end int64) ([]byte, error)`, `ReadAll(ctx, CanonicalPath) ([]byte, error)`; `vault.New(root string) (*Vault, error)`; `vault.Entry{Path CanonicalPath, Size int64, ModTime time.Time, IsNote bool, CloudOnly bool}`; `(*Vault).Walk(ctx, func(Entry) error) error`; `vault.DetectEOL([]byte) EOLStyle`; `vault.StripBOM([]byte) (body []byte, hadBOM bool)`; `vault.LongPath(abs string) string`
+ 
+ - [ ] **Step 1: Escrever o teste de EOL e BOM**
+ 
+ `internal/vault/eol_test.go`:
+ 
+ ```go
+ package vault_test
+ 
+ import (
+ 	"bytes"
+@@ -2315,39 +2315,85 @@ func IsCloudOnly(string) bool { return false }
+ 
+ ```go
+ package vault
+ 
+ import (
+ 	"context"
+ 	"fmt"
+ 	"io"
+ 	"os"
+ 	"path/filepath"
++	"sync"
++	"sync/atomic"
+ )
+ 
+ type Vault struct {
+ 	root string
++
++	// walkRoot e a raiz ja preparada para chamadas do sistema: no Windows,
++	// prefixada com \\?\ quando longa. A varredura precisa dela porque e a
++	// operacao com mais chance de encostar em MAX_PATH — um cofre corporativo
++	// no OneDrive gasta boa parte do orcamento de 260 caracteres antes de
++	// qualquer nota existir. Canonicalize e chamada contra walkRoot, nao
++	// contra root, para que filepath.Rel compare formas iguais.
++	walkRoot string
++
++	// Entradas descartadas durante a varredura. Uma nota que existe no disco
++	// mas nao entra no indice fica inalcancavel; sem contador, fica tambem
++	// indiagnosticavel — o usuario ve uma nota sumida e nao tem por onde
++	// comecar. O contador e cumulativo entre varreduras, de proposito: e um
++	// sinal de saude, nao um valor por operacao.
++	skipped        atomic.Int64
++	skippedMu      sync.Mutex
++	skippedSamples []string
++}
++
++// maxSkippedSamples limita quantos caminhos descartados sao guardados. O
++// contador diz quantos; a amostra diz quais, o suficiente para diagnosticar
++// sem crescer sem limite em um cofre com milhares de nomes problematicos.
++const maxSkippedSamples = 50
++
++func (v *Vault) recordSkip(abs string, cause error) {
++	v.skipped.Add(1)
++
++	v.skippedMu.Lock()
++	defer v.skippedMu.Unlock()
++	if len(v.skippedSamples) < maxSkippedSamples {
++		v.skippedSamples = append(v.skippedSamples, fmt.Sprintf("%s: %v", abs, cause))
++	}
++}
++
++// SkippedEntries devolve quantas entradas foram descartadas e uma amostra dos
++// motivos. Exposto em vault_stats, e o que transforma "sumiu uma nota" em um
++// diagnostico.
++func (v *Vault) SkippedEntries() (int64, []string) {
++	v.skippedMu.Lock()
++	defer v.skippedMu.Unlock()
++
++	out := make([]string, len(v.skippedSamples))
++	copy(out, v.skippedSamples)
++	return v.skipped.Load(), out
+ }
+ 
+ func New(root string) (*Vault, error) {
+ 	abs, err := filepath.Abs(root)
+ 	if err != nil {
+ 		return nil, fmt.Errorf("resolvendo raiz do cofre %q: %w", root, err)
+ 	}
+ 	info, err := os.Stat(LongPath(abs))
+ 	if err != nil {
+ 		return nil, fmt.Errorf("raiz do cofre inacessivel %q: %w", abs, err)
+ 	}
+ 	if !info.IsDir() {
+ 		return nil, fmt.Errorf("raiz do cofre nao e diretorio: %q", abs)
+ 	}
+-	return &Vault{root: abs}, nil
++	return &Vault{root: abs, walkRoot: LongPath(abs)}, nil
+ }
+ 
+ func (v *Vault) Root() string { return v.root }
+ 
+ // Abs devolve o caminho absoluto de um caminho canonico, ja preparado para
+ // chamadas do sistema.
+ func (v *Vault) Abs(p CanonicalPath) string {
+ 	return LongPath(filepath.Join(v.root, filepath.FromSlash(string(p))))
+ }
+ 
+@@ -2450,62 +2496,80 @@ func isNoise(name string) bool {
+ 		return true
+ 	case strings.HasPrefix(name, ".gobsidian-tmp-"):
+ 		return true
+ 	}
+ 	return false
+ }
+ 
+ // Walk percorre o cofre aplicando as exclusoes e classificando cada arquivo
+ // como nota ou anexo. Arquivos que nao sao nem um nem outro sao ignorados.
+ func (v *Vault) Walk(ctx context.Context, fn func(Entry) error) error {
+-	return filepath.WalkDir(v.root, func(abs string, d fs.DirEntry, err error) error {
++	return filepath.WalkDir(v.walkRoot, func(abs string, d fs.DirEntry, err error) error {
+ 		if err != nil {
++			// d == nil significa que a falha foi na propria raiz: WalkDir nao
++			// conseguiu nem fazer Lstat nela. Isso acontece quando o cofre
++			// some entre New e Walk — unidade removivel desconectada, pasta
++			// sincronizada que o cliente de nuvem moveu, share de rede caido.
++			//
++			// Engolir esse erro faria Walk devolver sucesso com zero entradas,
++			// e o servidor reportaria com confianca que o cofre esta vazio.
++			// Um cofre inacessivel e um erro; um cofre vazio e um fato. As
++			// duas coisas nao podem produzir a mesma resposta.
++			if d == nil {
++				return fmt.Errorf("varrendo a raiz do cofre %q: %w", v.root, err)
++			}
+ 			// Um diretorio ilegivel nao derruba a varredura inteira. O cofre
+ 			// e do usuario, e uma pasta com ACL estranha e problema local.
+-			if d != nil && d.IsDir() {
++			if d.IsDir() {
++				v.recordSkip(abs, err)
+ 				return fs.SkipDir
+ 			}
++			v.recordSkip(abs, err)
+ 			return nil
+ 		}
+ 		if ctxErr := ctx.Err(); ctxErr != nil {
+ 			return ctxErr
+ 		}
+ 
+ 		name := d.Name()
+ 
+ 		if d.IsDir() {
+-			if abs == v.root {
++			// Comparar com walkRoot, nao com root: WalkDir foi chamado com
++			// walkRoot, entao e essa a forma que chega em abs.
++			if abs == v.walkRoot {
+ 				return nil
+ 			}
+ 			if excludedDirs[strings.ToLower(name)] {
+ 				return fs.SkipDir
+ 			}
+ 			return nil
+ 		}
+ 
+ 		if isNoise(name) {
+ 			return nil
+ 		}
+ 
+ 		ext := strings.ToLower(filepath.Ext(name))
+ 		isNote := ext == ".md"
+ 		isAsset := assetExts[ext]
+ 		if !isNote && !isAsset {
+ 			return nil
+ 		}
+ 
+-		canon, cErr := Canonicalize(v.root, abs)
++		canon, cErr := Canonicalize(v.walkRoot, abs)
+ 		if cErr != nil {
++			v.recordSkip(abs, cErr)
+ 			return nil
+ 		}
+ 		info, iErr := d.Info()
+ 		if iErr != nil {
++			v.recordSkip(abs, iErr)
+ 			return nil
+ 		}
+ 
+ 		return fn(Entry{
+ 			Path:      canon,
+ 			Size:      info.Size(),
+ 			ModTime:   info.ModTime(),
+ 			IsNote:    isNote,
+ 			CloudOnly: IsCloudOnly(abs),
+ 		})
+diff --git a/internal/vault/eol.go b/internal/vault/eol.go
+index 0c3be9b..a992033 100644
+--- a/internal/vault/eol.go
++++ b/internal/vault/eol.go
+@@ -22,20 +22,26 @@ func (e EOLStyle) Bytes() []byte {
+ 		return []byte("\r\n")
+ 	}
+ 	return []byte("\n")
+ }
+ 
+ var bom = []byte{0xEF, 0xBB, 0xBF}
+ 
+ // DetectEOL devolve o estilo predominante do arquivo. Arquivos com mistura
+ // existem, e converter o arquivo inteiro para um estilo so seria reescrever
+ // o que o usuario nao pediu — a escrita normaliza apenas o conteudo novo.
++//
++// CR solto (Mac classico, pre-OS X) nao tem representacao em EOLStyle: como
++// o tipo so modela LF e CRLF, um arquivo sem nenhum "\r\n" nem "\n" conta
++// zero quebras dos dois tipos e cai no default, EOLLF. Isso e consequencia
++// direta do desenho de dois valores, nao um bug — e o conteudo antigo em CR
++// solto nunca e reescrito, porque NormalizeEOL so processa o texto novo.
+ func DetectEOL(data []byte) EOLStyle {
+ 	crlf := bytes.Count(data, []byte("\r\n"))
+ 	lf := bytes.Count(data, []byte("\n")) - crlf
+ 
+ 	if crlf > lf {
+ 		return EOLCRLF
+ 	}
+ 	return EOLLF
+ }
+ 
+diff --git a/internal/vault/longpath_other_test.go b/internal/vault/longpath_other_test.go
+new file mode 100644
+index 0000000..2db68d2
+--- /dev/null
++++ b/internal/vault/longpath_other_test.go
+@@ -0,0 +1,31 @@
++//go:build !windows
++
++package vault_test
++
++import (
++	"strings"
++	"testing"
++
++	"github.com/jonyd/gobsidian/internal/vault"
++)
++
++// TestLongPathOther confirms LongPath is the identity function off Windows:
++// there is no MAX_PATH to work around, so nothing about the input should
++// change, no matter how long it is.
++func TestLongPathOther(t *testing.T) {
++	tests := []struct {
++		name string
++		in   string
++	}{
++		{"caminho curto", "/home/jonyd/vault/note.md"},
++		{"caminho muito longo", "/home/jonyd/vault/" + strings.Repeat("a/", 200) + "note.md"},
++	}
++
++	for _, tt := range tests {
++		t.Run(tt.name, func(t *testing.T) {
++			if got := vault.LongPath(tt.in); got != tt.in {
++				t.Errorf("LongPath(%q) = %q, quer o mesmo valor (identidade fora do Windows)", tt.in, got)
++			}
++		})
++	}
++}
+diff --git a/internal/vault/longpath_windows_test.go b/internal/vault/longpath_windows_test.go
+new file mode 100644
+index 0000000..5e4274e
+--- /dev/null
++++ b/internal/vault/longpath_windows_test.go
+@@ -0,0 +1,86 @@
++//go:build windows
++
++package vault_test
++
++import (
++	"strings"
++	"testing"
++
++	"github.com/jonyd/gobsidian/internal/vault"
++)
++
++// TestLongPathWindows exercises LongPath's four load-bearing behaviors on
++// Windows: the 240-character threshold, the \\?\ prefix, idempotence against
++// an already-prefixed path, and UNC handling. LongPath had no test anywhere
++// before this — one of Task 8's five named deliverables was entirely
++// unverified.
++func TestLongPathWindows(t *testing.T) {
++	// pad(n) builds a path component of exactly n bytes so test cases can
++	// hit precise lengths without hardcoding the package's private
++	// threshold constant.
++	pad := func(n int) string {
++		return strings.Repeat("a", n)
++	}
++
++	tests := []struct {
++		name string
++		in   string
++		want string
++	}{
++		{
++			name: "caminho curto e devolvido sem alteracao",
++			in:   `C:\Users\jonyd\Documents\note.md`,
++			want: `C:\Users\jonyd\Documents\note.md`,
++		},
++		{
++			name: "caminho logo abaixo do limiar (239) nao ganha prefixo",
++			// "C:\" (3) + 236 'a' = 239 bytes.
++			in:   `C:\` + pad(236),
++			want: `C:\` + pad(236),
++		},
++		{
++			name: "caminho no limiar (240) ganha o prefixo \\\\?\\\\",
++			// "C:\" (3) + 237 'a' = 240 bytes.
++			in:   `C:\` + pad(237),
++			want: `\\?\C:\` + pad(237),
++		},
++		{
++			name: "caminho acima do limiar ganha o prefixo",
++			in:   `C:\` + pad(300),
++			want: `\\?\C:\` + pad(300),
++		},
++		{
++			name: "caminho ja prefixado nao e prefixado de novo",
++			in:   `\\?\C:\` + pad(300),
++			want: `\\?\C:\` + pad(300),
++		},
++		{
++			name: "UNC vira \\\\?\\\\UNC\\\\ sem barra tripla",
++			in:   `\\server\share\` + pad(230),
++			want: `\\?\UNC\server\share\` + pad(230),
++		},
++		{
++			name: "barras normais e segmentos . e .. somem do resultado",
++			in:   `C:/Users/jonyd/../jonyd/AppData/Local/` + pad(230),
++			want: `\\?\C:\Users\jonyd\AppData\Local\` + pad(230),
++		},
++	}
++
++	for _, tt := range tests {
++		t.Run(tt.name, func(t *testing.T) {
++			got := vault.LongPath(tt.in)
++			if got != tt.want {
++				t.Errorf("LongPath(%d bytes) = %q, quer %q", len(tt.in), got, tt.want)
++			}
++			if strings.Contains(got, "/") {
++				t.Errorf("LongPath resultado contem barra normal: %q", got)
++			}
++			if strings.Contains(got, `\..\`) || strings.HasSuffix(got, `\..`) {
++				t.Errorf("LongPath resultado contem segmento '..': %q", got)
++			}
++			if strings.Contains(got, `\?\\\`) {
++				t.Errorf("LongPath resultado tem barra tripla apos o prefixo UNC: %q", got)
++			}
++		})
++	}
++}
+diff --git a/internal/vault/vault.go b/internal/vault/vault.go
+index c165cb5..b055d68 100644
+--- a/internal/vault/vault.go
++++ b/internal/vault/vault.go
+@@ -1,37 +1,90 @@
+ package vault
+ 
+ import (
+ 	"context"
+ 	"fmt"
+ 	"io"
+ 	"os"
+ 	"path/filepath"
++	"sync"
++	"sync/atomic"
+ )
+ 
+ type Vault struct {
+ 	root string
++
++	// walkRoot e a raiz ja preparada para chamadas do sistema: no Windows,
++	// prefixada com \\?\ quando longa. A varredura precisa dela porque e a
++	// operacao com mais chance de encostar em MAX_PATH — um cofre corporativo
++	// no OneDrive gasta boa parte do orcamento de 260 caracteres antes de
++	// qualquer nota existir. Canonicalize e chamada contra walkRoot, nao
++	// contra root, para que filepath.Rel compare formas iguais.
++	walkRoot string
++
++	// Entradas descartadas durante a varredura. Uma nota que existe no disco
++	// mas nao entra no indice fica inalcancavel; sem contador, fica tambem
++	// indiagnosticavel — o usuario ve uma nota sumida e nao tem por onde
++	// comecar. O contador e cumulativo entre varreduras, de proposito: e um
++	// sinal de saude, nao um valor por operacao.
++	skipped        atomic.Int64
++	skippedMu      sync.Mutex
++	skippedSamples []string
++}
++
++// maxSkippedSamples limita quantos caminhos descartados sao guardados. O
++// contador diz quantos; a amostra diz quais, o suficiente para diagnosticar
++// sem crescer sem limite em um cofre com milhares de nomes problematicos.
++const maxSkippedSamples = 50
++
++// maxReadRangeBytes e o teto de alocacao de uma unica chamada a ReadRange.
++// Sem ele, um `end` absurdo (por erro do chamador ou por um offset corrompido
++// vindo do indice) aloca antes de qualquer I/O acontecer — o processo pode
++// estourar memoria so por causa de dois numeros, nunca por causa do que esta
++// no disco.
++const maxReadRangeBytes = 64 << 20 // 64 MiB
++
++func (v *Vault) recordSkip(abs string, cause error) {
++	v.skipped.Add(1)
++
++	v.skippedMu.Lock()
++	defer v.skippedMu.Unlock()
++	if len(v.skippedSamples) < maxSkippedSamples {
++		v.skippedSamples = append(v.skippedSamples, fmt.Sprintf("%s: %v", abs, cause))
++	}
++}
++
++// SkippedEntries devolve quantas entradas foram descartadas e uma amostra dos
++// motivos. Exposto em vault_stats, e o que transforma "sumiu uma nota" em um
++// diagnostico.
++func (v *Vault) SkippedEntries() (int64, []string) {
++	v.skippedMu.Lock()
++	defer v.skippedMu.Unlock()
++
++	out := make([]string, len(v.skippedSamples))
++	copy(out, v.skippedSamples)
++	return v.skipped.Load(), out
+ }
+ 
+ func New(root string) (*Vault, error) {
+ 	abs, err := filepath.Abs(root)
+ 	if err != nil {
+ 		return nil, fmt.Errorf("resolvendo raiz do cofre %q: %w", root, err)
+ 	}
+ 	info, err := os.Stat(LongPath(abs))
+ 	if err != nil {
+ 		return nil, fmt.Errorf("raiz do cofre inacessivel %q: %w", abs, err)
+ 	}
+ 	if !info.IsDir() {
+ 		return nil, fmt.Errorf("raiz do cofre nao e diretorio: %q", abs)
+ 	}
+-	return &Vault{root: abs}, nil
++	return &Vault{root: abs, walkRoot: LongPath(abs)}, nil
+ }
+ 
+ func (v *Vault) Root() string { return v.root }
+ 
+ // Abs devolve o caminho absoluto de um caminho canonico, ja preparado para
+ // chamadas do sistema.
+ func (v *Vault) Abs(p CanonicalPath) string {
+ 	return LongPath(filepath.Join(v.root, filepath.FromSlash(string(p))))
+ }
+ 
+@@ -45,20 +98,23 @@ func (v *Vault) Open(p CanonicalPath) (*os.File, error) {
+ 
+ // ReadRange le apenas a faixa pedida. Uma secao de 2 KB em uma nota de 500 KB
+ // custa 2 KB — e a razao de o indice guardar offsets em vez de conteudo.
+ func (v *Vault) ReadRange(ctx context.Context, p CanonicalPath, start, end int64) ([]byte, error) {
+ 	if err := ctx.Err(); err != nil {
+ 		return nil, err
+ 	}
+ 	if end < start {
+ 		return nil, fmt.Errorf("faixa invalida em %q: %d..%d", p, start, end)
+ 	}
++	if end-start > maxReadRangeBytes {
++		return nil, fmt.Errorf("faixa grande demais em %q: %d..%d excede o teto de %d bytes", p, start, end, int64(maxReadRangeBytes))
++	}
+ 
+ 	f, err := v.Open(p)
+ 	if err != nil {
+ 		return nil, err
+ 	}
+ 	defer func() { _ = f.Close() }()
+ 
+ 	buf := make([]byte, end-start)
+ 	n, err := f.ReadAt(buf, start)
+ 	if err != nil && err != io.EOF {
+diff --git a/internal/vault/walk.go b/internal/vault/walk.go
+index 4eb5ce5..716fcff 100644
+--- a/internal/vault/walk.go
++++ b/internal/vault/walk.go
+@@ -1,14 +1,15 @@
+ package vault
+ 
+ import (
+ 	"context"
++	"fmt"
+ 	"io/fs"
+ 	"path/filepath"
+ 	"strings"
+ 	"time"
+ )
+ 
+ type Entry struct {
+ 	Path      CanonicalPath
+ 	Size      int64
+ 	ModTime   time.Time
+@@ -50,62 +51,78 @@ func isNoise(name string) bool {
+ 		return true
+ 	case strings.HasPrefix(name, ".gobsidian-tmp-"):
+ 		return true
+ 	}
+ 	return false
+ }
+ 
+ // Walk percorre o cofre aplicando as exclusoes e classificando cada arquivo
+ // como nota ou anexo. Arquivos que nao sao nem um nem outro sao ignorados.
+ func (v *Vault) Walk(ctx context.Context, fn func(Entry) error) error {
+-	return filepath.WalkDir(v.root, func(abs string, d fs.DirEntry, err error) error {
++	return filepath.WalkDir(v.walkRoot, func(abs string, d fs.DirEntry, err error) error {
+ 		if err != nil {
++			// d == nil significa que a falha foi na propria raiz: WalkDir nao
++			// conseguiu nem fazer Lstat nela. Isso acontece quando o cofre
++			// some entre New e Walk — unidade removivel desconectada, pasta
++			// sincronizada que o cliente de nuvem moveu, share de rede caido.
++			//
++			// Engolir esse erro faria Walk devolver sucesso com zero entradas,
++			// e o servidor reportaria com confianca que o cofre esta vazio.
++			// Um cofre inacessivel e um erro; um cofre vazio e um fato. As
++			// duas coisas nao podem produzir a mesma resposta.
++			if d == nil {
++				return fmt.Errorf("varrendo a raiz do cofre %q: %w", v.root, err)
++			}
+ 			// Um diretorio ilegivel nao derruba a varredura inteira. O cofre
+ 			// e do usuario, e uma pasta com ACL estranha e problema local.
+-			if d != nil && d.IsDir() {
++			if d.IsDir() {
++				v.recordSkip(abs, err)
+ 				return fs.SkipDir
+ 			}
++			v.recordSkip(abs, err)
+ 			return nil
+ 		}
+ 		if ctxErr := ctx.Err(); ctxErr != nil {
+ 			return ctxErr
+ 		}
+ 
+ 		name := d.Name()
+ 
+ 		if d.IsDir() {
+-			if abs == v.root {
++			if abs == v.walkRoot {
+ 				return nil
+ 			}
+ 			if excludedDirs[strings.ToLower(name)] {
+ 				return fs.SkipDir
+ 			}
+ 			return nil
+ 		}
+ 
+ 		if isNoise(name) {
+ 			return nil
+ 		}
+ 
+ 		ext := strings.ToLower(filepath.Ext(name))
+ 		isNote := ext == ".md"
+ 		isAsset := assetExts[ext]
+ 		if !isNote && !isAsset {
+ 			return nil
+ 		}
+ 
+-		canon, cErr := Canonicalize(v.root, abs)
++		canon, cErr := Canonicalize(v.walkRoot, abs)
+ 		if cErr != nil {
++			v.recordSkip(abs, cErr)
+ 			return nil
+ 		}
+ 		info, iErr := d.Info()
+ 		if iErr != nil {
++			v.recordSkip(abs, iErr)
+ 			return nil
+ 		}
+ 
+ 		return fn(Entry{
+ 			Path:      canon,
+ 			Size:      info.Size(),
+ 			ModTime:   info.ModTime(),
+ 			IsNote:    isNote,
+ 			CloudOnly: IsCloudOnly(abs),
+ 		})
+diff --git a/internal/vault/walk_test.go b/internal/vault/walk_test.go
+index 68be60d..1b41316 100644
+--- a/internal/vault/walk_test.go
++++ b/internal/vault/walk_test.go
+@@ -20,25 +20,38 @@ func writeFile(t *testing.T, root, rel, content string) {
+ 		t.Fatalf("WriteFile: %v", err)
+ 	}
+ }
+ 
+ func TestWalkExcludesAndClassifies(t *testing.T) {
+ 	root := t.TempDir()
+ 
+ 	writeFile(t, root, "Civil/PONTO 03.md", "# A\n")
+ 	writeFile(t, root, "Penal/B.md", "# B\n")
+ 	writeFile(t, root, "Anexos/diagrama.png", "\x89PNG")
++
++	// Todo diretorio de excludedDirs, para que a poda seja exercitada em cada
++	// um, nao apenas nos tres primeiros.
+ 	writeFile(t, root, ".obsidian/workspace.json", "{}")
+ 	writeFile(t, root, ".git/config", "[core]")
+ 	writeFile(t, root, ".trash/velha.md", "# velha\n")
++	writeFile(t, root, ".stfolder/syncthing.db", "lixo-binario")
++
++	// Todo ramo de isNoise, para que cada padrao de arquivo de controle seja
++	// exercitado, nao apenas o prefixo "~$" e "desktop.ini".
+ 	writeFile(t, root, "desktop.ini", "[.ShellClassInfo]")
+ 	writeFile(t, root, "~$temp.md", "lixo")
++	writeFile(t, root, ".~lock.Penal.md#", "usuario,host,pid,")
++	writeFile(t, root, "Thumbs.db", "lixo-binario")
++	writeFile(t, root, ".DS_Store", "lixo-binario")
++	writeFile(t, root, "rascunho.tmp", "conteudo temporario")
++	writeFile(t, root, ".gobsidian-tmp-abc123.md", "escrita atomica em andamento")
++
+ 	writeFile(t, root, "notas.txt", "nao e nota")
+ 
+ 	v, err := vault.New(root)
+ 	if err != nil {
+ 		t.Fatalf("New: %v", err)
+ 	}
+ 
+ 	var notes, assets []string
+ 	err = v.Walk(context.Background(), func(e vault.Entry) error {
+ 		if e.IsNote {
+@@ -87,10 +100,28 @@ func TestReadRange(t *testing.T) {
+ 	}
+ 
+ 	got, err := v.ReadRange(context.Background(), "A.md", 2, 5)
+ 	if err != nil {
+ 		t.Fatalf("ReadRange: %v", err)
+ 	}
+ 	if string(got) != "234" {
+ 		t.Errorf("ReadRange = %q, quer %q", got, "234")
+ 	}
+ }
++
++// TestReadRangeRejectsHugeRange confirms that an absurd requested range is
++// rejected before any allocation, rather than attempting to allocate a
++// buffer sized by an unchecked end-start.
++func TestReadRangeRejectsHugeRange(t *testing.T) {
++	root := t.TempDir()
++	writeFile(t, root, "A.md", "0123456789")
++
++	v, err := vault.New(root)
++	if err != nil {
++		t.Fatalf("New: %v", err)
++	}
++
++	_, err = v.ReadRange(context.Background(), "A.md", 0, 1<<40)
++	if err == nil {
++		t.Fatal("ReadRange com faixa absurda deveria falhar")
++	}
++}

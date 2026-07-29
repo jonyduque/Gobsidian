@@ -1,0 +1,308 @@
+# Review package: 1de565c..HEAD
+
+## Commits
+31f276d docs: fix vault noun clobbered by product rename
+6875b66 fix: harden check_net.ps1 against silent pass and scope drift
+
+## Files changed
+ .github/workflows/ci.yml                           |  6 +++---
+ README.md                                          |  4 ++--
+ docs/ESTRUTURA.md                                  | 25 +++++++++++++++++++---
+ docs/PRD.md                                        |  2 +-
+ docs/superpowers/plans/2026-07-25-gobsidian-v01.md |  4 ++--
+ scripts/check_net.ps1                              | 19 +++++++++++++++-
+ 6 files changed, 48 insertions(+), 12 deletions(-)
+
+## Diff
+diff --git a/.github/workflows/ci.yml b/.github/workflows/ci.yml
+index 8b87773..c215f75 100644
+--- a/.github/workflows/ci.yml
++++ b/.github/workflows/ci.yml
+@@ -8,33 +8,33 @@ jobs:
+   test:
+     strategy:
+       fail-fast: false
+       matrix:
+         os: [windows-latest, ubuntu-latest, macos-latest]
+     runs-on: ${{ matrix.os }}
+     steps:
+       - uses: actions/checkout@v4
+       - uses: actions/setup-go@v5
+         with:
+-          go-version: '1.24'
++          go-version: '1.25'
+       - run: go vet ./...
+       - run: go test -race ./...
+ 
+   netcheck:
+     runs-on: ubuntu-latest
+     steps:
+       - uses: actions/checkout@v4
+       - uses: actions/setup-go@v5
+         with:
+-          go-version: '1.24'
++          go-version: '1.25'
+       - name: nenhum pacote do produto importa rede
+         shell: pwsh
+         run: ./scripts/check_net.ps1
+ 
+   lint:
+     runs-on: ubuntu-latest
+     steps:
+       - uses: actions/checkout@v4
+       - uses: actions/setup-go@v5
+         with:
+-          go-version: '1.24'
++          go-version: '1.25'
+       - uses: golangci/golangci-lint-action@v6
+diff --git a/README.md b/README.md
+index aac5ce9..50572de 100644
+--- a/README.md
++++ b/README.md
+@@ -43,21 +43,21 @@ Protocolo MCP alvo: `2025-11-25`.
+ **Coexistência pacífica com o Obsidian aberto.** Escritas atômicas via arquivo temporário + rename, para que o Obsidian veja sempre um arquivo completo e válido, nunca um estado intermediário.
+ 
+ **Encerrar quando o pai encerrar.** Detecção de EOF em stdin, sinais do SO e vigilância do PID pai. Três mecanismos independentes, porque o problema do processo órfão é o mais irritante de todos.
+ 
+ ---
+ 
+ ## Instalação
+ 
+ ### A partir do código-fonte
+ 
+-Requer Go 1.24+.
++Requer Go 1.25+.
+ 
+ ```powershell
+ go install github.com/jonyd/gobsidian/cmd/gobsidian@latest
+ ```
+ 
+ O binário vai para `$env:GOPATH\bin\gobsidian.exe` (por padrão, `$env:USERPROFILE\go\bin\gobsidian.exe`). Confirme:
+ 
+ ```powershell
+ $GobsidianPath = Join-Path $env:USERPROFILE "go\bin\gobsidian.exe"
+ if (Test-Path $GobsidianPath) { & $GobsidianPath version } else { Write-Warning "[!] Binario nao encontrado" }
+@@ -118,21 +118,21 @@ gobsidian index --vault "C:\caminho\do\cofre" --stats
+ # Diagnostico do ambiente: permissoes, OneDrive, MAX_PATH, casing
+ gobsidian doctor --vault "C:\caminho\do\cofre"
+ 
+ # Busca direta, sem MCP
+ gobsidian search --vault "C:\caminho\do\cofre" --query "usucapiao extraordinaria" --limit 10
+ 
+ # Inspecionar o parse de uma nota
+ gobsidian inspect --vault "C:\caminho\do\cofre" --note "Civil/PONTO 03.md" --json
+ ```
+ 
+-`gobsidian doctor` é o primeiro comando a rodar quando algo não funciona. Ele verifica o que costuma quebrar antes de qualquer outra coisa — gobsidian inexistente, permissões, arquivos OneDrive somente-nuvem, caminhos acima de 260 caracteres, colisões de casing entre pastas.
++`gobsidian doctor` é o primeiro comando a rodar quando algo não funciona. Ele verifica o que costuma quebrar antes de qualquer outra coisa — cofre inexistente, permissões, arquivos OneDrive somente-nuvem, caminhos acima de 260 caracteres, colisões de casing entre pastas.
+ 
+ ---
+ 
+ ## Superfície MCP (resumo)
+ 
+ Contratos completos em [`docs/TOOLS.md`](docs/TOOLS.md).
+ 
+ ### Leitura
+ 
+ | Tool | Função |
+diff --git a/docs/ESTRUTURA.md b/docs/ESTRUTURA.md
+index e85c71f..d749703 100644
+--- a/docs/ESTRUTURA.md
++++ b/docs/ESTRUTURA.md
+@@ -231,34 +231,36 @@ Testes de parser comparam contra golden files em JSON, regeneráveis com `go tes
+ 
+ ---
+ 
+ ## 4. Build
+ 
+ ### go.mod
+ 
+ ```
+ module github.com/jonyd/gobsidian
+ 
+-go 1.24
++go 1.25
+ 
+ require (
+     github.com/modelcontextprotocol/go-sdk v1.5.0
+     github.com/yuin/goldmark            v1.7.8
+     github.com/fsnotify/fsnotify         v1.8.0
+     github.com/cespare/xxhash/v2         v2.3.0
+     github.com/spf13/cobra               v1.8.1
+     golang.org/x/text                    v0.21.0
+     golang.org/x/sys                     v0.28.0
+     gopkg.in/yaml.v3                     v3.0.1
+ )
+ ```
+ 
++A diretiva `go 1.25` é o piso mínimo, não a versão do toolchain instalado — ela é imposta pelo próprio `go-sdk@v1.5.0`, cujo `go.mod` declara `go 1.25.0`, e as regras de grafo de módulos do Go exigem que o módulo principal declare pelo menos essa versão; não é uma escolha por recurso de linguagem que precisemos.
++
+ As versões acima são o ponto de partida; fixe o que `go mod tidy` resolver e não use `latest` em nenhuma delas. O SDK de MCP em particular fica em `v1.5.0`, que é a versão com suporte pleno ao protocolo `2025-11-25` (PRD D6).
+ 
+ Versões das dependências fixadas exatamente. O SDK do MCP em particular: o protocolo evoluiu com quebras (2025-06-18 → 2025-11-25 → 2026-07-28), e uma atualização automática pode quebrar a compatibilidade com o host instalado.
+ 
+ ### Informação de versão
+ 
+ Injetada via linker, não hardcoded:
+ 
+ ```powershell
+ $Version = git describe --tags --always --dirty
+@@ -291,43 +293,60 @@ go tool cover -html="coverage.out"
+ # Benchmarks
+ go test -bench=. -benchmem ./internal/index ./internal/search ./internal/parser
+ 
+ # Lint
+ golangci-lint run
+ 
+ # Regenerar golden files apos mudanca intencional do parser
+ go test ./internal/parser -update
+ 
+ # Verificar que nenhum pacote NOSSO importa rede (RNF-30)
++$ModulePath = go list -m 2>$null
++if ($LASTEXITCODE -ne 0 -or -not $ModulePath) {
++    Write-Warning "[!] 'go list -m' falhou; nao foi possivel determinar o modulo"
++    exit 1
++}
++
+ $Rows = go list -f '{{.ImportPath}}|{{join .Imports ","}}' ./...
++if ($LASTEXITCODE -ne 0 -or -not $Rows) {
++    Write-Warning "[!] 'go list ./...' falhou ou nao retornou pacotes; verificacao nao executada"
++    exit 1
++}
++
++$Scoped = $Rows | Where-Object {
++    $Pkg = ($_ -split "\|", 2)[0]
++    $Pkg -eq "$ModulePath/internal" -or $Pkg -like "$ModulePath/internal/*" -or
++    $Pkg -eq "$ModulePath/cmd" -or $Pkg -like "$ModulePath/cmd/*"
++}
++
+ $Offenders = @()
+ 
+-foreach ($Row in $Rows) {
++foreach ($Row in $Scoped) {
+     $Parts = $Row -split "\|", 2
+     $Pkg = $Parts[0]
+ 
+     $Imports = @()
+     if ($Parts.Count -gt 1 -and $Parts[1]) { $Imports = $Parts[1] -split "," }
+ 
+     $Net = $Imports | Where-Object { $_ -eq "net" -or $_ -like "net/*" }
+     if ($Net) { $Offenders += "$Pkg -> $($Net -join ', ')" }
+ }
+ 
+ if ($Offenders) {
+     Write-Warning "[!] Pacote do produto importando rede:"
+     $Offenders | ForEach-Object { Write-Output "    $_" }
+     exit 1
+ }
+ Write-Output "[OK] Nenhum pacote de internal/ ou cmd/ importa rede"
+ ```
+ 
+-A última verificação vira um passo do CI. RNF-30 só tem valor se for continuamente verificado.
++A última verificação vira um passo do CI. RNF-30 só tem valor se for continuamente verificado. O script falha alto (`[!]` e `exit 1`) se `go list` não conseguir rodar ou devolver nada — um gate que não consegue distinguir "nada para checar" de "nada errado" não é gate. A varredura roda sobre todos os pacotes do módulo, mas os candidatos a ofensor são filtrados para os que vivem sob `internal/` e `cmd/`, que é o escopo real da garantia — não todo `./...`.
+ 
+ **Por que `./...` e não `-deps`.** A verificação óbvia — `go list -deps ./cmd/gobsidian` e falhar se aparecer qualquer `net/*` — falharia sempre e em poucos dias estaria comentada. O SDK de MCP importa `net/http` para o transporte HTTP/SSE, e essa importação entra no fechamento transitivo mesmo construindo apenas stdio.
+ 
+ `go list ./...` percorre somente os pacotes do módulo. O que ele verifica é a afirmação que de fato sustentamos: nenhum código nosso fala com a rede. Ver PRD §6.4 para as três partes da garantia e para o segundo passo, o analisador de chamadas.
+ 
+ ---
+ 
+ ## 5. Onde começar a implementar
+ 
+ A ordem importa, e não é a ordem óbvia.
+diff --git a/docs/PRD.md b/docs/PRD.md
+index ab9391d..12140e6 100644
+--- a/docs/PRD.md
++++ b/docs/PRD.md
+@@ -1,14 +1,14 @@
+ # PRD — gobsidian
+ 
+ **Produto:** servidor MCP para cofres locais do Obsidian
+-**Linguagem:** Go 1.24+
++**Linguagem:** Go 1.25+
+ **Status:** rascunho para implementação
+ **Última revisão:** 2026-07-25
+ 
+ ---
+ 
+ ## 1. Contexto e problema
+ 
+ O ecossistema MCP para Obsidian já existe, mas é dominado por implementações em Node/TypeScript que sofrem de três patologias recorrentes.
+ 
+ ### 1.1 Processos órfãos
+diff --git a/docs/superpowers/plans/2026-07-25-gobsidian-v01.md b/docs/superpowers/plans/2026-07-25-gobsidian-v01.md
+index ec2da18..210bd60 100644
+--- a/docs/superpowers/plans/2026-07-25-gobsidian-v01.md
++++ b/docs/superpowers/plans/2026-07-25-gobsidian-v01.md
+@@ -1,29 +1,29 @@
+ # gobsidian — Plano de Implementação
+ 
+ > **Para agentes executores:** SUB-SKILL OBRIGATÓRIA: use `superpowers:subagent-driven-development` (recomendado) ou `superpowers:executing-plans` para implementar este plano tarefa a tarefa. Os passos usam caixas (`- [ ]`) para acompanhamento.
+ 
+ **Goal:** Servidor MCP em Go que expõe um cofre local do Obsidian a hosts MCP, com ciclo de vida à prova de processos órfãos, parsing fiel ao Obsidian e leitura em latência de milissegundos.
+ 
+ **Architecture:** Camadas com dependência acíclica — `mcpsrv → service → {index, search, writer, vault, parser}`. O índice vive em memória e guarda offsets de byte, nunca conteúdo; o cofre em disco é a única fonte da verdade. Três mecanismos redundantes de encerramento cancelam um mesmo context raiz.
+ 
+-**Tech Stack:** Go 1.24, `modelcontextprotocol/go-sdk v1.5.0` (protocolo MCP `2025-11-25`), `goldmark`, `fsnotify`, `xxhash/v2`, `cobra`, `golang.org/x/text`, `golang.org/x/sys`, `gopkg.in/yaml.v3`. Testes e log pela biblioteca padrão.
++**Tech Stack:** Go 1.25, `modelcontextprotocol/go-sdk v1.5.0` (protocolo MCP `2025-11-25`), `goldmark`, `fsnotify`, `xxhash/v2`, `cobra`, `golang.org/x/text`, `golang.org/x/sys`, `gopkg.in/yaml.v3`. Testes e log pela biblioteca padrão.
+ 
+ **Escopo deste documento.** Detalhamento executável de **M0 e M1**, que juntos formam a **v0.1** — o primeiro release utilizável (PRD §9). M2 a M6 estão especificados em altitude de tarefa na seção final; cada um recebe seu próprio plano detalhado quando chegar a vez, escrito contra o código que existir então.
+ 
+ ---
+ 
+ ## Global Constraints
+ 
+ Requisitos de projeto inteiro. Valem implicitamente para toda tarefa.
+ 
+-- **Go 1.24+.** `go.mod` declara `go 1.24`.
++- **Go 1.25+.** `go.mod` declara `go 1.25`.
+ - **Módulo:** `github.com/jonyd/gobsidian`. Binário `gobsidian.exe`. Nenhuma ocorrência de `cofre` como nome de produto no código.
+ - **stdout pertence ao JSON-RPC.** Todo log vai para stderr via `log/slog`, sem exceção. Um `fmt.Println` em código de servidor é bug de bloqueio de release.
+ - **Nenhum pacote sob `internal/` ou `cmd/` importa `net` ou `net/*`.** Verificado no CI (PRD §6.4). `net/http` transitivo do SDK é esperado e aceito.
+ - **Contexto sempre primeiro.** Toda função que faz I/O ou pode bloquear recebe `ctx context.Context` como primeiro parâmetro e o respeita.
+ - **Toda goroutine tem dono e caminho de encerramento.** `sync.WaitGroup` no shutdown. Goroutine sem saída é vazamento.
+ - **Testes com `-race` sempre.** `go test -race ./...` é o comando padrão; a versão sem `-race` não conta.
+ - **Caminho canônico:** relativo à raiz do cofre, separador `/`, sem `./` inicial, com a grafia exata do disco.
+ - **Erros embrulhados** com `fmt.Errorf("...: %w", err)` em cada camada. Erros de domínio são sentinelas em `service/errors.go`, verificáveis com `errors.Is`.
+ - **Saída de CLI em ASCII puro:** `[OK]`, `[!]`, `[*]`, `[i]`, `[...]`. Nada de emoji nem de caracteres fora de ASCII no console.
+ - **Sem `helpers.go`, `utils.go`, `common.go`.** Arquivo assim é sinal de preocupação não nomeada.
+diff --git a/scripts/check_net.ps1 b/scripts/check_net.ps1
+index 5de1212..6c4c848 100644
+--- a/scripts/check_net.ps1
++++ b/scripts/check_net.ps1
+@@ -1,17 +1,34 @@
+ Set-StrictMode -Version Latest
+ $ErrorActionPreference = "Stop"
+ 
++$ModulePath = go list -m 2>$null
++if ($LASTEXITCODE -ne 0 -or -not $ModulePath) {
++    Write-Warning "[!] 'go list -m' falhou; nao foi possivel determinar o modulo"
++    exit 1
++}
++
+ $Rows = go list -f '{{.ImportPath}}|{{join .Imports ","}}' ./...
++if ($LASTEXITCODE -ne 0 -or -not $Rows) {
++    Write-Warning "[!] 'go list ./...' falhou ou nao retornou pacotes; verificacao nao executada"
++    exit 1
++}
++
++$Scoped = $Rows | Where-Object {
++    $Pkg = ($_ -split "\|", 2)[0]
++    $Pkg -eq "$ModulePath/internal" -or $Pkg -like "$ModulePath/internal/*" -or
++    $Pkg -eq "$ModulePath/cmd" -or $Pkg -like "$ModulePath/cmd/*"
++}
++
+ $Offenders = @()
+ 
+-foreach ($Row in $Rows) {
++foreach ($Row in $Scoped) {
+     $Parts = $Row -split "\|", 2
+     $Pkg = $Parts[0]
+ 
+     $Imports = @()
+     if ($Parts.Count -gt 1 -and $Parts[1]) { $Imports = $Parts[1] -split "," }
+ 
+     $Net = $Imports | Where-Object { $_ -eq "net" -or $_ -like "net/*" }
+     if ($Net) { $Offenders += "$Pkg -> $($Net -join ', ')" }
+ }
+ 

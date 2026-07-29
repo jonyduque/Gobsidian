@@ -1,0 +1,666 @@
+# Review package: 3f63611..HEAD
+
+## Commits
+b85d695 fix(vault): gate windows-only path rules behind build tags
+f06751f docs: gate windows-only path rules behind build tags and restore sentinel semantics
+
+## Files changed
+ docs/superpowers/plans/2026-07-25-gobsidian-v01.md | 169 ++++++++++++++-------
+ internal/vault/path.go                             |  57 ++++---
+ internal/vault/path_other.go                       |  10 ++
+ internal/vault/path_test.go                        |  48 +++---
+ internal/vault/path_windows.go                     |  40 +++++
+ 5 files changed, 220 insertions(+), 104 deletions(-)
+
+## Diff
+diff --git a/docs/superpowers/plans/2026-07-25-gobsidian-v01.md b/docs/superpowers/plans/2026-07-25-gobsidian-v01.md
+index c7ed668..517f771 100644
+--- a/docs/superpowers/plans/2026-07-25-gobsidian-v01.md
++++ b/docs/superpowers/plans/2026-07-25-gobsidian-v01.md
+@@ -1523,21 +1523,21 @@ Esperado: PASS, sete testes.
+ ```bash
+ git add internal/lifecycle
+ git commit -m "feat(lifecycle): shutdown sequence with per-step budget and hard limit"
+ ```
+ 
+ ---
+ 
+ ### Task 7: Caminho canônico e confinamento
+ 
+ **Files:**
+-- Create: `internal/vault/path.go`, `internal/vault/path_test.go`
++- Create: `internal/vault/path.go`, `internal/vault/path_windows.go`, `internal/vault/path_other.go`, `internal/vault/path_test.go`
+ 
+ **Interfaces:**
+ - Consumes: nada
+ - Produces: `vault.CanonicalPath` (alias de `string`); `vault.Canonicalize(root, abs string) (CanonicalPath, error)`; `vault.Resolve(root, input string) (abs string, canon CanonicalPath, err error)`; sentinelas `vault.ErrOutsideVault`, `vault.ErrAbsolutePath`, `vault.ErrEmptyPath`, `vault.ErrInvalidPath`
+ 
+ - [ ] **Step 1: Escrever o teste de confinamento**
+ 
+ `internal/vault/path_test.go`:
+ 
+ ```go
+@@ -1577,44 +1577,44 @@ func TestResolveConfinement(t *testing.T) {
+ 		{name: "ponto inicial", input: "./Civil/PONTO 03.md", want: "Civil/PONTO 03.md"},
+ 		{name: "duplo ponto interno", input: "Civil/../Penal/A.md", want: "Penal/A.md"},
+ 		{name: "componente vazio colapsa", input: "Civil//PONTO 03.md", want: "Civil/PONTO 03.md"},
+ 		{name: "ponto interno colapsa", input: "Civil/./PONTO 03.md", want: "Civil/PONTO 03.md"},
+ 
+ 		// A conversao de barra invertida so vale no Windows: em Unix a barra
+ 		// invertida e um byte legitimo de nome de arquivo, e converte-la
+ 		// corromperia nomes reais.
+ 		{name: "barra invertida", input: `Civil\PONTO 03.md`, want: "Civil/PONTO 03.md", windowsOnly: true},
+ 
+-		{name: "escapa do cofre", input: "../outro/A.md", wantErr: vault.ErrAbsolutePath},
+-		{name: "escapa com muitos niveis", input: "a/b/../../../fora.md", wantErr: vault.ErrAbsolutePath},
+-		{name: "duplo ponto sozinho", input: "..", wantErr: vault.ErrAbsolutePath},
++		{name: "escapa do cofre", input: "../outro/A.md", wantErr: vault.ErrOutsideVault},
++		{name: "escapa com muitos niveis", input: "a/b/../../../fora.md", wantErr: vault.ErrOutsideVault},
++		{name: "duplo ponto sozinho", input: "..", wantErr: vault.ErrOutsideVault},
+ 		{name: "absoluto unix rejeitado", input: "/etc/passwd", wantErr: vault.ErrAbsolutePath},
+ 		{name: "vazio rejeitado", input: "", wantErr: vault.ErrEmptyPath},
+ 		{name: "so separadores", input: "/", wantErr: vault.ErrAbsolutePath},
+ 
+ 		// Letra de drive que sobrevive ao Clean. Uma checagem que olha apenas
+ 		// os dois primeiros bytes da entrada crua nao ve esta forma.
+-		{name: "drive apos ponto inicial", input: "./C:/Windows/win.ini", wantErr: vault.ErrAbsolutePath},
+-		{name: "absoluto com drive", input: "C:/cofre/A.md", wantErr: vault.ErrAbsolutePath},
++		{name: "drive apos ponto inicial", input: "./C:/Windows/win.ini", wantErr: vault.ErrAbsolutePath, windowsOnly: true},
++		{name: "absoluto com drive", input: "C:/cofre/A.md", wantErr: vault.ErrAbsolutePath, windowsOnly: true},
+ 
+ 		// Nomes de dispositivo. Nenhum contem "..", entao a comparacao por
+ 		// componente os aceita — e o sistema operacional os resolve para fora
+ 		// do sistema de arquivos.
+-		{name: "dispositivo NUL", input: "NUL", wantErr: vault.ErrAbsolutePath, windowsOnly: true},
+-		{name: "dispositivo em subpasta", input: "Civil/NUL", wantErr: vault.ErrAbsolutePath, windowsOnly: true},
+-		{name: "dispositivo COM1", input: "COM1", wantErr: vault.ErrAbsolutePath, windowsOnly: true},
+-		{name: "dispositivo CON", input: "CON", wantErr: vault.ErrAbsolutePath, windowsOnly: true},
++		{name: "dispositivo NUL", input: "NUL", wantErr: vault.ErrInvalidPath, windowsOnly: true},
++		{name: "dispositivo em subpasta", input: "Civil/NUL", wantErr: vault.ErrInvalidPath, windowsOnly: true},
++		{name: "dispositivo COM1", input: "COM1", wantErr: vault.ErrInvalidPath, windowsOnly: true},
++		{name: "dispositivo CON", input: "CON", wantErr: vault.ErrInvalidPath, windowsOnly: true},
+ 
+ 		// Identidade canonica unica por arquivo.
+-		{name: "componente termina em ponto", input: "Civil/A.md.", wantErr: vault.ErrInvalidPath},
+-		{name: "componente termina em espaco", input: "Civil/A.md ", wantErr: vault.ErrInvalidPath},
+-		{name: "pasta termina em ponto", input: "Civil./A.md", wantErr: vault.ErrInvalidPath},
++		{name: "componente termina em ponto", input: "Civil/A.md.", wantErr: vault.ErrInvalidPath, windowsOnly: true},
++		{name: "componente termina em espaco", input: "Civil/A.md ", wantErr: vault.ErrInvalidPath, windowsOnly: true},
++		{name: "pasta termina em ponto", input: "Civil./A.md", wantErr: vault.ErrInvalidPath, windowsOnly: true},
+ 
+ 		{name: "byte nulo", input: "Civil/\x00A.md", wantErr: vault.ErrInvalidPath},
+ 	}
+ 
+ 	for _, tt := range tests {
+ 		t.Run(tt.name, func(t *testing.T) {
+ 			if tt.windowsOnly && runtime.GOOS != "windows" {
+ 				t.Skip("comportamento especifico do Windows")
+ 			}
+ 
+@@ -1650,48 +1650,56 @@ func TestResolveConfinement(t *testing.T) {
+ 		})
+ 	}
+ }
+ 
+ // Canonicalize e exportada e a varredura da Task 8 a chama direto, sem passar
+ // por Resolve. Suas rejeicoes precisam valer sozinhas.
+ func TestCanonicalizeRejectsStandalone(t *testing.T) {
+ 	root := testRoot()
+ 
+ 	tests := []struct {
+-		name    string
+-		abs     string
+-		wantErr error
++		name        string
++		abs         string
++		wantErr     error
++		windowsOnly bool
+ 	}{
+ 		{
+ 			name:    "irmao com prefixo compartilhado",
+ 			abs:     filepath.Join(filepath.Dir(root), "cofre-outro", "A.md"),
+ 			wantErr: vault.ErrOutsideVault,
+ 		},
+ 		{
+ 			name:    "acima da raiz",
+ 			abs:     filepath.Dir(root),
+ 			wantErr: vault.ErrOutsideVault,
+ 		},
+ 		{
+ 			name:    "a propria raiz",
+ 			abs:     root,
+ 			wantErr: vault.ErrInvalidPath,
+ 		},
+ 		{
+-			name:    "letra de drive dentro da raiz",
+-			abs:     filepath.Join(root, "C:Windows", "win.ini"),
+-			wantErr: vault.ErrAbsolutePath,
++			// Em Unix, "C:Windows" e um nome de diretorio comum e o caminho
++			// continua dentro do cofre — aceita-lo la e o comportamento certo.
++			name:        "letra de drive dentro da raiz",
++			abs:         filepath.Join(root, "C:Windows", "win.ini"),
++			wantErr:     vault.ErrAbsolutePath,
++			windowsOnly: true,
+ 		},
+ 	}
+ 
+ 	for _, tt := range tests {
+ 		t.Run(tt.name, func(t *testing.T) {
++			if tt.windowsOnly && runtime.GOOS != "windows" {
++				t.Skip("comportamento especifico do Windows")
++			}
++
+ 			canon, err := vault.Canonicalize(root, tt.abs)
+ 			if err == nil {
+ 				t.Fatalf("Canonicalize(%q) = %q, quer erro %v", tt.abs, canon, tt.wantErr)
+ 			}
+ 			if !errors.Is(err, tt.wantErr) {
+ 				t.Errorf("Canonicalize(%q) erro = %v, quer %v", tt.abs, err, tt.wantErr)
+ 			}
+ 		})
+ 	}
+ }
+@@ -1701,22 +1709,22 @@ func TestCanonicalizeRejectsStandalone(t *testing.T) {
+ //
+ // Chegando por Resolve, este caso e barrado antes de Canonicalize: o `..`
+ // inicial nao sobrevive a validateLocal. As duas camadas cobrem o mesmo
+ // ataque de angulos diferentes, e o teste que isola a comparacao por
+ // componente e TestCanonicalizeRejectsStandalone, que chama Canonicalize
+ // direto. Ele e o que reprova uma implementacao com strings.HasPrefix; este
+ // aqui garante que o caminho completo tambem rejeita.
+ func TestResolveRejectsSiblingWithSharedPrefix(t *testing.T) {
+ 	root := testRoot()
+ 	_, _, err := vault.Resolve(root, "../cofre-outro/A.md")
+-	if err == nil {
+-		t.Fatal("irmao com prefixo compartilhado foi aceito")
++	if !errors.Is(err, vault.ErrOutsideVault) {
++		t.Fatalf("erro = %v, quer ErrOutsideVault", err)
+ 	}
+ }
+ 
+ func TestCanonicalizeUsesForwardSlashes(t *testing.T) {
+ 	root := testRoot()
+ 	abs := filepath.Join(root, "Civil", "PONTO 03.md")
+ 
+ 	got, err := vault.Canonicalize(root, abs)
+ 	if err != nil {
+ 		t.Fatalf("Canonicalize error = %v", err)
+@@ -1801,61 +1809,56 @@ func Resolve(root, input string) (string, CanonicalPath, error) {
+ 	abs := filepath.Join(root, filepath.FromSlash(cleaned))
+ 	canon, err := Canonicalize(root, abs)
+ 	if err != nil {
+ 		return "", "", err
+ 	}
+ 	return abs, canon, nil
+ }
+ 
+ // validateLocal rejeita as formas que a comparacao por componente nao enxerga.
+ //
+-// Tres classes, cada uma descoberta em revisao com prova empirica:
+-//
+-//  1. Nomes de dispositivo do Windows. `Resolve(root, "NUL")` produz um
+-//     caminho lexicamente interno ao cofre, e o sistema operacional o resolve
+-//     para o dispositivo NUL. `COM1` aceita escrita em porta serial; `CON` le
+-//     o console, que em um servidor stdio e o proprio transporte. Nenhum
+-//     desses caminhos contem `..`, entao a checagem por componente passa.
+-//
+-//  2. Caminhos com letra de drive que sobrevivem ao Clean. `./C:/Windows`
+-//     vira `C:/Windows` depois de path.Clean, e uma checagem que so olha os
+-//     dois primeiros bytes da entrada crua nao ve isso.
+-//
+-//  3. Componentes terminados em ponto ou espaco. O Win32 os remove ao abrir,
+-//     entao `A.md.`, `A.md ` e `A.md` sao o mesmo arquivo — mas tres chaves
+-//     canonicas distintas. Como CanonicalPath e a identidade da nota no
+-//     indice, isso da a um arquivo mais de uma identidade, e qualquer
+-//     verificacao chaveada nela pode ser contornada acrescentando um ponto.
+-//
+-// filepath.IsLocal cobre 1 e 2 e substitui a checagem manual de letra de
+-// drive. A classe 3 ele considera local, e precisa de rejeicao explicita.
++// A ordem das checagens define qual sentinela o cliente recebe, e as tres
++// significam coisas diferentes para quem esta do outro lado do MCP:
++// travessia e um caminho que precisa ser corrigido, caminho absoluto e um
++// mal-entendido sobre a convencao, e caminho malformado e entrada invalida.
++// Colapsar as tres em uma faria a mensagem ser a unica informacao util.
+ func validateLocal(cleaned string) error {
+ 	if strings.ContainsRune(cleaned, 0) {
+ 		return fmt.Errorf("%w: caminho contem byte nulo", ErrInvalidPath)
+ 	}
+ 
+-	if !filepath.IsLocal(filepath.FromSlash(cleaned)) {
++	// Travessia primeiro. Depois do Clean, subir acima da raiz sobrevive
++	// apenas como ".." inicial — e essa e a forma que precisa ser reportada
++	// como travessia, nao como caminho absoluto.
++	if cleaned == ".." || strings.HasPrefix(cleaned, "../") {
++		return fmt.Errorf("%w: %q sobe acima da raiz do cofre", ErrOutsideVault, cleaned)
++	}
++
++	native := filepath.FromSlash(cleaned)
++
++	// Caminho enraizado, em qualquer das formas. VolumeName cobre "C:algo",
++	// que nao e absoluto mas tambem nao e relativo a raiz do cofre.
++	if path.IsAbs(cleaned) || filepath.IsAbs(native) || filepath.VolumeName(native) != "" {
+ 		return fmt.Errorf("%w: %q", ErrAbsolutePath, cleaned)
+ 	}
+ 
+-	for _, part := range strings.Split(cleaned, "/") {
+-		if part == "" {
+-			continue
+-		}
+-		if last := part[len(part)-1]; last == '.' || last == ' ' {
+-			return fmt.Errorf(
+-				"%w: componente %q termina em ponto ou espaco, o que o Windows remove ao abrir e faria o mesmo arquivo ter mais de um caminho canonico",
+-				ErrInvalidPath, part)
+-		}
++	// O que sobra e o que o sistema operacional resolve para fora do sistema
++	// de arquivos sem nunca produzir um "..": no Windows, os nomes de
++	// dispositivo. `Resolve(root, "NUL")` produz um caminho lexicamente
++	// interno ao cofre, e o SO o resolve para o dispositivo NUL; COM1 aceita
++	// escrita em porta serial; CON le o console, que em um servidor stdio e o
++	// proprio transporte.
++	if !filepath.IsLocal(native) {
++		return fmt.Errorf("%w: %q nao e um caminho local", ErrInvalidPath, cleaned)
+ 	}
+ 
+-	return nil
++	return validatePlatformPath(cleaned)
+ }
+ 
+ // Canonicalize converte um caminho absoluto em CanonicalPath, verificando o
+ // confinamento por componente de caminho.
+ func Canonicalize(root, abs string) (CanonicalPath, error) {
+ 	rel, err := filepath.Rel(root, abs)
+ 	if err != nil {
+ 		return "", fmt.Errorf("%w: %q", ErrOutsideVault, abs)
+ 	}
+ 
+@@ -1874,26 +1877,86 @@ func Canonicalize(root, abs string) (CanonicalPath, error) {
+ 	// rejeitaria se recebesse de volta. A forma canonica precisa ser estavel
+ 	// sob ida e volta.
+ 	if err := validateLocal(slashed); err != nil {
+ 		return "", err
+ 	}
+ 
+ 	return CanonicalPath(slashed), nil
+ }
+ ```
+ 
++`internal/vault/path_windows.go`:
++
++```go
++//go:build windows
++
++package vault
++
++import (
++	"fmt"
++	"strings"
++)
++
++// validatePlatformPath rejeita componentes terminados em ponto ou espaco.
++//
++// O Win32 os remove ao abrir, entao `A.md.`, `A.md ` e `A.md` sao o mesmo
++// arquivo — mas tres chaves canonicas distintas. Como CanonicalPath e a
++// identidade da nota no indice, isso da a um arquivo mais de uma identidade:
++// a varredura indexaria uma grafia enquanto uma tool escreve sob outra, e
++// qualquer verificacao chaveada no caminho canonico seria contornavel
++// acrescentando um ponto.
++//
++// A regra vive atras de build tag porque a justificativa e inteiramente do
++// Windows. Em Linux e macOS `Notas ` e `Arquivo.` sao nomes legais e
++// distintos, que o Obsidian preserva — rejeita-los ali tornaria notas reais
++// inalcancaveis, que e a mesma falha de fronteira que a travessia, so que na
++// direcao oposta.
++//
++// A comparacao e do ultimo BYTE, nao do ultimo rune, e isso e proposital: o
++// Win32 remove apenas espaco ASCII e ponto. Espacos unicode como U+00A0 nao
++// sao removidos por ele e portanto nao criam identidade duplicada.
++func validatePlatformPath(cleaned string) error {
++	for _, part := range strings.Split(cleaned, "/") {
++		if part == "" {
++			continue
++		}
++		if last := part[len(part)-1]; last == '.' || last == ' ' {
++			return fmt.Errorf(
++				"%w: componente %q termina em ponto ou espaco, o que o Windows remove ao abrir e faria o mesmo arquivo ter mais de um caminho canonico",
++				ErrInvalidPath, part)
++		}
++	}
++	return nil
++}
++```
++
++`internal/vault/path_other.go`:
++
++```go
++//go:build !windows
++
++package vault
++
++// validatePlatformPath nao tem o que rejeitar fora do Windows.
++//
++// Nomes de dispositivo nao existem, e ponto ou espaco no fim de um componente
++// sao bytes legitimos que o sistema de arquivos preserva. Rejeita-los aqui
++// tornaria notas reais inalcancaveis.
++func validatePlatformPath(string) error { return nil }
++```
++
+ **Por que `filepath.Rel` e não comparação de prefixo.** `Rel` opera por componente, que é a única comparação correta. `/cofre-outro` tem `/cofre` como prefixo textual e não é interno a ele; um `strings.HasPrefix` aceitaria e abriria o confinamento inteiro.
+ 
+ - [ ] **Step 4: Rodar para confirmar que passa**
+ 
+ Run: `go test -race ./internal/vault/ -v`
+-Esperado: PASS, onze subcasos.
++Esperado: PASS. Além disso, `GOOS=linux go vet ./...` e `GOOS=darwin go vet ./...` limpos — mas `vet` não executa teste. Os casos marcados `windowsOnly` existem porque a suíte **falharia** fora do Windows sem eles: `filepath.IsLocal` só rejeita dois-pontos e nomes de dispositivo na implementação do Windows, e em Unix `C:` é um nome de diretório comum.
+ 
+ - [ ] **Step 5: Commit**
+ 
+ ```bash
+ git add internal/vault
+ git commit -m "feat(vault): canonical paths with component-wise confinement check"
+ ```
+ 
+ ---
+ 
+diff --git a/internal/vault/path.go b/internal/vault/path.go
+index 925cdc8..6105f2e 100644
+--- a/internal/vault/path.go
++++ b/internal/vault/path.go
+@@ -62,61 +62,56 @@ func Resolve(root, input string) (string, CanonicalPath, error) {
+ 	abs := filepath.Join(root, filepath.FromSlash(cleaned))
+ 	canon, err := Canonicalize(root, abs)
+ 	if err != nil {
+ 		return "", "", err
+ 	}
+ 	return abs, canon, nil
+ }
+ 
+ // validateLocal rejeita as formas que a comparacao por componente nao enxerga.
+ //
+-// Tres classes, cada uma descoberta em revisao com prova empirica:
+-//
+-//  1. Nomes de dispositivo do Windows. `Resolve(root, "NUL")` produz um
+-//     caminho lexicamente interno ao cofre, e o sistema operacional o resolve
+-//     para o dispositivo NUL. `COM1` aceita escrita em porta serial; `CON` le
+-//     o console, que em um servidor stdio e o proprio transporte. Nenhum
+-//     desses caminhos contem `..`, entao a checagem por componente passa.
+-//
+-//  2. Caminhos com letra de drive que sobrevivem ao Clean. `./C:/Windows`
+-//     vira `C:/Windows` depois de path.Clean, e uma checagem que so olha os
+-//     dois primeiros bytes da entrada crua nao ve isso.
+-//
+-//  3. Componentes terminados em ponto ou espaco. O Win32 os remove ao abrir,
+-//     entao `A.md.`, `A.md ` e `A.md` sao o mesmo arquivo — mas tres chaves
+-//     canonicas distintas. Como CanonicalPath e a identidade da nota no
+-//     indice, isso da a um arquivo mais de uma identidade, e qualquer
+-//     verificacao chaveada nela pode ser contornada acrescentando um ponto.
+-//
+-// filepath.IsLocal cobre 1 e 2 e substitui a checagem manual de letra de
+-// drive. A classe 3 ele considera local, e precisa de rejeicao explicita.
++// A ordem das checagens define qual sentinela o cliente recebe, e as tres
++// significam coisas diferentes para quem esta do outro lado do MCP:
++// travessia e um caminho que precisa ser corrigido, caminho absoluto e um
++// mal-entendido sobre a convencao, e caminho malformado e entrada invalida.
++// Colapsar as tres em uma faria a mensagem ser a unica informacao util.
+ func validateLocal(cleaned string) error {
+ 	if strings.ContainsRune(cleaned, 0) {
+ 		return fmt.Errorf("%w: caminho contem byte nulo", ErrInvalidPath)
+ 	}
+ 
+-	if !filepath.IsLocal(filepath.FromSlash(cleaned)) {
++	// Travessia primeiro. Depois do Clean, subir acima da raiz sobrevive
++	// apenas como ".." inicial — e essa e a forma que precisa ser reportada
++	// como travessia, nao como caminho absoluto.
++	if cleaned == ".." || strings.HasPrefix(cleaned, "../") {
++		return fmt.Errorf("%w: %q sobe acima da raiz do cofre", ErrOutsideVault, cleaned)
++	}
++
++	native := filepath.FromSlash(cleaned)
++
++	// Caminho enraizado, em qualquer das formas. VolumeName cobre "C:algo",
++	// que nao e absoluto mas tambem nao e relativo a raiz do cofre.
++	if path.IsAbs(cleaned) || filepath.IsAbs(native) || filepath.VolumeName(native) != "" {
+ 		return fmt.Errorf("%w: %q", ErrAbsolutePath, cleaned)
+ 	}
+ 
+-	for _, part := range strings.Split(cleaned, "/") {
+-		if part == "" {
+-			continue
+-		}
+-		if last := part[len(part)-1]; last == '.' || last == ' ' {
+-			return fmt.Errorf(
+-				"%w: componente %q termina em ponto ou espaco, o que o Windows remove ao abrir e faria o mesmo arquivo ter mais de um caminho canonico",
+-				ErrInvalidPath, part)
+-		}
++	// O que sobra e o que o sistema operacional resolve para fora do sistema
++	// de arquivos sem nunca produzir um "..": no Windows, os nomes de
++	// dispositivo. `Resolve(root, "NUL")` produz um caminho lexicamente
++	// interno ao cofre, e o SO o resolve para o dispositivo NUL; COM1 aceita
++	// escrita em porta serial; CON le o console, que em um servidor stdio e o
++	// proprio transporte.
++	if !filepath.IsLocal(native) {
++		return fmt.Errorf("%w: %q nao e um caminho local", ErrInvalidPath, cleaned)
+ 	}
+ 
+-	return nil
++	return validatePlatformPath(cleaned)
+ }
+ 
+ // Canonicalize converte um caminho absoluto em CanonicalPath, verificando o
+ // confinamento por componente de caminho.
+ func Canonicalize(root, abs string) (CanonicalPath, error) {
+ 	rel, err := filepath.Rel(root, abs)
+ 	if err != nil {
+ 		return "", fmt.Errorf("%w: %q", ErrOutsideVault, abs)
+ 	}
+ 
+diff --git a/internal/vault/path_other.go b/internal/vault/path_other.go
+new file mode 100644
+index 0000000..314609b
+--- /dev/null
++++ b/internal/vault/path_other.go
+@@ -0,0 +1,10 @@
++//go:build !windows
++
++package vault
++
++// validatePlatformPath nao tem o que rejeitar fora do Windows.
++//
++// Nomes de dispositivo nao existem, e ponto ou espaco no fim de um componente
++// sao bytes legitimos que o sistema de arquivos preserva. Rejeita-los aqui
++// tornaria notas reais inalcancaveis.
++func validatePlatformPath(string) error { return nil }
+diff --git a/internal/vault/path_test.go b/internal/vault/path_test.go
+index aa39b52..ddddba5 100644
+--- a/internal/vault/path_test.go
++++ b/internal/vault/path_test.go
+@@ -34,44 +34,44 @@ func TestResolveConfinement(t *testing.T) {
+ 		{name: "ponto inicial", input: "./Civil/PONTO 03.md", want: "Civil/PONTO 03.md"},
+ 		{name: "duplo ponto interno", input: "Civil/../Penal/A.md", want: "Penal/A.md"},
+ 		{name: "componente vazio colapsa", input: "Civil//PONTO 03.md", want: "Civil/PONTO 03.md"},
+ 		{name: "ponto interno colapsa", input: "Civil/./PONTO 03.md", want: "Civil/PONTO 03.md"},
+ 
+ 		// A conversao de barra invertida so vale no Windows: em Unix a barra
+ 		// invertida e um byte legitimo de nome de arquivo, e converte-la
+ 		// corromperia nomes reais.
+ 		{name: "barra invertida", input: `Civil\PONTO 03.md`, want: "Civil/PONTO 03.md", windowsOnly: true},
+ 
+-		{name: "escapa do cofre", input: "../outro/A.md", wantErr: vault.ErrAbsolutePath},
+-		{name: "escapa com muitos niveis", input: "a/b/../../../fora.md", wantErr: vault.ErrAbsolutePath},
+-		{name: "duplo ponto sozinho", input: "..", wantErr: vault.ErrAbsolutePath},
++		{name: "escapa do cofre", input: "../outro/A.md", wantErr: vault.ErrOutsideVault},
++		{name: "escapa com muitos niveis", input: "a/b/../../../fora.md", wantErr: vault.ErrOutsideVault},
++		{name: "duplo ponto sozinho", input: "..", wantErr: vault.ErrOutsideVault},
+ 		{name: "absoluto unix rejeitado", input: "/etc/passwd", wantErr: vault.ErrAbsolutePath},
+ 		{name: "vazio rejeitado", input: "", wantErr: vault.ErrEmptyPath},
+ 		{name: "so separadores", input: "/", wantErr: vault.ErrAbsolutePath},
+ 
+ 		// Letra de drive que sobrevive ao Clean. Uma checagem que olha apenas
+ 		// os dois primeiros bytes da entrada crua nao ve esta forma.
+-		{name: "drive apos ponto inicial", input: "./C:/Windows/win.ini", wantErr: vault.ErrAbsolutePath},
+-		{name: "absoluto com drive", input: "C:/cofre/A.md", wantErr: vault.ErrAbsolutePath},
++		{name: "drive apos ponto inicial", input: "./C:/Windows/win.ini", wantErr: vault.ErrAbsolutePath, windowsOnly: true},
++		{name: "absoluto com drive", input: "C:/cofre/A.md", wantErr: vault.ErrAbsolutePath, windowsOnly: true},
+ 
+ 		// Nomes de dispositivo. Nenhum contem "..", entao a comparacao por
+ 		// componente os aceita — e o sistema operacional os resolve para fora
+ 		// do sistema de arquivos.
+-		{name: "dispositivo NUL", input: "NUL", wantErr: vault.ErrAbsolutePath, windowsOnly: true},
+-		{name: "dispositivo em subpasta", input: "Civil/NUL", wantErr: vault.ErrAbsolutePath, windowsOnly: true},
+-		{name: "dispositivo COM1", input: "COM1", wantErr: vault.ErrAbsolutePath, windowsOnly: true},
+-		{name: "dispositivo CON", input: "CON", wantErr: vault.ErrAbsolutePath, windowsOnly: true},
++		{name: "dispositivo NUL", input: "NUL", wantErr: vault.ErrInvalidPath, windowsOnly: true},
++		{name: "dispositivo em subpasta", input: "Civil/NUL", wantErr: vault.ErrInvalidPath, windowsOnly: true},
++		{name: "dispositivo COM1", input: "COM1", wantErr: vault.ErrInvalidPath, windowsOnly: true},
++		{name: "dispositivo CON", input: "CON", wantErr: vault.ErrInvalidPath, windowsOnly: true},
+ 
+ 		// Identidade canonica unica por arquivo.
+-		{name: "componente termina em ponto", input: "Civil/A.md.", wantErr: vault.ErrInvalidPath},
+-		{name: "componente termina em espaco", input: "Civil/A.md ", wantErr: vault.ErrInvalidPath},
+-		{name: "pasta termina em ponto", input: "Civil./A.md", wantErr: vault.ErrInvalidPath},
++		{name: "componente termina em ponto", input: "Civil/A.md.", wantErr: vault.ErrInvalidPath, windowsOnly: true},
++		{name: "componente termina em espaco", input: "Civil/A.md ", wantErr: vault.ErrInvalidPath, windowsOnly: true},
++		{name: "pasta termina em ponto", input: "Civil./A.md", wantErr: vault.ErrInvalidPath, windowsOnly: true},
+ 
+ 		{name: "byte nulo", input: "Civil/\x00A.md", wantErr: vault.ErrInvalidPath},
+ 	}
+ 
+ 	for _, tt := range tests {
+ 		t.Run(tt.name, func(t *testing.T) {
+ 			if tt.windowsOnly && runtime.GOOS != "windows" {
+ 				t.Skip("comportamento especifico do Windows")
+ 			}
+ 
+@@ -107,48 +107,56 @@ func TestResolveConfinement(t *testing.T) {
+ 		})
+ 	}
+ }
+ 
+ // Canonicalize e exportada e a varredura da Task 8 a chama direto, sem passar
+ // por Resolve. Suas rejeicoes precisam valer sozinhas.
+ func TestCanonicalizeRejectsStandalone(t *testing.T) {
+ 	root := testRoot()
+ 
+ 	tests := []struct {
+-		name    string
+-		abs     string
+-		wantErr error
++		name        string
++		abs         string
++		wantErr     error
++		windowsOnly bool
+ 	}{
+ 		{
+ 			name:    "irmao com prefixo compartilhado",
+ 			abs:     filepath.Join(filepath.Dir(root), "cofre-outro", "A.md"),
+ 			wantErr: vault.ErrOutsideVault,
+ 		},
+ 		{
+ 			name:    "acima da raiz",
+ 			abs:     filepath.Dir(root),
+ 			wantErr: vault.ErrOutsideVault,
+ 		},
+ 		{
+ 			name:    "a propria raiz",
+ 			abs:     root,
+ 			wantErr: vault.ErrInvalidPath,
+ 		},
+ 		{
+-			name:    "letra de drive dentro da raiz",
+-			abs:     filepath.Join(root, "C:Windows", "win.ini"),
+-			wantErr: vault.ErrAbsolutePath,
++			// Em Unix, "C:Windows" e um nome de diretorio comum e o caminho
++			// continua dentro do cofre — aceita-lo la e o comportamento certo.
++			name:        "letra de drive dentro da raiz",
++			abs:         filepath.Join(root, "C:Windows", "win.ini"),
++			wantErr:     vault.ErrAbsolutePath,
++			windowsOnly: true,
+ 		},
+ 	}
+ 
+ 	for _, tt := range tests {
+ 		t.Run(tt.name, func(t *testing.T) {
++			if tt.windowsOnly && runtime.GOOS != "windows" {
++				t.Skip("comportamento especifico do Windows")
++			}
++
+ 			canon, err := vault.Canonicalize(root, tt.abs)
+ 			if err == nil {
+ 				t.Fatalf("Canonicalize(%q) = %q, quer erro %v", tt.abs, canon, tt.wantErr)
+ 			}
+ 			if !errors.Is(err, tt.wantErr) {
+ 				t.Errorf("Canonicalize(%q) erro = %v, quer %v", tt.abs, err, tt.wantErr)
+ 			}
+ 		})
+ 	}
+ }
+@@ -158,22 +166,22 @@ func TestCanonicalizeRejectsStandalone(t *testing.T) {
+ //
+ // Chegando por Resolve, este caso e barrado antes de Canonicalize: o `..`
+ // inicial nao sobrevive a validateLocal. As duas camadas cobrem o mesmo
+ // ataque de angulos diferentes, e o teste que isola a comparacao por
+ // componente e TestCanonicalizeRejectsStandalone, que chama Canonicalize
+ // direto. Ele e o que reprova uma implementacao com strings.HasPrefix; este
+ // aqui garante que o caminho completo tambem rejeita.
+ func TestResolveRejectsSiblingWithSharedPrefix(t *testing.T) {
+ 	root := testRoot()
+ 	_, _, err := vault.Resolve(root, "../cofre-outro/A.md")
+-	if err == nil {
+-		t.Fatal("irmao com prefixo compartilhado foi aceito")
++	if !errors.Is(err, vault.ErrOutsideVault) {
++		t.Fatalf("erro = %v, quer ErrOutsideVault", err)
+ 	}
+ }
+ 
+ func TestCanonicalizeUsesForwardSlashes(t *testing.T) {
+ 	root := testRoot()
+ 	abs := filepath.Join(root, "Civil", "PONTO 03.md")
+ 
+ 	got, err := vault.Canonicalize(root, abs)
+ 	if err != nil {
+ 		t.Fatalf("Canonicalize error = %v", err)
+diff --git a/internal/vault/path_windows.go b/internal/vault/path_windows.go
+new file mode 100644
+index 0000000..73ed86f
+--- /dev/null
++++ b/internal/vault/path_windows.go
+@@ -0,0 +1,40 @@
++//go:build windows
++
++package vault
++
++import (
++	"fmt"
++	"strings"
++)
++
++// validatePlatformPath rejeita componentes terminados em ponto ou espaco.
++//
++// O Win32 os remove ao abrir, entao `A.md.`, `A.md ` e `A.md` sao o mesmo
++// arquivo — mas tres chaves canonicas distintas. Como CanonicalPath e a
++// identidade da nota no indice, isso da a um arquivo mais de uma identidade:
++// a varredura indexaria uma grafia enquanto uma tool escreve sob outra, e
++// qualquer verificacao chaveada no caminho canonico seria contornavel
++// acrescentando um ponto.
++//
++// A regra vive atras de build tag porque a justificativa e inteiramente do
++// Windows. Em Linux e macOS `Notas ` e `Arquivo.` sao nomes legais e
++// distintos, que o Obsidian preserva — rejeita-los ali tornaria notas reais
++// inalcancaveis, que e a mesma falha de fronteira que a travessia, so que na
++// direcao oposta.
++//
++// A comparacao e do ultimo BYTE, nao do ultimo rune, e isso e proposital: o
++// Win32 remove apenas espaco ASCII e ponto. Espacos unicode como U+00A0 nao
++// sao removidos por ele e portanto nao criam identidade duplicada.
++func validatePlatformPath(cleaned string) error {
++	for _, part := range strings.Split(cleaned, "/") {
++		if part == "" {
++			continue
++		}
++		if last := part[len(part)-1]; last == '.' || last == ' ' {
++			return fmt.Errorf(
++				"%w: componente %q termina em ponto ou espaco, o que o Windows remove ao abrir e faria o mesmo arquivo ter mais de um caminho canonico",
++				ErrInvalidPath, part)
++		}
++	}
++	return nil
++}

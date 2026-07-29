@@ -1,0 +1,565 @@
+# Review package: 2b4967f..HEAD
+
+## Commits
+88adb60 fix(parser): pin BOM offset contract and CRLF/edge-case coverage
+15d5041 docs: add frontmatter parity questions raised in Task 12 review
+97827ef docs: state the bodyOffset origin and pin CRLF and empty-body offsets
+6da2711 docs: warn that a green local golangci-lint says nothing about CI
+36b433d docs(plan): resync the orphans CI job with what ships
+50529ef ci: pin golangci-lint v2 so the lint jobs can run at all
+
+## Files changed
+ .github/workflows/ci.yml                           |  24 ++++-
+ CLAUDE.md                                          |   3 +
+ docs/superpowers/plans/2026-07-25-gobsidian-v01.md | 117 +++++++++++++++++++--
+ internal/parser/frontmatter.go                     |  12 ++-
+ internal/parser/frontmatter_test.go                |  42 ++++++++
+ internal/parser/slug_test.go                       |   5 +
+ internal/parser/types.go                           |  10 +-
+ 7 files changed, 198 insertions(+), 15 deletions(-)
+
+## Diff
+diff --git a/.github/workflows/ci.yml b/.github/workflows/ci.yml
+index 6c6b525..761dbb7 100644
+--- a/.github/workflows/ci.yml
++++ b/.github/workflows/ci.yml
+@@ -53,34 +53,54 @@ jobs:
+         shell: pwsh
+         run: ./scripts/check_net.ps1
+ 
+   lint:
+     runs-on: ubuntu-latest
+     steps:
+       - uses: actions/checkout@v4
+       - uses: actions/setup-go@v5
+         with:
+           go-version: '1.25'
+-      - uses: golangci/golangci-lint-action@v6
++      # v6 fixa golangci-lint v1.64.8, compilado com Go 1.24, e ele se recusa
++      # a rodar contra um go.mod que declara 1.25.0 -- que e o nosso, forcado
++      # pelo pin do SDK de MCP. Precisa ser v8+, que traz a linha v2, a mesma
++      # que .golangci.yml declara em `version: "2"`.
++      #
++      # A versao e fixada de proposito: com ela flutuando, um lint verde na
++      # maquina de quem desenvolve nao diz nada sobre o CI. Foi assim que a
++      # primeira rodada real deste workflow reprovou com 0 achados locais.
++      - uses: golangci/golangci-lint-action@v8
++        with:
++          version: v2.12.2
+ 
+   lint-windows:
+     runs-on: windows-latest
+     steps:
+       - uses: actions/checkout@v4
+       - uses: actions/setup-go@v5
+         with:
+           go-version: '1.25'
+       # golangci-lint so analisa os arquivos que a plataforma do runner
+       # compila. Sem este job, parent_windows.go, checks_windows.go e
+       # path_windows.go nunca sao lintados — e parent_windows.go e onde
+       # vivia o defeito que deixou 5 de 5 orfaos.
+-      - uses: golangci/golangci-lint-action@v6
++      # v6 fixa golangci-lint v1.64.8, compilado com Go 1.24, e ele se recusa
++      # a rodar contra um go.mod que declara 1.25.0 -- que e o nosso, forcado
++      # pelo pin do SDK de MCP. Precisa ser v8+, que traz a linha v2, a mesma
++      # que .golangci.yml declara em `version: "2"`.
++      #
++      # A versao e fixada de proposito: com ela flutuando, um lint verde na
++      # maquina de quem desenvolve nao diz nada sobre o CI. Foi assim que a
++      # primeira rodada real deste workflow reprovou com 0 achados locais.
++      - uses: golangci/golangci-lint-action@v8
++        with:
++          version: v2.12.2
+ 
+   orphans:
+     # Gate de liberacao do M0: zero processos gobsidian.exe orfaos apos
+     # encerramento abrupto do host, em 100 ciclos. So faz sentido no Windows
+     # — os tres mecanismos de encerramento (stdin EOF via pipe, sinais,
+     # vigilia do processo pai) tem sua parte especifica de plataforma
+     # exercitada aqui, e o defeito que este gate existe para pegar (parent
+     # watch comparando so pid+creation time) e exclusivo de parent_windows.go.
+     runs-on: windows-latest
+     steps:
+diff --git a/CLAUDE.md b/CLAUDE.md
+index f87182f..71fa5a1 100644
+--- a/CLAUDE.md
++++ b/CLAUDE.md
+@@ -17,22 +17,25 @@ Reparo de arquivo misto: decodificar byte a byte, tentando sequência UTF-8 vál
+ ## Comandos
+ 
+ ```bash
+ go test -race ./...          # a versão sem -race não conta
+ go vet ./...
+ gofmt -l .
+ GOOS=linux go vet ./...      # e darwin: há arquivos com build tag
+ pwsh -File scripts/check_net.ps1
+ pwsh -File scripts/build.ps1
+ pwsh -File scripts/test_orphans.ps1 -Cycles 100
++golangci-lint run ./...          # exige v2.12.2; v1.x nem carrega o config
+ ```
+ 
++**`golangci-lint` local verde não significa CI verde.** O `go.mod` declara `go 1.25.0`, e um binário compilado com Go mais antigo recusa o config antes de analisar linha nenhuma: `can't load config: the Go language version (go1.24) used to build golangci-lint is lower than the targeted Go version (1.25.0)`. O CI fixa `v2.12.2` de propósito — com a versão flutuando, os dois lados resolvem binários diferentes e a checagem local para de dizer qualquer coisa sobre o pipeline. Confira `golangci-lint version` antes de confiar num zero.
++
+ ## Dependências
+ 
+ **Nunca rode `go mod tidy`.** Várias deps fixadas mas sem importador ainda — `goldmark`, `yaml.v3`, `x/text` só ganham um em M1 e M3. `tidy` removeria elas, junto com pin do SDK MCP, que é decisão fechada (PRD D6).
+ 
+ Quando pacote importa dep pela primeira vez, `go.sum` pode faltar entradas transitivas. Comando certo: `go get <caminho-do-pacote>@<versão-fixada>` — caminho do **pacote**, não do módulo. `go get <módulo>@<versão>` é no-op quando módulo já requerido naquela versão. Go informa caminhos certos na própria mensagem de erro.
+ 
+ Piso é `go 1.25.0`, não 1.24. Forçado por `go-sdk@v1.5.0`, que declara 1.25.0 no próprio go.mod.
+ 
+ ## Regras que não são negociáveis
+ 
+diff --git a/docs/superpowers/plans/2026-07-25-gobsidian-v01.md b/docs/superpowers/plans/2026-07-25-gobsidian-v01.md
+index 06f1690..593c173 100644
+--- a/docs/superpowers/plans/2026-07-25-gobsidian-v01.md
++++ b/docs/superpowers/plans/2026-07-25-gobsidian-v01.md
+@@ -257,34 +257,54 @@ jobs:
+         shell: pwsh
+         run: ./scripts/check_net.ps1
+ 
+   lint:
+     runs-on: ubuntu-latest
+     steps:
+       - uses: actions/checkout@v4
+       - uses: actions/setup-go@v5
+         with:
+           go-version: '1.25'
+-      - uses: golangci/golangci-lint-action@v6
++      # v6 fixa golangci-lint v1.64.8, compilado com Go 1.24, e ele se recusa
++      # a rodar contra um go.mod que declara 1.25.0 -- que e o nosso, forcado
++      # pelo pin do SDK de MCP. Precisa ser v8+, que traz a linha v2, a mesma
++      # que .golangci.yml declara em `version: "2"`.
++      #
++      # A versao e fixada de proposito: com ela flutuando, um lint verde na
++      # maquina de quem desenvolve nao diz nada sobre o CI. Foi assim que a
++      # primeira rodada real deste workflow reprovou com 0 achados locais.
++      - uses: golangci/golangci-lint-action@v8
++        with:
++          version: v2.12.2
+ 
+   lint-windows:
+     runs-on: windows-latest
+     steps:
+       - uses: actions/checkout@v4
+       - uses: actions/setup-go@v5
+         with:
+           go-version: '1.25'
+       # golangci-lint so analisa os arquivos que a plataforma do runner
+       # compila. Sem este job, todo arquivo //go:build windows fica sem
+       # analise — e e la que vive a parte mais dependente de plataforma do
+       # produto.
+-      - uses: golangci/golangci-lint-action@v6
++      # v6 fixa golangci-lint v1.64.8, compilado com Go 1.24, e ele se recusa
++      # a rodar contra um go.mod que declara 1.25.0 -- que e o nosso, forcado
++      # pelo pin do SDK de MCP. Precisa ser v8+, que traz a linha v2, a mesma
++      # que .golangci.yml declara em `version: "2"`.
++      #
++      # A versao e fixada de proposito: com ela flutuando, um lint verde na
++      # maquina de quem desenvolve nao diz nada sobre o CI. Foi assim que a
++      # primeira rodada real deste workflow reprovou com 0 achados locais.
++      - uses: golangci/golangci-lint-action@v8
++        with:
++          version: v2.12.2
+ 
+   fmt:
+     runs-on: ubuntu-latest
+     steps:
+       - uses: actions/checkout@v4
+       - uses: actions/setup-go@v5
+         with:
+           go-version: '1.25'
+       - name: gofmt
+         # gofmt -l sai 0 mesmo listando arquivos. Testar a saida, nao o
+@@ -4346,29 +4366,38 @@ script reprova nesse caso: o gate mede o mecanismo, não só a ausência de
+ processo.
+ 
+ Se falhar, **não prossiga para M1.** O ciclo de vida é o requisito que define o produto; um servidor completo que deixa órfãos é pior que um servidor mínimo que não deixa. Diagnostique com `--log-level debug`: o log registra qual mecanismo disparou (`Reason()`), e um encerramento que nunca dispara nenhum aponta o mecanismo quebrado.
+ 
+ - [ ] **Step 5: Adicionar o job ao CI**
+ 
+ Em `.github/workflows/ci.yml`:
+ 
+ ```yaml
+   orphans:
++    # Gate de liberacao do M0: zero processos gobsidian.exe orfaos apos
++    # encerramento abrupto do host, em 100 ciclos. So faz sentido no Windows
++    # — os tres mecanismos de encerramento (stdin EOF via pipe, sinais,
++    # vigilia do processo pai) tem sua parte especifica de plataforma
++    # exercitada aqui, e o defeito que este gate existe para pegar (parent
++    # watch comparando so pid+creation time) e exclusivo de parent_windows.go.
+     runs-on: windows-latest
+     steps:
+       - uses: actions/checkout@v4
+       - uses: actions/setup-go@v5
+         with:
+           go-version: '1.25'
+-      - run: pwsh -NoProfile -File scripts/build.ps1
+-      - name: 100 ciclos de encerramento abrupto (RNF-10)
+-        run: pwsh -NoProfile -File scripts/test_orphans.ps1 -Cycles 100
++      - name: compilar
++        shell: pwsh
++        run: ./scripts/build.ps1
++      - name: 100 ciclos de encerramento abrupto
++        shell: pwsh
++        run: ./scripts/test_orphans.ps1 -Cycles 100
+ ```
+ 
+ - [ ] **Step 6: Rodar o ciclo completo**
+ 
+ Run: `.\scripts\test_orphans.ps1 -Cycles 100`
+ Esperado: `[OK] Nenhum orfao em 100 ciclos`. RNF-10 satisfeito.
+ 
+ - [ ] **Step 7: Commit e marcar M0**
+ 
+ ```bash
+@@ -4413,20 +4442,25 @@ import (
+ // O slug existe para casar o texto do heading com a ancora de um wikilink.
+ // [[nota#Capitulo 118]] tem que achar "## Capítulo 118".
+ func TestSlug(t *testing.T) {
+ 	tests := []struct{ in, want string }{
+ 		{"Capítulo 118", "capitulo 118"},
+ 		{"CAPÍTULO 118", "capitulo 118"},
+ 		{"  Capitulo   118  ", "capitulo 118"},
+ 		{"Ação & Reação", "acao reacao"},
+ 		{"Art. 1.234 — CPC", "art 1234 cpc"},
+ 		{"", ""},
++		// Entrada nao vazia que reduz a slug vazia. Duas headings so de
++		// pontuacao colidem na mesma slug, e a Task 13 precisa decidir o
++		// desempate — este caso documenta a decisao e impede que uma mudanca
++		// futura para "pontuacao vira espaco" passe em silencio.
++		{"!!!", ""},
+ 	}
+ 
+ 	for _, tt := range tests {
+ 		if got := parser.Slug(tt.in); got != tt.want {
+ 			t.Errorf("Slug(%q) = %q, quer %q", tt.in, got, tt.want)
+ 		}
+ 	}
+ }
+ ```
+ 
+@@ -4478,20 +4512,62 @@ func TestSplitFrontmatter(t *testing.T) {
+ 			wantBody:   "---\ntitle: A\n# Corpo\n",
+ 			wantOffset: 0,
+ 		},
+ 		{
+ 			name:       "frontmatter vazio",
+ 			in:         "---\n---\n# Corpo\n",
+ 			wantFM:     "",
+ 			wantBody:   "# Corpo\n",
+ 			wantOffset: 8,
+ 		},
++		// CRLF e onde a aritmetica e menos obvia: advance conta o \r e o
++		// TrimRight nao, entao o CR precisa ser contabilizado certo em tres
++		// lugares. Cofre em Windows e o caso normal deste produto, e uma
++		// regressao aqui desloca todo heading, bloco e link de toda nota.
++		{
++			name:       "CRLF",
++			in:         "---\r\ntitle: A\r\n---\r\n# Corpo\r\n",
++			wantFM:     "title: A\r\n",
++			wantBody:   "# Corpo\r\n",
++			wantOffset: 20,
++		},
++		{
++			name:       "CRLF com frontmatter vazio",
++			in:         "---\r\n---\r\n# Corpo\r\n",
++			wantFM:     "",
++			wantBody:   "# Corpo\r\n",
++			wantOffset: 10,
++		},
++		// Corpo vazio no fim exato do buffer. E a forma que produz panic de
++		// indice em qualquer bug de fatiamento rio abaixo, entao vale fixar
++		// que o offset e igual ao comprimento total.
++		{
++			name:       "so frontmatter, sem corpo",
++			in:         "---\ntitle: A\n---\n",
++			wantFM:     "title: A\n",
++			wantBody:   "",
++			wantOffset: 17,
++		},
++		{
++			name:       "sem newline final",
++			in:         "---\ntitle: A\n---",
++			wantFM:     "title: A\n",
++			wantBody:   "",
++			wantOffset: 16,
++		},
++		{
++			name:       "delimitador de abertura no fim do arquivo",
++			in:         "---\n",
++			wantFM:     "",
++			wantBody:   "---\n",
++			wantOffset: 0,
++		},
+ 	}
+ 
+ 	for _, tt := range tests {
+ 		t.Run(tt.name, func(t *testing.T) {
+ 			fm, body, off := parser.SplitFrontmatter([]byte(tt.in))
+ 			if string(fm) != tt.wantFM {
+ 				t.Errorf("fm = %q, quer %q", fm, tt.wantFM)
+ 			}
+ 			if string(body) != tt.wantBody {
+ 				t.Errorf("body = %q, quer %q", body, tt.wantBody)
+@@ -4587,22 +4663,28 @@ func (k LinkKind) String() string {
+ 	default:
+ 		return "wikilink"
+ 	}
+ }
+ 
+ // Heading e uma secao do documento delimitada por uma linha "#"..."######".
+ type Heading struct {
+ 	Level int    `json:"level"`
+ 	Text  string `json:"text"`
+ 	Slug  string `json:"slug"`
+-	// Start e o offset do '#'. End e o offset do fim da secao — o inicio do
+-	// proximo heading de nivel menor ou igual, ou o fim do arquivo.
++	// Start e o offset do '#', relativo ao mesmo buffer que SplitFrontmatter
++	// recebeu — ja com o bodyOffset somado por Parse. End e o offset do fim da
++	// secao: o inicio do proximo heading de nivel menor ou igual, ou o fim do
++	// buffer. Block.Start e Link.Start seguem a mesma origem.
++	//
++	// A origem precisa estar escrita aqui porque um ParsedNote sozinho nao
++	// permite descobri-la: quem so recebe a struct nao tem como saber se os
++	// offsets sao do corpo ou do buffer inteiro.
+ 	Start int64 `json:"start"`
+ 	End   int64 `json:"end"`
+ 	// BodyStart e o offset logo apos a linha do heading. E o que
+ 	// replace_section usa: preserva o titulo e substitui so o que vem abaixo.
+ 	BodyStart int64 `json:"body_start"`
+ }
+ 
+ // Block e um bloco identificado por um marcador "^id" no fim de linha.
+ type Block struct {
+ 	ID    string `json:"id"` // sem o '^'
+@@ -4703,22 +4785,30 @@ package parser
+ import (
+ 	"bytes"
+ 	"fmt"
+ 
+ 	"gopkg.in/yaml.v3"
+ )
+ 
+ var fmDelim = []byte("---")
+ 
+ // SplitFrontmatter separa o bloco YAML do corpo, devolvendo tambem o offset
+-// em que o corpo comeca no arquivo original. O offset e o que mantem todos os
+-// offsets de heading e de bloco corretos em relacao ao arquivo, nao ao corpo.
++// em que o corpo comeca. O offset e o que mantem os offsets de heading e de
++// bloco corretos em relacao ao inicio do buffer, nao ao corpo.
++//
++// O offset e relativo AO SLICE RECEBIDO, nao ao arquivo em disco. A distincao
++// so importa quando ha BOM: como esta funcao exige entrada ja sem BOM, o
++// buffer e tres bytes mais curto que o arquivo. Para converter um offset daqui
++// em posicao no arquivo, quem tiver o arquivo precisa somar len(bom) quando
++// vault.StripBOM tiver reportado true. Nao somar produz deslocamento de
++// exatamente tres bytes em toda leitura de secao — silencioso, e so em notas
++// com BOM.
+ //
+ // Exige entrada ja sem BOM UTF-8. Quem produz essa garantia e
+ // vault.StripBOM — este pacote nao a chama, para nao duplicar logica que ja
+ // mora em internal/vault. Sem ela, "\xEF\xBB\xBF---" nao bate com o prefixo
+ // "---" esperado: o frontmatter nao fica malformado, fica invisivel. Nao ha
+ // FrontmatterErr, tags/aliases/title somem em silencio, e as linhas "---"
+ // viram conteudo da nota.
+ func SplitFrontmatter(data []byte) ([]byte, []byte, int64) {
+ 	if !bytes.HasPrefix(data, fmDelim) {
+ 		return nil, data, 0
+@@ -6907,20 +6997,29 @@ func TestParityWithObsidian(t *testing.T) {
+ Cada `assert*` reporta a divergência com caminho, o que o Obsidian viu e o que nós vimos. Uma mensagem de falha que diz apenas "divergência em N.md" custa mais tempo do que economiza.
+ 
+ - [ ] **Step 4: Rodar e fechar as divergências**
+ 
+ Run: `go test -race ./internal/index/ -run TestParity -v`
+ 
+ Esperado na primeira execução: divergências. Trate cada uma como bug do parser ou da resolução, **não** ajuste o teste. Casos que o Obsidian trata de forma que consideramos errada devem ser documentados em `tools/parity-dumper/README.md` com o motivo, e só então excluídos.
+ 
+ Critério de saída: divergência zero.
+ 
++**Casos de frontmatter levantados na revisão da Task 12, a confirmar contra o Obsidian antes de decidir:**
++
++| Entrada | Nosso comportamento hoje | Pergunta |
++|---|---|---|
++| Delimitador de fechamento com espaço final (`--- `) | Não reconhece frontmatter; o arquivo inteiro vira corpo, em silêncio | O Obsidian tolera o espaço? Se sim, `TrimRight(line, " 	")` nos dois delimitadores |
++| Chave duplicada (`tags:` duas vezes) | `yaml.v3` rejeita o mapa inteiro; `FrontmatterErr` preenchido, tags/aliases/title somem | O Obsidian aceita e usa o último valor. Se confirmado, decodificar com tolerância a duplicata |
++
++As duas produzem a mesma classe de falha que o BOM: uma nota que o Obsidian indexa normalmente perde metadados aqui, sem erro visível ao usuário. Nenhuma deve ser "corrigida" por palpite — a referência de paridade é que decide.
++
+ - [ ] **Step 5: Commit**
+ 
+ ```bash
+ git add tools/parity-dumper testdata/parity internal/index
+ git commit -m "test(index): parity against real Obsidian metadata cache"
+ ```
+ 
+ ---
+ 
+ ### Task 26: Fechamento da v0.1
+diff --git a/internal/parser/frontmatter.go b/internal/parser/frontmatter.go
+index ac73c79..e3fba36 100644
+--- a/internal/parser/frontmatter.go
++++ b/internal/parser/frontmatter.go
+@@ -3,22 +3,30 @@ package parser
+ import (
+ 	"bytes"
+ 	"fmt"
+ 
+ 	"gopkg.in/yaml.v3"
+ )
+ 
+ var fmDelim = []byte("---")
+ 
+ // SplitFrontmatter separa o bloco YAML do corpo, devolvendo tambem o offset
+-// em que o corpo comeca no arquivo original. O offset e o que mantem todos os
+-// offsets de heading e de bloco corretos em relacao ao arquivo, nao ao corpo.
++// em que o corpo comeca. O offset e o que mantem os offsets de heading e de
++// bloco corretos em relacao ao inicio do buffer, nao ao corpo.
++//
++// O offset e relativo AO SLICE RECEBIDO, nao ao arquivo em disco. A distincao
++// so importa quando ha BOM: como esta funcao exige entrada ja sem BOM, o
++// buffer e tres bytes mais curto que o arquivo. Para converter um offset daqui
++// em posicao no arquivo, quem tiver o arquivo precisa somar len(bom) quando
++// vault.StripBOM tiver reportado true. Nao somar produz deslocamento de
++// exatamente tres bytes em toda leitura de secao — silencioso, e so em notas
++// com BOM.
+ //
+ // Exige entrada ja sem BOM UTF-8. Quem produz essa garantia e
+ // vault.StripBOM — este pacote nao a chama, para nao duplicar logica que ja
+ // mora em internal/vault. Sem ela, "\xEF\xBB\xBF---" nao bate com o prefixo
+ // "---" esperado: o frontmatter nao fica malformado, fica invisivel. Nao ha
+ // FrontmatterErr, tags/aliases/title somem em silencio, e as linhas "---"
+ // viram conteudo da nota.
+ func SplitFrontmatter(data []byte) ([]byte, []byte, int64) {
+ 	if !bytes.HasPrefix(data, fmDelim) {
+ 		return nil, data, 0
+diff --git a/internal/parser/frontmatter_test.go b/internal/parser/frontmatter_test.go
+index 8232d1b..4813622 100644
+--- a/internal/parser/frontmatter_test.go
++++ b/internal/parser/frontmatter_test.go
+@@ -43,20 +43,62 @@ func TestSplitFrontmatter(t *testing.T) {
+ 			wantBody:   "---\ntitle: A\n# Corpo\n",
+ 			wantOffset: 0,
+ 		},
+ 		{
+ 			name:       "frontmatter vazio",
+ 			in:         "---\n---\n# Corpo\n",
+ 			wantFM:     "",
+ 			wantBody:   "# Corpo\n",
+ 			wantOffset: 8,
+ 		},
++		// CRLF e onde a aritmetica e menos obvia: advance conta o \r e o
++		// TrimRight nao, entao o CR precisa ser contabilizado certo em tres
++		// lugares. Cofre em Windows e o caso normal deste produto, e uma
++		// regressao aqui desloca todo heading, bloco e link de toda nota.
++		{
++			name:       "CRLF",
++			in:         "---\r\ntitle: A\r\n---\r\n# Corpo\r\n",
++			wantFM:     "title: A\r\n",
++			wantBody:   "# Corpo\r\n",
++			wantOffset: 20,
++		},
++		{
++			name:       "CRLF com frontmatter vazio",
++			in:         "---\r\n---\r\n# Corpo\r\n",
++			wantFM:     "",
++			wantBody:   "# Corpo\r\n",
++			wantOffset: 10,
++		},
++		// Corpo vazio no fim exato do buffer. E a forma que produz panic de
++		// indice em qualquer bug de fatiamento rio abaixo, entao vale fixar
++		// que o offset e igual ao comprimento total.
++		{
++			name:       "so frontmatter, sem corpo",
++			in:         "---\ntitle: A\n---\n",
++			wantFM:     "title: A\n",
++			wantBody:   "",
++			wantOffset: 17,
++		},
++		{
++			name:       "sem newline final",
++			in:         "---\ntitle: A\n---",
++			wantFM:     "title: A\n",
++			wantBody:   "",
++			wantOffset: 16,
++		},
++		{
++			name:       "delimitador de abertura no fim do arquivo",
++			in:         "---\n",
++			wantFM:     "",
++			wantBody:   "---\n",
++			wantOffset: 0,
++		},
+ 	}
+ 
+ 	for _, tt := range tests {
+ 		t.Run(tt.name, func(t *testing.T) {
+ 			fm, body, off := parser.SplitFrontmatter([]byte(tt.in))
+ 			if string(fm) != tt.wantFM {
+ 				t.Errorf("fm = %q, quer %q", fm, tt.wantFM)
+ 			}
+ 			if string(body) != tt.wantBody {
+ 				t.Errorf("body = %q, quer %q", body, tt.wantBody)
+diff --git a/internal/parser/slug_test.go b/internal/parser/slug_test.go
+index 7808f74..761ed82 100644
+--- a/internal/parser/slug_test.go
++++ b/internal/parser/slug_test.go
+@@ -9,18 +9,23 @@ import (
+ // O slug existe para casar o texto do heading com a ancora de um wikilink.
+ // [[nota#Capitulo 118]] tem que achar "## Capítulo 118".
+ func TestSlug(t *testing.T) {
+ 	tests := []struct{ in, want string }{
+ 		{"Capítulo 118", "capitulo 118"},
+ 		{"CAPÍTULO 118", "capitulo 118"},
+ 		{"  Capitulo   118  ", "capitulo 118"},
+ 		{"Ação & Reação", "acao reacao"},
+ 		{"Art. 1.234 — CPC", "art 1234 cpc"},
+ 		{"", ""},
++		// Entrada nao vazia que reduz a slug vazia. Duas headings so de
++		// pontuacao colidem na mesma slug, e a Task 13 precisa decidir o
++		// desempate — este caso documenta a decisao e impede que uma mudanca
++		// futura para "pontuacao vira espaco" passe em silencio.
++		{"!!!", ""},
+ 	}
+ 
+ 	for _, tt := range tests {
+ 		if got := parser.Slug(tt.in); got != tt.want {
+ 			t.Errorf("Slug(%q) = %q, quer %q", tt.in, got, tt.want)
+ 		}
+ 	}
+ }
+diff --git a/internal/parser/types.go b/internal/parser/types.go
+index 777a47f..e5fc895 100644
+--- a/internal/parser/types.go
++++ b/internal/parser/types.go
+@@ -26,22 +26,28 @@ func (k LinkKind) String() string {
+ 	default:
+ 		return "wikilink"
+ 	}
+ }
+ 
+ // Heading e uma secao do documento delimitada por uma linha "#"..."######".
+ type Heading struct {
+ 	Level int    `json:"level"`
+ 	Text  string `json:"text"`
+ 	Slug  string `json:"slug"`
+-	// Start e o offset do '#'. End e o offset do fim da secao — o inicio do
+-	// proximo heading de nivel menor ou igual, ou o fim do arquivo.
++	// Start e o offset do '#', relativo ao mesmo buffer que SplitFrontmatter
++	// recebeu — ja com o bodyOffset somado por Parse. End e o offset do fim da
++	// secao: o inicio do proximo heading de nivel menor ou igual, ou o fim do
++	// buffer. Block.Start e Link.Start seguem a mesma origem.
++	//
++	// A origem precisa estar escrita aqui porque um ParsedNote sozinho nao
++	// permite descobri-la: quem so recebe a struct nao tem como saber se os
++	// offsets sao do corpo ou do buffer inteiro.
+ 	Start int64 `json:"start"`
+ 	End   int64 `json:"end"`
+ 	// BodyStart e o offset logo apos a linha do heading. E o que
+ 	// replace_section usa: preserva o titulo e substitui so o que vem abaixo.
+ 	BodyStart int64 `json:"body_start"`
+ }
+ 
+ // Block e um bloco identificado por um marcador "^id" no fim de linha.
+ type Block struct {
+ 	ID    string `json:"id"` // sem o '^'

@@ -1,0 +1,95 @@
+# Review package: d139e5d..HEAD
+
+## Commits
+dc4fca6 feat(lifecycle): cancel root context on interrupt and SIGTERM
+
+## Files changed
+ internal/lifecycle/signals.go      | 29 +++++++++++++++++++++++++--
+ internal/lifecycle/signals_test.go | 41 ++++++++++++++++++++++++++++++++++++++
+ 2 files changed, 68 insertions(+), 2 deletions(-)
+
+## Diff
+diff --git a/internal/lifecycle/signals.go b/internal/lifecycle/signals.go
+index 52ca4ff..d9c6c00 100644
+--- a/internal/lifecycle/signals.go
++++ b/internal/lifecycle/signals.go
+@@ -1,5 +1,30 @@
+ package lifecycle
+ 
+-import "context"
++import (
++	"context"
++	"os"
++	"os/signal"
++	"syscall"
++)
+ 
+-func (l *Lifecycle) watchSignals(ctx context.Context) {}
++// watchSignals cobre o encerramento cooperativo: Ctrl+C no terminal, SIGTERM
++// de um supervisor. No Windows, os.Interrupt cobre CTRL_C_EVENT e
++// CTRL_BREAK_EVENT; SIGTERM e aceito pela API mas nao e entregue por
++// taskkill sem /F. Nao cobre SIGKILL nem taskkill /F — e nao precisa:
++// nesses casos o processo morre de fato, que e o resultado desejado.
++func (l *Lifecycle) watchSignals(ctx context.Context) {
++	ch := make(chan os.Signal, 1)
++	signal.Notify(ch, os.Interrupt, syscall.SIGTERM)
++
++	l.wg.Add(1)
++	go func() {
++		defer l.wg.Done()
++		defer signal.Stop(ch)
++
++		select {
++		case <-ch:
++			l.trigger("signal")
++		case <-ctx.Done():
++		}
++	}()
++}
+diff --git a/internal/lifecycle/signals_test.go b/internal/lifecycle/signals_test.go
+new file mode 100644
+index 0000000..7031a72
+--- /dev/null
++++ b/internal/lifecycle/signals_test.go
+@@ -0,0 +1,41 @@
++package lifecycle_test
++
++import (
++	"context"
++	"io"
++	"os"
++	"syscall"
++	"testing"
++	"time"
++
++	"github.com/jonyd/gobsidian/internal/lifecycle"
++)
++
++func TestSignalCancelsContext(t *testing.T) {
++	pr, pw := io.Pipe()
++	t.Cleanup(func() { _ = pw.Close() })
++
++	ctx, lc := lifecycle.New(context.Background(), lifecycle.Options{Stdin: pr})
++
++	// Da tempo de o handler ser instalado antes de disparar o sinal.
++	time.Sleep(100 * time.Millisecond)
++
++	proc, err := os.FindProcess(os.Getpid())
++	if err != nil {
++		t.Fatalf("FindProcess: %v", err)
++	}
++	if err := proc.Signal(syscall.SIGTERM); err != nil {
++		t.Skipf("sinal nao entregavel nesta plataforma: %v", err)
++	}
++
++	select {
++	case <-ctx.Done():
++	case <-time.After(2 * time.Second):
++		t.Fatal("context nao foi cancelado apos SIGTERM")
++	}
++
++	if got := lc.Reason(); got != "signal" {
++		t.Errorf("Reason() = %q, quer %q", got, "signal")
++	}
++	lc.Wait()
++}

@@ -1,0 +1,635 @@
+# Review package: b6d4a7a..2b4967f
+
+## Commits
+2b4967f docs(plan): resync the Task 12 frontmatter.go snippet with the BOM contract
+3dab1e8 fix(parser): assert bodyOffset in all subtests, cover time.Time preservation
+a1ec366 docs(plan): strengthen the Task 12 tests and resync types.go
+5bc655b feat(parser): note types, frontmatter split with body offset, anchor slugs
+
+## Files changed
+ docs/superpowers/plans/2026-07-25-gobsidian-v01.md |  69 ++++++++++---
+ internal/parser/frontmatter.go                     |  77 ++++++++++++++
+ internal/parser/frontmatter_test.go                | 114 +++++++++++++++++++++
+ internal/parser/slug.go                            |  48 +++++++++
+ internal/parser/slug_test.go                       |  26 +++++
+ internal/parser/types.go                           |  79 ++++++++++++++
+ 6 files changed, 396 insertions(+), 17 deletions(-)
+
+## Diff
+diff --git a/docs/superpowers/plans/2026-07-25-gobsidian-v01.md b/docs/superpowers/plans/2026-07-25-gobsidian-v01.md
+index 41fb701..06f1690 100644
+--- a/docs/superpowers/plans/2026-07-25-gobsidian-v01.md
++++ b/docs/superpowers/plans/2026-07-25-gobsidian-v01.md
+@@ -4430,75 +4430,85 @@ func TestSlug(t *testing.T) {
+ }
+ ```
+ 
+ `internal/parser/frontmatter_test.go`:
+ 
+ ```go
+ package parser_test
+ 
+ import (
+ 	"testing"
++	"time"
+ 
+ 	"github.com/jonyd/gobsidian/internal/parser"
+ )
+ 
+ func TestSplitFrontmatter(t *testing.T) {
+ 	tests := []struct {
+ 		name       string
+ 		in         string
+ 		wantFM     string
+ 		wantBody   string
+ 		wantOffset int64
+ 	}{
+ 		{
+ 			name:       "presente",
+ 			in:         "---\ntitle: A\n---\n# Corpo\n",
+ 			wantFM:     "title: A\n",
+ 			wantBody:   "# Corpo\n",
+ 			wantOffset: 17,
+ 		},
+ 		{
+-			name:     "ausente",
+-			in:       "# Corpo\n",
+-			wantFM:   "",
+-			wantBody: "# Corpo\n",
++			name:       "ausente",
++			in:         "# Corpo\n",
++			wantFM:     "",
++			wantBody:   "# Corpo\n",
++			wantOffset: 0,
+ 		},
+ 		{
+-			name:     "tres tracos no meio nao conta",
+-			in:       "# Corpo\n---\nnao e frontmatter\n",
+-			wantFM:   "",
+-			wantBody: "# Corpo\n---\nnao e frontmatter\n",
++			name:       "tres tracos no meio nao conta",
++			in:         "# Corpo\n---\nnao e frontmatter\n",
++			wantFM:     "",
++			wantBody:   "# Corpo\n---\nnao e frontmatter\n",
++			wantOffset: 0,
+ 		},
+ 		{
+-			name:     "delimitador nao fechado",
+-			in:       "---\ntitle: A\n# Corpo\n",
+-			wantFM:   "",
+-			wantBody: "---\ntitle: A\n# Corpo\n",
++			name:       "delimitador nao fechado",
++			in:         "---\ntitle: A\n# Corpo\n",
++			wantFM:     "",
++			wantBody:   "---\ntitle: A\n# Corpo\n",
++			wantOffset: 0,
+ 		},
+ 		{
+-			name:     "frontmatter vazio",
+-			in:       "---\n---\n# Corpo\n",
+-			wantFM:   "",
+-			wantBody: "# Corpo\n",
++			name:       "frontmatter vazio",
++			in:         "---\n---\n# Corpo\n",
++			wantFM:     "",
++			wantBody:   "# Corpo\n",
++			wantOffset: 8,
+ 		},
+ 	}
+ 
+ 	for _, tt := range tests {
+ 		t.Run(tt.name, func(t *testing.T) {
+ 			fm, body, off := parser.SplitFrontmatter([]byte(tt.in))
+ 			if string(fm) != tt.wantFM {
+ 				t.Errorf("fm = %q, quer %q", fm, tt.wantFM)
+ 			}
+ 			if string(body) != tt.wantBody {
+ 				t.Errorf("body = %q, quer %q", body, tt.wantBody)
+ 			}
+-			if tt.wantOffset != 0 && off != tt.wantOffset {
++			// Sem guarda de `!= 0`: zero e a resposta CERTA em tres destes casos,
++			// e pular a asercao neles deixa passar um bug que devolve zero
++			// sempre. bodyOffset e o que mapeia posicao no corpo de volta para
++			// posicao no arquivo — errado aqui, todo offset de heading, bloco e
++			// link do produto inteiro sai deslocado.
++			if off != tt.wantOffset {
+ 				t.Errorf("offset = %d, quer %d", off, tt.wantOffset)
+ 			}
+ 		})
+ 	}
+ }
+ 
+ func TestDecodeFrontmatterPreservesTypes(t *testing.T) {
+ 	fm := []byte("titulo: Ponto 3\nnumero: 42\nativo: true\ntags:\n  - civil\n  - obrigacoes\naliases: [P3, Ponto III]\ndata: 2026-07-25\n")
+ 
+ 	got, err := parser.DecodeFrontmatter(fm)
+@@ -4514,20 +4524,27 @@ func TestDecodeFrontmatterPreservesTypes(t *testing.T) {
+ 	}
+ 	if b, ok := got["ativo"].(bool); !ok || !b {
+ 		t.Errorf("ativo = %v (%T), quer bool true", got["ativo"], got["ativo"])
+ 	}
+ 	if tags, ok := got["tags"].([]any); !ok || len(tags) != 2 {
+ 		t.Errorf("tags = %v (%T), quer lista de 2", got["tags"], got["tags"])
+ 	}
+ 	if aliases, ok := got["aliases"].([]any); !ok || len(aliases) != 2 {
+ 		t.Errorf("aliases = %v (%T), quer lista de 2", got["aliases"], got["aliases"])
+ 	}
++	// A data e o tipo mais facil de perder: yaml.v3 devolve time.Time, e
++	// qualquer camada que "normalize" para string quebra comparacao de
++	// intervalo em M3 sem nenhum teste reclamar. O fixture ja carregava a
++	// data desde o inicio; faltava conferir.
++	if d, ok := got["data"].(time.Time); !ok || d.Format("2006-01-02") != "2026-07-25" {
++		t.Errorf("data = %v (%T), quer time.Time 2026-07-25", got["data"], got["data"])
++	}
+ }
+ 
+ // Frontmatter malformado nao pode derrubar o parse: a nota ainda tem corpo,
+ // headings e links uteis. O erro e reportado e o resto segue.
+ func TestDecodeFrontmatterMalformedReturnsError(t *testing.T) {
+ 	if _, err := parser.DecodeFrontmatter([]byte("a: [1, 2\nb: :\n")); err == nil {
+ 		t.Fatal("frontmatter malformado deveria devolver erro")
+ 	}
+ }
+ ```
+@@ -4541,68 +4558,79 @@ Esperado: FAIL — `undefined: parser.Slug`.
+ 
+ `internal/parser/types.go`:
+ 
+ ```go
+ // Package parser transforma bytes de uma nota em estrutura. E puro: sem I/O,
+ // sem estado, sem conhecimento do indice ou do cofre. Recebe []byte, devolve
+ // ParsedNote. Isso o torna trivialmente testavel por golden file e
+ // trivialmente paralelizavel.
+ package parser
+ 
++// LinkKind distingue as tres sintaxes de link do Obsidian: wikilink, embed
++// (wikilink com "!" na frente) e link markdown ([texto](alvo)). A distincao
++// importa porque reescrita e resolucao tratam cada uma diferente.
+ type LinkKind int
+ 
++// Valores de LinkKind. LinkWiki e o zero-value porque e o caso mais comum em
++// notas do Obsidian.
+ const (
+ 	LinkWiki LinkKind = iota
+ 	LinkEmbed
+ 	LinkMarkdown
+ )
+ 
+ func (k LinkKind) String() string {
+ 	switch k {
+ 	case LinkEmbed:
+ 		return "embed"
+ 	case LinkMarkdown:
+ 		return "markdown"
+ 	default:
+ 		return "wikilink"
+ 	}
+ }
+ 
++// Heading e uma secao do documento delimitada por uma linha "#"..."######".
+ type Heading struct {
+ 	Level int    `json:"level"`
+ 	Text  string `json:"text"`
+ 	Slug  string `json:"slug"`
+ 	// Start e o offset do '#'. End e o offset do fim da secao — o inicio do
+ 	// proximo heading de nivel menor ou igual, ou o fim do arquivo.
+ 	Start int64 `json:"start"`
+ 	End   int64 `json:"end"`
+ 	// BodyStart e o offset logo apos a linha do heading. E o que
+ 	// replace_section usa: preserva o titulo e substitui so o que vem abaixo.
+ 	BodyStart int64 `json:"body_start"`
+ }
+ 
++// Block e um bloco identificado por um marcador "^id" no fim de linha.
+ type Block struct {
+ 	ID    string `json:"id"` // sem o '^'
+ 	Start int64  `json:"start"`
+ 	End   int64  `json:"end"`
+ }
+ 
++// Link e uma referencia a outra nota ou a um recurso, na sintaxe wikilink,
++// embed ou markdown.
+ type Link struct {
+ 	Raw    string   `json:"raw"` // texto original, para reescrita fiel
+ 	Target string   `json:"target"`
+ 	Alias  string   `json:"alias,omitempty"`
+ 	Anchor string   `json:"anchor,omitempty"` // heading ou ^bloco
+ 	Kind   LinkKind `json:"kind"`
+ 	Start  int64    `json:"start"`
+ 	End    int64    `json:"end"`
+ }
+ 
++// ParsedNote e a estrutura extraida dos bytes de uma nota: frontmatter,
++// headings, blocos e links, prontos para o indice consumir sem reparsear.
+ type ParsedNote struct {
+ 	Frontmatter map[string]any      `json:"frontmatter,omitempty"`
+ 	Tags        []string            `json:"tags,omitempty"`
+ 	Aliases     []string            `json:"aliases,omitempty"`
+ 	Headings    []Heading           `json:"headings,omitempty"`
+ 	Blocks      []Block             `json:"blocks,omitempty"`
+ 	Links       []Link              `json:"links,omitempty"`
+ 	Inline      map[string][]string `json:"inline,omitempty"`
+ 	// Title vem do frontmatter, do primeiro H1, ou fica vazio para que o
+ 	// chamador use o nome do arquivo. O parser nao conhece o nome do arquivo.
+@@ -4677,20 +4705,27 @@ import (
+ 	"fmt"
+ 
+ 	"gopkg.in/yaml.v3"
+ )
+ 
+ var fmDelim = []byte("---")
+ 
+ // SplitFrontmatter separa o bloco YAML do corpo, devolvendo tambem o offset
+ // em que o corpo comeca no arquivo original. O offset e o que mantem todos os
+ // offsets de heading e de bloco corretos em relacao ao arquivo, nao ao corpo.
++//
++// Exige entrada ja sem BOM UTF-8. Quem produz essa garantia e
++// vault.StripBOM — este pacote nao a chama, para nao duplicar logica que ja
++// mora em internal/vault. Sem ela, "\xEF\xBB\xBF---" nao bate com o prefixo
++// "---" esperado: o frontmatter nao fica malformado, fica invisivel. Nao ha
++// FrontmatterErr, tags/aliases/title somem em silencio, e as linhas "---"
++// viram conteudo da nota.
+ func SplitFrontmatter(data []byte) ([]byte, []byte, int64) {
+ 	if !bytes.HasPrefix(data, fmDelim) {
+ 		return nil, data, 0
+ 	}
+ 
+ 	// A primeira linha tem que ser exatamente "---" (com CR opcional).
+ 	firstNL := bytes.IndexByte(data, '\n')
+ 	if firstNL < 0 {
+ 		return nil, data, 0
+ 	}
+diff --git a/internal/parser/frontmatter.go b/internal/parser/frontmatter.go
+new file mode 100644
+index 0000000..ac73c79
+--- /dev/null
++++ b/internal/parser/frontmatter.go
+@@ -0,0 +1,77 @@
++package parser
++
++import (
++	"bytes"
++	"fmt"
++
++	"gopkg.in/yaml.v3"
++)
++
++var fmDelim = []byte("---")
++
++// SplitFrontmatter separa o bloco YAML do corpo, devolvendo tambem o offset
++// em que o corpo comeca no arquivo original. O offset e o que mantem todos os
++// offsets de heading e de bloco corretos em relacao ao arquivo, nao ao corpo.
++//
++// Exige entrada ja sem BOM UTF-8. Quem produz essa garantia e
++// vault.StripBOM — este pacote nao a chama, para nao duplicar logica que ja
++// mora em internal/vault. Sem ela, "\xEF\xBB\xBF---" nao bate com o prefixo
++// "---" esperado: o frontmatter nao fica malformado, fica invisivel. Nao ha
++// FrontmatterErr, tags/aliases/title somem em silencio, e as linhas "---"
++// viram conteudo da nota.
++func SplitFrontmatter(data []byte) ([]byte, []byte, int64) {
++	if !bytes.HasPrefix(data, fmDelim) {
++		return nil, data, 0
++	}
++
++	// A primeira linha tem que ser exatamente "---" (com CR opcional).
++	firstNL := bytes.IndexByte(data, '\n')
++	if firstNL < 0 {
++		return nil, data, 0
++	}
++	first := bytes.TrimRight(data[:firstNL], "\r")
++	if !bytes.Equal(first, fmDelim) {
++		return nil, data, 0
++	}
++
++	rest := data[firstNL+1:]
++	offset := int64(firstNL + 1)
++
++	for len(rest) > 0 {
++		nl := bytes.IndexByte(rest, '\n')
++		var line []byte
++		var advance int
++		if nl < 0 {
++			line, advance = rest, len(rest)
++		} else {
++			line, advance = rest[:nl], nl+1
++		}
++
++		if bytes.Equal(bytes.TrimRight(line, "\r"), fmDelim) {
++			fmEnd := int(offset) - (firstNL + 1)
++			body := rest[advance:]
++			return data[firstNL+1 : firstNL+1+fmEnd], body, offset + int64(advance)
++		}
++
++		rest = rest[advance:]
++		offset += int64(advance)
++	}
++
++	// Delimitador de abertura sem fechamento: nao ha frontmatter, ha um
++	// arquivo que comeca com tres tracos.
++	return nil, data, 0
++}
++
++// DecodeFrontmatter decodifica o YAML preservando os tipos do Obsidian:
++// string, numero, booleano, lista e data.
++func DecodeFrontmatter(fm []byte) (map[string]any, error) {
++	if len(bytes.TrimSpace(fm)) == 0 {
++		return nil, nil
++	}
++
++	var out map[string]any
++	if err := yaml.Unmarshal(fm, &out); err != nil {
++		return nil, fmt.Errorf("decodificando frontmatter: %w", err)
++	}
++	return out, nil
++}
+diff --git a/internal/parser/frontmatter_test.go b/internal/parser/frontmatter_test.go
+new file mode 100644
+index 0000000..8232d1b
+--- /dev/null
++++ b/internal/parser/frontmatter_test.go
+@@ -0,0 +1,114 @@
++package parser_test
++
++import (
++	"testing"
++	"time"
++
++	"github.com/jonyd/gobsidian/internal/parser"
++)
++
++func TestSplitFrontmatter(t *testing.T) {
++	tests := []struct {
++		name       string
++		in         string
++		wantFM     string
++		wantBody   string
++		wantOffset int64
++	}{
++		{
++			name:       "presente",
++			in:         "---\ntitle: A\n---\n# Corpo\n",
++			wantFM:     "title: A\n",
++			wantBody:   "# Corpo\n",
++			wantOffset: 17,
++		},
++		{
++			name:       "ausente",
++			in:         "# Corpo\n",
++			wantFM:     "",
++			wantBody:   "# Corpo\n",
++			wantOffset: 0,
++		},
++		{
++			name:       "tres tracos no meio nao conta",
++			in:         "# Corpo\n---\nnao e frontmatter\n",
++			wantFM:     "",
++			wantBody:   "# Corpo\n---\nnao e frontmatter\n",
++			wantOffset: 0,
++		},
++		{
++			name:       "delimitador nao fechado",
++			in:         "---\ntitle: A\n# Corpo\n",
++			wantFM:     "",
++			wantBody:   "---\ntitle: A\n# Corpo\n",
++			wantOffset: 0,
++		},
++		{
++			name:       "frontmatter vazio",
++			in:         "---\n---\n# Corpo\n",
++			wantFM:     "",
++			wantBody:   "# Corpo\n",
++			wantOffset: 8,
++		},
++	}
++
++	for _, tt := range tests {
++		t.Run(tt.name, func(t *testing.T) {
++			fm, body, off := parser.SplitFrontmatter([]byte(tt.in))
++			if string(fm) != tt.wantFM {
++				t.Errorf("fm = %q, quer %q", fm, tt.wantFM)
++			}
++			if string(body) != tt.wantBody {
++				t.Errorf("body = %q, quer %q", body, tt.wantBody)
++			}
++			// Sem guarda de `!= 0`: zero e a resposta CERTA em tres destes casos,
++			// e pular a asercao neles deixa passar um bug que devolve zero
++			// sempre. bodyOffset e o que mapeia posicao no corpo de volta para
++			// posicao no arquivo — errado aqui, todo offset de heading, bloco e
++			// link do produto inteiro sai deslocado.
++			if off != tt.wantOffset {
++				t.Errorf("offset = %d, quer %d", off, tt.wantOffset)
++			}
++		})
++	}
++}
++
++func TestDecodeFrontmatterPreservesTypes(t *testing.T) {
++	fm := []byte("titulo: Ponto 3\nnumero: 42\nativo: true\ntags:\n  - civil\n  - obrigacoes\naliases: [P3, Ponto III]\ndata: 2026-07-25\n")
++
++	got, err := parser.DecodeFrontmatter(fm)
++	if err != nil {
++		t.Fatalf("DecodeFrontmatter: %v", err)
++	}
++
++	if got["titulo"] != "Ponto 3" {
++		t.Errorf("titulo = %v (%T), quer string", got["titulo"], got["titulo"])
++	}
++	if n, ok := got["numero"].(int); !ok || n != 42 {
++		t.Errorf("numero = %v (%T), quer int 42", got["numero"], got["numero"])
++	}
++	if b, ok := got["ativo"].(bool); !ok || !b {
++		t.Errorf("ativo = %v (%T), quer bool true", got["ativo"], got["ativo"])
++	}
++	if tags, ok := got["tags"].([]any); !ok || len(tags) != 2 {
++		t.Errorf("tags = %v (%T), quer lista de 2", got["tags"], got["tags"])
++	}
++	if aliases, ok := got["aliases"].([]any); !ok || len(aliases) != 2 {
++		t.Errorf("aliases = %v (%T), quer lista de 2", got["aliases"], got["aliases"])
++	}
++	// A data e o tipo mais facil de perder: yaml.v3 devolve time.Time, e
++	// qualquer camada que "normalize" para string quebra comparacao de
++	// intervalo em M3 sem nenhum teste reclamar. O fixture ja carregava a
++	// data desde o inicio; faltava conferir.
++	if d, ok := got["data"].(time.Time); !ok || d.Format("2006-01-02") != "2026-07-25" {
++		t.Errorf("data = %v (%T), quer time.Time 2026-07-25", got["data"], got["data"])
++	}
++}
++
++// Frontmatter malformado nao pode derrubar o parse: a nota ainda tem corpo,
++// headings e links uteis. O erro e reportado e o resto segue.
++func TestDecodeFrontmatterMalformedReturnsError(t *testing.T) {
++	if _, err := parser.DecodeFrontmatter([]byte("a: [1, 2\nb: :\n")); err == nil {
++		t.Fatal("frontmatter malformado deveria devolver erro")
++	}
++}
+diff --git a/internal/parser/slug.go b/internal/parser/slug.go
+new file mode 100644
+index 0000000..e67c2b6
+--- /dev/null
++++ b/internal/parser/slug.go
+@@ -0,0 +1,48 @@
++package parser
++
++import (
++	"strings"
++	"unicode"
++
++	"golang.org/x/text/runes"
++	"golang.org/x/text/transform"
++	"golang.org/x/text/unicode/norm"
++)
++
++// Slug normaliza um heading para comparacao com a ancora de um wikilink:
++// minusculas, sem acentos, sem pontuacao, espacos colapsados.
++//
++// O Obsidian casa ancora de forma mais permissiva do que igualdade textual,
++// e reproduzir isso e o que faz [[nota#Capitulo 118]] encontrar
++// "## Capítulo 118" escrito com acento.
++func Slug(text string) string {
++	stripped, _, err := transform.String(
++		transform.Chain(norm.NFD, runes.Remove(runes.In(unicode.Mn)), norm.NFC),
++		text,
++	)
++	if err != nil {
++		stripped = text
++	}
++
++	var b strings.Builder
++	b.Grow(len(stripped))
++
++	lastSpace := true
++	for _, r := range strings.ToLower(stripped) {
++		switch {
++		case unicode.IsLetter(r) || unicode.IsDigit(r):
++			b.WriteRune(r)
++			lastSpace = false
++		case unicode.IsSpace(r):
++			if !lastSpace && b.Len() > 0 {
++				b.WriteByte(' ')
++				lastSpace = true
++			}
++		default:
++			// Pontuacao vira nada, nao vira espaco: "Art. 1.234" precisa
++			// virar "art 1234", nao "art 1 234".
++		}
++	}
++
++	return strings.TrimSpace(b.String())
++}
+diff --git a/internal/parser/slug_test.go b/internal/parser/slug_test.go
+new file mode 100644
+index 0000000..7808f74
+--- /dev/null
++++ b/internal/parser/slug_test.go
+@@ -0,0 +1,26 @@
++package parser_test
++
++import (
++	"testing"
++
++	"github.com/jonyd/gobsidian/internal/parser"
++)
++
++// O slug existe para casar o texto do heading com a ancora de um wikilink.
++// [[nota#Capitulo 118]] tem que achar "## Capítulo 118".
++func TestSlug(t *testing.T) {
++	tests := []struct{ in, want string }{
++		{"Capítulo 118", "capitulo 118"},
++		{"CAPÍTULO 118", "capitulo 118"},
++		{"  Capitulo   118  ", "capitulo 118"},
++		{"Ação & Reação", "acao reacao"},
++		{"Art. 1.234 — CPC", "art 1234 cpc"},
++		{"", ""},
++	}
++
++	for _, tt := range tests {
++		if got := parser.Slug(tt.in); got != tt.want {
++			t.Errorf("Slug(%q) = %q, quer %q", tt.in, got, tt.want)
++		}
++	}
++}
+diff --git a/internal/parser/types.go b/internal/parser/types.go
+new file mode 100644
+index 0000000..777a47f
+--- /dev/null
++++ b/internal/parser/types.go
+@@ -0,0 +1,79 @@
++// Package parser transforma bytes de uma nota em estrutura. E puro: sem I/O,
++// sem estado, sem conhecimento do indice ou do cofre. Recebe []byte, devolve
++// ParsedNote. Isso o torna trivialmente testavel por golden file e
++// trivialmente paralelizavel.
++package parser
++
++// LinkKind distingue as tres sintaxes de link do Obsidian: wikilink, embed
++// (wikilink com "!" na frente) e link markdown ([texto](alvo)). A distincao
++// importa porque reescrita e resolucao tratam cada uma diferente.
++type LinkKind int
++
++// Valores de LinkKind. LinkWiki e o zero-value porque e o caso mais comum em
++// notas do Obsidian.
++const (
++	LinkWiki LinkKind = iota
++	LinkEmbed
++	LinkMarkdown
++)
++
++func (k LinkKind) String() string {
++	switch k {
++	case LinkEmbed:
++		return "embed"
++	case LinkMarkdown:
++		return "markdown"
++	default:
++		return "wikilink"
++	}
++}
++
++// Heading e uma secao do documento delimitada por uma linha "#"..."######".
++type Heading struct {
++	Level int    `json:"level"`
++	Text  string `json:"text"`
++	Slug  string `json:"slug"`
++	// Start e o offset do '#'. End e o offset do fim da secao — o inicio do
++	// proximo heading de nivel menor ou igual, ou o fim do arquivo.
++	Start int64 `json:"start"`
++	End   int64 `json:"end"`
++	// BodyStart e o offset logo apos a linha do heading. E o que
++	// replace_section usa: preserva o titulo e substitui so o que vem abaixo.
++	BodyStart int64 `json:"body_start"`
++}
++
++// Block e um bloco identificado por um marcador "^id" no fim de linha.
++type Block struct {
++	ID    string `json:"id"` // sem o '^'
++	Start int64  `json:"start"`
++	End   int64  `json:"end"`
++}
++
++// Link e uma referencia a outra nota ou a um recurso, na sintaxe wikilink,
++// embed ou markdown.
++type Link struct {
++	Raw    string   `json:"raw"` // texto original, para reescrita fiel
++	Target string   `json:"target"`
++	Alias  string   `json:"alias,omitempty"`
++	Anchor string   `json:"anchor,omitempty"` // heading ou ^bloco
++	Kind   LinkKind `json:"kind"`
++	Start  int64    `json:"start"`
++	End    int64    `json:"end"`
++}
++
++// ParsedNote e a estrutura extraida dos bytes de uma nota: frontmatter,
++// headings, blocos e links, prontos para o indice consumir sem reparsear.
++type ParsedNote struct {
++	Frontmatter map[string]any      `json:"frontmatter,omitempty"`
++	Tags        []string            `json:"tags,omitempty"`
++	Aliases     []string            `json:"aliases,omitempty"`
++	Headings    []Heading           `json:"headings,omitempty"`
++	Blocks      []Block             `json:"blocks,omitempty"`
++	Links       []Link              `json:"links,omitempty"`
++	Inline      map[string][]string `json:"inline,omitempty"`
++	// Title vem do frontmatter, do primeiro H1, ou fica vazio para que o
++	// chamador use o nome do arquivo. O parser nao conhece o nome do arquivo.
++	Title string `json:"title,omitempty"`
++	// FrontmatterErr registra frontmatter malformado sem abortar o parse.
++	FrontmatterErr string `json:"frontmatter_err,omitempty"`
++}

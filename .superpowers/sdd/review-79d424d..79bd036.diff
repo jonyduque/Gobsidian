@@ -1,0 +1,75 @@
+# Review package: 79d424d..HEAD
+
+## Commits
+79bd036 docs: set ReadOnlySet in doctor command wiring
+8ef6376 test(config): fix cache directory guard to validate outside-vault requirement
+
+## Files changed
+ docs/superpowers/plans/2026-07-25-gobsidian-v01.md | 6 ++++++
+ internal/config/config_test.go                     | 7 ++++++-
+ 2 files changed, 12 insertions(+), 1 deletion(-)
+
+## Diff
+diff --git a/docs/superpowers/plans/2026-07-25-gobsidian-v01.md b/docs/superpowers/plans/2026-07-25-gobsidian-v01.md
+index 19b3bc2..108f4de 100644
+--- a/docs/superpowers/plans/2026-07-25-gobsidian-v01.md
++++ b/docs/superpowers/plans/2026-07-25-gobsidian-v01.md
+@@ -3015,20 +3015,26 @@ import (
+ 	"github.com/spf13/cobra"
+ )
+ 
+ func newDoctorCmd() *cobra.Command {
+ 	var flags config.Flags
+ 
+ 	cmd := &cobra.Command{
+ 		Use:   "doctor",
+ 		Short: "Diagnostica o ambiente: permissoes, OneDrive, MAX_PATH, casing",
+ 		RunE: func(cmd *cobra.Command, _ []string) error {
++			// Sem esta linha, --read-only nao chega a Config e a verificacao
++			// de permissao de escrita roda mesmo quando o usuario pediu para
++			// nao rodar. Toda chamada a config.Load precisa preencher os
++			// companheiros das flags que o comando expoe.
++			flags.ReadOnlySet = cmd.Flags().Changed("read-only")
++
+ 			cfg, err := config.Load(flags)
+ 			if err != nil {
+ 				return err
+ 			}
+ 
+ 			results := doctor.Run(cmd.Context(), cfg)
+ 
+ 			// doctor imprime em stdout de proposito: e um comando de CLI,
+ 			// nao um servidor. Nenhum JSON-RPC trafega aqui.
+ 			out := cmd.OutOrStdout()
+diff --git a/internal/config/config_test.go b/internal/config/config_test.go
+index ebb978b..85b37e3 100644
+--- a/internal/config/config_test.go
++++ b/internal/config/config_test.go
+@@ -194,21 +194,26 @@ func TestLoadCacheDir(t *testing.T) {
+ 			t.Errorf("CacheDir colidiu para cofres diferentes: %q", c1.CacheDir)
+ 		}
+ 	})
+ 
+ 	t.Run("derived path is not inside the vault", func(t *testing.T) {
+ 		c, err := config.Load(config.Flags{VaultPath: "C:/vault/three"})
+ 		if err != nil {
+ 			t.Fatalf("Load() error = %v", err)
+ 		}
+ 		rel, err := filepath.Rel(c.VaultPath, c.CacheDir)
+-		if err == nil && !strings.HasPrefix(rel, "..") {
++		if err != nil {
++			// filepath.Rel error means the paths are on different volumes (common on Windows),
++			// which satisfies the "cache outside vault" property.
++			return
++		}
++		if !strings.HasPrefix(rel, "..") {
+ 			t.Errorf("CacheDir %q esta dentro do cofre %q (rel = %q)", c.CacheDir, c.VaultPath, rel)
+ 		}
+ 	})
+ 
+ 	t.Run("explicit cache dir wins over derivation", func(t *testing.T) {
+ 		c, err := config.Load(config.Flags{VaultPath: "C:/vault/four", CacheDir: "C:/explicit/cache"})
+ 		if err != nil {
+ 			t.Fatalf("Load() error = %v", err)
+ 		}
+ 		if c.CacheDir != "C:/explicit/cache" {

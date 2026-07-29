@@ -17,6 +17,12 @@ Makefile   text eol=lf
 # executados la e so la.
 *.ps1  text eol=crlf
 
+# Os pacotes de revisao em .superpowers/sdd/ sao o diff exato que um revisor
+# leu. Sob "* text=auto" o Git reescreve os fins de linha deles no checkout, e
+# o arquivo deixa de ser byte a byte o que foi revisado — inclusive nas linhas
+# de contexto de codigo que tem CRLF de proposito. "-text" congela.
+*.diff  -text
+
 # Estes tres golden fixtures do parser existem para testar CRLF real e BOM.
 # A regra "*.md text eol=lf" acima normalizaria os dois primeiros para LF no
 # checkout, e a segunda camada de normalizacao (bytes vs. texto) faria o

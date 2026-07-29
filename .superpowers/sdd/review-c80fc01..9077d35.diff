@@ -1,0 +1,685 @@
+# Review package: c80fc01..HEAD
+
+## Commits
+9077d35 docs(parser): warn that markdown link offsets are zero until M5
+6a6b315 feat(parser): goldmark inline parser for wikilinks and embeds
+
+## Files changed
+ docs/superpowers/plans/2026-07-25-gobsidian-v01.md |  11 ++
+ internal/parser/ast.go                             | 153 +++++++++++++++++++++
+ internal/parser/ext_blockid.go                     |  30 ++++
+ internal/parser/ext_inline_field.go                |  29 ++++
+ internal/parser/ext_tag.go                         |  28 ++++
+ internal/parser/ext_wikilink.go                    | 125 +++++++++++++++++
+ internal/parser/ext_wikilink_test.go               | 122 ++++++++++++++++
+ internal/parser/parser.go                          |  61 ++++++++
+ internal/parser/types.go                           |  15 +-
+ 9 files changed, 572 insertions(+), 2 deletions(-)
+
+## Diff
+diff --git a/docs/superpowers/plans/2026-07-25-gobsidian-v01.md b/docs/superpowers/plans/2026-07-25-gobsidian-v01.md
+index 0ebeec8..557ff73 100644
+--- a/docs/superpowers/plans/2026-07-25-gobsidian-v01.md
++++ b/docs/superpowers/plans/2026-07-25-gobsidian-v01.md
+@@ -4696,20 +4696,31 @@ type Block struct {
+ }
+ 
+ // Link e uma referencia a outra nota ou a um recurso, na sintaxe wikilink,
+ // embed ou markdown.
+ type Link struct {
+ 	Raw    string   `json:"raw"` // texto original, para reescrita fiel
+ 	Target string   `json:"target"`
+ 	Alias  string   `json:"alias,omitempty"`
+ 	Anchor string   `json:"anchor,omitempty"` // heading ou ^bloco
+ 	Kind   LinkKind `json:"kind"`
++
++	// Start e End delimitam o link no buffer, com bodyOffset ja somado.
++	//
++	// ATENCAO: hoje so sao preenchidos para LinkWiki e LinkEmbed. Para
++	// LinkMarkdown ficam ZERADOS, porque a AST do goldmark nao entrega o span
++	// completo de "[texto](destino)" num unico no. Quem for reescrever um link
++	// PRECISA checar Kind antes: reescrever a partir de Start=0 num link
++	// Markdown sobrescreveria o inicio da nota.
++	//
++	// Fechar essa lacuna e trabalho de M5 (note_move), que e quem precisa dos
++	// offsets. Ate la, Kind e o unico discriminador confiavel.
+ 	Start  int64    `json:"start"`
+ 	End    int64    `json:"end"`
+ }
+ 
+ // ParsedNote e a estrutura extraida dos bytes de uma nota: frontmatter,
+ // headings, blocos e links, prontos para o indice consumir sem reparsear.
+ type ParsedNote struct {
+ 	Frontmatter map[string]any      `json:"frontmatter,omitempty"`
+ 	Tags        []string            `json:"tags,omitempty"`
+ 	Aliases     []string            `json:"aliases,omitempty"`
+diff --git a/internal/parser/ast.go b/internal/parser/ast.go
+new file mode 100644
+index 0000000..9555541
+--- /dev/null
++++ b/internal/parser/ast.go
+@@ -0,0 +1,153 @@
++package parser
++
++import (
++	"sort"
++	"strings"
++
++	gast "github.com/yuin/goldmark/ast"
++)
++
++// collect percorre a AST uma unica vez e distribui cada no de interesse para
++// o campo correspondente de ParsedNote.
++func collect(doc gast.Node, body []byte, bodyOffset int64, note *ParsedNote) {
++	_ = gast.Walk(doc, func(n gast.Node, entering bool) (gast.WalkStatus, error) {
++		if !entering {
++			return gast.WalkContinue, nil
++		}
++
++		switch node := n.(type) {
++		case *WikilinkNode:
++			note.Links = append(note.Links, Link{
++				Raw:    node.Raw,
++				Target: node.Target,
++				Alias:  node.Alias,
++				Anchor: node.Anchor,
++				Kind:   node.LinkKind,
++				Start:  bodyOffset + node.Start,
++				End:    bodyOffset + node.End,
++			})
++
++		case *gast.Link:
++			// Link Markdown padrao. So interessa quando aponta para dentro do
++			// cofre; a decisao de o que e interno cabe ao indice, entao aqui
++			// registramos tudo e deixamos a resolucao filtrar.
++			note.Links = append(note.Links, Link{
++				Raw:    string(node.Destination),
++				Target: string(node.Destination),
++				Alias:  string(node.Text(body)),
++				Kind:   LinkMarkdown,
++			})
++
++		case *BlockIDNode:
++			note.Blocks = append(note.Blocks, Block{
++				ID:    node.ID,
++				Start: bodyOffset + node.Start,
++				End:   bodyOffset + node.End,
++			})
++
++		case *TagNode:
++			note.Tags = append(note.Tags, node.Name)
++
++		case *InlineFieldNode:
++			if note.Inline == nil {
++				note.Inline = map[string][]string{}
++			}
++			note.Inline[node.Key] = append(note.Inline[node.Key], node.Value)
++		}
++
++		return gast.WalkContinue, nil
++	})
++}
++
++// tagsFromFrontmatter le as chaves "tags" e "tag" do frontmatter. Cada uma
++// pode ser uma string unica, uma string com virgulas, ou uma lista; cada
++// valor entra sem o '#' inicial.
++func tagsFromFrontmatter(fm map[string]any) []string {
++	var out []string
++	for _, key := range []string{"tags", "tag"} {
++		for _, v := range stringsFromFrontmatterValue(fm[key]) {
++			out = append(out, strings.TrimPrefix(v, "#"))
++		}
++	}
++	return out
++}
++
++// aliasesFromFrontmatter le as chaves "aliases" e "alias", nas mesmas formas
++// aceitas por tagsFromFrontmatter. E o insumo de RF-62.
++func aliasesFromFrontmatter(fm map[string]any) []string {
++	var out []string
++	for _, key := range []string{"aliases", "alias"} {
++		out = append(out, stringsFromFrontmatterValue(fm[key])...)
++	}
++	return out
++}
++
++// titleFromFrontmatter le a chave "title", apenas se for string.
++func titleFromFrontmatter(fm map[string]any) string {
++	if v, ok := fm["title"].(string); ok {
++		return v
++	}
++	return ""
++}
++
++// stringsFromFrontmatterValue normaliza um valor de frontmatter YAML nas tres
++// formas que o Obsidian aceita: string unica, string com virgulas, ou lista.
++func stringsFromFrontmatterValue(v any) []string {
++	var out []string
++	switch val := v.(type) {
++	case nil:
++		return nil
++	case string:
++		for _, part := range strings.Split(val, ",") {
++			part = strings.TrimSpace(part)
++			if part != "" {
++				out = append(out, part)
++			}
++		}
++	case []any:
++		for _, item := range val {
++			s, ok := item.(string)
++			if !ok {
++				continue
++			}
++			s = strings.TrimSpace(s)
++			if s != "" {
++				out = append(out, s)
++			}
++		}
++	case []string:
++		for _, s := range val {
++			s = strings.TrimSpace(s)
++			if s != "" {
++				out = append(out, s)
++			}
++		}
++	}
++	return out
++}
++
++// dedupeTags ordena e remove duplicatas de note.Tags, preservando a grafia da
++// primeira ocorrencia (comparacao insensivel a maiusculas/minusculas).
++func dedupeTags(note *ParsedNote) {
++	if len(note.Tags) == 0 {
++		return
++	}
++
++	seen := make(map[string]string, len(note.Tags))
++	order := make([]string, 0, len(note.Tags))
++	for _, tag := range note.Tags {
++		key := strings.ToLower(tag)
++		if _, ok := seen[key]; ok {
++			continue
++		}
++		seen[key] = tag
++		order = append(order, key)
++	}
++
++	out := make([]string, len(order))
++	for i, key := range order {
++		out[i] = seen[key]
++	}
++	sort.Strings(out)
++	note.Tags = out
++}
+diff --git a/internal/parser/ext_blockid.go b/internal/parser/ext_blockid.go
+new file mode 100644
+index 0000000..fd29878
+--- /dev/null
++++ b/internal/parser/ext_blockid.go
+@@ -0,0 +1,30 @@
++package parser
++
++import (
++	"github.com/yuin/goldmark"
++	gast "github.com/yuin/goldmark/ast"
++)
++
++// BlockIDNode e um stub. Task 15 substitui este arquivo por uma extensao que
++// reconhece marcadores "^id" no fim de linha.
++type BlockIDNode struct {
++	gast.BaseInline
++
++	ID    string
++	Start int64
++	End   int64
++}
++
++var kindBlockID = gast.NewNodeKind("BlockID")
++
++func (n *BlockIDNode) Kind() gast.NodeKind { return kindBlockID }
++
++func (n *BlockIDNode) Dump(src []byte, level int) {
++	gast.DumpHelper(n, src, level, map[string]string{"ID": n.ID}, nil)
++}
++
++// BlockIDExtension e um stub sem efeito, so para o pacote compilar antes da
++// Task 15.
++type BlockIDExtension struct{}
++
++func (BlockIDExtension) Extend(goldmark.Markdown) {}
+diff --git a/internal/parser/ext_inline_field.go b/internal/parser/ext_inline_field.go
+new file mode 100644
+index 0000000..deb1006
+--- /dev/null
++++ b/internal/parser/ext_inline_field.go
+@@ -0,0 +1,29 @@
++package parser
++
++import (
++	"github.com/yuin/goldmark"
++	gast "github.com/yuin/goldmark/ast"
++)
++
++// InlineFieldNode e um stub. Task 17 substitui este arquivo por uma extensao
++// que reconhece campos inline do Dataview ("Chave:: valor").
++type InlineFieldNode struct {
++	gast.BaseInline
++
++	Key   string
++	Value string
++}
++
++var kindInlineField = gast.NewNodeKind("InlineField")
++
++func (n *InlineFieldNode) Kind() gast.NodeKind { return kindInlineField }
++
++func (n *InlineFieldNode) Dump(src []byte, level int) {
++	gast.DumpHelper(n, src, level, map[string]string{"Key": n.Key, "Value": n.Value}, nil)
++}
++
++// InlineFieldExtension e um stub sem efeito, so para o pacote compilar antes
++// da Task 17.
++type InlineFieldExtension struct{}
++
++func (InlineFieldExtension) Extend(goldmark.Markdown) {}
+diff --git a/internal/parser/ext_tag.go b/internal/parser/ext_tag.go
+new file mode 100644
+index 0000000..d121010
+--- /dev/null
++++ b/internal/parser/ext_tag.go
+@@ -0,0 +1,28 @@
++package parser
++
++import (
++	"github.com/yuin/goldmark"
++	gast "github.com/yuin/goldmark/ast"
++)
++
++// TagNode e um stub. Task 16 substitui este arquivo por uma extensao que
++// reconhece "#tag" e "#tag/subtag" hierarquicos no corpo.
++type TagNode struct {
++	gast.BaseInline
++
++	Name string
++}
++
++var kindTag = gast.NewNodeKind("Tag")
++
++func (n *TagNode) Kind() gast.NodeKind { return kindTag }
++
++func (n *TagNode) Dump(src []byte, level int) {
++	gast.DumpHelper(n, src, level, map[string]string{"Name": n.Name}, nil)
++}
++
++// TagExtension e um stub sem efeito, so para o pacote compilar antes da
++// Task 16.
++type TagExtension struct{}
++
++func (TagExtension) Extend(goldmark.Markdown) {}
+diff --git a/internal/parser/ext_wikilink.go b/internal/parser/ext_wikilink.go
+new file mode 100644
+index 0000000..bd9cd79
+--- /dev/null
++++ b/internal/parser/ext_wikilink.go
+@@ -0,0 +1,125 @@
++package parser
++
++import (
++	"bytes"
++
++	"github.com/yuin/goldmark"
++	gast "github.com/yuin/goldmark/ast"
++	gparser "github.com/yuin/goldmark/parser"
++	"github.com/yuin/goldmark/text"
++	"github.com/yuin/goldmark/util"
++)
++
++var KindWikilink = gast.NewNodeKind("Wikilink")
++
++// WikilinkNode e o no de AST para "[[alvo]]" e "![[alvo]]". LinkKind guarda
++// wiki vs. embed; o nome nao pode ser "Kind" porque gast.Node ja exige um
++// metodo Kind() gast.NodeKind, e Go nao permite campo e metodo com o mesmo
++// nome no mesmo tipo.
++type WikilinkNode struct {
++	gast.BaseInline
++
++	Target   string
++	Alias    string
++	Anchor   string
++	LinkKind LinkKind
++	Raw      string
++	Start    int64
++	End      int64
++}
++
++func (n *WikilinkNode) Kind() gast.NodeKind { return KindWikilink }
++
++func (n *WikilinkNode) Dump(src []byte, level int) {
++	gast.DumpHelper(n, src, level, map[string]string{
++		"Target": n.Target,
++		"Alias":  n.Alias,
++		"Anchor": n.Anchor,
++		"Raw":    n.Raw,
++	}, nil)
++}
++
++type wikilinkParser struct{}
++
++// Trigger diz ao goldmark em quais bytes oferecer este parser. '[' cobre
++// [[...]]; '!' cobre ![[...]].
++func (p *wikilinkParser) Trigger() []byte { return []byte{'[', '!'} }
++
++func (p *wikilinkParser) Parse(_ gast.Node, block text.Reader, _ gparser.Context) gast.Node {
++	line, seg := block.PeekLine()
++
++	embed := false
++	offset := 0
++	if len(line) > 0 && line[0] == '!' {
++		embed = true
++		offset = 1
++	}
++	if len(line) < offset+4 || line[offset] != '[' || line[offset+1] != '[' {
++		return nil
++	}
++
++	closeIdx := bytes.Index(line[offset+2:], []byte("]]"))
++	if closeIdx < 0 {
++		return nil
++	}
++	inner := line[offset+2 : offset+2+closeIdx]
++
++	// Um wikilink nao atravessa linha, e nao contem "[[" aninhado.
++	if bytes.ContainsAny(inner, "\n") || bytes.Contains(inner, []byte("[[")) {
++		return nil
++	}
++
++	total := offset + 2 + closeIdx + 2
++	raw := string(line[:total])
++
++	target, anchor, alias := splitWikilink(string(inner))
++	if target == "" && anchor == "" {
++		return nil
++	}
++
++	node := &WikilinkNode{
++		Target: target,
++		Alias:  alias,
++		Anchor: anchor,
++		Raw:    raw,
++		Start:  int64(seg.Start),
++		End:    int64(seg.Start + total),
++	}
++	node.LinkKind = LinkWiki
++	if embed {
++		node.LinkKind = LinkEmbed
++	}
++
++	block.Advance(total)
++	return node
++}
++
++// splitWikilink reparte "alvo#ancora|alias" nas tres partes. A ordem importa:
++// o alias e sempre o ultimo, e a ancora vem antes dele.
++func splitWikilink(inner string) (target, anchor, alias string) {
++	if i := bytes.IndexByte([]byte(inner), '|'); i >= 0 {
++		alias = inner[i+1:]
++		inner = inner[:i]
++	}
++	if i := bytes.IndexByte([]byte(inner), '#'); i >= 0 {
++		anchor = inner[i+1:]
++		inner = inner[:i]
++	}
++	return trimSpace(inner), trimSpace(anchor), trimSpace(alias)
++}
++
++func trimSpace(s string) string { return string(bytes.TrimSpace([]byte(s))) }
++
++// WikilinkExtension registra o inline parser no goldmark.
++type WikilinkExtension struct{}
++
++func (WikilinkExtension) Extend(md goldmark.Markdown) {
++	md.Parser().AddOptions(
++		gparser.WithInlineParsers(
++			// Prioridade abaixo da do link padrao do CommonMark (200), para
++			// que "[[x]]" seja oferecido a nos antes de virar dois links
++			// aninhados.
++			util.Prioritized(&wikilinkParser{}, 150),
++		),
++	)
++}
+diff --git a/internal/parser/ext_wikilink_test.go b/internal/parser/ext_wikilink_test.go
+new file mode 100644
+index 0000000..9fb6dbb
+--- /dev/null
++++ b/internal/parser/ext_wikilink_test.go
+@@ -0,0 +1,122 @@
++package parser_test
++
++import (
++	"testing"
++
++	"github.com/jonyd/gobsidian/internal/parser"
++)
++
++func TestWikilinkForms(t *testing.T) {
++	tests := []struct {
++		name   string
++		in     string
++		target string
++		alias  string
++		anchor string
++		kind   parser.LinkKind
++	}{
++		{"simples", "[[nota]]", "nota", "", "", parser.LinkWiki},
++		{"com alias", "[[nota|apelido]]", "nota", "apelido", "", parser.LinkWiki},
++		{"com heading", "[[nota#Cap 1]]", "nota", "", "Cap 1", parser.LinkWiki},
++		{"com bloco", "[[nota#^abc123]]", "nota", "", "^abc123", parser.LinkWiki},
++		{"heading e alias", "[[nota#Cap 1|Cap um]]", "nota", "Cap um", "Cap 1", parser.LinkWiki},
++		{"caminho", "[[Civil/PONTO 03]]", "Civil/PONTO 03", "", "", parser.LinkWiki},
++		{"embed", "![[nota]]", "nota", "", "", parser.LinkEmbed},
++		{"embed de imagem", "![[diagrama.png]]", "diagrama.png", "", "", parser.LinkEmbed},
++		{"embed de secao", "![[nota#Cap 1]]", "nota", "", "Cap 1", parser.LinkEmbed},
++	}
++
++	for _, tt := range tests {
++		t.Run(tt.name, func(t *testing.T) {
++			note, err := parser.Parse([]byte("texto " + tt.in + " texto\n"))
++			if err != nil {
++				t.Fatalf("Parse: %v", err)
++			}
++			if len(note.Links) != 1 {
++				t.Fatalf("links = %d, quer 1: %+v", len(note.Links), note.Links)
++			}
++
++			got := note.Links[0]
++			if got.Target != tt.target {
++				t.Errorf("Target = %q, quer %q", got.Target, tt.target)
++			}
++			if got.Alias != tt.alias {
++				t.Errorf("Alias = %q, quer %q", got.Alias, tt.alias)
++			}
++			if got.Anchor != tt.anchor {
++				t.Errorf("Anchor = %q, quer %q", got.Anchor, tt.anchor)
++			}
++			if got.Kind != tt.kind {
++				t.Errorf("Kind = %v, quer %v", got.Kind, tt.kind)
++			}
++			if got.Raw != tt.in {
++				t.Errorf("Raw = %q, quer %q — a forma original tem que ser preservada", got.Raw, tt.in)
++			}
++		})
++	}
++}
++
++// RF-17: a diferenca entre um grafo de links correto e um grafo plausivel.
++func TestWikilinkSuppressedInCode(t *testing.T) {
++	tests := []struct {
++		name string
++		in   string
++	}{
++		{"bloco cercado", "```\n[[nao e link]]\n```\n"},
++		{"bloco cercado com linguagem", "```go\n// [[nao e link]]\n```\n"},
++		{"codigo inline", "use `[[nao e link]]` aqui\n"},
++		{"bloco indentado", "    [[nao e link]]\n"},
++		{"escapado", "\\[\\[nao e link\\]\\]\n"},
++		{"colchete literal simples", "isto [nao] e link\n"},
++		{"til cercado", "~~~\n[[nao e link]]\n~~~\n"},
++	}
++
++	for _, tt := range tests {
++		t.Run(tt.name, func(t *testing.T) {
++			note, err := parser.Parse([]byte(tt.in))
++			if err != nil {
++				t.Fatalf("Parse: %v", err)
++			}
++			if len(note.Links) != 0 {
++				t.Errorf("links = %+v, quer nenhum", note.Links)
++			}
++		})
++	}
++}
++
++func TestWikilinkOffsetsPointAtSource(t *testing.T) {
++	src := "abc [[nota]] def\n"
++
++	note, err := parser.Parse([]byte(src))
++	if err != nil {
++		t.Fatalf("Parse: %v", err)
++	}
++	if len(note.Links) != 1 {
++		t.Fatalf("links = %d, quer 1", len(note.Links))
++	}
++
++	l := note.Links[0]
++	if got := src[l.Start:l.End]; got != "[[nota]]" {
++		t.Errorf("src[%d:%d] = %q, quer %q", l.Start, l.End, got, "[[nota]]")
++	}
++}
++
++// TestWikilinkOffsetsWithFrontmatter confirma que bodyOffset e somado: sem a
++// soma, l.Start/l.End continuariam relativos ao corpo, e a fatia apontaria
++// para dentro do proprio frontmatter em vez do link.
++func TestWikilinkOffsetsWithFrontmatter(t *testing.T) {
++	src := "---\ntitle: x\n---\nabc [[nota]] def\n"
++
++	note, err := parser.Parse([]byte(src))
++	if err != nil {
++		t.Fatalf("Parse: %v", err)
++	}
++	if len(note.Links) != 1 {
++		t.Fatalf("links = %d, quer 1", len(note.Links))
++	}
++
++	l := note.Links[0]
++	if got := src[l.Start:l.End]; got != "[[nota]]" {
++		t.Errorf("src[%d:%d] = %q, quer %q", l.Start, l.End, got, "[[nota]]")
++	}
++}
+diff --git a/internal/parser/parser.go b/internal/parser/parser.go
+new file mode 100644
+index 0000000..14abc97
+--- /dev/null
++++ b/internal/parser/parser.go
+@@ -0,0 +1,61 @@
++package parser
++
++import (
++	"github.com/yuin/goldmark"
++	gtext "github.com/yuin/goldmark/text"
++)
++
++// md e construido uma vez: goldmark.Markdown e seguro para uso concorrente
++// apos a construcao, e o worker pool de indexacao depende disso.
++var md = goldmark.New(
++	goldmark.WithExtensions(
++		WikilinkExtension{},
++		BlockIDExtension{},
++		TagExtension{},
++		InlineFieldExtension{},
++	),
++)
++
++// Parse transforma os bytes de uma nota em ParsedNote. Puro: nao toca disco,
++// nao guarda estado, nao conhece o caminho do arquivo.
++func Parse(data []byte) (*ParsedNote, error) {
++	fm, body, bodyOffset := SplitFrontmatter(data)
++
++	note := &ParsedNote{}
++
++	if len(fm) > 0 {
++		decoded, err := DecodeFrontmatter(fm)
++		if err != nil {
++			// Frontmatter quebrado nao invalida a nota: o corpo continua
++			// tendo headings e links uteis, e recusar tudo seria desproporcional.
++			note.FrontmatterErr = err.Error()
++		} else {
++			note.Frontmatter = decoded
++			note.Tags = append(note.Tags, tagsFromFrontmatter(decoded)...)
++			note.Aliases = aliasesFromFrontmatter(decoded)
++			note.Title = titleFromFrontmatter(decoded)
++		}
++	}
++
++	note.Headings = ExtractHeadings(body, bodyOffset)
++	if note.Title == "" {
++		note.Title = firstH1(note.Headings)
++	}
++
++	// O reader recebe o CORPO, e todos os offsets do goldmark sao relativos a
++	// ele. bodyOffset e somado na coleta.
++	doc := md.Parser().Parse(gtext.NewReader(body))
++	collect(doc, body, bodyOffset, note)
++
++	dedupeTags(note)
++	return note, nil
++}
++
++func firstH1(hs []Heading) string {
++	for _, h := range hs {
++		if h.Level == 1 {
++			return h.Text
++		}
++	}
++	return ""
++}
+diff --git a/internal/parser/types.go b/internal/parser/types.go
+index 0eda69b..f343c0c 100644
+--- a/internal/parser/types.go
++++ b/internal/parser/types.go
+@@ -60,22 +60,33 @@ type Block struct {
+ }
+ 
+ // Link e uma referencia a outra nota ou a um recurso, na sintaxe wikilink,
+ // embed ou markdown.
+ type Link struct {
+ 	Raw    string   `json:"raw"` // texto original, para reescrita fiel
+ 	Target string   `json:"target"`
+ 	Alias  string   `json:"alias,omitempty"`
+ 	Anchor string   `json:"anchor,omitempty"` // heading ou ^bloco
+ 	Kind   LinkKind `json:"kind"`
+-	Start  int64    `json:"start"`
+-	End    int64    `json:"end"`
++
++	// Start e End delimitam o link no buffer, com bodyOffset ja somado.
++	//
++	// ATENCAO: hoje so sao preenchidos para LinkWiki e LinkEmbed. Para
++	// LinkMarkdown ficam ZERADOS, porque a AST do goldmark nao entrega o span
++	// completo de "[texto](destino)" num unico no. Quem for reescrever um link
++	// PRECISA checar Kind antes: reescrever a partir de Start=0 num link
++	// Markdown sobrescreveria o inicio da nota.
++	//
++	// Fechar essa lacuna e trabalho de M5 (note_move), que e quem precisa dos
++	// offsets. Ate la, Kind e o unico discriminador confiavel.
++	Start int64 `json:"start"`
++	End   int64 `json:"end"`
+ }
+ 
+ // ParsedNote e a estrutura extraida dos bytes de uma nota: frontmatter,
+ // headings, blocos e links, prontos para o indice consumir sem reparsear.
+ type ParsedNote struct {
+ 	Frontmatter map[string]any      `json:"frontmatter,omitempty"`
+ 	Tags        []string            `json:"tags,omitempty"`
+ 	Aliases     []string            `json:"aliases,omitempty"`
+ 	Headings    []Heading           `json:"headings,omitempty"`
+ 	Blocks      []Block             `json:"blocks,omitempty"`

@@ -1,0 +1,317 @@
+# Review package: e2c8ddf..HEAD
+
+## Commits
+1de565c chore: bootstrap module, CI, and network-import analyzer
+
+## Files changed
+ .github/workflows/ci.yml           | 40 ++++++++++++++++++++++++++++++++++++++
+ .gitignore                         |  1 +
+ .golangci.yml                      | 13 +++++++++++++
+ LICENSE                            | 21 ++++++++++++++++++++
+ Makefile                           | 16 +++++++++++++++
+ go.mod                             | 21 ++++++++++++++++++++
+ go.sum                             | 39 +++++++++++++++++++++++++++++++++++++
+ scripts/check_net.ps1              | 23 ++++++++++++++++++++++
+ tools/netcheck/netcheck.go         | 32 ++++++++++++++++++++++++++++++
+ tools/netcheck/netcheck_test.go    | 12 ++++++++++++
+ tools/netcheck/testdata/src/a/a.go |  9 +++++++++
+ 11 files changed, 227 insertions(+)
+
+## Diff
+diff --git a/.github/workflows/ci.yml b/.github/workflows/ci.yml
+new file mode 100644
+index 0000000..8b87773
+--- /dev/null
++++ b/.github/workflows/ci.yml
+@@ -0,0 +1,40 @@
++name: ci
++
++on:
++  push:
++  pull_request:
++
++jobs:
++  test:
++    strategy:
++      fail-fast: false
++      matrix:
++        os: [windows-latest, ubuntu-latest, macos-latest]
++    runs-on: ${{ matrix.os }}
++    steps:
++      - uses: actions/checkout@v4
++      - uses: actions/setup-go@v5
++        with:
++          go-version: '1.24'
++      - run: go vet ./...
++      - run: go test -race ./...
++
++  netcheck:
++    runs-on: ubuntu-latest
++    steps:
++      - uses: actions/checkout@v4
++      - uses: actions/setup-go@v5
++        with:
++          go-version: '1.24'
++      - name: nenhum pacote do produto importa rede
++        shell: pwsh
++        run: ./scripts/check_net.ps1
++
++  lint:
++    runs-on: ubuntu-latest
++    steps:
++      - uses: actions/checkout@v4
++      - uses: actions/setup-go@v5
++        with:
++          go-version: '1.24'
++      - uses: golangci/golangci-lint-action@v6
+diff --git a/.gitignore b/.gitignore
+index 1678be0..3eb244d 100644
+--- a/.gitignore
++++ b/.gitignore
+@@ -1,5 +1,6 @@
+ bin/
+ coverage.out
+ *.exe
++cofre-debug.log
+ gobsidian-debug.log
+ .superpowers/
+diff --git a/.golangci.yml b/.golangci.yml
+new file mode 100644
+index 0000000..e0d30d4
+--- /dev/null
++++ b/.golangci.yml
+@@ -0,0 +1,13 @@
++version: "2"
++linters:
++  enable:
++    - errcheck
++    - govet
++    - ineffassign
++    - staticcheck
++    - unused
++    - bodyclose
++    - contextcheck
++    - errorlint
++    - gocritic
++    - revive
+diff --git a/LICENSE b/LICENSE
+new file mode 100644
+index 0000000..1491111
+--- /dev/null
++++ b/LICENSE
+@@ -0,0 +1,21 @@
++MIT License
++
++Copyright (c) 2026 jonyd
++
++Permission is hereby granted, free of charge, to any person obtaining a copy
++of this software and associated documentation files (the "Software"), to deal
++in the Software without restriction, including without limitation the rights
++to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
++copies of the Software, and to permit persons to whom the Software is
++furnished to do so, subject to the following conditions:
++
++The above copyright notice and this permission notice shall be included in all
++copies or substantial portions of the Software.
++
++THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
++IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
++FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
++AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
++LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
++OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
++SOFTWARE.
+diff --git a/Makefile b/Makefile
+new file mode 100644
+index 0000000..447fe64
+--- /dev/null
++++ b/Makefile
+@@ -0,0 +1,16 @@
++.PHONY: test lint build bench netcheck
++
++test:
++	go test -race ./...
++
++lint:
++	golangci-lint run
++
++netcheck:
++	pwsh -NoProfile -File scripts/check_net.ps1
++
++build:
++	pwsh -NoProfile -File scripts/build.ps1
++
++bench:
++	go test -bench=. -benchmem ./internal/index ./internal/search ./internal/parser
+diff --git a/go.mod b/go.mod
+new file mode 100644
+index 0000000..08609aa
+--- /dev/null
++++ b/go.mod
+@@ -0,0 +1,21 @@
++module github.com/jonyd/gobsidian
++
++go 1.25.0
++
++require golang.org/x/tools v0.48.0
++
++require (
++	github.com/cespare/xxhash/v2 v2.3.0 // indirect
++	github.com/fsnotify/fsnotify v1.10.1 // indirect
++	github.com/google/go-cmp v0.7.0 // indirect
++	github.com/inconshreveable/mousetrap v1.1.0 // indirect
++	github.com/modelcontextprotocol/go-sdk v1.5.0 // indirect
++	github.com/spf13/cobra v1.10.2 // indirect
++	github.com/spf13/pflag v1.0.9 // indirect
++	github.com/yuin/goldmark v1.8.4 // indirect
++	golang.org/x/mod v0.38.0 // indirect
++	golang.org/x/sync v0.22.0 // indirect
++	golang.org/x/sys v0.47.0 // indirect
++	golang.org/x/text v0.40.0 // indirect
++	gopkg.in/yaml.v3 v3.0.1 // indirect
++)
+diff --git a/go.sum b/go.sum
+new file mode 100644
+index 0000000..abde7eb
+--- /dev/null
++++ b/go.sum
+@@ -0,0 +1,39 @@
++github.com/cespare/xxhash/v2 v2.3.0 h1:UL815xU9SqsFlibzuggzjXhog7bL6oX9BbNZnL2UFvs=
++github.com/cespare/xxhash/v2 v2.3.0/go.mod h1:VGX0DQ3Q6kWi7AoAeZDth3/j3BFtOZR5XLFGgcrjCOs=
++github.com/cpuguy83/go-md2man/v2 v2.0.6/go.mod h1:oOW0eioCTA6cOiMLiUPZOpcVxMig6NIQQ7OS05n1F4g=
++github.com/fsnotify/fsnotify v1.10.1 h1:b0/UzAf9yR5rhf3RPm9gf3ehBPpf0oZKIjtpKrx59Ho=
++github.com/fsnotify/fsnotify v1.10.1/go.mod h1:TLheqan6HD6GBK6PrDWyDPBaEV8LspOxvPSjC+bVfgo=
++github.com/google/go-cmp v0.7.0/go.mod h1:pXiqmnSA92OHEEa9HXL2W4E7lf9JzCmGVUdgjX3N/iU=
++github.com/inconshreveable/mousetrap v1.1.0 h1:wN+x4NVGpMsO7ErUn/mUI3vEoE6Jt13X2s0bqwp9tc8=
++github.com/inconshreveable/mousetrap v1.1.0/go.mod h1:vpF70FUmC8bwa3OWnCshd2FqLfsEA9PFc4w1p2J65bw=
++github.com/modelcontextprotocol/go-sdk v1.5.0 h1:CHU0FIX9kpueNkxuYtfYQn1Z0slhFzBZuq+x6IiblIU=
++github.com/modelcontextprotocol/go-sdk v1.5.0/go.mod h1:gggDIhoemhWs3BGkGwd1umzEXCEMMvAnhTrnbXJKKKA=
++github.com/russross/blackfriday/v2 v2.1.0/go.mod h1:+Rmxgy9KzJVeS9/2gXHxylqXiyQDYRxCVz55jmeOWTM=
++github.com/spf13/cobra v1.10.2 h1:DMTTonx5m65Ic0GOoRY2c16WCbHxOOw6xxezuLaBpcU=
++github.com/spf13/cobra v1.10.2/go.mod h1:7C1pvHqHw5A4vrJfjNwvOdzYu0Gml16OCs2GRiTUUS4=
++github.com/spf13/pflag v1.0.9 h1:9exaQaMOCwffKiiiYk6/BndUBv+iRViNW+4lEMi0PvY=
++github.com/spf13/pflag v1.0.9/go.mod h1:McXfInJRrz4CZXVZOBLb0bTZqETkiAhM9Iw0y3An2Bg=
++github.com/yuin/goldmark v1.8.4 h1:oat/nd3U6NeQqFEL3xpEJq7d7c86NI+DbSNGAs4xnjA=
++github.com/yuin/goldmark v1.8.4/go.mod h1:ip/1k0VRfGynBgxOz0yCqHrbZXhcjxyuS66Brc7iBKg=
++go.yaml.in/yaml/v3 v3.0.4/go.mod h1:DhzuOOF2ATzADvBadXxruRBLzYTpT36CKvDb3+aBEFg=
++golang.org/x/mod v0.34.0/go.mod h1:ykgH52iCZe79kzLLMhyCUzhMci+nQj+0XkbXpNYtVjY=
++golang.org/x/mod v0.37.0/go.mod h1:m8S8VeM9r4dzDwjrKO0a1sZP3YjeMamRRlD+fmR2Q/0=
++golang.org/x/mod v0.38.0 h1:MECBjubtXD7yj4HrhIUcywNaGeNVUdfVnxmPajOk4yk=
++golang.org/x/mod v0.38.0/go.mod h1:V6Xz0pq8TQ3dGqVQ1FVHuelZpAL0uNhSkk9ogYP3c40=
++golang.org/x/sync v0.22.0 h1:SZjpbeLmrCk4xhRSZFNZW5gFUeCeFgjekvI/+gfScek=
++golang.org/x/sync v0.22.0/go.mod h1:9xrNwdLfx4jkKbNva9FpL6vEN7evnE43NNNJQ2LF3+0=
++golang.org/x/sys v0.41.0 h1:Ivj+2Cp/ylzLiEU89QhWblYnOE9zerudt9Ftecq2C6k=
++golang.org/x/sys v0.41.0/go.mod h1:OgkHotnGiDImocRcuBABYBEXf8A9a87e/uXjp9XT3ks=
++golang.org/x/sys v0.46.0 h1:noSf2Fq6F8DBgS+LysIkx7rIExoNHJsxOAtPp4rthXw=
++golang.org/x/sys v0.46.0/go.mod h1:4GL1E5IUh+htKOUEOaiffhrAeqysfVGipDYzABqnCmw=
++golang.org/x/sys v0.47.0 h1:o7XGOvZQCADBQQ4Y7VNq2dRWQR7JmOUW8Kxx4ZsNgWs=
++golang.org/x/sys v0.47.0/go.mod h1:4GL1E5IUh+htKOUEOaiffhrAeqysfVGipDYzABqnCmw=
++golang.org/x/text v0.40.0 h1:Ub2Z6/xjgF1WrYQz2nuITOEegKFtiIy+rieRJ5lHZKs=
++golang.org/x/text v0.40.0/go.mod h1:hpnzDAfGV753zIKo+wk3u1bVKCGPbrnF7+7LBF/UHVY=
++golang.org/x/tools v0.42.0/go.mod h1:Ma6lCIwGZvHK6XtgbswSoWroEkhugApmsXyrUmBhfr0=
++golang.org/x/tools v0.47.0/go.mod h1:dFHnyTvFWY212G+h7ZY4Vsp/K3U4/7W9TyVaAul8uCA=
++golang.org/x/tools v0.48.0 h1:3+hClM1aLL5mjMKm5ovokw9epgRXPuu2tILgismM6RE=
++golang.org/x/tools v0.48.0/go.mod h1:08xX0orndb/F7jJxGDicx061tyd5pcMto75YMAXr6lk=
++gopkg.in/check.v1 v0.0.0-20161208181325-20d25e280405/go.mod h1:Co6ibVJAznAaIkqp8huTwlJQCZ016jof/cbN4VW5Yz0=
++gopkg.in/yaml.v3 v3.0.1 h1:fxVm/GzAzEWqLHuvctI91KS9hhNmmWOoWu0XTYJS7CA=
++gopkg.in/yaml.v3 v3.0.1/go.mod h1:K4uyk7z7BCEPqu6E+C64Yfv1cQ7kz7rIZviUmN+EgEM=
+diff --git a/scripts/check_net.ps1 b/scripts/check_net.ps1
+new file mode 100644
+index 0000000..5de1212
+--- /dev/null
++++ b/scripts/check_net.ps1
+@@ -0,0 +1,23 @@
++Set-StrictMode -Version Latest
++$ErrorActionPreference = "Stop"
++
++$Rows = go list -f '{{.ImportPath}}|{{join .Imports ","}}' ./...
++$Offenders = @()
++
++foreach ($Row in $Rows) {
++    $Parts = $Row -split "\|", 2
++    $Pkg = $Parts[0]
++
++    $Imports = @()
++    if ($Parts.Count -gt 1 -and $Parts[1]) { $Imports = $Parts[1] -split "," }
++
++    $Net = $Imports | Where-Object { $_ -eq "net" -or $_ -like "net/*" }
++    if ($Net) { $Offenders += "$Pkg -> $($Net -join ', ')" }
++}
++
++if ($Offenders) {
++    Write-Warning "[!] Pacote do produto importando rede:"
++    $Offenders | ForEach-Object { Write-Output "    $_" }
++    exit 1
++}
++Write-Output "[OK] Nenhum pacote de internal/ ou cmd/ importa rede"
+diff --git a/tools/netcheck/netcheck.go b/tools/netcheck/netcheck.go
+new file mode 100644
+index 0000000..1255dc4
+--- /dev/null
++++ b/tools/netcheck/netcheck.go
+@@ -0,0 +1,32 @@
++// Package netcheck implementa a verificação de RNF-30: nenhum pacote do
++// produto importa rede. Ver PRD §6.4 para a formulação completa da garantia.
++package netcheck
++
++import (
++	"strings"
++
++	"golang.org/x/tools/go/analysis"
++)
++
++var Analyzer = &analysis.Analyzer{
++	Name: "netcheck",
++	Doc:  "reporta importacao de pacotes de rede em codigo do produto",
++	Run:  run,
++}
++
++func run(pass *analysis.Pass) (any, error) {
++	for _, file := range pass.Files {
++		for _, imp := range file.Imports {
++			path := strings.Trim(imp.Path.Value, `"`)
++			if !isNetwork(path) {
++				continue
++			}
++			pass.Reportf(imp.Pos(), "pacote de rede proibido: %s", path)
++		}
++	}
++	return nil, nil
++}
++
++func isNetwork(path string) bool {
++	return path == "net" || strings.HasPrefix(path, "net/")
++}
+diff --git a/tools/netcheck/netcheck_test.go b/tools/netcheck/netcheck_test.go
+new file mode 100644
+index 0000000..ded8fff
+--- /dev/null
++++ b/tools/netcheck/netcheck_test.go
+@@ -0,0 +1,12 @@
++package netcheck_test
++
++import (
++	"testing"
++
++	"github.com/jonyd/gobsidian/tools/netcheck"
++	"golang.org/x/tools/go/analysis/analysistest"
++)
++
++func TestNetCheck(t *testing.T) {
++	analysistest.Run(t, analysistest.TestData(), netcheck.Analyzer, "a")
++}
+diff --git a/tools/netcheck/testdata/src/a/a.go b/tools/netcheck/testdata/src/a/a.go
+new file mode 100644
+index 0000000..8babbe8
+--- /dev/null
++++ b/tools/netcheck/testdata/src/a/a.go
+@@ -0,0 +1,9 @@
++package a
++
++import (
++	"net/http" // want `pacote de rede proibido: net/http`
++	"os"
++)
++
++var _ = os.Getenv
++var _ = http.Get
