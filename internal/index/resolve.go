@@ -158,8 +158,8 @@ func (ix *Index) resolveByName(target string, isNote bool, origin vault.Canonica
 }
 
 func (ix *Index) resolveByAlias(target string, origin vault.CanonicalPath) (vault.CanonicalPath, bool) {
-	lower := strings.ToLower(target)
-	paths, ok := ix.byAlias[lower]
+	key := aliasKey(target)
+	paths, ok := ix.byAlias[key]
 	if !ok || len(paths) == 0 {
 		return "", false
 	}

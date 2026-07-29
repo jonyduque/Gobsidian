@@ -105,7 +105,8 @@ func (ix *Index) Replace(ctx context.Context, v *vault.Vault, path vault.Canonic
 	ix.byName[string(base)] = append(ix.byName[string(base)], entry.Path)
 
 	for _, alias := range note.Aliases {
-		ix.byAlias[alias] = append(ix.byAlias[alias], entry.Path)
+		key := aliasKey(alias)
+		ix.byAlias[key] = append(ix.byAlias[key], entry.Path)
 	}
 	for _, tag := range note.Tags {
 		ix.tags[tag] = append(ix.tags[tag], entry.Path)
@@ -200,7 +201,8 @@ func (ix *Index) removeContributionsLocked(path vault.CanonicalPath) {
 		}
 
 		for _, alias := range oldNote.Aliases {
-			al := ix.byAlias[alias]
+			key := aliasKey(alias)
+			al := ix.byAlias[key]
 			filteredAl := make([]vault.CanonicalPath, 0, len(al))
 			for _, p := range al {
 				if p != path {
@@ -208,9 +210,9 @@ func (ix *Index) removeContributionsLocked(path vault.CanonicalPath) {
 				}
 			}
 			if len(filteredAl) == 0 {
-				delete(ix.byAlias, alias)
+				delete(ix.byAlias, key)
 			} else {
-				ix.byAlias[alias] = filteredAl
+				ix.byAlias[key] = filteredAl
 			}
 		}
 	}
@@ -351,8 +353,8 @@ func (ix *Index) MoveNote(oldPath, newPath vault.CanonicalPath) {
 
 	// 5. Atualizar byAlias
 	for _, alias := range n.Aliases {
-		lower := strings.ToLower(alias)
-		al := ix.byAlias[lower]
+		key := aliasKey(alias)
+		al := ix.byAlias[key]
 		for i, p := range al {
 			if p == oldPath {
 				al[i] = newPath
