@@ -119,6 +119,12 @@ switch ($Command) {
         Require-Task
         $Scripts = Get-SuperpowersScripts
         & (Get-GitBash) (ConvertTo-BashPath (Join-Path $Scripts "task-brief")) (ConvertTo-BashPath $Plan) $Task
+        # DEPOIS da chamada, nao so antes: o `task-brief` garante o workspace,
+        # e garantir o workspace reescreve o .gitignore com "*". Limpar apenas
+        # na entrada deixava o brief recem-gerado ignorado ate a invocacao
+        # seguinte — os briefs das Tasks 51-53 ficaram fora de um commit por
+        # isto, e os das 43-50 so entraram porque um `base` posterior limpou.
+        Remove-PluginGitignore
     }
 
     "base" {
@@ -150,6 +156,7 @@ switch ($Command) {
         # A assinatura ganhou PLAN_FILE na frente na 6.2.0. Passar na ordem
         # antiga falha com um "usage:" que nao diz que a versao mudou.
         & (Get-GitBash) (ConvertTo-BashPath (Join-Path $Scripts "review-package")) (ConvertTo-BashPath $Plan) $Base "HEAD"
+        Remove-PluginGitignore
     }
 
     "status" {
