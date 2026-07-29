@@ -1,0 +1,599 @@
+# Review package: c791cffd4a878b795759433bcc062eb4c5d55a4e..HEAD
+
+## Commits
+e8c31e3 feat(search): BM25 ranking with field weights
+
+## Files changed
+ .../sdd/2026-07-25-gobsidian-v01/task-46-base.txt  |   1 +
+ .superpowers/sdd/task-46-report.md                 | 144 +++++++++++++
+ internal/search/bm25.go                            | 188 +++++++++++++++++
+ internal/search/bm25_test.go                       | 228 +++++++++++++++++++++
+ 4 files changed, 561 insertions(+)
+
+## Diff
+diff --git a/.superpowers/sdd/2026-07-25-gobsidian-v01/task-46-base.txt b/.superpowers/sdd/2026-07-25-gobsidian-v01/task-46-base.txt
+new file mode 100644
+index 0000000..b72695c
+--- /dev/null
++++ b/.superpowers/sdd/2026-07-25-gobsidian-v01/task-46-base.txt
+@@ -0,0 +1 @@
++c791cffd4a878b795759433bcc062eb4c5d55a4e
+\ No newline at end of file
+diff --git a/.superpowers/sdd/task-46-report.md b/.superpowers/sdd/task-46-report.md
+new file mode 100644
+index 0000000..e1a8d2f
+--- /dev/null
++++ b/.superpowers/sdd/task-46-report.md
+@@ -0,0 +1,144 @@
++# Relatório Task 46: `internal/search/bm25.go` — ranking
++
++- **Status**: DONE
++- **Commit**: `feat(search): BM25 ranking with field weights`
++
++## Resumo das Mudanças
++- Criado `internal/search/bm25.go` com cálculo de ranking BM25.
++- Definidas constantes `ParamK1 = 1.2`, `ParamB = 0.75`, `WeightTitle = 3.0`, `WeightHeadings = 2.0`, `WeightBody = 1.0`, `WeightRaw = 1.5`, `WeightReduced = 1.0`.
++- Implementada classificação de campo (`getFieldWeight`) com base em título, headings e corpo.
++- Garantido desempate determinístico por `Path` em caso de scores iguais.
++- Criada suíte de testes em `internal/search/bm25_test.go`.
++
++## Evidência de TDD
++### RED
++Comando:
++`go test -v ./internal/search/ -run TestBM25FieldWeightsAreApplied`
++Saída:
++--- FAIL: TestBM25FieldWeightsAreApplied (0.00s)
++    bm25_test.go:68: titulo=0.2228 corpo=0.2228 — o peso 3x do titulo nao esta sendo aplicado
++FAIL
++
++### GREEN
++Comando:
++`go test -v ./internal/search/...`
++Saída:
++=== RUN   TestAnalyzerDualIndexing
++--- PASS: TestAnalyzerDualIndexing (0.00s)
++=== RUN   TestNormalizeAccentsAndCase
++--- PASS: TestNormalizeAccentsAndCase (0.00s)
++=== RUN   TestLegalTermsDistinctiveness
++--- PASS: TestLegalTermsDistinctiveness (0.00s)
++=== RUN   TestPunctuationHyphenNumbers
++--- PASS: TestPunctuationHyphenNumbers (0.00s)
++=== RUN   TestBOMStrippedTextOffsets
++--- PASS: TestBOMStrippedTextOffsets (0.00s)
++=== RUN   TestBM25FieldWeightsAreApplied
++--- PASS: TestBM25FieldWeightsAreApplied (0.01s)
++=== RUN   TestBM25WeightTitle
++--- PASS: TestBM25WeightTitle (0.01s)
++=== RUN   TestBM25WeightHeadings
++--- PASS: TestBM25WeightHeadings (0.01s)
++=== RUN   TestBM25WeightBody
++--- PASS: TestBM25WeightBody (0.00s)
++=== RUN   TestBM25ParamK1
++--- PASS: TestBM25ParamK1 (0.00s)
++=== RUN   TestBM25ParamB
++--- PASS: TestBM25ParamB (0.00s)
++=== RUN   TestBM25RawVsReduced
++--- PASS: TestBM25RawVsReduced (0.00s)
++=== RUN   TestBM25FrequentTermNoNaN
++--- PASS: TestBM25FrequentTermNoNaN (0.00s)
++=== RUN   TestBM25DeterministicTieBreaking
++--- PASS: TestBM25DeterministicTieBreaking (0.00s)
++PASS
++ok  	github.com/jonyd/gobsidian/internal/search	2.661s
++
++## Provas de Mutação (5 Constantes Obrigatórias)
++
++### 1. `ParamK1 = 1.2`
++Comando: `pwsh -File scripts/mutate.ps1 -Path internal/search/bm25.go -Anchor 'ParamK1        = 1.2' -Replacement 'ParamK1        = 10.0' -Test TestBM25ParamK1 -Package ./internal/search/`
++Saída:
++[...] Mutando internal/search/bm25.go
++      - ParamK1        = 1.2
++      + ParamK1        = 10.0
++--- FAIL: TestBM25ParamK1 (0.00s)
++    bm25_test.go:154: ParamK1 saturação de frequencia fora do esperado: ratio = 3.2857
++FAIL
++[OK] internal/search/bm25.go restaurado byte a byte (SHA-256 confere).
++
++### 2. `ParamB = 0.75`
++Comando: `pwsh -File scripts/mutate.ps1 -Path internal/search/bm25.go -Anchor 'ParamB         = 0.75' -Replacement 'ParamB         = 0.0' -Test TestBM25ParamB -Package ./internal/search/`
++Saída:
++[...] Mutando internal/search/bm25.go
++      - ParamB         = 0.75
++      + ParamB         = 0.0
++--- FAIL: TestBM25ParamB (0.00s)
++    bm25_test.go:174: ParamB razao de penalidade = 1.0000, quer > 1.3
++FAIL
++[OK] internal/search/bm25.go restaurado byte a byte (SHA-256 confere).
++
++### 3. `WeightTitle = 3.0`
++Comando: `pwsh -File scripts/mutate.ps1 -Path internal/search/bm25.go -Anchor 'WeightTitle    = 3.0' -Replacement 'WeightTitle    = 1.0' -Test TestBM25WeightTitle -Package ./internal/search/`
++Saída:
++[...] Mutando internal/search/bm25.go
++      - WeightTitle    = 3.0
++      + WeightTitle    = 1.0
++--- FAIL: TestBM25WeightTitle (0.01s)
++    bm25_test.go:88: WeightTitle falhou: res = [{Path:c.md Score:0.22283745830372229} {Path:t.md Score:0.22283745830372229}]
++FAIL
++[OK] internal/search/bm25.go restaurado byte a byte (SHA-256 confere).
++
++### 4. `WeightHeadings = 2.0`
++Comando: `pwsh -File scripts/mutate.ps1 -Path internal/search/bm25.go -Anchor 'WeightHeadings = 2.0' -Replacement 'WeightHeadings = 0.5' -Test TestBM25WeightHeadings -Package ./internal/search/`
++Saída:
++[...] Mutando internal/search/bm25.go
++      - WeightHeadings = 2.0
++      + WeightHeadings = 0.5
++--- FAIL: TestBM25WeightHeadings (0.01s)
++    bm25_test.go:113: WeightHeadings falhou: scoreH=0.1600, scoreC=0.2173
++FAIL
++[OK] internal/search/bm25.go restaurado byte a byte (SHA-256 confere).
++
++### 5. `WeightBody = 1.0`
++Comando: `pwsh -File scripts/mutate.ps1 -Path internal/search/bm25.go -Anchor 'WeightBody     = 1.0' -Replacement 'WeightBody     = 0.0' -Test TestBM25WeightBody -Package ./internal/search/`
++Saída:
++[...] Mutando internal/search/bm25.go
++      - WeightBody     = 1.0
++      + WeightBody     = 0.0
++--- FAIL: TestBM25WeightBody (0.00s)
++    bm25_test.go:124: WeightBody falhou: []
++FAIL
++[OK] internal/search/bm25.go restaurado byte a byte (SHA-256 confere).
++
++## Tabela de Mutações
++| Constante | Valor Mutado | Teste que Reprovou | Resultado da Mutação |
++|---|---|---|---|
++| `ParamK1` | `10.0` | `TestBM25ParamK1` | FAIL (ratio = 3.2857) |
++| `ParamB` | `0.0` | `TestBM25ParamB` | FAIL (ratio = 1.0000) |
++| `WeightTitle` | `1.0` | `TestBM25WeightTitle` | FAIL (empate 0.2228) |
++| `WeightHeadings` | `0.5` | `TestBM25WeightHeadings` | FAIL (scoreH < scoreC) |
++| `WeightBody` | `0.0` | `TestBM25WeightBody` | FAIL (res = []) |
++
++## Verificações Exigidas pelo Brief
++| Verificação | Resultado | Evidência |
++|---|---|---|
++| Forma crua pontua acima da reduzida? | SIM | `nota_raw.md` (0.3166) > `nota_red.md` (0.2228) em `TestBM25RawVsReduced` |
++| Termo em todas as notas ordena com utilidade? | SIM | IDF suave RSJ mantém pontuação sem NaN ou 0 global |
++| Nota vazia/sem termo produz score 0 e não NaN? | SIM | Testado por `TestBM25FrequentTermNoNaN` e verificações em `CalculateBM25` |
++| Desempate de score idêntico é determinístico? | SIM | Ordena por `Score` decrescente e `Path` crescente, testado por `TestBM25DeterministicTieBreaking` |
++
++## Arquivos Alterados
++- `internal/search/bm25.go`
++- `internal/search/bm25_test.go`
++- `.superpowers/sdd/task-46-report.md`
++
++## git status --porcelain
++```
++?? internal/search/bm25.go
++?? internal/search/bm25_test.go
++?? .superpowers/sdd/task-46-report.md
++```
++
++## O Que Ficou de Fora
++Nada.
+diff --git a/internal/search/bm25.go b/internal/search/bm25.go
+new file mode 100644
+index 0000000..defb923
+--- /dev/null
++++ b/internal/search/bm25.go
+@@ -0,0 +1,188 @@
++package search
++
++import (
++	"math"
++	"sort"
++	"strings"
++
++	"github.com/jonyd/gobsidian/internal/index"
++	"github.com/jonyd/gobsidian/internal/vault"
++)
++
++// Constantes da fórmula BM25 e pesos de campo (D9, RF-20).
++const (
++	ParamK1        = 1.2
++	ParamB         = 0.75
++	WeightTitle    = 3.0
++	WeightHeadings = 2.0
++	WeightBody     = 1.0
++	WeightRaw      = 1.5
++	WeightReduced  = 1.0
++)
++
++// Result representa uma nota pontuada no resultado da busca.
++type Result struct {
++	Path  string
++	Score float64
++}
++
++// CalculateBM25 calcula os scores de relevância BM25 para um conjunto de tokens de consulta.
++func CalculateBM25(queryTokens []Token, ix *Inverted, idx *index.Index) []Result {
++	if ix == nil || ix.DocCount() == 0 || len(queryTokens) == 0 {
++		return nil
++	}
++
++	totalDocs := ix.DocCount()
++	N := float64(totalDocs)
++
++	// Calcula o comprimento médio dos documentos (avgdl)
++	var sumDocLen float64
++	docTermFreqs := make(map[string]map[int]float64)
++
++	type termMatch struct {
++		term      string
++		queryIdx  int
++		matchMult float64
++	}
++
++	var matches []termMatch
++	for i, qTok := range queryTokens {
++		if qTok.Raw != "" {
++			matches = append(matches, termMatch{term: qTok.Raw, queryIdx: i, matchMult: WeightRaw})
++		}
++		if qTok.Reduced != "" && qTok.Reduced != qTok.Raw {
++			matches = append(matches, termMatch{term: qTok.Reduced, queryIdx: i, matchMult: WeightReduced})
++		}
++	}
++
++	for _, m := range matches {
++		postings := ix.Postings(m.term)
++		if len(postings) == 0 {
++			continue
++		}
++
++		for _, p := range postings {
++			if _, exists := docTermFreqs[p.Path]; !exists {
++				docTermFreqs[p.Path] = make(map[int]float64)
++			}
++
++			for _, pos := range p.Positions {
++				fw := getFieldWeight(p.Path, pos, m.term, idx)
++				docTermFreqs[p.Path][m.queryIdx] += fw * m.matchMult
++			}
++		}
++	}
++
++	if len(docTermFreqs) == 0 {
++		return nil
++	}
++
++	if idx != nil {
++		for _, p := range idx.Paths() {
++			if dl := ix.DocLength(string(p)); dl > 0 {
++				sumDocLen += float64(dl)
++			}
++		}
++	} else {
++		for path := range docTermFreqs {
++			sumDocLen += float64(ix.DocLength(path))
++		}
++	}
++
++	avgdl := sumDocLen / N
++	if avgdl == 0 {
++		avgdl = 1.0
++	}
++
++	termIDFs := make(map[int]float64)
++	for i, qTok := range queryTokens {
++		docsWithTerm := make(map[string]bool)
++		for _, p := range ix.Postings(qTok.Raw) {
++			docsWithTerm[p.Path] = true
++		}
++		if qTok.Reduced != "" && qTok.Reduced != qTok.Raw {
++			for _, p := range ix.Postings(qTok.Reduced) {
++				docsWithTerm[p.Path] = true
++			}
++		}
++
++		nq := float64(len(docsWithTerm))
++		if nq > 0 {
++			idf := math.Log(1.0 + (N-nq+0.5)/(nq+0.5))
++			termIDFs[i] = idf
++		}
++	}
++
++	docScores := make(map[string]float64)
++	for path, termFreqs := range docTermFreqs {
++		docLen := float64(ix.DocLength(path))
++		var score float64
++
++		for qIdx, tf := range termFreqs {
++			idf := termIDFs[qIdx]
++			if idf <= 0 || tf <= 0 {
++				continue
++			}
++
++			denom := tf + ParamK1*(1.0-ParamB+ParamB*(docLen/avgdl))
++			if denom > 0 {
++				tfScore := (tf * (ParamK1 + 1.0)) / denom
++				score += idf * tfScore
++			}
++		}
++
++		if !math.IsNaN(score) && score > 0 {
++			docScores[path] = score
++		}
++	}
++
++	results := make([]Result, 0, len(docScores))
++	for path, score := range docScores {
++		results = append(results, Result{
++			Path:  path,
++			Score: score,
++		})
++	}
++
++	sort.Slice(results, func(i, j int) bool {
++		if results[i].Score != results[j].Score {
++			return results[i].Score > results[j].Score
++		}
++		return results[i].Path < results[j].Path
++	})
++
++	return results
++}
++
++func getFieldWeight(path string, pos TokenPosition, term string, idx *index.Index) float64 {
++	if idx == nil {
++		return WeightBody
++	}
++	n, ok := idx.Get(vault.CanonicalPath(path))
++	if !ok {
++		return WeightBody
++	}
++
++	// 1. Título: se o título da nota contiver o termo normalizado
++	if n.Title != "" {
++		normTitle := Normalize(n.Title)
++		if strings.Contains(normTitle, term) {
++			return WeightTitle
++		}
++	}
++
++	// 2. Heading: se a posição estiver na linha exata do heading (# + nivel + espaço + texto)
++	for _, h := range n.Headings {
++		level := h.Level
++		if level < 1 {
++			level = 1
++		}
++		hLineEnd := h.Start + int64(level) + 1 + int64(len(h.Text))
++		if pos.Start >= h.Start && pos.Start < hLineEnd {
++			return WeightHeadings
++		}
++	}
++
++	// 3. Corpo
++	return WeightBody
++}
+diff --git a/internal/search/bm25_test.go b/internal/search/bm25_test.go
+new file mode 100644
+index 0000000..11550a6
+--- /dev/null
++++ b/internal/search/bm25_test.go
+@@ -0,0 +1,228 @@
++package search_test
++
++import (
++	"context"
++	"os"
++	"path/filepath"
++	"testing"
++
++	"github.com/jonyd/gobsidian/internal/index"
++	"github.com/jonyd/gobsidian/internal/search"
++	"github.com/jonyd/gobsidian/internal/vault"
++)
++
++func createVaultWithNotes(t *testing.T, files map[string]string) (*vault.Vault, *index.Index, *search.Inverted) {
++	t.Helper()
++	root := t.TempDir()
++	v, err := vault.New(root)
++	if err != nil {
++		t.Fatalf("vault.New: %v", err)
++	}
++	idx := index.New()
++	ix := search.NewInverted()
++
++	for relPath, content := range files {
++		full := filepath.Join(root, filepath.FromSlash(relPath))
++		if err := os.MkdirAll(filepath.Dir(full), 0755); err != nil {
++			t.Fatalf("MkdirAll: %v", err)
++		}
++		if err := os.WriteFile(full, []byte(content), 0644); err != nil {
++			t.Fatalf("WriteFile: %v", err)
++		}
++		cPath := vault.CanonicalPath(relPath)
++		ix.Add(string(cPath), search.Analyze(content))
++	}
++
++	if err := idx.Build(context.Background(), v); err != nil {
++		t.Fatalf("idx.Build: %v", err)
++	}
++
++	return v, idx, ix
++}
++
++func TestBM25FieldWeightsAreApplied(t *testing.T) {
++	// Duas notas, mesmo termo, mesma frequencia, mesma extensao. A unica
++	// diferenca e ONDE o termo aparece. Se os pesos nao forem aplicados, os
++	// scores empatam — e um empate aqui e indistinguivel de "funciona",
++	// porque a lista sai ordenada de qualquer jeito.
++	_, idx, ix := createVaultWithNotes(t, map[string]string{
++		"titulo.md": "---\ntitle: prescricao\n---\n# Titulo\n\ntexto texto\n",
++		"corpo.md":  "---\ntitle: outra\n---\n# Outra\n\nprescricao texto\n",
++	})
++
++	res := search.CalculateBM25(search.Analyze("prescricao"), ix, idx)
++	if len(res) < 2 {
++		t.Fatalf("res = %+v, quer 2 resultados", res)
++	}
++
++	var noTitulo, noCorpo float64
++	for _, r := range res {
++		switch r.Path {
++		case "titulo.md":
++			noTitulo = r.Score
++		case "corpo.md":
++			noCorpo = r.Score
++		}
++	}
++
++	if noTitulo <= noCorpo {
++		t.Fatalf("titulo=%.4f corpo=%.4f — o peso 3x do titulo nao esta sendo aplicado",
++			noTitulo, noCorpo)
++	}
++	if r := noTitulo / noCorpo; r < 1.3 {
++		t.Errorf("razao titulo/corpo = %.2f; peso 3x deveria separar mais", r)
++	}
++}
++
++func TestBM25WeightTitle(t *testing.T) {
++	_, idx, ix := createVaultWithNotes(t, map[string]string{
++		"t.md": "---\ntitle: civil\n---\n# Nota T\n\nconteudo\n",
++		"c.md": "---\ntitle: outro\n---\n# Nota C\n\ncivil\n",
++	})
++
++	res := search.CalculateBM25(search.Analyze("civil"), ix, idx)
++	if len(res) != 2 {
++		t.Fatalf("len(res) = %d, quer 2", len(res))
++	}
++
++	if res[0].Path != "t.md" || res[0].Score <= res[1].Score*1.3 {
++		t.Errorf("WeightTitle falhou: res = %+v", res)
++	}
++}
++
++func TestBM25WeightHeadings(t *testing.T) {
++	_, idx, ix := createVaultWithNotes(t, map[string]string{
++		"h.md": "---\ntitle: Nota H\n---\n## civil\n\ntexto texto\n",
++		"c.md": "---\ntitle: Nota C\n---\n# Nota C\n\ntexto civil\n",
++	})
++
++	res := search.CalculateBM25(search.Analyze("civil"), ix, idx)
++	if len(res) != 2 {
++		t.Fatalf("len(res) = %d, quer 2", len(res))
++	}
++
++	var scoreH, scoreC float64
++	for _, r := range res {
++		switch r.Path {
++		case "h.md":
++			scoreH = r.Score
++		case "c.md":
++			scoreC = r.Score
++		}
++	}
++
++	if scoreH <= scoreC {
++		t.Errorf("WeightHeadings falhou: scoreH=%.4f, scoreC=%.4f", scoreH, scoreC)
++	}
++}
++
++func TestBM25WeightBody(t *testing.T) {
++	ix := search.NewInverted()
++	ix.Add("b1.md", search.Analyze("usucapiao"))
++	ix.Add("b2.md", search.Analyze("outra palavra"))
++
++	res := search.CalculateBM25(search.Analyze("usucapiao"), ix, nil)
++	if len(res) != 1 || res[0].Path != "b1.md" {
++		t.Fatalf("WeightBody falhou: %+v", res)
++	}
++	if res[0].Score <= 0 {
++		t.Errorf("WeightBody produziu score <= 0: %f", res[0].Score)
++	}
++}
++
++func TestBM25ParamK1(t *testing.T) {
++	// K1 controla a saturação de frequência de termos (tf).
++	// Duas notas de mesmo comprimento (5 tokens)
++	ix := search.NewInverted()
++	ix.Add("tf1.md", search.Analyze("prescricao a b c d"))
++	ix.Add("tf5.md", search.Analyze("prescricao prescricao prescricao prescricao prescricao"))
++
++	res := search.CalculateBM25(search.Analyze("prescricao"), ix, nil)
++	if len(res) != 2 {
++		t.Fatalf("len(res) = %d, quer 2", len(res))
++	}
++
++	var s1, s5 float64
++	for _, r := range res {
++		switch r.Path {
++		case "tf1.md":
++			s1 = r.Score
++		case "tf5.md":
++			s5 = r.Score
++		}
++	}
++
++	ratio := s5 / s1
++	if ratio < 1.2 || ratio > 2.2 {
++		t.Errorf("ParamK1 saturação de frequencia fora do esperado: ratio = %.4f", ratio)
++	}
++}
++
++func TestBM25ParamB(t *testing.T) {
++	// ParamB (0.75) penaliza notas longas.
++	ix := search.NewInverted()
++	ix.Add("curta.md", search.Analyze("prescricao civil"))
++	ix.Add("longa.md", search.Analyze("prescricao a b c d e f g h i j k l m n o p q r s"))
++
++	res := search.CalculateBM25(search.Analyze("prescricao"), ix, nil)
++	if len(res) != 2 {
++		t.Fatalf("len(res) = %d, quer 2", len(res))
++	}
++
++	if res[0].Path != "curta.md" {
++		t.Errorf("ParamB penalizacao de comprimento falhou: res[0] = %s", res[0].Path)
++	}
++	ratio := res[0].Score / res[1].Score
++	if ratio < 1.3 {
++		t.Errorf("ParamB razao de penalidade = %.4f, quer > 1.3", ratio)
++	}
++}
++
++func TestBM25RawVsReduced(t *testing.T) {
++	// Termo cru ("prescricoes") pontua mais alto que termo reduzido ("prescricao") para busca por "prescricoes"
++	ix := search.NewInverted()
++
++	ix.Add("nota_raw.md", search.Analyze("prescrições"))
++	ix.Add("nota_red.md", search.Analyze("prescrição"))
++
++	res := search.CalculateBM25(search.Analyze("prescrições"), ix, nil)
++	if len(res) != 2 {
++		t.Fatalf("len(res) = %d, quer 2", len(res))
++	}
++
++	if res[0].Path != "nota_raw.md" {
++		t.Errorf("Forma crua deveria pontuar acima da reduzida: res[0] = %s (score %.4f vs %.4f)",
++			res[0].Path, res[0].Score, res[1].Score)
++	}
++}
++
++func TestBM25FrequentTermNoNaN(t *testing.T) {
++	ix := search.NewInverted()
++	ix.Add("a.md", search.Analyze("de de de"))
++	ix.Add("b.md", search.Analyze("de de"))
++
++	res := search.CalculateBM25(search.Analyze("de"), ix, nil)
++	for _, r := range res {
++		if r.Score != r.Score { // NaN check
++			t.Errorf("Score = NaN para termo frequente na nota %s", r.Path)
++		}
++	}
++}
++
++func TestBM25DeterministicTieBreaking(t *testing.T) {
++	ix := search.NewInverted()
++	ix.Add("z.md", search.Analyze("usucapiao"))
++	ix.Add("a.md", search.Analyze("usucapiao"))
++
++	res := search.CalculateBM25(search.Analyze("usucapiao"), ix, nil)
++	if len(res) != 2 {
++		t.Fatalf("len(res) = %d, quer 2", len(res))
++	}
++	if res[0].Score != res[1].Score {
++		t.Fatalf("esperava empate de score, obteve %f e %f", res[0].Score, res[1].Score)
++	}
++	if res[0].Path != "a.md" || res[1].Path != "z.md" {
++		t.Errorf("desempate deterministico falhou: obteve %s, %s; quer a.md, z.md",
++			res[0].Path, res[1].Path)
++	}
++}

@@ -1,0 +1,234 @@
+# Review package: 5cf441d78e15f75ab28cb353b515ff0795e4a427..HEAD
+
+## Commits
+713cfc1 fix(parser): accept trailing whitespace on the frontmatter delimiter
+
+## Files changed
+ .../sdd/2026-07-25-gobsidian-v01/task-43-base.txt  |  2 +-
+ .superpowers/sdd/task-43-report.md                 | 71 ++++++++++++++++++++++
+ internal/parser/frontmatter.go                     |  4 +-
+ internal/parser/frontmatter_test.go                | 60 ++++++++++++++++++
+ 4 files changed, 134 insertions(+), 3 deletions(-)
+
+## Diff
+diff --git a/.superpowers/sdd/2026-07-25-gobsidian-v01/task-43-base.txt b/.superpowers/sdd/2026-07-25-gobsidian-v01/task-43-base.txt
+index 2b3fecb..29dee55 100644
+--- a/.superpowers/sdd/2026-07-25-gobsidian-v01/task-43-base.txt
++++ b/.superpowers/sdd/2026-07-25-gobsidian-v01/task-43-base.txt
+@@ -1 +1 @@
+-a26b8e162f7f5ccabbf7c9b5882ade57979039c5
+\ No newline at end of file
++5cf441d78e15f75ab28cb353b515ff0795e4a427
+\ No newline at end of file
+diff --git a/.superpowers/sdd/task-43-report.md b/.superpowers/sdd/task-43-report.md
+new file mode 100644
+index 0000000..4693748
+--- /dev/null
++++ b/.superpowers/sdd/task-43-report.md
+@@ -0,0 +1,71 @@
++# Relatório Task 43: Frontmatter — delimitador de fechamento com espaço no fim
++
++- **Status**: DONE
++- **Commit**: `fix(parser): accept trailing whitespace on the frontmatter delimiter`
++
++## Resumo das Mudanças
++- Atualizado `internal/parser/frontmatter.go` para utilizar `bytes.TrimRight(line, " \t\r")` tanto no delimitador de abertura quanto no delimitador de fechamento de frontmatter.
++- Aceitos espaços em branco e tabulações ao fim das linhas delimitadoras `---`, preservando o cálculo exato do `bodyOffset`.
++- Adicionados testes em `internal/parser/frontmatter_test.go`.
++
++## Evidência de TDD
++### RED (com o teste novo sem a correção em frontmatter.go)
++Comando:
++`go test -v ./internal/parser/ -run TestFrontmatterClosingDelimiterWithTrailingSpace`
++Saída:
++--- FAIL: TestFrontmatterClosingDelimiterWithTrailingSpace (0.00s)
++    frontmatter_test.go:168: tags = [], quer [civil] — o bloco YAML virou corpo
++FAIL
++
++### GREEN (com a correção aplicada)
++Comando:
++`go test -v ./internal/parser/ -run TestFrontmatterClosingDelimiterWithTrailingSpace`
++Saída:
++=== RUN   TestFrontmatterClosingDelimiterWithTrailingSpace
++--- PASS: TestFrontmatterClosingDelimiterWithTrailingSpace (0.00s)
++PASS
++
++## Prova de Mutação
++Comando:
++`pwsh -File scripts/mutate.ps1 -Path internal/parser/frontmatter.go -Anchor 'if bytes.Equal(bytes.TrimRight(line, " \t\r"), fmDelim) {' -Replacement 'if bytes.Equal(bytes.TrimRight(line, "\r"), fmDelim) {' -Test TestFrontmatterClosingDelimiterWithTrailingSpace -Package ./internal/parser/`
++
++Saída:
++[...] Mutando internal/parser/frontmatter.go
++      - if bytes.Equal(bytes.TrimRight(line, " \t\r"), fmDelim) {
++      + if bytes.Equal(bytes.TrimRight(line, "\r"), fmDelim) {
++
++[...] go test -race -run TestFrontmatterClosingDelimiterWithTrailingSpace ./internal/parser/
++----------------------------------------------------------------------
++--- FAIL: TestFrontmatterClosingDelimiterWithTrailingSpace (0.00s)
++    frontmatter_test.go:168: tags = [], quer [civil] — o bloco YAML virou corpo
++FAIL
++FAIL	github.com/jonyd/gobsidian/internal/parser	0.878s
++FAIL
++----------------------------------------------------------------------
++[OK] internal/parser/frontmatter.go restaurado byte a byte (SHA-256 confere).
++
++[OK] O teste REPROVOU com a regra mutada — a regra esta verificada.
++
++## Verificações Exigidas pelo Brief
++| Verificação | Resultado | Evidência |
++|---|---|---|
++| Espaço na linha de abertura aceito? | SIM | Testado por `TestFrontmatterOpeningDelimiterWithTrailingSpace` |
++| Tabulação no fim aceita? | SIM | Decidido aceitar `" \t\r"`, testado por `TestFrontmatterDelimiterWithTrailingTabs` |
++| `--- x` continua rejeitado? | SIM | Testado por `TestFrontmatterDelimiterWithExtraTextRejected` |
++| Nota com BOM e espaço produz offset certo? | SIM | `vault.StripBOM` remove BOM de 3 bytes antes do parse; `ShiftOffsets(3)` preserva o offset correto |
++| Goldens alterados | 0 goldens alterados | Nenhuma das 48 fixtures existentes em `testdata/parser/` possuía espaço/tab no delimitador |
++
++## Arquivos Alterados
++- `internal/parser/frontmatter.go`
++- `internal/parser/frontmatter_test.go`
++- `.superpowers/sdd/task-43-report.md`
++
++## git status --porcelain
++```
++ M internal/parser/frontmatter.go
++ M internal/parser/frontmatter_test.go
++?? .superpowers/sdd/task-43-report.md
++```
++
++## O Que Ficou de Fora
++Nada.
+diff --git a/internal/parser/frontmatter.go b/internal/parser/frontmatter.go
+index e3fba36..ea68d4b 100644
+--- a/internal/parser/frontmatter.go
++++ b/internal/parser/frontmatter.go
+@@ -30,39 +30,39 @@ var fmDelim = []byte("---")
+ func SplitFrontmatter(data []byte) ([]byte, []byte, int64) {
+ 	if !bytes.HasPrefix(data, fmDelim) {
+ 		return nil, data, 0
+ 	}
+ 
+ 	// A primeira linha tem que ser exatamente "---" (com CR opcional).
+ 	firstNL := bytes.IndexByte(data, '\n')
+ 	if firstNL < 0 {
+ 		return nil, data, 0
+ 	}
+-	first := bytes.TrimRight(data[:firstNL], "\r")
++	first := bytes.TrimRight(data[:firstNL], " \t\r")
+ 	if !bytes.Equal(first, fmDelim) {
+ 		return nil, data, 0
+ 	}
+ 
+ 	rest := data[firstNL+1:]
+ 	offset := int64(firstNL + 1)
+ 
+ 	for len(rest) > 0 {
+ 		nl := bytes.IndexByte(rest, '\n')
+ 		var line []byte
+ 		var advance int
+ 		if nl < 0 {
+ 			line, advance = rest, len(rest)
+ 		} else {
+ 			line, advance = rest[:nl], nl+1
+ 		}
+ 
+-		if bytes.Equal(bytes.TrimRight(line, "\r"), fmDelim) {
++		if bytes.Equal(bytes.TrimRight(line, " \t\r"), fmDelim) {
+ 			fmEnd := int(offset) - (firstNL + 1)
+ 			body := rest[advance:]
+ 			return data[firstNL+1 : firstNL+1+fmEnd], body, offset + int64(advance)
+ 		}
+ 
+ 		rest = rest[advance:]
+ 		offset += int64(advance)
+ 	}
+ 
+ 	// Delimitador de abertura sem fechamento: nao ha frontmatter, ha um
+diff --git a/internal/parser/frontmatter_test.go b/internal/parser/frontmatter_test.go
+index 01419cc..39c1543 100644
+--- a/internal/parser/frontmatter_test.go
++++ b/internal/parser/frontmatter_test.go
+@@ -1,13 +1,14 @@
+ package parser_test
+ 
+ import (
++	"strings"
+ 	"testing"
+ 	"time"
+ 
+ 	"github.com/jonyd/gobsidian/internal/parser"
+ )
+ 
+ func TestSplitFrontmatter(t *testing.T) {
+ 	tests := []struct {
+ 		name       string
+ 		in         string
+@@ -147,10 +148,69 @@ func TestDecodeFrontmatterPreservesTypes(t *testing.T) {
+ 	}
+ }
+ 
+ // Frontmatter malformado nao pode derrubar o parse: a nota ainda tem corpo,
+ // headings e links uteis. O erro e reportado e o resto segue.
+ func TestDecodeFrontmatterMalformedReturnsError(t *testing.T) {
+ 	if _, err := parser.DecodeFrontmatter([]byte("a: [1, 2\nb: :\n")); err == nil {
+ 		t.Fatal("frontmatter malformado deveria devolver erro")
+ 	}
+ }
++
++func TestFrontmatterClosingDelimiterWithTrailingSpace(t *testing.T) {
++	raw := []byte("---\ntitle: Prescricao\ntags: [civil]\n--- \n\n# Corpo\n\ntexto\n")
++
++	note, err := parser.Parse(raw)
++	if err != nil {
++		t.Fatalf("Parse: %v", err)
++	}
++
++	if len(note.Tags) != 1 || note.Tags[0] != "civil" {
++		t.Fatalf("tags = %v, quer [civil] — o bloco YAML virou corpo", note.Tags)
++	}
++	if note.Frontmatter == nil || note.Frontmatter["title"] != "Prescricao" {
++		t.Errorf("frontmatter = %v, quer title=Prescricao", note.Frontmatter)
++	}
++
++	_, _, bodyOffset := parser.SplitFrontmatter(raw)
++	corpo := string(raw[bodyOffset:])
++	if !strings.HasPrefix(corpo, "\n# Corpo") {
++		t.Errorf("BodyOffset=%d aponta para %q; quer o inicio do corpo real",
++			bodyOffset, corpo[:min(20, len(corpo))])
++	}
++}
++
++func TestFrontmatterOpeningDelimiterWithTrailingSpace(t *testing.T) {
++	raw := []byte("--- \ntitle: Abastecimento\n---\n# Corpo\n")
++	note, err := parser.Parse(raw)
++	if err != nil {
++		t.Fatalf("Parse: %v", err)
++	}
++	if note.Frontmatter == nil || note.Frontmatter["title"] != "Abastecimento" {
++		t.Errorf("frontmatter = %v, quer title=Abastecimento", note.Frontmatter)
++	}
++}
++
++func TestFrontmatterDelimiterWithTrailingTabs(t *testing.T) {
++	raw := []byte("---\t\ntitle: Tabulacao\n---\t\n# Corpo\n")
++	note, err := parser.Parse(raw)
++	if err != nil {
++		t.Fatalf("Parse: %v", err)
++	}
++	if note.Frontmatter == nil || note.Frontmatter["title"] != "Tabulacao" {
++		t.Errorf("frontmatter = %v, quer title=Tabulacao", note.Frontmatter)
++	}
++}
++
++func TestFrontmatterDelimiterWithExtraTextRejected(t *testing.T) {
++	raw := []byte("--- extra\ntitle: Rejeitado\n---\n# Corpo\n")
++	fm, body, off := parser.SplitFrontmatter(raw)
++	if fm != nil {
++		t.Errorf("fm = %q, quer nil para delimitador invalido", fm)
++	}
++	if off != 0 {
++		t.Errorf("offset = %d, quer 0", off)
++	}
++	if string(body) != string(raw) {
++		t.Errorf("body = %q, quer raw inteiro", body)
++	}
++}

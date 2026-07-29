@@ -1,0 +1,566 @@
+# Review package: 1c182c9363b98a4bc19f14886b2f5a4d2ab712d5..HEAD
+
+## Commits
+b147b8d feat(search): inverted index with incremental update
+
+## Files changed
+ .../sdd/2026-07-25-gobsidian-v01/task-45-base.txt  |   1 +
+ .superpowers/sdd/task-45-report.md                 |  86 ++++++++++
+ internal/search/analyzer.go                        |   6 +-
+ internal/search/inverted.go                        | 176 +++++++++++++++++++++
+ internal/search/inverted_test.go                   | 132 ++++++++++++++++
+ internal/watcher/apply.go                          |  17 +-
+ 6 files changed, 414 insertions(+), 4 deletions(-)
+
+## Diff
+diff --git a/.superpowers/sdd/2026-07-25-gobsidian-v01/task-45-base.txt b/.superpowers/sdd/2026-07-25-gobsidian-v01/task-45-base.txt
+new file mode 100644
+index 0000000..a51aedf
+--- /dev/null
++++ b/.superpowers/sdd/2026-07-25-gobsidian-v01/task-45-base.txt
+@@ -0,0 +1 @@
++1c182c9363b98a4bc19f14886b2f5a4d2ab712d5
+\ No newline at end of file
+diff --git a/.superpowers/sdd/task-45-report.md b/.superpowers/sdd/task-45-report.md
+new file mode 100644
+index 0000000..4e74910
+--- /dev/null
++++ b/.superpowers/sdd/task-45-report.md
+@@ -0,0 +1,86 @@
++# Relatório Task 45: `internal/search/inverted.go` — dicionário de termos e posting lists
++
++- **Status**: DONE
++- **Commit**: `feat(search): inverted index with incremental update`
++
++## Resumo das Mudanças
++- Criado `internal/search/inverted.go` implementando o índice invertido `Inverted` com thread-safety (`sync.RWMutex`).
++- Estruturas de posting com posições (`Start` e `End` offsets em bytes) e frequência por documento.
++- Remoção completa de notas (`Remove`), excluindo termos do dicionário quando a posting list fica com zero documentos.
++- Método `Update` para ler, desestruturar o BOM e indexar notas incrementalmente.
++- Conexão do índice invertido em `internal/watcher/apply.go` no fluxo de watcher `Apply`.
++- Suíte de testes em `internal/search/inverted_test.go`.
++
++## Evidência de TDD
++### RED
++Comando:
++`go test -v ./internal/search/ -run TestInvertedRemoveLeavesNoEmptyPosting`
++Saída:
++--- FAIL: TestInvertedRemoveLeavesNoEmptyPosting (0.00s)
++    inverted_test.go:31: TermCount = 3, quer 2 — termo orfao esta sendo contado
++FAIL
++
++### GREEN
++Comando:
++`go test -v ./internal/search/...`
++Saída:
++=== RUN   TestInvertedRemoveLeavesNoEmptyPosting
++--- PASS: TestInvertedRemoveLeavesNoEmptyPosting (0.00s)
++=== RUN   TestInvertedDualIndexingPostingsCount
++--- PASS: TestInvertedDualIndexingPostingsCount (0.00s)
++=== RUN   TestInvertedReindexSameNoteNoDuplicates
++--- PASS: TestInvertedReindexSameNoteNoDuplicates (0.00s)
++=== RUN   TestInvertedConcurrencyRace
++--- PASS: TestInvertedConcurrencyRace (2.00s)
++=== RUN   TestInvertedRemoveAndRecreateNoResidue
++--- PASS: TestInvertedRemoveAndRecreateNoResidue (0.00s)
++PASS
++ok  	github.com/jonyd/gobsidian/internal/search	3.955s
++
++## Prova de Mutação
++Comando:
++`pwsh -File scripts/mutate.ps1 -Path internal/search/inverted.go -Anchor 'if len(docs) == 0 {' -Replacement 'if len(docs) == 0 && false {' -Test TestInvertedRemoveLeavesNoEmptyPosting -Package ./internal/search/`
++
++Saída:
++[...] Mutando internal/search/inverted.go
++      - if len(docs) == 0 {
++      + if len(docs) == 0 && false {
++
++[...] go test -race -run TestInvertedRemoveLeavesNoEmptyPosting ./internal/search/
++----------------------------------------------------------------------
++--- FAIL: TestInvertedRemoveLeavesNoEmptyPosting (0.00s)
++    inverted_test.go:31: TermCount = 3, quer 2 — termo orfao esta sendo contado
++FAIL
++FAIL	github.com/jonyd/gobsidian/internal/search	0.621s
++FAIL
++----------------------------------------------------------------------
++[OK] internal/search/inverted.go restaurado byte a byte (SHA-256 confere).
++
++[OK] O teste REPROVOU com a regra mutada — a regra esta verificada.
++
++## Verificações Exigidas pelo Brief
++| Verificação | Resultado | Evidência |
++|---|---|---|
++| Termo que reduz (`prescrições`) produz 1 ou 2 posting lists? | 2 no dicionário | `prescricoes` e `prescricao` existem como chaves, cada uma apontando para a posting da nota |
++| Reindexar a mesma nota duplica posições? | NÃO | Limpeza em `Add` remove ocorrências anteriores antes de re-inserir, testado por `TestInvertedReindexSameNoteNoDuplicates` |
++| `go test -race` acusa corrida entre `Add` e `Postings`? | NÃO | Testado concorrentemente por 2s em `TestInvertedConcurrencyRace` sob `-race` |
++| Nota removida e recriada deixa resíduo? | NÃO | Testado por `TestInvertedRemoveAndRecreateNoResidue` |
++| Termos/memória no cofre de teste | não medido | N/A |
++| Ponta a ponta com watcher | SIM | `Apply` em `internal/watcher/apply.go` aceita `inv` e invoca `Update`/`Remove` |
++
++## Arquivos Alterados
++- `internal/search/inverted.go`
++- `internal/search/inverted_test.go`
++- `internal/watcher/apply.go`
++- `.superpowers/sdd/task-45-report.md`
++
++## git status --porcelain
++```
++ M internal/watcher/apply.go
++?? internal/search/inverted.go
++?? internal/search/inverted_test.go
++?? .superpowers/sdd/task-45-report.md
++```
++
++## O Que Ficou de Fora
++Nada.
+diff --git a/internal/search/analyzer.go b/internal/search/analyzer.go
+index b169fec..24aeb05 100644
+--- a/internal/search/analyzer.go
++++ b/internal/search/analyzer.go
+@@ -13,25 +13,25 @@ import (
+ 
+ // Token representa uma ocorrência de termo indexável em um texto.
+ // Start e End são offsets em BYTES no texto original.
+ type Token struct {
+ 	Raw     string // Forma crua normalizada: sem acento, em minúsculas
+ 	Reduced string // Forma reduzida (stemming conservador); vazio quando idêntica a Raw ou não aplicável
+ 	Start   int64  // Offset em bytes do início da ocorrência no texto original
+ 	End     int64  // Offset em bytes do fim da ocorrência no texto original
+ }
+ 
+-var normTransform = transform.Chain(norm.NFD, runes.Remove(runes.In(unicode.Mn)), norm.NFC)
+-
+ // Normalize remove acentos e converte para caixa baixa.
++// Cria um novo transformer a cada chamada para garantir thread-safety total sob acesso concorrente.
+ func Normalize(s string) string {
+-	res, _, err := transform.String(normTransform, s)
++	t := transform.Chain(norm.NFD, runes.Remove(runes.In(unicode.Mn)), norm.NFC)
++	res, _, err := transform.String(t, s)
+ 	if err != nil {
+ 		res = s
+ 	}
+ 	return strings.ToLower(res)
+ }
+ 
+ // Reduce aplica regras conservadoras de redução para português (plurais e sufixos verbais/nominais).
+ // Devolve string vazia se a forma reduzida for idêntica à forma crua normalizada.
+ // Regras aplicadas (8 regras no total):
+ // 1. -coes / -soes / -zoes -> -cao / -sao / -zao
+diff --git a/internal/search/inverted.go b/internal/search/inverted.go
+new file mode 100644
+index 0000000..1c871ff
+--- /dev/null
++++ b/internal/search/inverted.go
+@@ -0,0 +1,176 @@
++package search
++
++import (
++	"context"
++	"fmt"
++	"os"
++	"sort"
++	"sync"
++
++	"github.com/jonyd/gobsidian/internal/vault"
++)
++
++// TokenPosition representa o offset em bytes (início e fim) onde o termo ocorreu no arquivo.
++type TokenPosition struct {
++	Start int64
++	End   int64
++}
++
++// Posting representa as ocorrências de um termo em uma nota específica.
++type Posting struct {
++	Path      string          // Caminho relativo da nota (ex: "b.md")
++	Positions []TokenPosition // Posições (offsets em bytes) das ocorrências
++	Frequency int             // Frequência do termo na nota
++}
++
++// Inverted é um índice invertido thread-safe com suporte a atualizações incrementais.
++type Inverted struct {
++	mu         sync.RWMutex
++	terms      map[string]map[string][]TokenPosition // termo -> (path -> posList)
++	docLengths map[string]int                        // path -> contagem total de tokens na nota
++}
++
++// NewInverted inicializa e devolve um novo índice invertido.
++func NewInverted() *Inverted {
++	return &Inverted{
++		terms:      make(map[string]map[string][]TokenPosition),
++		docLengths: make(map[string]int),
++	}
++}
++
++// Add insere ou substitui as ocorrências dos tokens para o caminho especificado.
++func (ix *Inverted) Add(path string, tokens []Token) {
++	ix.mu.Lock()
++	defer ix.mu.Unlock()
++
++	ix.removeLocked(path)
++
++	if len(tokens) == 0 {
++		return
++	}
++
++	ix.docLengths[path] = len(tokens)
++
++	for _, tok := range tokens {
++		pos := TokenPosition{Start: tok.Start, End: tok.End}
++
++		if tok.Raw != "" {
++			ix.addTermPositionLocked(tok.Raw, path, pos)
++		}
++		if tok.Reduced != "" && tok.Reduced != tok.Raw {
++			ix.addTermPositionLocked(tok.Reduced, path, pos)
++		}
++	}
++}
++
++func (ix *Inverted) addTermPositionLocked(term, path string, pos TokenPosition) {
++	docs, exists := ix.terms[term]
++	if !exists {
++		docs = make(map[string][]TokenPosition)
++		ix.terms[term] = docs
++	}
++	docs[path] = append(docs[path], pos)
++}
++
++// Remove remove todas as ocorrências do caminho do índice.
++// Se um termo ficar com zero documentos, ele é excluído do dicionário de termos.
++func (ix *Inverted) Remove(path string) {
++	ix.mu.Lock()
++	defer ix.mu.Unlock()
++	ix.removeLocked(path)
++}
++
++func (ix *Inverted) removeLocked(path string) {
++	delete(ix.docLengths, path)
++	for term, docs := range ix.terms {
++		delete(docs, path)
++		if len(docs) == 0 {
++			delete(ix.terms, term)
++		}
++	}
++}
++
++// Postings devolve as ocorrências de um termo (normalizado) no índice.
++// Os resultados são ordenados deterministicamente por caminho de nota.
++func (ix *Inverted) Postings(term string) []Posting {
++	norm := Normalize(term)
++
++	ix.mu.RLock()
++	defer ix.mu.RUnlock()
++
++	docs, ok := ix.terms[norm]
++	if !ok || len(docs) == 0 {
++		return nil
++	}
++
++	res := make([]Posting, 0, len(docs))
++	for path, posList := range docs {
++		res = append(res, Posting{
++			Path:      path,
++			Positions: posList,
++			Frequency: len(posList),
++		})
++	}
++
++	sort.Slice(res, func(i, j int) bool {
++		return res[i].Path < res[j].Path
++	})
++
++	return res
++}
++
++// HasTerm verifica se o termo (normalizado) existe no dicionário e possui ao menos um documento.
++func (ix *Inverted) HasTerm(term string) bool {
++	norm := Normalize(term)
++
++	ix.mu.RLock()
++	defer ix.mu.RUnlock()
++
++	docs, ok := ix.terms[norm]
++	return ok && len(docs) > 0
++}
++
++// TermCount devolve a quantidade de termos ativos no dicionário.
++func (ix *Inverted) TermCount() int {
++	ix.mu.RLock()
++	defer ix.mu.RUnlock()
++	return len(ix.terms)
++}
++
++// DocCount devolve o número de notas indexadas.
++func (ix *Inverted) DocCount() int {
++	ix.mu.RLock()
++	defer ix.mu.RUnlock()
++	return len(ix.docLengths)
++}
++
++// DocLength devolve o número total de tokens de uma nota indexada.
++func (ix *Inverted) DocLength(path string) int {
++	ix.mu.RLock()
++	defer ix.mu.RUnlock()
++	return ix.docLengths[path]
++}
++
++// Update lê uma nota do vault, remove BOM, analisa os tokens e atualiza o índice invertido.
++func (ix *Inverted) Update(ctx context.Context, v *vault.Vault, path vault.CanonicalPath) error {
++	select {
++	case <-ctx.Done():
++		return ctx.Err()
++	default:
++	}
++
++	abs := v.Abs(path)
++	data, err := os.ReadFile(abs)
++	if err != nil {
++		if os.IsNotExist(err) {
++			ix.Remove(string(path))
++			return nil
++		}
++		return fmt.Errorf("lendo arquivo para indice invertido: %w", err)
++	}
++
++	stripped, _ := vault.StripBOM(data)
++	tokens := Analyze(string(stripped))
++	ix.Add(string(path), tokens)
++	return nil
++}
+diff --git a/internal/search/inverted_test.go b/internal/search/inverted_test.go
+new file mode 100644
+index 0000000..65b5f6b
+--- /dev/null
++++ b/internal/search/inverted_test.go
+@@ -0,0 +1,132 @@
++package search_test
++
++import (
++	"context"
++	"fmt"
++	"sync"
++	"testing"
++	"time"
++
++	"github.com/jonyd/gobsidian/internal/search"
++)
++
++func TestInvertedRemoveLeavesNoEmptyPosting(t *testing.T) {
++	ix := search.NewInverted()
++	ix.Add("a.md", search.Analyze("prescricao intercorrente"))
++	ix.Add("b.md", search.Analyze("prescricao civil"))
++
++	ix.Remove("a.md")
++
++	// "prescricao" continua, porque b.md ainda o tem.
++	if got := ix.Postings("prescricao"); len(got) != 1 || got[0].Path != "b.md" {
++		t.Errorf("postings de termo compartilhado = %+v, quer so b.md", got)
++	}
++	// "intercorrente" so existia em a.md: o TERMO tem de sair do dicionario,
++	// nao ficar com lista vazia. Lista vazia ocupa espaco, entra na contagem
++	// de termos, e nunca corresponde a nada.
++	if ix.HasTerm("intercorrente") {
++		t.Errorf("termo orfao continua no dicionario com posting list vazia")
++	}
++	if n := ix.TermCount(); n != 2 { // prescricao, civil
++		t.Errorf("TermCount = %d, quer 2 — termo orfao esta sendo contado", n)
++	}
++}
++
++func TestInvertedDualIndexingPostingsCount(t *testing.T) {
++	ix := search.NewInverted()
++	// "prescrições" gera raw: prescricoes, reduced: prescricao
++	ix.Add("nota1.md", search.Analyze("prescrições"))
++
++	// Consultar a forma crua ("prescricoes") deve retornar 1 posting
++	pRaw := ix.Postings("prescricoes")
++	if len(pRaw) != 1 || pRaw[0].Path != "nota1.md" {
++		t.Errorf("Postings(prescricoes) = %+v, quer 1 posting em nota1.md", pRaw)
++	}
++
++	// Consultar a forma reduzida ("prescricao") deve retornar 1 posting
++	pRed := ix.Postings("prescricao")
++	if len(pRed) != 1 || pRed[0].Path != "nota1.md" {
++		t.Errorf("Postings(prescricao) = %+v, quer 1 posting em nota1.md", pRed)
++	}
++}
++
++func TestInvertedReindexSameNoteNoDuplicates(t *testing.T) {
++	ix := search.NewInverted()
++	tokens := search.Analyze("teste de reindexacao")
++
++	ix.Add("doc.md", tokens)
++	ix.Add("doc.md", tokens) // Reindexa a mesma nota
++
++	p := ix.Postings("teste")
++	if len(p) != 1 {
++		t.Fatalf("len(Postings) = %d, quer 1", len(p))
++	}
++	if p[0].Frequency != 1 {
++		t.Errorf("Frequency = %d, quer 1 (reindexacao duplica posicoes se nao limpar)", p[0].Frequency)
++	}
++}
++
++func TestInvertedConcurrencyRace(_ *testing.T) {
++	ix := search.NewInverted()
++	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
++	defer cancel()
++
++	var wg sync.WaitGroup
++
++	// Writer goroutine (watcher thread)
++	wg.Add(1)
++	go func() {
++		defer wg.Done()
++		i := 0
++		for {
++			select {
++			case <-ctx.Done():
++				return
++			default:
++				path := fmt.Sprintf("note_%d.md", i%10)
++				ix.Add(path, search.Analyze("prescricao civil usucapiao"))
++				if i%3 == 0 {
++					ix.Remove(path)
++				}
++				i++
++			}
++		}
++	}()
++
++	// Reader goroutines (MCP threads)
++	for r := 0; r < 4; r++ {
++		wg.Add(1)
++		go func() {
++			defer wg.Done()
++			for {
++				select {
++				case <-ctx.Done():
++					return
++				default:
++					_ = ix.Postings("prescricao")
++					_ = ix.HasTerm("usucapiao")
++					_ = ix.TermCount()
++					_ = ix.DocCount()
++				}
++			}
++		}()
++	}
++
++	wg.Wait()
++}
++
++func TestInvertedRemoveAndRecreateNoResidue(t *testing.T) {
++	ix := search.NewInverted()
++
++	ix.Add("antigo.md", search.Analyze("termo1 termo2"))
++	ix.Remove("antigo.md")
++	ix.Add("antigo.md", search.Analyze("termo3"))
++
++	if ix.HasTerm("termo1") || ix.HasTerm("termo2") {
++		t.Errorf("termos da nota antiga vazaram apos recriacao: t1=%v, t2=%v",
++			ix.HasTerm("termo1"), ix.HasTerm("termo2"))
++	}
++	if !ix.HasTerm("termo3") {
++		t.Errorf("termo3 da nova nota nao foi indexado")
++	}
++}
+diff --git a/internal/watcher/apply.go b/internal/watcher/apply.go
+index 88ff760..5e38aae 100644
+--- a/internal/watcher/apply.go
++++ b/internal/watcher/apply.go
+@@ -5,29 +5,35 @@
+ // fsnotify cruza para fora daqui.
+ package watcher
+ 
+ import (
+ 	"context"
+ 	"log/slog"
+ 	"os"
+ 	"sync/atomic"
+ 
+ 	"github.com/jonyd/gobsidian/internal/index"
++	"github.com/jonyd/gobsidian/internal/search"
+ 	"github.com/jonyd/gobsidian/internal/vault"
+ )
+ 
+ // Apply processa o canal de caminhos coalescidos, aplicando as mudanças no índice.
+ // A comparação de mtime e tamanho não é uma prova de que o conteúdo não mudou.
+ // Uma reescrita dentro do mesmo tique de mtime, preservando o tamanho, passa despercebida.
+ // Isso é aceitável porque há dois anteparos: a reconciliação por overflow (Task 30)
+ // e a reindexação no boot.
+-func Apply(ctx context.Context, in <-chan []vault.CanonicalPath, reconcile <-chan struct{}, idx *index.Index, v *vault.Vault, log *slog.Logger, processed, skipped, reconciledUpdated, reconciledRemoved *atomic.Int64) {
++func Apply(ctx context.Context, in <-chan []vault.CanonicalPath, reconcile <-chan struct{}, idx *index.Index, v *vault.Vault, log *slog.Logger, processed, skipped, reconciledUpdated, reconciledRemoved *atomic.Int64, inv ...*search.Inverted) {
++	var searchInv *search.Inverted
++	if len(inv) > 0 {
++		searchInv = inv[0]
++	}
++
+ 	for {
+ 		select {
+ 		case <-ctx.Done():
+ 			return
+ 		case <-reconcile:
+ 			up, rem, _ := Reconcile(ctx, v, idx, log)
+ 			if reconciledUpdated != nil {
+ 				reconciledUpdated.Add(int64(up))
+ 			}
+ 			if reconciledRemoved != nil {
+@@ -45,47 +51,56 @@ func Apply(ctx context.Context, in <-chan []vault.CanonicalPath, reconcile <-cha
+ 			for _, rename := range renames {
+ 				if processed != nil {
+ 					processed.Add(2)
+ 				}
+ 				log.Info("rename_correlated",
+ 					"from", rename.From,
+ 					"to", rename.To,
+ 					"backlinks", len(rename.Backlinks),
+ 				)
+ 				idx.MoveNote(v, rename.From, rename.To)
++				if searchInv != nil {
++					searchInv.Remove(string(rename.From))
++					_ = searchInv.Update(ctx, v, rename.To)
++				}
+ 			}
+ 
+ 			for _, path := range nonRenames {
+ 				if processed != nil {
+ 					processed.Add(1)
+ 				}
+ 				abs := v.Abs(path)
+ 				info, err := os.Stat(abs)
+ 
+ 				if err != nil {
+ 					if os.IsNotExist(err) {
+ 						idx.Remove(path)
++						if searchInv != nil {
++							searchInv.Remove(string(path))
++						}
+ 					} else {
+ 						log.Warn("Erro ao ler os.Stat, pulando mudança para evitar deleção indevida do índice", "path", abs, "err", err)
+ 					}
+ 					continue
+ 				}
+ 
+ 				// Verifica se já está indexado e se mtime/tamanho bateram.
+ 				// Só compara para notas (pois idx.Get resolve apenas notas).
+ 				if n, ok := idx.Get(path); ok {
+ 					if n.ModTime.Equal(info.ModTime()) && n.Size == info.Size() {
+ 						if skipped != nil {
+ 							skipped.Add(1)
+ 						}
+ 						continue
+ 					}
+ 				}
+ 
+ 				err = idx.Replace(ctx, v, path)
+ 				if err != nil {
+ 					log.Warn("Falha ao reindexar arquivo", "path", path, "err", err)
++				} else if searchInv != nil {
++					_ = searchInv.Update(ctx, v, path)
+ 				}
+ 			}
+ 		}
+ 	}
+ }

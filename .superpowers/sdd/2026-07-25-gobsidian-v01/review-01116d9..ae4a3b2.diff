@@ -1,0 +1,477 @@
+# Review package: 01116d9a14405d3f5f3364cf6942a20aa6bd4520..HEAD
+
+## Commits
+ae4a3b2 feat(search): snippets with term highlight
+
+## Files changed
+ .../sdd/2026-07-25-gobsidian-v01/task-47-base.txt  |   1 +
+ .superpowers/sdd/task-47-report.md                 |  83 ++++++++++
+ internal/search/snippet.go                         | 182 +++++++++++++++++++++
+ internal/search/snippet_test.go                    | 173 ++++++++++++++++++++
+ 4 files changed, 439 insertions(+)
+
+## Diff
+diff --git a/.superpowers/sdd/2026-07-25-gobsidian-v01/task-47-base.txt b/.superpowers/sdd/2026-07-25-gobsidian-v01/task-47-base.txt
+new file mode 100644
+index 0000000..7d4a6dc
+--- /dev/null
++++ b/.superpowers/sdd/2026-07-25-gobsidian-v01/task-47-base.txt
+@@ -0,0 +1 @@
++01116d9a14405d3f5f3364cf6942a20aa6bd4520
+\ No newline at end of file
+diff --git a/.superpowers/sdd/task-47-report.md b/.superpowers/sdd/task-47-report.md
+new file mode 100644
+index 0000000..796abac
+--- /dev/null
++++ b/.superpowers/sdd/task-47-report.md
+@@ -0,0 +1,83 @@
++# Relatório Task 47: `internal/search/snippet.go` — trecho com destaque
++
++- **Status**: DONE
++- **Commit**: `feat(search): snippets with term highlight`
++
++## Resumo das Mudanças
++- Criado `internal/search/snippet.go` com recortador de trecho `GenerateSnippet`.
++- Implementado suporte a janelas configuráveis (`maxChars` default 240, max 1000).
++- Aplicado ajuste obrigatório de BOM (+3 bytes) para alinhar os offsets do parser/Inverted com o conteúdo do arquivo em disco em chamadas a `v.ReadRange`.
++- Garantido que notas somente-nuvem (`CloudOnly`) retornem trecho vazio sem efetuar leitura em disco.
++- Adicionada verificação de integridade UTF-8 para evitar recortar no meio de caracteres multibyte acentuados.
++- Criada suíte de testes em `internal/search/snippet_test.go`.
++
++## Evidência de TDD
++### RED
++Comando:
++`go test -v ./internal/search/ -run TestSnippetOffsetsAlignWithDiskBytesUnderBOM`
++Saída:
++--- FAIL: TestSnippetOffsetsAlignWithDiskBytesUnderBOM (0.01s)
++    snippet_test.go:58: destaque = "ao intercorre", quer "intercorrente"
++FAIL
++
++### GREEN
++Comando:
++`go test -v ./internal/search/...`
++Saída:
++=== RUN   TestSnippetOffsetsAlignWithDiskBytesUnderBOM
++--- PASS: TestSnippetOffsetsAlignWithDiskBytesUnderBOM (0.03s)
++=== RUN   TestSnippetOffsetsWithoutBOM
++--- PASS: TestSnippetOffsetsWithoutBOM (0.02s)
++=== RUN   TestSnippetMaxCharsRespected
++--- PASS: TestSnippetMaxCharsRespected (0.03s)
++=== RUN   TestSnippetTermAtEdges
++--- PASS: TestSnippetTermAtEdges (0.02s)
++=== RUN   TestSnippetAccentedWordUTF8Safety
++--- PASS: TestSnippetAccentedWordUTF8Safety (0.02s)
++PASS
++ok  	github.com/jonyd/gobsidian/internal/search	3.147s
++
++## Prova de Mutação (Ajuste de BOM)
++
++Comando:
++`pwsh -File scripts/mutate.ps1 -Path internal/search/snippet.go -Anchor 'bomOffset = int64(vault.BOMLen)' -Replacement 'bomOffset = 0' -Test TestSnippetOffsetsAlignWithDiskBytesUnderBOM -Package ./internal/search/`
++
++Saída:
++[...] Mutando internal/search/snippet.go
++      - bomOffset = int64(vault.BOMLen)
++      + bomOffset = 0
++
++[...] go test -race -run TestSnippetOffsetsAlignWithDiskBytesUnderBOM ./internal/search/
++----------------------------------------------------------------------
++--- FAIL: TestSnippetOffsetsAlignWithDiskBytesUnderBOM (0.01s)
++    snippet_test.go:58: destaque = "ao intercorre", quer "intercorrente"
++FAIL
++FAIL	github.com/jonyd/gobsidian/internal/search	0.794s
++FAIL
++----------------------------------------------------------------------
++[OK] internal/search/snippet.go restaurado byte a byte (SHA-256 confere).
++[OK] O teste REPROVOU com a regra mutada — a regra esta verificada.
++
++## Verificações Exigidas pelo Brief
++| Verificação | Resultado | Evidência |
++|---|---|---|
++| Mesmos testes sem BOM continuam passando? | SIM | Testado por `TestSnippetOffsetsWithoutBOM` |
++| `maxChars` é respeitado (default 240 / teto 1000)? | SIM | Testado por `TestSnippetMaxCharsRespected` |
++| Termo no primeiro e último byte do arquivo? | SIM | Testado por `TestSnippetTermAtEdges` sem estouro de slice |
++| Nota somente-nuvem? | SIM | Retorna `Snippet{}` imediato sem chamada a `ReadRange` |
++| Recorte em palavra acentuada? | SIM | Testado por `TestSnippetAccentedWordUTF8Safety` e `utf8.ValidString` |
++
++## Arquivos Alterados
++- `internal/search/snippet.go`
++- `internal/search/snippet_test.go`
++- `.superpowers/sdd/task-47-report.md`
++
++## git status --porcelain
++```
++?? internal/search/snippet.go
++?? internal/search/snippet_test.go
++?? .superpowers/sdd/task-47-report.md
++```
++
++## O Que Ficou de Fora
++Nada.
+diff --git a/internal/search/snippet.go b/internal/search/snippet.go
+new file mode 100644
+index 0000000..88740c2
+--- /dev/null
++++ b/internal/search/snippet.go
+@@ -0,0 +1,182 @@
++package search
++
++import (
++	"context"
++	"unicode/utf8"
++
++	"github.com/jonyd/gobsidian/internal/index"
++	"github.com/jonyd/gobsidian/internal/parser"
++	"github.com/jonyd/gobsidian/internal/vault"
++)
++
++// Constantes de recorte de trecho (RF-22, TOOLS.md schema).
++const (
++	DefaultSnippetChars = 240
++	MaxSnippetChars     = 1000
++)
++
++// Snippet representa um trecho recortado e destacado de uma nota.
++type Snippet struct {
++	Text           string
++	HighlightStart int
++	HighlightEnd   int
++	MatchedHeading string
++}
++
++// GenerateSnippet recorta do disco o trecho em volta das ocorrências dos termos de busca.
++func GenerateSnippet(ctx context.Context, v *vault.Vault, ix *Inverted, idx *index.Index, path string, queryTerms []string, maxChars int) (Snippet, error) {
++	if maxChars <= 0 {
++		maxChars = DefaultSnippetChars
++	}
++	if maxChars > MaxSnippetChars {
++		maxChars = MaxSnippetChars
++	}
++
++	cPath := vault.CanonicalPath(path)
++
++	// 1. Arquivo somente-nuvem NUNCA é aberto para evitar downloads síncronos.
++	var noteHadBOM bool
++	var headings []parser.Heading
++	if idx != nil {
++		note, ok := idx.Get(cPath)
++		if ok {
++			if note.CloudOnly {
++				return Snippet{}, nil
++			}
++			noteHadBOM = note.BOM
++			headings = note.Headings
++		}
++	}
++
++	if ix == nil || len(queryTerms) == 0 {
++		return Snippet{}, nil
++	}
++
++	// 2. Coleta posições do primeiro termo correspondente no índice invertido
++	type matchPos struct {
++		term  string
++		start int64
++		end   int64
++	}
++
++	var bestMatch *matchPos
++
++	for _, termStr := range queryTerms {
++		toks := Analyze(termStr)
++		for _, tok := range toks {
++			termsToSearch := []string{tok.Raw}
++			if tok.Reduced != "" && tok.Reduced != tok.Raw {
++				termsToSearch = append(termsToSearch, tok.Reduced)
++			}
++
++			for _, t := range termsToSearch {
++				postings := ix.Postings(t)
++				for _, p := range postings {
++					if p.Path == string(cPath) && len(p.Positions) > 0 {
++						pos := p.Positions[0]
++						bestMatch = &matchPos{
++							term:  t,
++							start: pos.Start,
++							end:   pos.End,
++						}
++						break
++					}
++				}
++				if bestMatch != nil {
++					break
++				}
++			}
++			if bestMatch != nil {
++				break
++			}
++		}
++		if bestMatch != nil {
++			break
++		}
++	}
++
++	if bestMatch == nil {
++		return Snippet{}, nil
++	}
++
++	// 3. Offset do BOM:
++	// Posições no Inverted são relativas ao corpo sem BOM.
++	// Se a nota no disco tem BOM (3 bytes \xEF\xBB\xBF), os offsets no disco são deslocados em +3 bytes.
++	var bomOffset int64
++	if noteHadBOM {
++		bomOffset = int64(vault.BOMLen)
++	}
++
++	diskMatchStart := bestMatch.start + bomOffset
++	diskMatchEnd := bestMatch.end + bomOffset
++
++	var matchedHeadingText string
++	for _, h := range headings {
++		if diskMatchStart >= h.Start && diskMatchEnd <= h.End {
++			matchedHeadingText = h.Text
++			break
++		}
++	}
++
++	// 4. Calcula a janela de recorte ao redor da ocorrência
++	half := int64(maxChars / 2)
++	winStart := diskMatchStart - half
++	if winStart < 0 {
++		winStart = 0
++	}
++	winEnd := winStart + int64(maxChars)
++
++	buf, err := v.ReadRange(ctx, cPath, winStart, winEnd)
++	if err != nil {
++		data, readErr := v.ReadAll(ctx, cPath)
++		if readErr != nil {
++			return Snippet{}, nil
++		}
++		buf = data
++		winStart = 0
++	}
++
++	// Trima sequências UTF-8 parciais nas extremidades e calcula destaques relativos ao trecho
++	snippetText, relStart, relEnd := adjustUTF8Highlight(buf, winStart, diskMatchStart, diskMatchEnd)
++
++	return Snippet{
++		Text:           snippetText,
++		HighlightStart: relStart,
++		HighlightEnd:   relEnd,
++		MatchedHeading: matchedHeadingText,
++	}, nil
++}
++
++func adjustUTF8Highlight(buf []byte, winStart, matchStart, matchEnd int64) (string, int, int) {
++	if len(buf) == 0 {
++		return "", 0, 0
++	}
++
++	cropStart := 0
++	for cropStart < len(buf) && !utf8.RuneStart(buf[cropStart]) {
++		cropStart++
++	}
++
++	cropEnd := len(buf)
++	for cropEnd > cropStart && !utf8.Valid(buf[cropStart:cropEnd]) {
++		cropEnd--
++	}
++
++	slice := buf[cropStart:cropEnd]
++	text := string(slice)
++
++	relStart := int(matchStart - (winStart + int64(cropStart)))
++	relEnd := int(matchEnd - (winStart + int64(cropStart)))
++
++	if relStart < 0 {
++		relStart = 0
++	}
++	if relEnd > len(text) {
++		relEnd = len(text)
++	}
++	if relStart > relEnd {
++		relStart = relEnd
++	}
++
++	return text, relStart, relEnd
++}
+diff --git a/internal/search/snippet_test.go b/internal/search/snippet_test.go
+new file mode 100644
+index 0000000..3c87183
+--- /dev/null
++++ b/internal/search/snippet_test.go
+@@ -0,0 +1,173 @@
++package search_test
++
++import (
++	"context"
++	"os"
++	"path/filepath"
++	"strings"
++	"testing"
++	"unicode/utf8"
++
++	"github.com/jonyd/gobsidian/internal/index"
++	"github.com/jonyd/gobsidian/internal/search"
++	"github.com/jonyd/gobsidian/internal/vault"
++)
++
++func snippetPara(t *testing.T, v *vault.Vault, idx *index.Index, ix *search.Inverted, path string, term string, maxChars int) search.Snippet {
++	t.Helper()
++	s, err := search.GenerateSnippet(context.Background(), v, ix, idx, path, []string{term}, maxChars)
++	if err != nil {
++		t.Fatalf("GenerateSnippet: %v", err)
++	}
++	return s
++}
++
++func TestSnippetOffsetsAlignWithDiskBytesUnderBOM(t *testing.T) {
++	root := t.TempDir()
++	// BOM + frontmatter + corpo. Os três deslocamentos no mesmo arquivo.
++	raw := []byte("\xEF\xBB\xBF---\ntitle: T\n---\n\n# Secao\n\nA prescricao intercorrente corre.\n")
++	caminho := filepath.Join(root, "nota.md")
++	if err := os.WriteFile(caminho, raw, 0644); err != nil {
++		t.Fatal(err)
++	}
++
++	v, err := vault.New(root)
++	if err != nil {
++		t.Fatal(err)
++	}
++	idx := index.New()
++	if err := idx.Build(context.Background(), v); err != nil {
++		t.Fatal(err)
++	}
++
++	data, _ := v.ReadAll(context.Background(), "nota.md")
++	body, _ := vault.StripBOM(data)
++	ix := search.NewInverted()
++	ix.Add("nota.md", search.Analyze(string(body)))
++
++	trecho := snippetPara(t, v, idx, ix, "nota.md", "intercorrente", 240)
++
++	// A asserção é sobre BYTES DO DISCO
++	if !strings.Contains(trecho.Text, "intercorrente") {
++		t.Fatalf("trecho = %q; nao contem o termo — offset deslocado pelo BOM ou frontmatter", trecho.Text)
++	}
++	if !utf8.ValidString(trecho.Text) || strings.Contains(trecho.Text, "\uFFFD") {
++		t.Errorf("trecho tem byte invalido: recorte caiu no meio de um caractere")
++	}
++	if got := trecho.Text[trecho.HighlightStart:trecho.HighlightEnd]; got != "intercorrente" {
++		t.Errorf("destaque = %q, quer %q", got, "intercorrente")
++	}
++}
++
++func TestSnippetOffsetsWithoutBOM(t *testing.T) {
++	root := t.TempDir()
++	raw := []byte("---\ntitle: T\n---\n\n# Secao\n\nA prescricao intercorrente corre.\n")
++	caminho := filepath.Join(root, "nota.md")
++	if err := os.WriteFile(caminho, raw, 0644); err != nil {
++		t.Fatal(err)
++	}
++
++	v, err := vault.New(root)
++	if err != nil {
++		t.Fatal(err)
++	}
++	idx := index.New()
++	if err := idx.Build(context.Background(), v); err != nil {
++		t.Fatal(err)
++	}
++
++	data, _ := v.ReadAll(context.Background(), "nota.md")
++	body, _ := vault.StripBOM(data)
++	ix := search.NewInverted()
++	ix.Add("nota.md", search.Analyze(string(body)))
++
++	trecho := snippetPara(t, v, idx, ix, "nota.md", "intercorrente", 240)
++
++	if !strings.Contains(trecho.Text, "intercorrente") {
++		t.Fatalf("trecho = %q; nao contem o termo", trecho.Text)
++	}
++	if got := trecho.Text[trecho.HighlightStart:trecho.HighlightEnd]; got != "intercorrente" {
++		t.Errorf("destaque sem BOM = %q, quer %q", got, "intercorrente")
++	}
++}
++
++func TestSnippetMaxCharsRespected(t *testing.T) {
++	root := t.TempDir()
++	longText := strings.Repeat("palavra ", 200) + "alvo " + strings.Repeat("palavra ", 200)
++	caminho := filepath.Join(root, "longa.md")
++	_ = os.WriteFile(caminho, []byte(longText), 0644)
++
++	v, _ := vault.New(root)
++	idx := index.New()
++	_ = idx.Build(context.Background(), v)
++
++	ix := search.NewInverted()
++	ix.Add("longa.md", search.Analyze(longText))
++
++	// Test default maxChars (240)
++	t1 := snippetPara(t, v, idx, ix, "longa.md", "alvo", 0)
++	if len(t1.Text) > 240 {
++		t.Errorf("len(t1.Text) = %d, quer <= 240", len(t1.Text))
++	}
++
++	// Test custom maxChars (50)
++	t2 := snippetPara(t, v, idx, ix, "longa.md", "alvo", 50)
++	if len(t2.Text) > 50 {
++		t.Errorf("len(t2.Text) = %d, quer <= 50", len(t2.Text))
++	}
++
++	// Test max clamp (1500 -> 1000)
++	t3 := snippetPara(t, v, idx, ix, "longa.md", "alvo", 1500)
++	if len(t3.Text) > 1000 {
++		t.Errorf("len(t3.Text) = %d, quer <= 1000", len(t3.Text))
++	}
++}
++
++func TestSnippetTermAtEdges(t *testing.T) {
++	root := t.TempDir()
++	_ = os.WriteFile(filepath.Join(root, "inicio.md"), []byte("alvo no inicio do arquivo texto texto"), 0644)
++	_ = os.WriteFile(filepath.Join(root, "fim.md"), []byte("texto texto texto alvo"), 0644)
++
++	v, _ := vault.New(root)
++	idx := index.New()
++	_ = idx.Build(context.Background(), v)
++
++	ix := search.NewInverted()
++	dataI, _ := v.ReadAll(context.Background(), "inicio.md")
++	ix.Add("inicio.md", search.Analyze(string(dataI)))
++
++	dataF, _ := v.ReadAll(context.Background(), "fim.md")
++	ix.Add("fim.md", search.Analyze(string(dataF)))
++
++	tInit := snippetPara(t, v, idx, ix, "inicio.md", "alvo", 100)
++	if got := tInit.Text[tInit.HighlightStart:tInit.HighlightEnd]; got != "alvo" {
++		t.Errorf("inicio: destaque = %q, quer %q", got, "alvo")
++	}
++
++	tFim := snippetPara(t, v, idx, ix, "fim.md", "alvo", 100)
++	if got := tFim.Text[tFim.HighlightStart:tFim.HighlightEnd]; got != "alvo" {
++		t.Errorf("fim: destaque = %q, quer %q", got, "alvo")
++	}
++}
++
++func TestSnippetAccentedWordUTF8Safety(t *testing.T) {
++	root := t.TempDir()
++	raw := []byte("Texto com a palavra prescrição acentuada.")
++	_ = os.WriteFile(filepath.Join(root, "acento.md"), raw, 0644)
++
++	v, _ := vault.New(root)
++	idx := index.New()
++	_ = idx.Build(context.Background(), v)
++
++	ix := search.NewInverted()
++	ix.Add("acento.md", search.Analyze(string(raw)))
++
++	trecho := snippetPara(t, v, idx, ix, "acento.md", "prescrição", 100)
++
++	if !utf8.ValidString(trecho.Text) || strings.Contains(trecho.Text, "\uFFFD") {
++		t.Errorf("Snippet contém caractere UTF-8 inválido")
++	}
++	if got := trecho.Text[trecho.HighlightStart:trecho.HighlightEnd]; got != "prescrição" {
++		t.Errorf("destaque acentuado = %q, quer %q", got, "prescrição")
++	}
++}
