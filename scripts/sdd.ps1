@@ -128,6 +128,12 @@ switch ($Command) {
         Set-Content -Path $BaseFile -Value $Head -Encoding ascii -NoNewline
         Write-Output "[OK] Base da Task ${Task}: $($Head.Substring(0,7))"
         Write-Output "[i] Rode isto ANTES de o executor comecar."
+        # O arquivo de base passou a ser versionado junto com o resto de
+        # .superpowers/. Commita-lo sozinho move o HEAD e torna a base que
+        # acabou de ser gravada defasada em um commit — e gravar de novo
+        # recursa. Deixe-o sujo: o primeiro commit da tarefa o recolhe, e ai
+        # o intervalo base..HEAD e exatamente o trabalho da tarefa.
+        Write-Output "[i] NAO commite este arquivo sozinho. O primeiro commit da tarefa o recolhe."
     }
 
     "review" {
