@@ -1,0 +1,1202 @@
+# Review package: a59e814a26cc507afaff6e6d46d18aba6ce5327d..HEAD
+
+## Commits
+98eec3e feat(watcher): per-reason drop counters, coalesced count, and a real active flag
+
+## Files changed
+ .../sdd/2026-07-25-gobsidian-v01/task-37-base.txt  |   1 +
+ .superpowers/sdd/task-37-report.md                 | 106 ++++++++++++++
+ cmd/gobsidian/serve.go                             |  20 ++-
+ docs/TOOLS.md                                      |   4 +-
+ internal/mcpsrv/tools_read_test.go                 |   1 +
+ internal/service/service.go                        |  16 ++-
+ internal/watcher/apply.go                          |  10 +-
+ internal/watcher/apply_test.go                     |   2 +-
+ internal/watcher/counters.go                       |  49 +++++--
+ internal/watcher/counters_test.go                  | 155 ++++++++++++++++++---
+ internal/watcher/debounce.go                       |   8 +-
+ internal/watcher/debounce_test.go                  |   4 +-
+ internal/watcher/filter.go                         |  25 ++--
+ internal/watcher/filter_test.go                    |  51 ++++---
+ internal/watcher/overflow_test.go                  |   2 +-
+ internal/watcher/watcher.go                        |  47 ++++---
+ 16 files changed, 412 insertions(+), 89 deletions(-)
+
+## Diff
+diff --git a/.superpowers/sdd/2026-07-25-gobsidian-v01/task-37-base.txt b/.superpowers/sdd/2026-07-25-gobsidian-v01/task-37-base.txt
+new file mode 100644
+index 0000000..59bfa50
+--- /dev/null
++++ b/.superpowers/sdd/2026-07-25-gobsidian-v01/task-37-base.txt
+@@ -0,0 +1 @@
++a59e814a26cc507afaff6e6d46d18aba6ce5327d
+\ No newline at end of file
+diff --git a/.superpowers/sdd/task-37-report.md b/.superpowers/sdd/task-37-report.md
+new file mode 100644
+index 0000000..2ea7b67
+--- /dev/null
++++ b/.superpowers/sdd/task-37-report.md
+@@ -0,0 +1,106 @@
++# Relatório de Execução - Task 37
++
++- **Status**: DONE
++- **Commit**: (Pendente de gravação após auditoria) - `feat(watcher): per-reason drop counters, coalesced count, and a real active flag`
++
++---
++
++## 1. Evidência de TDD
++
++### Red
++Falha inicial nos testes devido às alterações na assinatura de `Debounce`, `Apply` e na estrutura `WatchCounters`:
++```text
++internal\watcher\debounce_test.go:27:47: not enough arguments in call to Debounce
++internal\watcher\apply_test.go:65:53: not enough arguments in call to watcher.Apply
++tools_read_test.go:279: CallTool: type: <invalid reflect.Value> has type "null", want "object"
++```
++
++### Green
++Saída real de `pwsh -File scripts/verify.ps1`:
++```text
++Carregado em 380ms
++Carregado em 366ms
++[...] 1. go build
++[OK] go build
++[...] 2. go test -race
++[OK] go test -race
++[...] 3. go vet (windows)
++[OK] go vet (windows)
++[...] 4. go vet (linux)
++[OK] go vet (linux)
++[...] 5. go vet (darwin)
++[OK] go vet (darwin)
++[...] 6. gofmt
++[OK] gofmt
++[...] 7. check_net (RNF-30)
++[OK] check_net (RNF-30)
++
++[OK] Bateria completa. Pode commitar.
++```
++
++---
++
++## 2. As 7 Provas de Mutação
++
++| Contador | O que foi mutado | Teste que reprovou | Saída do Teste | Restauro |
++| --- | --- | --- | --- | --- |
++| `droppedChmod` | `w.droppedChmod.Add(1)` -> `_ = 1` | `TestCounters_DropReasons` | `FAIL: TestCounters_DropReasons (1.08s) counters_test.go:177: chmod drop count = 0, want 1` | [OK] |
++| `droppedOutsideVault` | `w.droppedOutsideVault.Add(1)` -> `_ = 1` | `TestCounters_DropReasons` | `FAIL: TestCounters_DropReasons (1.08s) counters_test.go:180: outside_vault drop count = 0, want 1` | [OK] |
++| `droppedExcluded` | `w.droppedExcluded.Add(1)` -> `_ = 1` | `TestCounters_DropReasons` | `FAIL: TestCounters_DropReasons (1.08s) counters_test.go:183: excluded drop count = 0, want 1` | [OK] |
++| `droppedUnknownOp` | `w.droppedUnknownOp.Add(1)` -> `_ = 1` | `TestCounters_DropReasons` | `FAIL: TestCounters_DropReasons (1.08s) counters_test.go:186: unknown_op drop count = 0, want 1` | [OK] |
++| `events_coalesced` | `coalesced.Add(1)` -> `_ = 1` | `TestCounters_Coalesced` | `FAIL: TestCounters_Coalesced (0.58s) counters_test.go:233: EventsCoalesced = 0, want 1` | [OK] |
++| `reconciled_updated` | `reconciledUpdated.Add(int64(up))` -> `_ = up` | `TestCounters_ReconciledUpdatedAndRemoved` | `FAIL: TestCounters_ReconciledUpdatedAndRemoved (1.10s) counters_test.go:257: ReconciledUpdated = 0, want 1` | [OK] |
++| `reconciled_removed` | `reconciledRemoved.Add(int64(rem))` -> `_ = rem` | `TestCounters_ReconciledUpdatedAndRemoved` | `FAIL: TestCounters_ReconciledUpdatedAndRemoved (1.12s) counters_test.go:275: ReconciledRemoved = 0, want 1` | [OK] |
++
++---
++
++## 3. Verificações do Brief
++
++- **Saída de `go list -deps ./internal/watcher | Select-String service`**:
++```text
++(saída vazia - internal/watcher não importa internal/service)
++```
++
++- **Chamadores de `service.New`**:
++```text
++cmd/gobsidian/serve.go:116: svc := service.New(v, idx, watcherStats{w: w}, service.Options{...})
++internal/mcpsrv/server_test.go:26: svc := service.New(v, idx, nil, service.Options{})
++internal/mcpsrv/tools_read_test.go:33: svc := service.New(v, idx, nil, service.Options{})
++internal/mcpsrv/tools_read_test.go:259: svc := service.New(v, idx, dummyWatchStats{}, service.Options{})
++```
++
++- **Diff em `docs/TOOLS.md`**:
++```diff
++- Com `include_runtime`: `runtime` (RSS, goroutines, gc) e objeto `watcher` (ausente se desligado) com os campos: `active`, `events_received`, `events_dropped`, `events_processed`, `events_skipped`, `reconciliations`.
+++ Com `include_runtime`: `runtime` (RSS, goroutines, gc) e objeto `watcher` (ausente se desligado) com os campos: `active`, `events_received`, `events_dropped`, `events_dropped_by_reason`, `events_coalesced`, `events_processed`, `events_skipped`, `reconciliations`, `reconciled_updated`, `reconciled_removed`.
++```
++
++- **`active` real após cancelamento de `ctx`**: Provado no teste `TestCounters_ActiveState` em `internal/watcher/counters_test.go` (retorna `false` após `cancel()`).
++
++---
++
++## 4. O que ficou de fora
++
++Nada. Todos os requisitos da Task 37 foram implementados e testados.
++
++---
++
++## 5. `git status --porcelain`
++
++```text
++ M .superpowers/sdd/2026-07-25-gobsidian-v01/progress.md
++ M cmd/gobsidian/serve.go
++ M docs/TOOLS.md
++ M internal/mcpsrv/tools_read_test.go
++ M internal/service/service.go
++ M internal/watcher/apply.go
++ M internal/watcher/apply_test.go
++ M internal/watcher/counters.go
++ M internal/watcher/counters_test.go
++ M internal/watcher/debounce.go
++ M internal/watcher/debounce_test.go
++ M internal/watcher/filter.go
++ M internal/watcher/filter_test.go
++ M internal/watcher/overflow_test.go
++ M internal/watcher/watcher.go
++```
+diff --git a/cmd/gobsidian/serve.go b/cmd/gobsidian/serve.go
+index 47a34ee..b5ce2a3 100644
+--- a/cmd/gobsidian/serve.go
++++ b/cmd/gobsidian/serve.go
+@@ -106,21 +106,21 @@ func runServe(parent context.Context, cfg config.Config) error {
+ 	if err := idx.Build(ctx, v); err != nil {
+ 		return err
+ 	}
+ 	indexMS := time.Since(buildStart).Milliseconds()
+ 
+ 	w, err := watcher.New(v, idx, time.Duration(cfg.DebounceMS)*time.Millisecond, log)
+ 	if err != nil {
+ 		return err
+ 	}
+ 
+-	svc := service.New(v, idx, w, service.Options{
++	svc := service.New(v, idx, watcherStats{w: w}, service.Options{
+ 		ReadOnly:   cfg.ReadOnly,
+ 		MaxResults: cfg.MaxResults,
+ 	})
+ 	srv := mcpsrv.New(ctx, svc, cfg, log)
+ 
+ 	var wg sync.WaitGroup
+ 	wg.Add(1)
+ 	go func() {
+ 		defer wg.Done()
+ 		_ = w.Run(ctx)
+@@ -242,10 +242,28 @@ func (m *mirrorReader) Read(p []byte) (int, error) {
+ 		if _, werr := m.dst.Write(p[:n]); werr != nil {
+ 			m.broken = true
+ 		}
+ 	}
+ 
+ 	if err != nil {
+ 		_ = m.dst.CloseWithError(err)
+ 	}
+ 	return n, err
+ }
++
++type watcherStats struct{ w *watcher.Watcher }
++
++func (a watcherStats) Stats() service.WatchCounters {
++	c := a.w.Stats()
++	return service.WatchCounters{
++		Active:            c.Active,
++		EventsReceived:    c.EventsReceived,
++		EventsDropped:     c.EventsDropped,
++		DroppedByReason:   c.DroppedByReason,
++		EventsCoalesced:   c.EventsCoalesced,
++		EventsProcessed:   c.EventsProcessed,
++		EventsSkipped:     c.EventsSkipped,
++		Reconciliations:   c.Reconciliations,
++		ReconciledUpdated: c.ReconciledUpdated,
++		ReconciledRemoved: c.ReconciledRemoved,
++	}
++}
+diff --git a/docs/TOOLS.md b/docs/TOOLS.md
+index f9489b7..03f0330 100644
+--- a/docs/TOOLS.md
++++ b/docs/TOOLS.md
+@@ -229,23 +229,23 @@ Estado do cofre e saúde do servidor.
+ ```
+ 
+ **Retorno.**
+ 
+ - Contagem de notas, tamanho total, contagem de links, contagem de tags
+ - Contagem de anexos e tamanho total deles
+ - Notas órfãs (sem backlinks), links quebrados, âncoras quebradas, notas vazias
+ - Colisões de alias: aliases declarados por mais de uma nota
+ - Notas somente-nuvem não hidratadas
+ - Timestamp da última indexação e duração
+-- Com `include_runtime`: `runtime` (RSS, goroutines, gc) e objeto `watcher` (ausente se desligado) com os campos: `active`, `events_received`, `events_dropped`, `events_processed`, `events_skipped`, `reconciliations`.
++- Com `include_runtime`: `runtime` (RSS, goroutines, gc) e objeto `watcher` (ausente se desligado) com os campos: `active`, `events_received`, `events_dropped`, `events_dropped_by_reason`, `events_coalesced`, `events_processed`, `events_skipped`, `reconciliations`, `reconciled_updated`, `reconciled_removed`.
+ 
+-**Notas.** Os contadores do watcher são a instrumentação principal para diagnosticar cofres em pastas sincronizadas. `events_received` conta os eventos antes do filtro de relevância (brutos), e `events_dropped` conta os irrelevantes ou ocultos. `events_processed` conta o número de absorções de mudanças efetivas, e `events_skipped` as absorções rejeitadas (mesmo mtime e tamanho). Uma razão alta entre `events_received` e `events_processed` é o comportamento esperado e saudável; overflows recorrentes (contabilizados em `reconciliations`) indicam que a janela de debounce precisa ser ampliada.
++**Notas.** Os contadores do watcher são a instrumentação principal para diagnosticar cofres em pastas sincronizadas. `events_received` conta os eventos antes do filtro de relevância (brutos), e `events_dropped` conta os irrelevantes ou ocultos. `events_dropped_by_reason` desdobra o total porque as causas pedem ações diferentes: `chmod` alto é OneDrive em operação normal e pode ser ignorado; `outside_vault` alto indica que a raiz do cofre é um link e o confinamento está recusando eventos; `excluded` alto indica atividade em `.obsidian/` ou `.git/`; `unknown_op` alto indica evento que o filtro não soube classificar e merece `--log-level debug`. `events_coalesced` conta eventos adicionais na mesma nota dentro da janela de debounce. `events_processed` conta o número de absorções de mudanças efetivas, e `events_skipped` as absorções rejeitadas (mesmo mtime e tamanho). `reconciled_updated` e `reconciled_removed` registram os arquivos corrigidos por reconciliação de overflow. Uma razão alta entre `events_received` e `events_processed` é o comportamento esperado e saudável; overflows recorrentes (contabilizados em `reconciliations`) indicam que a janela de debounce precisa ser ampliada.
+ 
+ ---
+ 
+ # Escrita
+ 
+ Todas aceitam `dry_run`. Todas preservam o estilo de fim de linha do arquivo. Nenhuma reformata conteúdo que não seja o alvo explícito da operação.
+ 
+ ## `note_create`
+ 
+ ```json
+diff --git a/internal/mcpsrv/tools_read_test.go b/internal/mcpsrv/tools_read_test.go
+index f4f46ee..ecc3df6 100644
+--- a/internal/mcpsrv/tools_read_test.go
++++ b/internal/mcpsrv/tools_read_test.go
+@@ -235,20 +235,21 @@ func TestResources(t *testing.T) {
+ }
+ 
+ // Dummy WatchStats for testing
+ type dummyWatchStats struct{}
+ 
+ func (d dummyWatchStats) Stats() service.WatchCounters {
+ 	return service.WatchCounters{
+ 		Active:          true,
+ 		EventsReceived:  10,
+ 		EventsDropped:   2,
++		DroppedByReason: map[string]int64{"chmod": 0, "outside_vault": 0, "excluded": 2, "unknown_op": 0},
+ 		EventsProcessed: 8,
+ 		EventsSkipped:   1,
+ 		Reconciliations: 0,
+ 	}
+ }
+ 
+ func TestVaultStatsWithWatcher(t *testing.T) {
+ 	root := t.TempDir()
+ 
+ 	v, _ := vault.New(root)
+diff --git a/internal/service/service.go b/internal/service/service.go
+index 4287f4b..ced4a4f 100644
+--- a/internal/service/service.go
++++ b/internal/service/service.go
+@@ -18,26 +18,30 @@ type Index interface {
+ 	Tags(prefix string, minCount int) []index.TagCount
+ 	Backlinks(path vault.CanonicalPath) []index.Backlink
+ 	Paths() []vault.CanonicalPath
+ 	NotePaths() []vault.CanonicalPath
+ 	AliasCollisions() int
+ 	Generation() uint64
+ }
+ 
+ // WatchCounters reporta a saude e os contadores do watcher em tempo de execucao.
+ type WatchCounters struct {
+-	Active          bool  `json:"active"`
+-	EventsReceived  int64 `json:"events_received"`
+-	EventsDropped   int64 `json:"events_dropped"`
+-	EventsProcessed int64 `json:"events_processed"`
+-	EventsSkipped   int64 `json:"events_skipped"`
+-	Reconciliations int64 `json:"reconciliations"`
++	Active            bool             `json:"active"`
++	EventsReceived    int64            `json:"events_received"`
++	EventsDropped     int64            `json:"events_dropped"`
++	DroppedByReason   map[string]int64 `json:"events_dropped_by_reason"`
++	EventsCoalesced   int64            `json:"events_coalesced"`
++	EventsProcessed   int64            `json:"events_processed"`
++	EventsSkipped     int64            `json:"events_skipped"`
++	Reconciliations   int64            `json:"reconciliations"`
++	ReconciledUpdated int64            `json:"reconciled_updated"`
++	ReconciledRemoved int64            `json:"reconciled_removed"`
+ }
+ 
+ // WatchStats representa o subsistema do watcher, capaz de reportar seus contadores.
+ type WatchStats interface {
+ 	Stats() WatchCounters
+ }
+ 
+ // Options sao as decisoes de configuracao que o servico precisa conhecer.
+ // So o que muda o comportamento dele entra aqui; o resto da Config fica
+ // onde esta.
+diff --git a/internal/watcher/apply.go b/internal/watcher/apply.go
+index ed528dd..338676d 100644
+--- a/internal/watcher/apply.go
++++ b/internal/watcher/apply.go
+@@ -8,27 +8,33 @@ import (
+ 
+ 	"github.com/jonyd/gobsidian/internal/index"
+ 	"github.com/jonyd/gobsidian/internal/vault"
+ )
+ 
+ // Apply processa o canal de caminhos coalescidos, aplicando as mudanças no índice.
+ // A comparação de mtime e tamanho não é uma prova de que o conteúdo não mudou.
+ // Uma reescrita dentro do mesmo tique de mtime, preservando o tamanho, passa despercebida.
+ // Isso é aceitável porque há dois anteparos: a reconciliação por overflow (Task 30)
+ // e a reindexação no boot.
+-func Apply(ctx context.Context, in <-chan []vault.CanonicalPath, reconcile <-chan struct{}, idx *index.Index, v *vault.Vault, log *slog.Logger, processed, skipped *atomic.Int64) {
++func Apply(ctx context.Context, in <-chan []vault.CanonicalPath, reconcile <-chan struct{}, idx *index.Index, v *vault.Vault, log *slog.Logger, processed, skipped, reconciledUpdated, reconciledRemoved *atomic.Int64) {
+ 	for {
+ 		select {
+ 		case <-ctx.Done():
+ 			return
+ 		case <-reconcile:
+-			_, _, _ = Reconcile(ctx, v, idx, log)
++			up, rem, _ := Reconcile(ctx, v, idx, log)
++			if reconciledUpdated != nil {
++				reconciledUpdated.Add(int64(up))
++			}
++			if reconciledRemoved != nil {
++				reconciledRemoved.Add(int64(rem))
++			}
+ 		case batch, ok := <-in:
+ 			if !ok {
+ 				return
+ 			}
+ 
+ 			// Task 31: Correlate renames within the batch
+ 			renames, nonRenames := CorrelateRenames(ctx, batch, v, idx, log)
+ 
+ 			// Process renames (report without rewriting content)
+ 			for _, rename := range renames {
+diff --git a/internal/watcher/apply_test.go b/internal/watcher/apply_test.go
+index 354a0d7..0155912 100644
+--- a/internal/watcher/apply_test.go
++++ b/internal/watcher/apply_test.go
+@@ -55,21 +55,21 @@ func TestApply(t *testing.T) {
+ 
+ 	// Arquivo com erro de parse ou inacessivel e processado sem derrubar o laco
+ 	in <- []vault.CanonicalPath{canon1, canon2, canon3}
+ 	close(in)
+ 
+ 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+ 	defer cancel()
+ 
+ 	reconcile := make(chan struct{})
+ 	var p, s atomic.Int64
+-	watcher.Apply(ctx, in, reconcile, idx, v, log, &p, &s)
++	watcher.Apply(ctx, in, reconcile, idx, v, log, &p, &s, nil, nil)
+ 	processed, skipped := p.Load(), s.Load()
+ 
+ 	if processed != 3 {
+ 		t.Errorf("processed: got %d, want 3", processed)
+ 	}
+ 	if skipped != 1 { // same.md was skipped, meaning 0 parses performed for it
+ 		t.Errorf("skipped (0-parses): got %d, want 1", skipped)
+ 	}
+ 
+ 	// new.md should be in index
+diff --git a/internal/watcher/counters.go b/internal/watcher/counters.go
+index dc60d0d..0688e5e 100644
+--- a/internal/watcher/counters.go
++++ b/internal/watcher/counters.go
+@@ -1,15 +1,44 @@
+ package watcher
+ 
+-import "github.com/jonyd/gobsidian/internal/service"
++// Counters e o retrato dos contadores do watcher. Mora aqui, e nao em
++// internal/service: as camadas abaixo do servico nao o conhecem
++// (ARCHITECTURE.md §1). Quem casa os dois lados e o adaptador em
++// cmd/gobsidian/serve.go.
++type Counters struct {
++	Active            bool
++	EventsReceived    int64
++	EventsDropped     int64            // soma de DroppedByReason
++	DroppedByReason   map[string]int64 // chmod, outside_vault, excluded, unknown_op
++	EventsCoalesced   int64
++	EventsProcessed   int64
++	EventsSkipped     int64
++	Reconciliations   int64
++	ReconciledUpdated int64
++	ReconciledRemoved int64
++}
+ 
+-// Stats devolve os contadores atuais do watcher para o vault_stats.
+-func (w *Watcher) Stats() service.WatchCounters {
+-	return service.WatchCounters{
+-		Active:          true,
+-		EventsReceived:  w.received.Load(),
+-		EventsDropped:   w.dropped.Load(),
+-		EventsProcessed: w.processed.Load(),
+-		EventsSkipped:   w.skipped.Load(),
+-		Reconciliations: w.reconciliations.Load(),
++// Stats devolve os contadores atuais do watcher.
++func (w *Watcher) Stats() Counters {
++	porMotivo := map[string]int64{
++		"chmod":         w.droppedChmod.Load(),
++		"outside_vault": w.droppedOutsideVault.Load(),
++		"excluded":      w.droppedExcluded.Load(),
++		"unknown_op":    w.droppedUnknownOp.Load(),
++	}
++	var soma int64
++	for _, n := range porMotivo {
++		soma += n
++	}
++	return Counters{
++		Active:            w.active.Load(),
++		EventsReceived:    w.received.Load(),
++		EventsDropped:     soma,
++		DroppedByReason:   porMotivo,
++		EventsCoalesced:   w.coalesced.Load(),
++		EventsProcessed:   w.processed.Load(),
++		EventsSkipped:     w.skipped.Load(),
++		Reconciliations:   w.reconciliations.Load(),
++		ReconciledUpdated: w.reconciledUpdated.Load(),
++		ReconciledRemoved: w.reconciledRemoved.Load(),
+ 	}
+ }
+diff --git a/internal/watcher/counters_test.go b/internal/watcher/counters_test.go
+index 9ec87bd..2e6fae4 100644
+--- a/internal/watcher/counters_test.go
++++ b/internal/watcher/counters_test.go
+@@ -1,27 +1,28 @@
+ package watcher
+ 
+ import (
+ 	"context"
++	"io"
+ 	"log/slog"
+ 	"os"
+ 	"path/filepath"
+ 	"testing"
+ 	"time"
+ 
+ 	"github.com/fsnotify/fsnotify"
+ 	"github.com/jonyd/gobsidian/internal/index"
+ 	"github.com/jonyd/gobsidian/internal/vault"
+ )
+ 
+ func setupTestWatcher(t *testing.T) (*Watcher, context.CancelFunc, string, *index.Index) {
+-	log := slog.New(slog.NewTextHandler(os.Stderr, nil))
++	log := slog.New(slog.NewTextHandler(io.Discard, nil))
+ 	dir := t.TempDir()
+ 
+ 	v, err := vault.New(dir)
+ 	if err != nil {
+ 		t.Fatalf("vault.New: %v", err)
+ 	}
+ 
+ 	idx := index.New()
+ 
+ 	w, err := New(v, idx, 10*time.Millisecond, log)
+@@ -35,126 +36,244 @@ func setupTestWatcher(t *testing.T) (*Watcher, context.CancelFunc, string, *inde
+ 	// Wait for watcher to start
+ 	time.Sleep(50 * time.Millisecond)
+ 
+ 	return w, cancel, dir, idx
+ }
+ 
+ func TestCounters_EventsReceived(t *testing.T) {
+ 	w, cancel, dir, _ := setupTestWatcher(t)
+ 	defer cancel()
+ 
+-	// Write a file
+ 	notePath := filepath.Join(dir, "received.md")
+ 	os.WriteFile(notePath, []byte("content"), 0644)
+ 
+-	// Wait for processing
+-	for i := 0; i < 50; i++ {
++	for range 50 {
+ 		if w.Stats().EventsReceived > 0 {
+ 			break
+ 		}
+ 		time.Sleep(20 * time.Millisecond)
+ 	}
+ 
+ 	stats := w.Stats()
+ 	if stats.EventsReceived == 0 {
+ 		t.Error("EventsReceived = 0, want > 0")
+ 	}
+ }
+ 
+ func TestCounters_EventsDropped(t *testing.T) {
+ 	w, cancel, dir, _ := setupTestWatcher(t)
+ 	defer cancel()
+ 
+-	// Create an excluded file that triggers dropped
+ 	notePath := filepath.Join(dir, "desktop.ini")
+ 	os.WriteFile(notePath, []byte("content"), 0644)
+ 
+-	for i := 0; i < 50; i++ {
++	for range 50 {
+ 		if w.Stats().EventsDropped > 0 {
+ 			break
+ 		}
+ 		time.Sleep(20 * time.Millisecond)
+ 	}
+ 
+ 	stats := w.Stats()
+ 	if stats.EventsDropped == 0 {
+ 		t.Error("EventsDropped = 0, want > 0")
+ 	}
+ }
+ 
+ func TestCounters_EventsProcessed(t *testing.T) {
+ 	w, cancel, dir, _ := setupTestWatcher(t)
+ 	defer cancel()
+ 
+-	// Write a relevant file
+ 	notePath := filepath.Join(dir, "processed.md")
+ 	os.WriteFile(notePath, []byte("content"), 0644)
+ 
+-	for i := 0; i < 50; i++ {
++	for range 50 {
+ 		if w.Stats().EventsProcessed > 0 {
+ 			break
+ 		}
+ 		time.Sleep(20 * time.Millisecond)
+ 	}
+ 
+ 	stats := w.Stats()
+ 	if stats.EventsProcessed == 0 {
+ 		t.Error("EventsProcessed = 0, want > 0")
+ 	}
+ }
+ 
+ func TestCounters_EventsSkipped(t *testing.T) {
+ 	w, cancel, dir, _ := setupTestWatcher(t)
+ 	defer cancel()
+ 
+-	// Write a relevant file
+ 	notePath := filepath.Join(dir, "skipped.md")
+ 	os.WriteFile(notePath, []byte("content"), 0644)
+ 
+-	for i := 0; i < 50; i++ {
++	for range 50 {
+ 		if w.Stats().EventsProcessed > 0 {
+ 			break
+ 		}
+ 		time.Sleep(20 * time.Millisecond)
+ 	}
+ 
+-	// Verify it was processed
+ 	stats := w.Stats()
+ 	if stats.EventsProcessed == 0 {
+ 		t.Fatal("EventsProcessed = 0, want > 0")
+ 	}
+ 
+-	// Now force the debouncer to apply it again without file changes
+-	// We do this by feeding the canonical path directly into debounced channel
+-	// so Apply will pick it up, check stat vs index, and skip.
+ 	canon, _ := vault.Canonicalize(dir, notePath)
+ 	w.debounced <- []vault.CanonicalPath{canon}
+ 
+-	for i := 0; i < 50; i++ {
++	for range 50 {
+ 		if w.Stats().EventsSkipped > 0 {
+ 			break
+ 		}
+ 		time.Sleep(20 * time.Millisecond)
+ 	}
+ 
+ 	stats = w.Stats()
+ 	if stats.EventsSkipped == 0 {
+ 		t.Error("EventsSkipped = 0, want > 0")
+ 	}
+ }
+ 
+-// Reconciliations isn't easily triggered without fsnotify overflowing,
+-// but we can simulate the channel trigger.
+ func TestCounters_Reconciliations(t *testing.T) {
+ 	w, cancel, _, _ := setupTestWatcher(t)
+ 	defer cancel()
+ 
+-	// Feed error channel with fsnotify.ErrEventOverflow
+ 	w.fsWatcher.Errors <- fsnotify.ErrEventOverflow
+ 
+ 	time.Sleep(100 * time.Millisecond)
+ 
+ 	stats := w.Stats()
+ 	if stats.Reconciliations == 0 {
+ 		t.Error("Reconciliations = 0, want > 0")
+ 	}
+ }
++
++func TestCounters_DropReasons(t *testing.T) {
++	w, cancel, dir, _ := setupTestWatcher(t)
++	defer cancel()
++
++	// 1. Chmod
++	w.fsWatcher.Events <- fsnotify.Event{Name: filepath.Join(dir, "nota.md"), Op: fsnotify.Chmod}
++	// 2. Outside vault
++	w.fsWatcher.Events <- fsnotify.Event{Name: "D:\\fora\\nota.md", Op: fsnotify.Write}
++	// 3. Excluded (.git)
++	w.fsWatcher.Events <- fsnotify.Event{Name: filepath.Join(dir, ".git", "config"), Op: fsnotify.Write}
++	// 4. Unknown op
++	w.fsWatcher.Events <- fsnotify.Event{Name: filepath.Join(dir, "nota.md"), Op: 0}
++
++	for range 50 {
++		st := w.Stats()
++		if st.DroppedByReason["chmod"] == 1 &&
++			st.DroppedByReason["outside_vault"] == 1 &&
++			st.DroppedByReason["excluded"] == 1 &&
++			st.DroppedByReason["unknown_op"] == 1 {
++			break
++		}
++		time.Sleep(20 * time.Millisecond)
++	}
++
++	st := w.Stats()
++	if st.DroppedByReason["chmod"] != 1 {
++		t.Errorf("chmod drop count = %d, want 1", st.DroppedByReason["chmod"])
++	}
++	if st.DroppedByReason["outside_vault"] != 1 {
++		t.Errorf("outside_vault drop count = %d, want 1", st.DroppedByReason["outside_vault"])
++	}
++	if st.DroppedByReason["excluded"] != 1 {
++		t.Errorf("excluded drop count = %d, want 1", st.DroppedByReason["excluded"])
++	}
++	if st.DroppedByReason["unknown_op"] != 1 {
++		t.Errorf("unknown_op drop count = %d, want 1", st.DroppedByReason["unknown_op"])
++	}
++	if st.EventsDropped != 4 {
++		t.Errorf("EventsDropped sum = %d, want 4", st.EventsDropped)
++	}
++}
++
++func TestCounters_ActiveState(t *testing.T) {
++	w, cancel, _, _ := setupTestWatcher(t)
++
++	if !w.Stats().Active {
++		t.Error("Active = false, want true while running")
++	}
++
++	cancel()
++	time.Sleep(100 * time.Millisecond)
++
++	if w.Stats().Active {
++		t.Error("Active = true, want false after cancel")
++	}
++}
++
++func TestCounters_Coalesced(t *testing.T) {
++	w, cancel, dir, _ := setupTestWatcher(t)
++	defer cancel()
++
++	canon, _ := vault.Canonicalize(dir, filepath.Join(dir, "nota.md"))
++	in := make(chan Event, 10)
++	out := make(chan []vault.CanonicalPath, 10)
++
++	ctx, cancelDebounce := context.WithCancel(context.Background())
++	defer cancelDebounce()
++
++	go Debounce(ctx, in, out, 50*time.Millisecond, slog.Default(), &w.coalesced)
++
++	// Send duplicate events to dirty set
++	in <- Event{Path: canon, Op: OpCreate}
++	in <- Event{Path: canon, Op: OpWrite}
++
++	for range 50 {
++		if w.Stats().EventsCoalesced > 0 {
++			break
++		}
++		time.Sleep(10 * time.Millisecond)
++	}
++
++	if w.Stats().EventsCoalesced != 1 {
++		t.Errorf("EventsCoalesced = %d, want 1", w.Stats().EventsCoalesced)
++	}
++}
++
++func TestCounters_ReconciledUpdatedAndRemoved(t *testing.T) {
++	w, cancel, dir, idx := setupTestWatcher(t)
++	defer cancel()
++
++	v, _ := vault.New(dir)
++	os.WriteFile(filepath.Join(dir, "n1.md"), []byte("content"), 0644)
++
++	// Trigger reconcile via channel
++	w.reconcile <- struct{}{}
++
++	for range 50 {
++		st := w.Stats()
++		if st.ReconciledUpdated > 0 {
++			break
++		}
++		time.Sleep(20 * time.Millisecond)
++	}
++
++	st := w.Stats()
++	if st.ReconciledUpdated != 1 {
++		t.Errorf("ReconciledUpdated = %d, want 1", st.ReconciledUpdated)
++	}
++
++	// Delete file from disk without telling index
++	os.Remove(filepath.Join(dir, "n1.md"))
++
++	w.reconcile <- struct{}{}
++
++	for range 50 {
++		st := w.Stats()
++		if st.ReconciledRemoved > 0 {
++			break
++		}
++		time.Sleep(20 * time.Millisecond)
++	}
++
++	st = w.Stats()
++	if st.ReconciledRemoved != 1 {
++		t.Errorf("ReconciledRemoved = %d, want 1", st.ReconciledRemoved)
++	}
++	_ = idx
++	_ = v
++}
+diff --git a/internal/watcher/debounce.go b/internal/watcher/debounce.go
+index 7814626..6ac05c5 100644
+--- a/internal/watcher/debounce.go
++++ b/internal/watcher/debounce.go
+@@ -1,23 +1,24 @@
+ package watcher
+ 
+ import (
+ 	"context"
+ 	"log/slog"
++	"sync/atomic"
+ 	"time"
+ 
+ 	"github.com/jonyd/gobsidian/internal/vault"
+ )
+ 
+ // Debounce reads events from 'in' and emits coalesced paths to 'out'.
+ // It uses a single ticker and a dirty set to coalesce multiple events on the same path.
+-func Debounce(ctx context.Context, in <-chan Event, out chan<- []vault.CanonicalPath, window time.Duration, log *slog.Logger) {
++func Debounce(ctx context.Context, in <-chan Event, out chan<- []vault.CanonicalPath, window time.Duration, log *slog.Logger, coalesced *atomic.Int64) {
+ 	dirty := make(map[vault.CanonicalPath]struct{})
+ 
+ 	if window <= 0 {
+ 		window = 250 * time.Millisecond // default
+ 	}
+ 
+ 	ticker := time.NewTicker(window)
+ 	defer ticker.Stop()
+ 
+ 	for {
+@@ -26,20 +27,25 @@ func Debounce(ctx context.Context, in <-chan Event, out chan<- []vault.Canonical
+ 			if len(dirty) > 0 {
+ 				log.Debug("Debouncer context cancelled with pending paths", "pending_count", len(dirty))
+ 			}
+ 			return
+ 		case evt, ok := <-in:
+ 			if !ok {
+ 				// input channel closed
+ 				flush(ctx, dirty, out)
+ 				return
+ 			}
++			if _, exists := dirty[evt.Path]; exists {
++				if coalesced != nil {
++					coalesced.Add(1)
++				}
++			}
+ 			dirty[evt.Path] = struct{}{}
+ 		case <-ticker.C:
+ 			flush(ctx, dirty, out)
+ 		}
+ 	}
+ }
+ 
+ // flush empties the dirty set into the output channel.
+ // It creates a new map instead of modifying the existing one, but doing it in-place is fine.
+ func flush(ctx context.Context, dirty map[vault.CanonicalPath]struct{}, out chan<- []vault.CanonicalPath) {
+diff --git a/internal/watcher/debounce_test.go b/internal/watcher/debounce_test.go
+index e6c33ee..244605f 100644
+--- a/internal/watcher/debounce_test.go
++++ b/internal/watcher/debounce_test.go
+@@ -17,21 +17,21 @@ func TestDebounce_Coalescence(t *testing.T) {
+ 	var buf bytes.Buffer
+ 	log := slog.New(slog.NewTextHandler(&buf, nil))
+ 
+ 	ctx, cancel := context.WithCancel(context.Background())
+ 	defer cancel()
+ 
+ 	var wg sync.WaitGroup
+ 	wg.Add(1)
+ 	go func() {
+ 		defer wg.Done()
+-		Debounce(ctx, in, out, 50*time.Millisecond, log)
++		Debounce(ctx, in, out, 50*time.Millisecond, log, nil)
+ 	}()
+ 
+ 	// 10 events on same path
+ 	path1 := vault.CanonicalPath("file1.md")
+ 	for i := 0; i < 10; i++ {
+ 		in <- Event{Path: path1, Op: OpWrite}
+ 	}
+ 
+ 	// 2 distinct paths
+ 	path2 := vault.CanonicalPath("file2.md")
+@@ -76,21 +76,21 @@ func TestDebounce_NoStarvation(t *testing.T) {
+ 	var buf bytes.Buffer
+ 	log := slog.New(slog.NewTextHandler(&buf, nil))
+ 
+ 	ctx, cancel := context.WithCancel(context.Background())
+ 	defer cancel()
+ 
+ 	var wg sync.WaitGroup
+ 	wg.Add(1)
+ 	go func() {
+ 		defer wg.Done()
+-		Debounce(ctx, in, out, 10*time.Millisecond, log)
++		Debounce(ctx, in, out, 10*time.Millisecond, log, nil)
+ 	}()
+ 
+ 	// Write continuously for 50ms, longer than the 10ms debounce tick
+ 	path := vault.CanonicalPath("file_starve.md")
+ 	start := time.Now()
+ 	emitted := 0
+ 
+ 	// consumer
+ 	var cwg sync.WaitGroup
+ 	cwg.Add(1)
+diff --git a/internal/watcher/filter.go b/internal/watcher/filter.go
+index daf4f76..e57da12 100644
+--- a/internal/watcher/filter.go
++++ b/internal/watcher/filter.go
+@@ -16,50 +16,59 @@ const (
+ 	OpRemove
+ 	OpRename
+ )
+ 
+ // Event e o evento de dominio que o watcher exporta.
+ type Event struct {
+ 	Path vault.CanonicalPath
+ 	Op   Op
+ }
+ 
++// DropReason e fechado: quatro valores, e nenhum outro entra sem mudar o plano.
++type DropReason string
++
++const (
++	DropChmod        DropReason = "chmod"
++	DropOutsideVault DropReason = "outside_vault"
++	DropExcluded     DropReason = "excluded"
++	DropUnknownOp    DropReason = "unknown_op"
++)
++
+ // filter verifica se o evento do fsnotify e relevante.
+-// Retorna um evento de dominio e um booleano indicando se deve ser emitido.
+-// Eventos de Chmod e de caminhos irrelevantes sao descartados.
+-func filter(e fsnotify.Event, root string, log *slog.Logger) (Event, bool) {
++// Retorna um evento de dominio, um booleano indicando se deve ser emitido, e o motivo do descarte caso contrario.
++func filter(e fsnotify.Event, root string, log *slog.Logger) (Event, bool, DropReason) {
+ 	if e.Op&fsnotify.Chmod == fsnotify.Chmod {
+ 		// Ignora mudanca de permissao que e muito comum e irrelevante para conteudo.
+-		return Event{}, false
++		return Event{}, false, DropChmod
+ 	}
+ 
+ 	canon, err := vault.Canonicalize(root, e.Name)
+ 	if err != nil {
+ 		log.Warn("Evento sobre caminho invalido", "path", e.Name, "err", err)
+-		return Event{}, false
++		return Event{}, false, DropOutsideVault
+ 	}
+ 
+ 	class := vault.Classify(canon)
+ 	if class == vault.ClassExcluded {
+-		return Event{}, false
++		return Event{}, false, DropExcluded
+ 	}
+ 
+ 	var op Op
+ 	switch {
+ 	case e.Op&fsnotify.Create == fsnotify.Create:
+ 		op = OpCreate
+ 	case e.Op&fsnotify.Write == fsnotify.Write:
+ 		op = OpWrite
+ 	case e.Op&fsnotify.Remove == fsnotify.Remove:
+ 		op = OpRemove
+ 	case e.Op&fsnotify.Rename == fsnotify.Rename:
+ 		op = OpRename
+ 	default:
+ 		// Não deveria ocorrer pois já filtramos Chmod, mas descarta.
+-		return Event{}, false
++		return Event{}, false, DropUnknownOp
+ 	}
+ 
+ 	return Event{
+ 		Path: canon,
+ 		Op:   op,
+-	}, true
++	}, true, ""
+ }
+diff --git a/internal/watcher/filter_test.go b/internal/watcher/filter_test.go
+index fc22b9d..171c4cd 100644
+--- a/internal/watcher/filter_test.go
++++ b/internal/watcher/filter_test.go
+@@ -1,63 +1,68 @@
+ package watcher
+ 
+ import (
++	"io"
+ 	"log/slog"
+-	"os"
+ 	"testing"
+ 
+ 	"github.com/fsnotify/fsnotify"
+ 	"github.com/jonyd/gobsidian/internal/vault"
+ )
+ 
+ func TestFilter(t *testing.T) {
+-	log := slog.New(slog.NewTextHandler(os.Stderr, nil))
++	log := slog.New(slog.NewTextHandler(io.Discard, nil))
+ 	root := "C:\\test\\vault"
+ 
+ 	tests := []struct {
+-		name     string
+-		event    fsnotify.Event
+-		wantEmit bool
+-		wantOp   Op
+-		wantPath vault.CanonicalPath
++		name       string
++		event      fsnotify.Event
++		wantEmit   bool
++		wantOp     Op
++		wantPath   vault.CanonicalPath
++		wantReason DropReason
+ 	}{
+ 		{
+ 			name: "ignora Chmod",
+ 			event: fsnotify.Event{
+ 				Name: "C:\\test\\vault\\nota.md",
+ 				Op:   fsnotify.Chmod,
+ 			},
+-			wantEmit: false,
++			wantEmit:   false,
++			wantReason: DropChmod,
+ 		},
+ 		{
+-			name: "ignora pasta excluida",
++			name: "ignora fora do vault",
+ 			event: fsnotify.Event{
+-				Name: "C:\\test\\vault\\.git\\config",
++				Name: "D:\\outra_pasta\\nota.md",
+ 				Op:   fsnotify.Write,
+ 			},
+-			wantEmit: false,
++			wantEmit:   false,
++			wantReason: DropOutsideVault,
+ 		},
+ 		{
+-			name: "ignora ruido desktop.ini",
++			name: "ignora pasta excluida",
+ 			event: fsnotify.Event{
+-				Name: "C:\\test\\vault\\desktop.ini",
+-				Op:   fsnotify.Create,
++				Name: "C:\\test\\vault\\.git\\config",
++				Op:   fsnotify.Write,
+ 			},
+-			wantEmit: false,
++			wantEmit:   false,
++			wantReason: DropExcluded,
+ 		},
+ 		{
+-			name: "ignora extensao desconhecida",
++			name: "ignora op desconhecida",
+ 			event: fsnotify.Event{
+-				Name: "C:\\test\\vault\\arquivo.txt",
+-				Op:   fsnotify.Create,
++				Name: "C:\\test\\vault\\nota.md",
++				Op:   0,
+ 			},
+-			wantEmit: false,
++			wantEmit:   false,
++			wantReason: DropUnknownOp,
+ 		},
+ 		{
+ 			name: "emite para nota md",
+ 			event: fsnotify.Event{
+ 				Name: "C:\\test\\vault\\nota.md",
+ 				Op:   fsnotify.Write,
+ 			},
+ 			wantEmit: true,
+ 			wantOp:   OpWrite,
+ 			wantPath: "nota.md",
+@@ -69,25 +74,29 @@ func TestFilter(t *testing.T) {
+ 				Op:   fsnotify.Create,
+ 			},
+ 			wantEmit: true,
+ 			wantOp:   OpCreate,
+ 			wantPath: "imagem.png",
+ 		},
+ 	}
+ 
+ 	for _, tt := range tests {
+ 		t.Run(tt.name, func(t *testing.T) {
+-			got, emitted := filter(tt.event, root, log)
++			got, emitted, reason := filter(tt.event, root, log)
+ 			if emitted != tt.wantEmit {
+ 				t.Fatalf("emitted = %v, want %v", emitted, tt.wantEmit)
+ 			}
+-			if emitted {
++			if !emitted {
++				if reason != tt.wantReason {
++					t.Errorf("reason = %q, want %q", reason, tt.wantReason)
++				}
++			} else {
+ 				if got.Op != tt.wantOp {
+ 					t.Errorf("Op = %v, want %v", got.Op, tt.wantOp)
+ 				}
+ 				if got.Path != tt.wantPath {
+ 					t.Errorf("Path = %q, want %q", got.Path, tt.wantPath)
+ 				}
+ 			}
+ 		})
+ 	}
+ }
+diff --git a/internal/watcher/overflow_test.go b/internal/watcher/overflow_test.go
+index d17936f..66a89e4 100644
+--- a/internal/watcher/overflow_test.go
++++ b/internal/watcher/overflow_test.go
+@@ -90,21 +90,21 @@ func TestApply_ReconcileSignal(t *testing.T) {
+ 	if err := idx.Build(context.Background(), v); err != nil {
+ 		t.Fatalf("idx.Build: %v", err)
+ 	}
+ 
+ 	in := make(chan []vault.CanonicalPath) // criado e NUNCA alimentado
+ 	reconcile := make(chan struct{}, 1)
+ 	ctx, cancel := context.WithCancel(context.Background())
+ 	defer cancel()
+ 
+ 	log := slog.New(slog.NewTextHandler(io.Discard, nil))
+-	go Apply(ctx, in, reconcile, idx, v, log, nil, nil)
++	go Apply(ctx, in, reconcile, idx, v, log, nil, nil, nil, nil)
+ 
+ 	if err := os.WriteFile(alvo, []byte("depois, bem maior"), 0644); err != nil {
+ 		t.Fatal(err)
+ 	}
+ 	reconcile <- struct{}{}
+ 
+ 	// Espera em laco com condicao de saida. time.Sleep fixo como assercao e o
+ 	// que fez o teste anterior passar sem mecanismo nenhum.
+ 	quer := int64(len("depois, bem maior"))
+ 	deadline := time.Now().Add(3 * time.Second)
+diff --git a/internal/watcher/watcher.go b/internal/watcher/watcher.go
+index 80e274a..2acf4f6 100644
+--- a/internal/watcher/watcher.go
++++ b/internal/watcher/watcher.go
+@@ -19,49 +19,55 @@ type Watcher struct {
+ 	fsWatcher *fsnotify.Watcher
+ 	root      string
+ 	log       *slog.Logger
+ 	events    chan Event
+ 	debounced chan []vault.CanonicalPath
+ 	debounce  time.Duration
+ 	v         *vault.Vault
+ 	idx       *index.Index
+ 	reconcile chan struct{}
+ 
+-	// Contadores (Task 32)
+-	received        atomic.Int64
+-	dropped         atomic.Int64
+-	processed       atomic.Int64
+-	skipped         atomic.Int64
+-	reconciliations atomic.Int64
++	// Contadores (Task 32 e Task 37)
++	active              atomic.Bool
++	received            atomic.Int64
++	droppedChmod        atomic.Int64
++	droppedOutsideVault atomic.Int64
++	droppedExcluded     atomic.Int64
++	droppedUnknownOp    atomic.Int64
++	coalesced           atomic.Int64
++	processed           atomic.Int64
++	skipped             atomic.Int64
++	reconciliations     atomic.Int64
++	reconciledUpdated   atomic.Int64
++	reconciledRemoved   atomic.Int64
+ }
+ 
+ // New cria um novo Watcher observando a raiz do cofre.
+ func New(v *vault.Vault, idx *index.Index, debounce time.Duration, log *slog.Logger) (*Watcher, error) {
+ 	fsWatcher, err := fsnotify.NewWatcher()
+ 	if err != nil {
+ 		return nil, fmt.Errorf("criando fsnotify.Watcher: %w", err)
+ 	}
+ 
+-	root := v.Root() // root can be fetched directly or via getter.
++	root := v.Root()
+ 
+ 	if err := fsWatcher.Add(root); err != nil {
+ 		fsWatcher.Close()
+ 		return nil, fmt.Errorf("observando raiz %q: %w", root, err)
+ 	}
+ 
+ 	// fsnotify v1.10.1 no Windows não é recursivo. Adiciona subdiretorios dinamicamente.
+ 	filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
+ 		if err != nil {
+-			return nil // Ignora erro em subpasta para nao falhar tudo
++			return nil
+ 		}
+ 		if d.IsDir() {
+-			// Se for excluido, pula (por exemplo .git)
+ 			canon, errCanon := vault.Canonicalize(root, path)
+ 			if errCanon == nil {
+ 				if vault.Classify(canon) == vault.ClassExcluded {
+ 					return filepath.SkipDir
+ 				}
+ 			}
+ 			fsWatcher.Add(path)
+ 		}
+ 		return nil
+ 	})
+@@ -75,43 +81,43 @@ func New(v *vault.Vault, idx *index.Index, debounce time.Duration, log *slog.Log
+ 		reconcile: make(chan struct{}, 1),
+ 		debounce:  debounce,
+ 		v:         v,
+ 		idx:       idx,
+ 	}, nil
+ }
+ 
+ // Run entra em loop processando eventos do fsnotify ate o contexto ser cancelado
+ // ou o watcher ser fechado.
+ func (w *Watcher) Run(ctx context.Context) error {
++	w.active.Store(true)
++	defer w.active.Store(false)
++
+ 	defer close(w.events)
+ 	// Lança o debouncer lendo de w.events e escrevendo em w.debounced
+ 	go func() {
+-		Debounce(ctx, w.events, w.debounced, w.debounce, w.log)
++		Debounce(ctx, w.events, w.debounced, w.debounce, w.log, &w.coalesced)
+ 		close(w.debounced)
+ 	}()
+ 
+ 	// Lança o aplicador lendo de w.debounced e escrevendo no índice
+ 	go func() {
+-		Apply(ctx, w.debounced, w.reconcile, w.idx, w.v, w.log, &w.processed, &w.skipped)
++		Apply(ctx, w.debounced, w.reconcile, w.idx, w.v, w.log, &w.processed, &w.skipped, &w.reconciledUpdated, &w.reconciledRemoved)
+ 	}()
+ 
+ 	for {
+ 		select {
+ 		case <-ctx.Done():
+ 			return ctx.Err()
+ 		case err, ok := <-w.fsWatcher.Errors:
+ 			if !ok {
+ 				return nil
+ 			}
+-			// fsnotify 1.10.1 envia ErrEventOverflow no canal de erros
+-			// (embora a documentação oficial mencione Has(fsnotify.Overflow) para Windows,
+-			// macOS reporta overflow the event/err layer dependendo da versao. Usamos Is).
+ 			if err == fsnotify.ErrEventOverflow || (err != nil && err.Error() == fsnotify.ErrEventOverflow.Error()) {
+ 				w.reconciliations.Add(1)
+ 				select {
+ 				case w.reconcile <- struct{}{}:
+ 					w.log.Warn("Overflow de fsnotify detectado, reconciliação agendada")
+ 				default:
+ 					w.log.Warn("Overflow de fsnotify detectado, reconciliação já em andamento")
+ 				}
+ 				continue
+ 			}
+@@ -126,23 +132,32 @@ func (w *Watcher) Run(ctx context.Context) error {
+ 			if e.Op&fsnotify.Create == fsnotify.Create {
+ 				info, err := os.Stat(e.Name)
+ 				if err == nil && info.IsDir() {
+ 					canon, _ := vault.Canonicalize(w.root, e.Name)
+ 					if vault.Classify(canon) != vault.ClassExcluded {
+ 						w.fsWatcher.Add(e.Name)
+ 					}
+ 				}
+ 			}
+ 
+-			evt, ok := filter(e, w.root, w.log)
++			evt, ok, reason := filter(e, w.root, w.log)
+ 			if !ok {
+-				w.dropped.Add(1)
++				switch reason {
++				case DropChmod:
++					w.droppedChmod.Add(1)
++				case DropOutsideVault:
++					w.droppedOutsideVault.Add(1)
++				case DropExcluded:
++					w.droppedExcluded.Add(1)
++				case DropUnknownOp:
++					w.droppedUnknownOp.Add(1)
++				}
+ 				continue
+ 			}
+ 
+ 			select {
+ 			case w.events <- evt:
+ 			case <-ctx.Done():
+ 				return ctx.Err()
+ 			}
+ 		}
+ 	}
