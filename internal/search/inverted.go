@@ -174,3 +174,40 @@ func (ix *Inverted) Update(ctx context.Context, v *vault.Vault, path vault.Canon
 	ix.Add(string(path), tokens)
 	return nil
 }
+
+// ExportTermsForCache faz uma cópia thread-safe dos termos do índice invertido para persistência.
+func (ix *Inverted) ExportTermsForCache() map[string]map[string][]TokenPosition {
+	ix.mu.RLock()
+	defer ix.mu.RUnlock()
+
+	out := make(map[string]map[string][]TokenPosition, len(ix.terms))
+	for term, docMap := range ix.terms {
+		dCopy := make(map[string][]TokenPosition, len(docMap))
+		for path, posList := range docMap {
+			pCopy := make([]TokenPosition, len(posList))
+			copy(pCopy, posList)
+			dCopy[path] = pCopy
+		}
+		out[term] = dCopy
+	}
+	return out
+}
+
+// NewInvertedFromCache reconstrói um índice invertido a partir de termos serializados.
+func NewInvertedFromCache(terms map[string]map[string][]TokenPosition) *Inverted {
+	inv := NewInverted()
+	inv.mu.Lock()
+	defer inv.mu.Unlock()
+
+	docLengths := make(map[string]int)
+	if terms != nil {
+		inv.terms = terms
+		for _, docMap := range terms {
+			for path, posList := range docMap {
+				docLengths[path] += len(posList)
+			}
+		}
+	}
+	inv.docLengths = docLengths
+	return inv
+}

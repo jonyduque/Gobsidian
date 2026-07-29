@@ -109,12 +109,16 @@ func runServe(parent context.Context, cfg config.Config) error {
 	}
 	indexMS := time.Since(buildStart).Milliseconds()
 
-	inv := search.NewInverted()
-	for _, p := range idx.NotePaths() {
-		if data, err := v.ReadAll(ctx, p); err == nil {
-			body, _ := vault.StripBOM(data)
-			inv.Add(string(p), search.Analyze(string(body)))
+	inv, _, err := search.LoadInvertedCache(ctx, cfg.CacheDir, cfg.VaultPath)
+	if err != nil {
+		inv = search.NewInverted()
+		for _, p := range idx.NotePaths() {
+			if data, err := v.ReadAll(ctx, p); err == nil {
+				body, _ := vault.StripBOM(data)
+				inv.Add(string(p), search.Analyze(string(body)))
+			}
 		}
+		_ = search.SaveInvertedCache(ctx, cfg.CacheDir, cfg.VaultPath, inv)
 	}
 
 	w, err := watcher.New(v, idx, time.Duration(cfg.DebounceMS)*time.Millisecond, log)
