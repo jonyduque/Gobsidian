@@ -38,6 +38,7 @@ Task 29: complete (commit 0bce29f, real change verification with mtime+size diff
 Task 30: complete (commit 3496610, reconciliation recovery on fsnotify overflow event, review Approved)
 Task 31: complete (commit 14210ee, xxhash rename correlation for fast path updates and backlink preservation, review Approved)
 Task 32: complete (commits 56f8135..b5b2a9f, expose watcher metrics in vault_stats tool, review Approved)
+Task 33: complete (commits e507be0..8daa35a, rename correlation single pass, zero asset/cloud reads, review Approved)
 
 === M0, M1 e M2 (Tasks 1-32) COMPLETAS! ===
 
