@@ -1,14 +1,14 @@
 export const meta = {
-  name: 'm2-task-loop',
+  name: 'task-loop',
   description: 'Executa uma tarefa do plano gobsidian: implementa, revisa por tres lentes independentes, corrige Critical/Important, re-revisa.',
   whenToUse:
     'Quando for executar UMA tarefa numerada de docs/superpowers/plans/2026-07-25-gobsidian-v01.md ' +
-    '(hoje, as Tasks 33-42 do M2.1). Passe o numero em args, por exemplo args: 35. ' +
-    'Serve para TODAS as dez: o corpo dos testes dificeis entrou no plano como codigo Go literal, ' +
-    'entao 33, 34, 37 e 41 viraram transcricao. As Tasks 36 e 42 continuam pedindo projeto e nao ' +
-    'transcricao, entao o workflow sobe o modelo delas sozinho — nao e preciso passar nada. ' +
+    '(hoje, as Tasks 43-50 do M3). Passe o numero em args, por exemplo args: 45. ' +
+    'O corpo dos testes dificeis entra no plano como codigo Go literal, entao a maioria das ' +
+    'tarefas e transcricao. As que pedem projeto e nao transcricao sobem de modelo sozinhas ' +
+    '(hoje 46 e 49); passe args.projeto para mudar essa lista. ' +
     'As tarefas sao estritamente sequenciais: rode uma, valide, feche no ledger, comece a proxima. ' +
-    'Rodar duas em paralelo conflita, porque 33, 34, 37, 38 e 40 tocam os mesmos arquivos.',
+    'Rodar duas em paralelo conflita: as tarefas de um marco tocam os mesmos arquivos.',
   phases: [
     { title: 'Implementar', detail: 'um agente transcreve o brief e commita' },
     { title: 'Revisar', detail: 'tres lentes independentes: contrato, cobertura, regras do projeto' },
@@ -34,7 +34,14 @@ if (!task) {
 //
 // As outras oito sao transcricao: o corpo dos testes dificeis esta no plano
 // como Go literal, e a decisao de projeto ja foi tomada e revisada la.
-const PROJETO_NAO_TRANSCRICAO = new Set([36, 42])
+const PROJETO_NAO_TRANSCRICAO = new Set(
+  (typeof args === 'object' && args !== null && Array.isArray(args.projeto))
+    ? args.projeto.map(Number)
+    // M3: a 46 fixa cinco constantes que ninguem nota estarem erradas e precisa
+    // de cinco mutacoes desenhadas; a 49 decide a Q3 do PRD por medicao, e o
+    // modo de falha barato e estimar em vez de medir.
+    : [46, 49],
+)
 
 const numero = Number(task)
 const sobeModelo = PROJETO_NAO_TRANSCRICAO.has(numero)
@@ -282,7 +289,13 @@ Lente REGRAS DO PROJETO. Leia CLAUDE.md e confira o diff contra ele.
   },
 ]
 
-const LENTES = numero === 42 ? LENTES_DOCS : LENTES_CODIGO
+// Tarefa de fechamento de marco nao entrega codigo: reescreve relatorios,
+// ledger e docs. As lentes de codigo queimariam agentes procurando ctx num
+// diff de markdown. Passe args.docs para marcar outra.
+const TAREFA_DOCS = (typeof args === 'object' && args !== null && args.docs !== undefined)
+  ? Number(args.docs)
+  : 50
+const LENTES = numero === TAREFA_DOCS ? LENTES_DOCS : LENTES_CODIGO
 
 log(
   `Task ${task}: implementador=${model || 'herdado da sessao'}, ` +

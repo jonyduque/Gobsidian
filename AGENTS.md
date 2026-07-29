@@ -195,15 +195,30 @@ Estão em `.claude/skills/` e são versionadas de propósito: uma skill que só 
 
 `CLAUDE.md` tem o histórico completo das armadilhas e o estado do projeto. Este arquivo é o subconjunto necessário para executar sem lê-lo inteiro.
 
-Utilize o MCP `gopls-workspace-mcp`. Ele conta com as seguintes ferramentas:
-  • go_diagnostics: Consulta erros de compilação, avisos e lints do projeto.
-  • go_file_context: Obtém contexto estendido do LSP para um arquivo Go.
-  • go_package_api: Inspeciona a API exportada e documentação de pacotes Go.
-  • go_rename_symbol: Renomeia símbolos de forma segura em todo o workspace.
-  • go_search: Busca por símbolos, funções, tipos e estruturas no código.
-  • go_symbol_references: Encontra todas as referências de um determinado símbolo.
-  • go_vulncheck: Executa verificação de vulnerabilidades conhecidas em dependências.
-  • go_workspace: Analisa e retorna informações de estrutura do workspace Go.
+## 7.1 O MCP do `gopls`
+
+Está disponível como `mcp__gopls__*`. Use-o em vez de `grep` para qualquer pergunta sobre **símbolo**: o `grep` acha texto, o `gopls` acha referência resolvida, e a diferença aparece em nome comum, em método de interface e em `_test.go` de outro pacote.
+
+| Ferramenta | Use quando | O caso concreto deste projeto |
+|---|---|---|
+| `go_symbol_references` | **Antes de mudar qualquer assinatura.** | Uma mudança de wiring foi propagada para `serve` e esquecida em `doctor`, e só a revisão pegou. Uma chamada aqui teria listado os dois. |
+| `go_search` | Achar onde algo vive sem saber o pacote | Busca difusa; `foo` casa `Foo`, `fooBar`, `pkg.Baz`. |
+| `go_package_api` | Descobrir o que um pacote expõe antes de importá-lo | `internal/index` e `internal/vault` têm superfície grande; ler a API é mais barato que abrir os arquivos. |
+| `go_file_context` | Entender um arquivo que você não escreveu | Traz o contexto resolvido, não o texto. |
+| `go_diagnostics` | Depois de editar, antes de rodar teste | Erro de compilação em segundos, sem esperar `go build`. |
+| `go_workspace` | Confirmar em que módulo você está | |
+| `go_vulncheck` | Só quando perguntado sobre CVE | **Não aja sozinho no que ele sugerir.** Atualizar dependência aqui é decisão fechada do PRD, e várias estão fixadas de propósito. |
+| `go_rename_symbol` | Renomear em todo o workspace | **Leia o parágrafo abaixo antes.** |
+
+### As quatro coisas que dão errado com ele
+
+**`go_rename_symbol` escreve nos arquivos.** É a única ferramenta desta lista que muda o repositório, e **você não pode desfazê-la com `git checkout` ou `git reset`** — os dois estão proibidos aqui. Antes de renomear: rode `go_symbol_references` e olhe a lista. Depois de renomear: rode `git diff` e leia. E lembre que ele **não** renomeia dentro de `.md` — o plano, o `docs/` e os briefs continuam citando o nome antigo, e plano e código não podem divergir.
+
+**Diagnóstico limpo não é gate verde.** `go_diagnostics` e `golangci-lint` são conjuntos diferentes de análise. O gate deste projeto é `pwsh -File scripts/verify.ps1` mais `golangci-lint run ./internal/... ./cmd/...`, e as Tasks 33–42 fecharam com 22 achados de lint que nada além do `golangci-lint` reportou. **Diagnóstico limpo permite continuar; só o gate permite commitar.**
+
+**O diagnóstico é do workspace inteiro, não do seu arquivo.** Ele reporta erro em código que você não escreveu. Já aconteceu: `agent/` guarda assets de plugin com `.go` de exemplo cujos imports não resolvem, e o `gopls` os reportava como erro do workspace. A reação natural — acrescentar a dependência — viola a regra de nunca rodar `go mod tidy`, chegando por outro caminho. Hoje `agent/go.mod` os tira do grafo; se erros assim voltarem, **confira de qual diretório vêm antes de tentar consertá-los**.
+
+**Ele responde sobre o código, não sobre o contrato.** `go_symbol_references` diz quem chama uma função; não diz se `docs/TOOLS.md` promete um campo que ninguém preenche. Esse defeito já passou por aqui duas vezes e nenhuma ferramenta de símbolo o pega.
 
 ---
 

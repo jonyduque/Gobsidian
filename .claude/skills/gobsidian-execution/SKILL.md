@@ -5,7 +5,9 @@ description: Resume and continue executing the gobsidian implementation plan tas
 
 # Executing the gobsidian plan
 
-The plan lives in `docs/superpowers/plans/2026-07-25-gobsidian-v01.md` and is the source implementations are transcribed from. Tasks are numbered: M0 is Tasks 1–11, M1 is Tasks 12–26, M2 is Tasks 27–32.
+The plan lives in `docs/superpowers/plans/2026-07-25-gobsidian-v01.md` and is the source implementations are transcribed from. Tasks are numbered: M0 is Tasks 1–11, M1 is Tasks 12–26, M2 is Tasks 27–32, the M2.1 review-fix block is Tasks 33–42, and M3 is Tasks 43–50.
+
+**M0, M1 and M2 are done and tagged** — `m0-lifecycle`, `v0.1.0`, `m2-watcher`. M3 (search) is written and ready to delegate. Two scripts exist that did not before and that the per-task loop now depends on: `scripts/mutate.ps1` proves a rule is verified rather than merely written, with an inverted exit code, and `scripts/audit_reports.ps1` finds the shapes of false evidence that got through review here. `golangci-lint run ./internal/... ./cmd/...` is part of the gate: Tasks 33–42 closed with 22 findings because nothing in the loop ran it.
 
 ## Before anything: read the ledger
 

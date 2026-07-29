@@ -74,12 +74,22 @@ CORRIGIDO NESTA REVISAO: golangci-lint reprovava com 22 achados (18 errcheck em
 arquivos de teste novos, 4 revive), todos introduzidos pelas Tasks 33-42. A
 Task 40 zerou o errcheck de producao e os testes novos reintroduziram o dele.
 Nenhum relatorio das dez mencionava ter rodado o lint.
-PENDENTE, FORA DO CODIGO: o diretorio agent/ (292 arquivos de assets de um
-plugin de skills) esta na raiz do modulo e derruba as SETE etapas do
-verify.ps1, porque build, test, gofmt e check_net varrem a arvore inteira. Foi
-posto no .gitignore para nao ser commitado, mas o gate local so volta a passar
-quando ele sair da raiz. Nossos pacotes passam: go build, go vet nos tres
-alvos, gofmt e golangci-lint limpos em ./internal/... e ./cmd/....
+RESOLVIDO em 2026-07-29 (era: agent/, com 292 arquivos de assets de um plugin de
+skills, estava na raiz do modulo e derrubava as SETE etapas do verify.ps1,
+porque build, test, gofmt e check_net varrem a arvore inteira; o gopls tambem
+reportava os .go de exemplo como erro do workspace, e a reacao natural de um
+agente seria acrescentar as dependencias, violando a regra de nunca rodar
+`go mod tidy` por outro caminho). Duas defesas independentes:
+  - agent/go.mod tira o diretorio do grafo de pacotes do modulo pai. E o
+    mecanismo do Go para isto; nao ha flag de exclusao. Se um plugin apagar
+    esse arquivo, o sintoma sao as sete etapas reprovando de novo.
+  - verify.ps1 e check_net.ps1 miram ./internal/... e ./cmd/... explicitamente,
+    o que segura o proximo plugin que despejar assets na raiz. No check_net a
+    correcao e mais que cosmetica: com ./... quebrado, o `go list` devolvia
+    vazio e o script AVISAVA que a verificacao nao rodou — um gate que parou
+    de gatear continuando a sair verde.
+As skills instaladas (Go e Obsidian) ficam versionadas de proposito: skill que
+so existe na maquina de quem instalou nao reduz o erro de mais ninguem.
 
 === M0, M1 e M2 (Tasks 1-42) COMPLETAS! ===
 
@@ -563,3 +573,29 @@ Uma incerteza deixada explicita em vez de chutada: `docs/WINDOWS.md` §4.1
 afirma que fsnotify no Windows e recursivo por diretorio observado. NAO
 verificado contra a v1.10.1 fixada. A Task 27 manda MEDIR e corrigir o doc se
 estiver errado — se nao for recursivo, o escopo dela cresce bastante.
+
+=== M2 FECHADO em 2026-07-29, tag m2-watcher (a26b8e1) ===
+Gate de orfaos 100/100 com mecanismo confirmado, golangci-lint zerado, sete
+etapas do verify.ps1 verdes. Tags do projeto: m0-lifecycle (M0), v0.1.0 (M1),
+m2-watcher (M2).
+
+=== M3 (BUSCA) ESCRITO: Tasks 43-50, prontas para delegar ===
+43 frontmatter com espaco no delimitador   44 analisador com indexacao dupla
+45 indice invertido                        46 BM25 com pesos de campo
+47 trecho com destaque                     48 tool vault_search
+49 cache em disco + decisao da Q3          50 fechamento do M3
+
+DECISAO FECHADA em 2026-07-29 — COLISAO DE SLUG DE HEADING E ACEITA.
+`Slug` funde headings distintos por projeto (e o que faz "Art. 1.234" funcionar)
+e a BUSCA NAO DESAMBIGUA: duas secoes com o mesmo slug sao duas ocorrencias,
+cada uma com seu offset. `matched_headings` traz o TEXTO do heading, nao o slug,
+porque o slug nao e identificador unico. Nao acrescentar sufixo de desempate ao
+Slug: mudaria a resolucao de ancora do M1, congelada por golden e por paridade.
+Isso fecha a pergunta que os Minor diferidos de M1 deixaram aberta em slug.go.
+
+MINOR DE M1 PROMOVIDO: o de frontmatter.go virou a Task 43. Espaco no fim do
+delimitador de FECHAMENTO faz o YAML inteiro virar corpo, perdendo metadados em
+silencio. Era Minor porque afeta poucas notas; deixa de ser no M3 porque a busca
+filtra por tag e por campo de frontmatter, e o sintoma vira "a busca nao acha".
+Os demais Minor de M1 (slug vazio, condicao redundante, contrato nil-vs-vazio)
+carregam para o M4 sem relacao com busca.
