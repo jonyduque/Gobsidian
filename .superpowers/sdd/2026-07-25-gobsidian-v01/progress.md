@@ -68,6 +68,7 @@ Task 47: complete (commits 01116d9..ae4a3b2, snippets with term highlight, revie
 Task 48: complete (commits ed936d7..0fe5f2b, vault_search tool with filters and phrase queries, review Approved)
 Task 49: complete (commits 2ccf51b..3daee57, on-disk cache with version header, review Approved)
 Task 50: complete (commits 46a6942..ec0c4d6, close M3 with measured numbers and Q3 decision, review Approved)
+Task 51: complete (commits 429d9e2..cccfc96, the inverted index never reached the watcher, review Approved)
 
 === REVISAO DO M2.1 (Tasks 33-42), 2026-07-29, pelo modelo principal ===
 Nove provas de mutacao rodadas com scripts/mutate.ps1, TODAS saindo 0 (o teste
