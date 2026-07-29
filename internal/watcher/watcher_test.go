@@ -136,7 +136,7 @@ func TestWatcher_EventsChannelClosedOnShutdown(t *testing.T) {
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
-	go w.Run(ctx)
+	go func() { _ = w.Run(ctx) }()
 
 	time.Sleep(50 * time.Millisecond)
 
@@ -166,9 +166,9 @@ func TestWatcher_DirCreatedAfterStartIsWatched(t *testing.T) {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	defer w.Close()
+	defer func() { _ = w.Close() }()
 
-	go w.Run(ctx)
+	go func() { _ = w.Run(ctx) }()
 	time.Sleep(50 * time.Millisecond)
 
 	subDir := filepath.Join(tmp, "nova_pasta")
@@ -211,7 +211,7 @@ func TestNew_FailsOnUnwatchablePath(t *testing.T) {
 
 	w, err := New(v, idx, 10*time.Millisecond, log)
 	if err == nil {
-		w.Close()
+		_ = w.Close()
 		t.Fatal("New esperava erro ao observar caminho inexistente, mas obteve nil")
 	}
 }

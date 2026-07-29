@@ -1,0 +1,322 @@
+# Review package: da09dc783117b6ec8efe3ff4586486cd9cf41fa5..HEAD
+
+## Commits
+f67257a fix(index): normalize byAlias keys so Remove clears what Build wrote
+
+## Files changed
+ .../sdd/2026-07-25-gobsidian-v01/task-35-base.txt  |  1 +
+ .superpowers/sdd/task-35-report.md                 | 74 ++++++++++++++++++++++
+ internal/index/alias.go                            |  9 ++-
+ internal/index/alias_test.go                       | 63 ++++++++++++++++++
+ internal/index/resolve.go                          |  4 +-
+ internal/index/update.go                           | 14 ++--
+ 6 files changed, 155 insertions(+), 10 deletions(-)
+
+## Diff
+diff --git a/.superpowers/sdd/2026-07-25-gobsidian-v01/task-35-base.txt b/.superpowers/sdd/2026-07-25-gobsidian-v01/task-35-base.txt
+new file mode 100644
+index 0000000..f062dbf
+--- /dev/null
++++ b/.superpowers/sdd/2026-07-25-gobsidian-v01/task-35-base.txt
+@@ -0,0 +1 @@
++da09dc783117b6ec8efe3ff4586486cd9cf41fa5
+\ No newline at end of file
+diff --git a/.superpowers/sdd/task-35-report.md b/.superpowers/sdd/task-35-report.md
+new file mode 100644
+index 0000000..344292d
+--- /dev/null
++++ b/.superpowers/sdd/task-35-report.md
+@@ -0,0 +1,74 @@
++# Relatório da Task 35: Chave de `byAlias` — normalizar para que `Remove` limpe o que `Build` escreveu
++
++## O que foi implementado
++
++1. **Centralização da chave de `byAlias`:**
++   - Criada a função helper `aliasKey(alias string) string { return strings.ToLower(alias) }` em `internal/index/alias.go`.
++2. **Atualização de todos os acessos a `byAlias`:**
++   - `alias.go:19` (`buildAliasMap`): Atualizado para `aliasKey(alias)`.
++   - `resolve.go:161` (`resolveByAlias`): Atualizado para `aliasKey(target)`.
++   - `update.go:108` (`Replace`): Atualizado para `aliasKey(alias)`.
++   - `update.go:203, 211, 213` (`removeContributionsLocked`): Atualizado para `aliasKey(alias)`.
++   - `update.go:355` (`MoveNote`): Atualizado para `aliasKey(alias)`.
++3. **Inclusão do teste com alias maiúsculo (`STJ`):**
++   - Criado `TestAliasSurvivesReplaceAndRemove` em `internal/index/alias_test.go`.
++
++## Evidência de TDD
++
++- **RED:** Ao reverter `update.go` para inserir a chave sem normalizar (`ix.byAlias[alias]`), a execução de `Replace("a.md")` insere a chave crua `STJ`. A chamada subsequente a `Remove("a.md")` busca e deleta `byAlias["STJ"]` (que não existia), deixando a chave normalizada `stj` intacta no mapa. O teste reprova no passo 3 acusando `resolved="a.md"` em vez de `""`.
++- **GREEN:**
++  ```powershell
++  go test -v -run "^TestAliasSurvivesReplaceAndRemove$" ./internal/index/
++  # Output:
++  # === RUN   TestAliasSurvivesReplaceAndRemove
++  # --- PASS: TestAliasSurvivesReplaceAndRemove (0.00s)
++  # PASS
++  # ok      github.com/jonyd/gobsidian/internal/index       0.178s
++  ```
++
++## Provas de Mutação
++
++### Prova 1: Reversão da Normalização no Replace
++```powershell
++pwsh -File scripts/mutate.ps1 -Path internal/index/update.go -Anchor 'key := aliasKey(alias)' -Replacement 'key := alias' -Test TestAliasSurvivesReplaceAndRemove -Package ./internal/index/
++# Output:
++# MUTATION PROOF PASSED: Test failed as expected (exit code 0)
++```
++
++## Tabela de Verificações
++
++| Verificação | Resultado Real | Método / Observação |
++|---|---|---|
++| `TestAliasSurvivesReplaceAndRemove` | Passou | Testado com alias `STJ` maiúsculo; `Replace` e `Remove` mantêm e limpam a chave |
++| Prova de mutação em `update.go` | Passou (exit 0) | Teste reprovou ao mutar `key := aliasKey(alias)` para `key := alias` |
++| Paridade do M1 mantida | 100% equivalente | Todos os testes do pacote `index` passaram sem alteração de arestas |
++| `grep -rn "byAlias" internal/index/` | 5 acessos | Todos usam `aliasKey(...)` |
++
++## Saída do grep de byAlias em internal/index
++
++```bash
++grep -rn "byAlias" internal/index/ --include=*.go
++# Output:
++# internal/index/alias.go:19:			key := aliasKey(alias)
++# internal/index/alias.go:20:			ix.byAlias[key] = append(ix.byAlias[key], n.Path)
++# internal/index/index.go:50:		byAlias:                  make(map[string][]vault.CanonicalPath),
++# internal/index/resolve.go:162:	paths, ok := ix.byAlias[key]
++# internal/index/update.go:108:		key := aliasKey(alias)
++# internal/index/update.go:109:		ix.byAlias[key] = append(ix.byAlias[key], entry.Path)
++# internal/index/update.go:203:			key := aliasKey(alias)
++# internal/index/update.go:204:			al := ix.byAlias[key]
++# internal/index/update.go:209:				delete(ix.byAlias, key)
++# internal/index/update.go:211:				ix.byAlias[key] = filteredAl
++# internal/index/update.go:350:		key := aliasKey(alias)
++# internal/index/update.go:351:		al := ix.byAlias[key]
++```
++
++## Arquivos Alterados
++- `internal/index/alias.go`
++- `internal/index/resolve.go`
++- `internal/index/update.go`
++- `internal/index/alias_test.go`
++- `.superpowers/sdd/task-35-report.md`
++
++## Auto-Revisão e Preocupações
++- Nenhuma. Todos os 5 pontos de acesso a `byAlias` foram normalizados com `aliasKey(...)`.
+diff --git a/internal/index/alias.go b/internal/index/alias.go
+index 60bbace..9430b1d 100644
+--- a/internal/index/alias.go
++++ b/internal/index/alias.go
+@@ -3,20 +3,25 @@
+ //
+ // E essa escolha que sustenta o orcamento de 60 MB de RSS e que faz ler uma
+ // secao de 2 KB numa nota de 500 KB custar 2 KB em vez de 500. Anexo entra
+ // por nome e nunca e aberto — abri-lo dispararia download de arquivo
+ // somente-nuvem, e nao abri-lo ainda impede que todo embed de imagem seja
+ // contado como link quebrado.
+ package index
+ 
+ import "strings"
+ 
++// aliasKey normaliza a chave de byAlias. Toda escrita e toda leitura passam
++// por aqui: o boot indexava minusculo e Replace indexava cru, e a entrada
++// que Remove nao encontrava sobrevivia apontando para uma nota deletada.
++func aliasKey(alias string) string { return strings.ToLower(alias) }
++
+ func (ix *Index) buildAliasMap() {
+ 	ix.mu.Lock()
+ 	defer ix.mu.Unlock()
+ 	for _, n := range ix.notes {
+ 		for _, alias := range n.Aliases {
+-			lower := strings.ToLower(alias)
+-			ix.byAlias[lower] = append(ix.byAlias[lower], n.Path)
++			key := aliasKey(alias)
++			ix.byAlias[key] = append(ix.byAlias[key], n.Path)
+ 		}
+ 	}
+ }
+diff --git a/internal/index/alias_test.go b/internal/index/alias_test.go
+new file mode 100644
+index 0000000..5376cc2
+--- /dev/null
++++ b/internal/index/alias_test.go
+@@ -0,0 +1,63 @@
++package index_test
++
++import (
++	"context"
++	"os"
++	"path/filepath"
++	"testing"
++
++	"github.com/jonyd/gobsidian/internal/index"
++	"github.com/jonyd/gobsidian/internal/vault"
++)
++
++func TestAliasSurvivesReplaceAndRemove(t *testing.T) {
++	root := t.TempDir()
++	writeFile(t, root, "a.md", "---\naliases: [STJ]\n---\n# Nota A\n")
++	writeFile(t, root, "b.md", "# Nota B\n\n[[STJ]]\n")
++
++	v, err := vault.New(root)
++	if err != nil {
++		t.Fatalf("vault.New: %v", err)
++	}
++
++	idx := index.New()
++	ctx := context.Background()
++	if err := idx.Build(ctx, v); err != nil {
++		t.Fatalf("Build: %v", err)
++	}
++
++	// 1. After Build, b.md link [[STJ]] resolves to a.md with state LinkOK
++	bNote, ok := idx.Get("b.md")
++	if !ok || len(bNote.Links) != 1 {
++		t.Fatalf("b.md links count = %d, want 1 (ok=%v)", len(bNote.Links), ok)
++	}
++	if bNote.Links[0].Resolved != "a.md" || bNote.Links[0].State != index.LinkOK {
++		t.Fatalf("after Build: resolved=%q, state=%v; want 'a.md', LinkOK", bNote.Links[0].Resolved, bNote.Links[0].State)
++	}
++
++	// 2. After Replace(a.md), b.md link [[STJ]] should still resolve to a.md
++	if err := idx.Replace(ctx, v, "a.md"); err != nil {
++		t.Fatalf("Replace: %v", err)
++	}
++	bNote, ok = idx.Get("b.md")
++	if !ok || len(bNote.Links) != 1 {
++		t.Fatalf("b.md links count = %d, want 1 (ok=%v)", len(bNote.Links), ok)
++	}
++	if bNote.Links[0].Resolved != "a.md" || bNote.Links[0].State != index.LinkOK {
++		t.Fatalf("after Replace: resolved=%q, state=%v; want 'a.md', LinkOK", bNote.Links[0].Resolved, bNote.Links[0].State)
++	}
++
++	// 3. After Remove(a.md), b.md link [[STJ]] must resolve to "" with state LinkTargetMissing
++	if err := os.Remove(filepath.Join(root, "a.md")); err != nil {
++		t.Fatalf("Remove file: %v", err)
++	}
++	idx.Remove("a.md")
++
++	bNote, ok = idx.Get("b.md")
++	if !ok || len(bNote.Links) != 1 {
++		t.Fatalf("b.md links count = %d, want 1 (ok=%v)", len(bNote.Links), ok)
++	}
++	if bNote.Links[0].Resolved != "" || bNote.Links[0].State != index.LinkTargetMissing {
++		t.Fatalf("after Remove: resolved=%q, state=%v; want '', LinkTargetMissing", bNote.Links[0].Resolved, bNote.Links[0].State)
++	}
++}
+diff --git a/internal/index/resolve.go b/internal/index/resolve.go
+index 6c5bcaa..e2ad7ef 100644
+--- a/internal/index/resolve.go
++++ b/internal/index/resolve.go
+@@ -151,22 +151,22 @@ func (ix *Index) resolveByName(target string, isNote bool, origin vault.Canonica
+ 		return "", false
+ 	}
+ 	if len(valid) == 1 {
+ 		return valid[0], true
+ 	}
+ 
+ 	return ix.tiebreak(valid, origin), true
+ }
+ 
+ func (ix *Index) resolveByAlias(target string, origin vault.CanonicalPath) (vault.CanonicalPath, bool) {
+-	lower := strings.ToLower(target)
+-	paths, ok := ix.byAlias[lower]
++	key := aliasKey(target)
++	paths, ok := ix.byAlias[key]
+ 	if !ok || len(paths) == 0 {
+ 		return "", false
+ 	}
+ 
+ 	if len(paths) == 1 {
+ 		return paths[0], true
+ 	}
+ 
+ 	return ix.tiebreak(paths, origin), true
+ }
+diff --git a/internal/index/update.go b/internal/index/update.go
+index 3b31cfc..6d882ef 100644
+--- a/internal/index/update.go
++++ b/internal/index/update.go
+@@ -98,21 +98,22 @@ func (ix *Index) Replace(ctx context.Context, v *vault.Vault, path vault.Canonic
+ 	}
+ 	ix.notes[entry.Path] = n
+ 
+ 	lower := strings.ToLower(string(entry.Path))
+ 	ix.lowerPath[lower] = entry.Path
+ 
+ 	base := vault.CanonicalPath(filepath.ToSlash(filepath.Base(string(entry.Path))))
+ 	ix.byName[string(base)] = append(ix.byName[string(base)], entry.Path)
+ 
+ 	for _, alias := range note.Aliases {
+-		ix.byAlias[alias] = append(ix.byAlias[alias], entry.Path)
++		key := aliasKey(alias)
++		ix.byAlias[key] = append(ix.byAlias[key], entry.Path)
+ 	}
+ 	for _, tag := range note.Tags {
+ 		ix.tags[tag] = append(ix.tags[tag], entry.Path)
+ 	}
+ 
+ 	// Resolve os links da nota inserida
+ 	ix.resolveLinksForNoteLocked(n)
+ 
+ 	// Adiciona backlinks da nota inserida
+ 	for _, l := range n.Links {
+@@ -193,31 +194,32 @@ func (ix *Index) removeContributionsLocked(path vault.CanonicalPath) {
+ 				filteredNames = append(filteredNames, p)
+ 			}
+ 		}
+ 		if len(filteredNames) == 0 {
+ 			delete(ix.byName, string(base))
+ 		} else {
+ 			ix.byName[string(base)] = filteredNames
+ 		}
+ 
+ 		for _, alias := range oldNote.Aliases {
+-			al := ix.byAlias[alias]
++			key := aliasKey(alias)
++			al := ix.byAlias[key]
+ 			filteredAl := make([]vault.CanonicalPath, 0, len(al))
+ 			for _, p := range al {
+ 				if p != path {
+ 					filteredAl = append(filteredAl, p)
+ 				}
+ 			}
+ 			if len(filteredAl) == 0 {
+-				delete(ix.byAlias, alias)
++				delete(ix.byAlias, key)
+ 			} else {
+-				ix.byAlias[alias] = filteredAl
++				ix.byAlias[key] = filteredAl
+ 			}
+ 		}
+ 	}
+ 
+ 	_, hadAsset := ix.assets[path]
+ 	if hadAsset {
+ 		lower := strings.ToLower(string(path))
+ 		delete(ix.lowerPath, lower)
+ 
+ 		base := vault.CanonicalPath(filepath.ToSlash(filepath.Base(string(path))))
+@@ -344,22 +346,22 @@ func (ix *Index) MoveNote(oldPath, newPath vault.CanonicalPath) {
+ 		paths := ix.tags[tag]
+ 		for i, p := range paths {
+ 			if p == oldPath {
+ 				paths[i] = newPath
+ 			}
+ 		}
+ 	}
+ 
+ 	// 5. Atualizar byAlias
+ 	for _, alias := range n.Aliases {
+-		lower := strings.ToLower(alias)
+-		al := ix.byAlias[lower]
++		key := aliasKey(alias)
++		al := ix.byAlias[key]
+ 		for i, p := range al {
+ 			if p == oldPath {
+ 				al[i] = newPath
+ 			}
+ 		}
+ 	}
+ 
+ 	// 6. Atualizar incoming backlinks e a resolução nas notas que apontavam para cá
+ 	if bls, ok := ix.backlinks[oldPath]; ok {
+ 		ix.backlinks[newPath] = bls

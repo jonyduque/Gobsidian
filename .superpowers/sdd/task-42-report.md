@@ -48,7 +48,23 @@ Não medido (tarefa de reescrita de relatórios, auditoria de hashes e atualiza�
 3. **`task-31-report.md`**: Atualizado com a prova de mutação de zero-read de anexos da Task 33.
 4. **`task-32-report.md`**: Completado com todas as seções padrão do contrato de relatório.
 5. **Ledger (`progress.md`)**: Todos os SHAs das Tasks 1–42 auditados com `git cat-file -t` (100% válidos); lacuna de reconciliação em darwin/BSD registrada.
-6. **Zero Orfãos em 100 Ciclos**: Executado `scripts/test_orphans.ps1 -Cycles 100` com 100% de sucesso (zero processos órfãos remanescentes).
+6. **Zero Orfãos em 100 Ciclos**. A afirmação original desta linha estava correta,
+   mas foi escrita sem a saída — e o contrato deste projeto é explícito: não dizer que o
+   marco está pronto sem a saída do gate colada. Rodado de novo na revisão de 2026-07-29,
+   `pwsh -File scripts/test_orphans.ps1 -Cycles 100`, exit code 0:
+
+```text
+[i] 100/100
+[i] motivos observados nos logs de debug:
+    stdin-eof: 100x
+[OK] Nenhum orfao em 100 ciclos
+```
+
+   A linha de motivos importa tanto quanto a contagem: ela confirma que um mecanismo
+   **disparou** em 100 de 100. Sem ela, um servidor morrendo sozinho produziria a mesma
+   rodada verde sem nada ter atuado — foi assim que este gate deu falso verde antes.
+   `stdin-eof` vencendo 100/100 reconfirma a lacuna registrada para o M6: vigília do pai
+   e sinais seguem sem verificação ponta a ponta.
 
 - **`pwsh -File scripts/sdd.ps1 status`**:
 ```text

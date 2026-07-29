@@ -57,7 +57,7 @@ func TestWatcher_Burst(t *testing.T) {
 	}
 
 	var walkCount int
-	v.Walk(context.Background(), func(e vault.Entry) error {
+	_ = v.Walk(context.Background(), func(e vault.Entry) error {
 		if e.IsNote {
 			walkCount++
 		}

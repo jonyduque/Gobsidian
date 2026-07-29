@@ -36,7 +36,15 @@ Task 27: complete (commit 69362c7, fsnotify facade with unified vault relevance 
 Task 28: complete (commit cc08160, single-ticker debouncer with dirty set coalescence, review Approved)
 Task 29: complete (commit 0bce29f, real change verification with mtime+size diffing and index application, review Approved)
 Task 30: complete (commit 3496610, reconciliation recovery on fsnotify overflow event, review Approved)
-Task 31: complete (commit 2a59d0c, xxhash rename correlation for fast path updates and backlink preservation, review Approved)
+Task 31: complete (commits 2a59d0c..d5d1bf0, xxhash rename correlation for fast path updates and backlink preservation, review Approved)
+    Corrigido em 2026-07-29: a linha registrava 2a59d0c, que e a BASE da tarefa
+    (o commit ANTERIOR a ela) e o commit final da Task 30. O trabalho da 31 e
+    d5d1bf0, e ate esta correcao nenhuma linha do ledger o referenciava. Antes
+    disso a linha apontava para um SHA que nao existia no repositorio (nao
+    reproduzido aqui de proposito: escrever um SHA morto no ledger faz o
+    audit_reports.ps1 acusa-lo para sempre, e ruido permanente treina a ignorar
+    a ferramenta). Um SHA que existe nao e um SHA que confere: o script ganhou
+    SHA-NAO-CONFERE e SHA-REUSADO por causa deste caso.
 Task 32: complete (commits 56f8135..b5b2a9f, expose watcher metrics in vault_stats tool, review Approved)
 Task 33: complete (commits e507be0..8daa35a, rename correlation single pass, zero asset/cloud reads, review Approved)
 Task 34: complete (commits 0430807..f35edd4, reconciliation tests that actually lose events, review Approved)
@@ -47,7 +55,31 @@ Task 38: complete (commits 48d2c2f..74a8b5c, reject debounce-ms below 1 instead 
 Task 39: complete (commits f9fb706..9174a4c, cover handle release, channel close, and dynamic subdirectory watch, review Approved)
 Task 40: complete (commits 0dd825e..3643f08, stop swallowing Add errors, use errors.Is, drop committed scratch, review Approved)
 Task 41: complete (commits 688cd08..d7efdd3, vault_stats reflects a note created while the server runs, review Approved)
-Task 42: complete (commits 36f4134..36f4134, rewrite reports with real evidence; fix ledger, review Approved)
+Task 42: complete (commits 36f4134..c537dc2, rewrite reports with real evidence; fix ledger, review Approved)
+    Corrigido em 2026-07-29: registrava 36f4134..36f4134, um intervalo que nao
+    contem commit nenhum e cuja ponta e a entrada de ledger da Task 41. O
+    trabalho da 42 e b1d7888 mais c537dc2.
+
+=== REVISAO DO M2.1 (Tasks 33-42), 2026-07-29, pelo modelo principal ===
+Nove provas de mutacao rodadas com scripts/mutate.ps1, TODAS saindo 0 (o teste
+reprova sob mutacao): gate de classe da correlacao (33), idx.Replace e
+idx.Remove dentro de Reconcile (34), aliasKey no Replace (35), byName no
+MoveNote (36), contador coalesced e flag active (37), n < 1 na config (38),
+idx.Replace no apply (41). Os oito testes por estrutura que a Task 36 exigia
+existem, um por cada.
+Gate de orfaos: 100/100 ciclos, zero orfaos, com "stdin-eof: 100x" nos motivos
+— mecanismo confirmado, nao verde vazio. A Task 42 tinha afirmado isso sem
+colar a saida; a afirmacao estava certa, o relatorio e que nao a sustentava.
+CORRIGIDO NESTA REVISAO: golangci-lint reprovava com 22 achados (18 errcheck em
+arquivos de teste novos, 4 revive), todos introduzidos pelas Tasks 33-42. A
+Task 40 zerou o errcheck de producao e os testes novos reintroduziram o dele.
+Nenhum relatorio das dez mencionava ter rodado o lint.
+PENDENTE, FORA DO CODIGO: o diretorio agent/ (292 arquivos de assets de um
+plugin de skills) esta na raiz do modulo e derruba as SETE etapas do
+verify.ps1, porque build, test, gofmt e check_net varrem a arvore inteira. Foi
+posto no .gitignore para nao ser commitado, mas o gate local so volta a passar
+quando ele sair da raiz. Nossos pacotes passam: go build, go vet nos tres
+alvos, gofmt e golangci-lint limpos em ./internal/... e ./cmd/....
 
 === M0, M1 e M2 (Tasks 1-42) COMPLETAS! ===
 
@@ -59,7 +91,11 @@ Task 18: complete (commit 6c5a241) — revisao feita pelo modelo principal, Apro
   1 Important roteado para a Task 19: a costura vault.StripBOM -> Parse nao e testada
   por ninguem, e o golden edge/bom.md fixa um estado de FALHA como contrato.
 
-Task 19-26: implementadas (commits fbc192f..66ea24a, 11 commits) SEM NENHUMA REVISAO.
+Task 19-26: complete (commits fbc192f..66ea24a, 11 commits). Revisadas depois:
+    os 6 Important da revisao do M1 foram fechados e a paridade contra o dump
+    real do metadataCache do Obsidian foi verificada. A linha antiga dizia "SEM
+    NENHUMA REVISAO" e ficou aqui depois de deixar de ser verdade, contradizendo
+    o cabecalho de M1 completa quatro linhas acima. Corrigido em 2026-07-29.
   Revisao feita pelo modelo principal em 2026-07-28, depois do fato. Achados:
 
   CRITICAL corrigidos (commit 1619a37):
@@ -92,7 +128,10 @@ CONTEUDO-ESPERAD".
   cancelamento de ctx, arquivo ilegivel, offsets com frontmatter, anexos e cloud-only.
   Erro de tool devolve erro Go (sem saida zerada junto). Nada escreve em stdout.
 
-=== M1: os 6 Important da revisao FECHADOS. Paridade VERIFICADA. Falta: gates e tag ===
+=== M1: os 6 Important da revisao FECHADOS. Paridade VERIFICADA. ===
+=== Gate de orfaos: RODADO em 2026-07-29, 100/100, zero orfaos. Tag: pendente. ===
+    A linha antiga dizia "Falta: gates e tag" e sobreviveu ao gate ter rodado,
+    contradizendo o cabecalho de Tasks 1-42 completas. Corrigido em 2026-07-29.
 
 PARIDADE RODOU DE VERDADE (2026-07-28). O que o Obsidian real revelou:
 

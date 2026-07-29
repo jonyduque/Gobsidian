@@ -1,3 +1,8 @@
+// Package watcher observa o cofre e mantem o indice atualizado sem reindexar
+// tudo. Sao tres camadas de filtragem antes de qualquer trabalho real —
+// relevancia, coalescencia por janela, e comparacao de mtime e tamanho — mais
+// a reconciliacao que cobre o caso em que eventos se perderam. Nenhum tipo do
+// fsnotify cruza para fora daqui.
 package watcher
 
 import (

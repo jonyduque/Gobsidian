@@ -24,20 +24,38 @@ func TestCorrelateRenames(t *testing.T) {
 	content := []byte("some content")
 	emptyContent := []byte("")
 
-	os.WriteFile(filepath.Join(tmp, "note1.md"), content, 0644)
-	os.WriteFile(filepath.Join(tmp, "empty1.md"), emptyContent, 0644)
+	if err := os.WriteFile(filepath.Join(tmp, "note1.md"), content, 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(tmp, "empty1.md"), emptyContent, 0644); err != nil {
+		t.Fatal(err)
+	}
 
-	idx.Build(context.Background(), v)
+	if err := idx.Build(context.Background(), v); err != nil {
+		t.Fatal(err)
+	}
 
 	// Action: simulate rename note1.md -> note2.md
-	os.Rename(filepath.Join(tmp, "note1.md"), filepath.Join(tmp, "note2.md"))
+	if err := os.Rename(filepath.Join(tmp, "note1.md"), filepath.Join(tmp, "note2.md")); err != nil {
+		t.Fatal(err)
+	}
 	// Simulate rename empty1.md -> empty2.md
-	os.Rename(filepath.Join(tmp, "empty1.md"), filepath.Join(tmp, "empty2.md"))
+	if err := os.Rename(filepath.Join(tmp, "empty1.md"), filepath.Join(tmp, "empty2.md")); err != nil {
+		t.Fatal(err)
+	}
 	// Simulate modified file
-	os.WriteFile(filepath.Join(tmp, "note3.md"), []byte("initial"), 0644)
-	idx.Build(context.Background(), v)
-	os.Rename(filepath.Join(tmp, "note3.md"), filepath.Join(tmp, "note4.md"))
-	os.WriteFile(filepath.Join(tmp, "note4.md"), []byte("modified"), 0644)
+	if err := os.WriteFile(filepath.Join(tmp, "note3.md"), []byte("initial"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := idx.Build(context.Background(), v); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Rename(filepath.Join(tmp, "note3.md"), filepath.Join(tmp, "note4.md")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(tmp, "note4.md"), []byte("modified"), 0644); err != nil {
+		t.Fatal(err)
+	}
 
 	batch := []vault.CanonicalPath{
 		"note1.md", "note2.md",
@@ -404,12 +422,12 @@ func TestWatcher_RenameEndToEnd(t *testing.T) {
 	if err != nil {
 		t.Fatalf("watcher.New: %v", err)
 	}
-	defer w.Close()
+	defer func() { _ = w.Close() }()
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	go w.Run(ctx)
+	go func() { _ = w.Run(ctx) }()
 
 	// Rename no disco
 	if err := os.Remove(filepath.Join(tmp, "origem.md")); err != nil {

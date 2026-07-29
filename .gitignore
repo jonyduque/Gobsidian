@@ -11,3 +11,21 @@ tools/parity-dumper/main.js
 # errada e as regras divergirem em silencio — que e o defeito que a skill
 # mutation-proof-discipline descreve. A fonte e .claude/.
 .agents/
+
+# Assets de plugin de skills, despejados na raiz. Contem .go de exemplo que
+# quebram `go vet ./...` e nao sao codigo deste projeto.
+agent/
+
+# Skills de plugin de terceiros caem em .claude/skills/ junto com as do projeto.
+# Ignorar por padrao e re-incluir as nossas pelo nome: assim um plugin novo nao
+# entra no repositorio por acidente num `git add -A`, e nao ha lista de exclusao
+# para manter atualizada. As nossas sao estas cinco.
+.claude/skills/*
+!.claude/skills/gobsidian-execution/
+!.claude/skills/mutation-proof-discipline/
+!.claude/skills/preventing-false-pass-and-offset-bugs/
+!.claude/skills/sdd-ledger-and-truthful-docs/
+!.claude/skills/windows-toolchain-traps/
+
+# Diretorios de teste que ferramentas externas criam na raiz.
+.agents_test/

@@ -31,7 +31,7 @@ func setupTestWatcher(t *testing.T) (*Watcher, context.CancelFunc, string, *inde
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
-	go w.Run(ctx)
+	go func() { _ = w.Run(ctx) }()
 
 	// Wait for watcher to start
 	time.Sleep(50 * time.Millisecond)
@@ -44,7 +44,9 @@ func TestCounters_EventsReceived(t *testing.T) {
 	defer cancel()
 
 	notePath := filepath.Join(dir, "received.md")
-	os.WriteFile(notePath, []byte("content"), 0644)
+	if err := os.WriteFile(notePath, []byte("content"), 0644); err != nil {
+		t.Fatal(err)
+	}
 
 	for range 50 {
 		if w.Stats().EventsReceived > 0 {
@@ -64,7 +66,9 @@ func TestCounters_EventsDropped(t *testing.T) {
 	defer cancel()
 
 	notePath := filepath.Join(dir, "desktop.ini")
-	os.WriteFile(notePath, []byte("content"), 0644)
+	if err := os.WriteFile(notePath, []byte("content"), 0644); err != nil {
+		t.Fatal(err)
+	}
 
 	for range 50 {
 		if w.Stats().EventsDropped > 0 {
@@ -84,7 +88,9 @@ func TestCounters_EventsProcessed(t *testing.T) {
 	defer cancel()
 
 	notePath := filepath.Join(dir, "processed.md")
-	os.WriteFile(notePath, []byte("content"), 0644)
+	if err := os.WriteFile(notePath, []byte("content"), 0644); err != nil {
+		t.Fatal(err)
+	}
 
 	for range 50 {
 		if w.Stats().EventsProcessed > 0 {
@@ -104,7 +110,9 @@ func TestCounters_EventsSkipped(t *testing.T) {
 	defer cancel()
 
 	notePath := filepath.Join(dir, "skipped.md")
-	os.WriteFile(notePath, []byte("content"), 0644)
+	if err := os.WriteFile(notePath, []byte("content"), 0644); err != nil {
+		t.Fatal(err)
+	}
 
 	for range 50 {
 		if w.Stats().EventsProcessed > 0 {
@@ -239,7 +247,9 @@ func TestCounters_ReconciledUpdatedAndRemoved(t *testing.T) {
 	defer cancel()
 
 	v, _ := vault.New(dir)
-	os.WriteFile(filepath.Join(dir, "n1.md"), []byte("content"), 0644)
+	if err := os.WriteFile(filepath.Join(dir, "n1.md"), []byte("content"), 0644); err != nil {
+		t.Fatal(err)
+	}
 
 	// Trigger reconcile via channel
 	w.reconcile <- struct{}{}
@@ -258,7 +268,9 @@ func TestCounters_ReconciledUpdatedAndRemoved(t *testing.T) {
 	}
 
 	// Delete file from disk without telling index
-	os.Remove(filepath.Join(dir, "n1.md"))
+	if err := os.Remove(filepath.Join(dir, "n1.md")); err != nil {
+		t.Fatal(err)
+	}
 
 	w.reconcile <- struct{}{}
 

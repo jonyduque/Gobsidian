@@ -51,7 +51,9 @@ func TestApply(t *testing.T) {
 	if err := idx.Replace(context.Background(), v, canon3); err != nil {
 		t.Fatalf("idx.Replace: %v", err)
 	}
-	os.Remove(path3)
+	if err := os.Remove(path3); err != nil {
+		t.Fatal(err)
+	}
 
 	// Arquivo com erro de parse ou inacessivel e processado sem derrubar o laco
 	in <- []vault.CanonicalPath{canon1, canon2, canon3}

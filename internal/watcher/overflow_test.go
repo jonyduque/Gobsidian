@@ -132,7 +132,7 @@ func TestRun_OverflowSchedulesExactlyOne(t *testing.T) {
 	if err != nil {
 		t.Fatalf("New watcher: %v", err)
 	}
-	defer w.Close()
+	defer func() { _ = w.Close() }()
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()

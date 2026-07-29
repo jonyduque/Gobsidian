@@ -180,9 +180,13 @@ func TestMoveNote_UpdatesTags(t *testing.T) {
 	writeFileHelper(t, root, "a.md", "---\ntags:\n  - mylabel\n---\n# A\n")
 	v, _ := vault.New(root)
 	idx := New()
-	idx.Build(context.Background(), v)
+	if err := idx.Build(context.Background(), v); err != nil {
+		t.Fatal(err)
+	}
 
-	os.Rename(filepath.Join(root, "a.md"), filepath.Join(root, "b.md"))
+	if err := os.Rename(filepath.Join(root, "a.md"), filepath.Join(root, "b.md")); err != nil {
+		t.Fatal(err)
+	}
 	idx.MoveNote(v, "a.md", "b.md")
 
 	paths := idx.tags["mylabel"]
@@ -196,9 +200,13 @@ func TestMoveNote_UpdatesByAlias(t *testing.T) {
 	writeFileHelper(t, root, "a.md", "---\naliases:\n  - STJ\n---\n# A\n")
 	v, _ := vault.New(root)
 	idx := New()
-	idx.Build(context.Background(), v)
+	if err := idx.Build(context.Background(), v); err != nil {
+		t.Fatal(err)
+	}
 
-	os.Rename(filepath.Join(root, "a.md"), filepath.Join(root, "b.md"))
+	if err := os.Rename(filepath.Join(root, "a.md"), filepath.Join(root, "b.md")); err != nil {
+		t.Fatal(err)
+	}
 	idx.MoveNote(v, "a.md", "b.md")
 
 	paths := idx.byAlias["stj"]
@@ -213,9 +221,13 @@ func TestMoveNote_UpdatesIncomingBacklinks(t *testing.T) {
 	writeFileHelper(t, root, "c.md", "# C\n\nLink para [[STJ]]\n")
 	v, _ := vault.New(root)
 	idx := New()
-	idx.Build(context.Background(), v)
+	if err := idx.Build(context.Background(), v); err != nil {
+		t.Fatal(err)
+	}
 
-	os.Rename(filepath.Join(root, "a.md"), filepath.Join(root, "b.md"))
+	if err := os.Rename(filepath.Join(root, "a.md"), filepath.Join(root, "b.md")); err != nil {
+		t.Fatal(err)
+	}
 	idx.MoveNote(v, "a.md", "b.md")
 
 	if bls := idx.backlinks["a.md"]; len(bls) != 0 {
@@ -232,9 +244,13 @@ func TestMoveNote_UpdatesOutgoingBacklinks(t *testing.T) {
 	writeFileHelper(t, root, "c.md", "# C\n")
 	v, _ := vault.New(root)
 	idx := New()
-	idx.Build(context.Background(), v)
+	if err := idx.Build(context.Background(), v); err != nil {
+		t.Fatal(err)
+	}
 
-	os.Rename(filepath.Join(root, "a.md"), filepath.Join(root, "b.md"))
+	if err := os.Rename(filepath.Join(root, "a.md"), filepath.Join(root, "b.md")); err != nil {
+		t.Fatal(err)
+	}
 	idx.MoveNote(v, "a.md", "b.md")
 
 	bls := idx.backlinks["c.md"]
@@ -249,10 +265,14 @@ func TestMoveNote_ReprocessesBrokenLinks(t *testing.T) {
 	writeFileHelper(t, root, "d.md", "# D\n\nLink para [[a]]\n")
 	v, _ := vault.New(root)
 	idx := New()
-	idx.Build(context.Background(), v)
+	if err := idx.Build(context.Background(), v); err != nil {
+		t.Fatal(err)
+	}
 
 	// Move a.md to b.md
-	os.Rename(filepath.Join(root, "a.md"), filepath.Join(root, "b.md"))
+	if err := os.Rename(filepath.Join(root, "a.md"), filepath.Join(root, "b.md")); err != nil {
+		t.Fatal(err)
+	}
 	idx.MoveNote(v, "a.md", "b.md")
 
 	// d.md's link to [[a]] must now be LinkTargetMissing because a.md was moved and no a.md exists anymore
@@ -267,7 +287,9 @@ func TestMoveNote_StatFailureZerosModTime(t *testing.T) {
 	writeFileHelper(t, root, "a.md", "# A\n")
 	v, _ := vault.New(root)
 	idx := New()
-	idx.Build(context.Background(), v)
+	if err := idx.Build(context.Background(), v); err != nil {
+		t.Fatal(err)
+	}
 
 	// Move without creating file on disk so os.Stat fails
 	idx.MoveNote(v, "a.md", "nonexistent.md")

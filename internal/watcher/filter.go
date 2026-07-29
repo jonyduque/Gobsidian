@@ -10,6 +10,8 @@ import (
 // Op descreve a operacao que gerou o evento.
 type Op int
 
+// As quatro operacoes que o watcher propaga. Chmod nao entra: o OneDrive o
+// emite constantemente e ele nunca significa mudanca de conteudo.
 const (
 	OpCreate Op = iota
 	OpWrite
@@ -26,6 +28,11 @@ type Event struct {
 // DropReason e fechado: quatro valores, e nenhum outro entra sem mudar o plano.
 type DropReason string
 
+// Os quatro motivos de descarte, contados separadamente porque pedem acoes
+// diferentes: chmod alto e OneDrive em operacao normal; outside_vault alto
+// indica que a raiz e um link e o confinamento esta recusando eventos;
+// excluded alto indica atividade em .obsidian/ ou .git/; unknown_op alto
+// indica evento que o filtro nao soube classificar.
 const (
 	DropChmod        DropReason = "chmod"
 	DropOutsideVault DropReason = "outside_vault"
