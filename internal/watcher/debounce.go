@@ -14,10 +14,6 @@ import (
 func Debounce(ctx context.Context, in <-chan Event, out chan<- []vault.CanonicalPath, window time.Duration, log *slog.Logger, coalesced *atomic.Int64) {
 	dirty := make(map[vault.CanonicalPath]struct{})
 
-	if window <= 0 {
-		window = 250 * time.Millisecond // default
-	}
-
 	ticker := time.NewTicker(window)
 	defer ticker.Stop()
 

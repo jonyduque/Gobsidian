@@ -142,7 +142,7 @@ func parseReadOnly(s string) (bool, error) {
 func parseDebounceMS(v string) (int, error) {
 	n, err := strconv.Atoi(v)
 	if err != nil {
-		return 0, fmt.Errorf("valor invalido %q (use um inteiro >= 0): %w", v, err)
+		return 0, fmt.Errorf("valor invalido %q (use um inteiro >= 1): %w", v, err)
 	}
 	if err := validateDebounceMS(n); err != nil {
 		return 0, err
@@ -151,11 +151,14 @@ func parseDebounceMS(v string) (int, error) {
 }
 
 // validateDebounceMS aplica a mesma regra de aceitacao independente da
-// origem do valor (flag ou env): qualquer inteiro >= 0 e valido, incluindo
-// zero (que significa "sem debounce").
+// origem do valor (flag ou env). Zero e recusado: sem coalescencia cada
+// evento vira um lote de um caminho so, e a correlacao de rename — que
+// exige uma remocao E uma criacao no MESMO lote — para de detectar
+// qualquer rename. Servidor sem debounce nao e configuracao que se possa
+// pedir por engano, entao a recusa mora aqui e nao no watcher.
 func validateDebounceMS(n int) error {
-	if n < 0 {
-		return fmt.Errorf("valor invalido %d (use um inteiro >= 0)", n)
+	if n < 1 {
+		return fmt.Errorf("valor invalido %d (use um inteiro >= 1)", n)
 	}
 	return nil
 }
