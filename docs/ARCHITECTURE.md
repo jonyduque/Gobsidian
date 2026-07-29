@@ -257,6 +257,24 @@ Isso não resolve — e não pretende resolver — a concorrência com o Obsidia
 
 O campo `Note.Hash` é o valor exposto como `hash` nos retornos de `note_read`, `note_metadata` e `note_list`, e é o que o cliente devolve em `expected_hash`. É xxhash do conteúdo bruto do arquivo, incluindo frontmatter e BOM — qualquer byte diferente produz hash diferente.
 
+### 4.6 Índice Invertido e Analisador Morfológico (`internal/search`)
+
+O motor de busca em texto completo implementa ranking BM25 com indexação dupla para o idioma português:
+
+- **Analisador Morfológico (`analyzer.go`)**: Normalização de maiúsculas/acentos via `golang.org/x/text/unicode/norm` e `transform.Chain`. Indexação dupla de cada token: forma crua (preservando distinção exata de vocabulário) e forma reduzida por 8 regras morfológicas conservadoras para o português (flexões nominais/verbais sem colidir radicais jurídicos distintos).
+- **Índice Invertido (`inverted.go`)**: Estrutura thread-safe baseada em `sync.RWMutex` mapeando `termo -> (caminho -> []TokenPosition)`. Atualização incremental síncrona aos eventos do watcher.
+- **Ranking BM25 (`bm25.go`)**: $k_1 = 1.2$, $b = 0.75$. Pesos de campo: Título 3.0x, Headings 2.0x, Corpo 1.0x. Pontuação em forma dupla: $Score = Score_{raw} \times 1.5 + Score_{reduced} \times 1.0$. Desempate determinístico por caminho de nota.
+- **Recorte de Snippets (`snippet.go`)**: Extração do trecho com maior densidade de termos casados, com compensação de offset de BOM (+3 bytes no disco) e truncamento UTF-8 seguro em limite configurável (`snippet_chars`).
+
+### 4.7 Persistência de Cache em Disco (`internal/search/persist.go`)
+
+O cache do índice fica armazenado fora do cofre em `%LOCALAPPDATA%\gobsidian\<hash-do-caminho-do-cofre>\inverted_cache.gob` (decisão D1):
+
+- **Cabeçalho de Integridade (`CacheHeader`)**: Guarda `FormatVersion`, `ParserVersion`, `AnalyzerVersion`, `VaultPath` e `NoteCount`. Qualquer divergência de versão rejeita o arquivo e força reindexação limpa (sem migração).
+- **Escrita Atômica**: O arquivo é codificado em GOB primeiro em um arquivo temporário no mesmo diretório com o prefixo `.gobsidian-tmp-cache-*.gob` (ignorado pelo filtro de watcher) e renomeado atomicamente para `inverted_cache.gob` via `os.Rename`.
+- **Diferenciação de Estado**: Cofres vazios (0 notas) geram cache válido com `NoteCount = 0`, distinguível de cache ausente (`ErrCacheNotFound`).
+- **Medição RNF-02**: Boot com cache válido atinge ~15,8 ms de deserialização em 100 notas, satisfazendo a meta de boot ≤ 300 ms (PRD Q3 fechado).
+
 ---
 
 ## 5. Fluxos

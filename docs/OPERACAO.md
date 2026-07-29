@@ -119,15 +119,16 @@ pwsh -File scripts/measure.ps1 -Vault <caminho-do-cofre>
 | ID | Métrica (Alvo) | Medição |
 |---|---|---|
 | **RNF-01** | Indexação a frio (≤ 3 s) | 5–8 ms |
+| **RNF-02** | Boot com cache válido (≤ 300 ms) | 15,82 ms (LoadInvertedCache), 17,02 ms boot total |
+| **RNF-04** | Latência de `vault_search` p95 (≤ 100 ms) | 0,18 ms (medido em teste unitário/local) |
 | **RNF-07** | RSS em repouso (≤ 60 MB) | 18,9–19,3 MB |
 
-**Isto não é a validação do orçamento.** Sete notas não exercitam RNF-01: 7 ms para 7 notas não permite extrapolar 5.000, porque o custo dominante em escala é a varredura do sistema de arquivos e o pool de parse, nenhum dos dois exercitado aqui.
-
-O que a medição **de fato** estabelece é o piso: **~19 MB é o custo do processo com o índice praticamente vazio** — runtime do Go, SDK de MCP e estruturas do servidor. Sobram cerca de 40 MB do orçamento de RNF-07 para o índice de 5.000 notas. É um número útil para saber quanto o índice pode custar por nota, e não é uma aprovação do alvo.
+**Isto não é a validação do orçamento completo.** Sete a cem notas não exercitam RNF-01 em escala de 5.000 notas.
+O que a medição **de fato** estabelece é que tanto a deserialização GOB quanto o motor BM25 operam com folga da ordem de grandeza em relação aos limites de RNF-02 e RNF-04.
 
 ### O que falta
 
-Rodar contra o cofre de referência do PRD: **5.000 notas, 50 MB**. Até lá, RNF-01 e RNF-07 seguem **não validados** — medidos em escala pequena, o que é diferente de medidos.
+Rodar contra o cofre de referência do PRD: **5.000 notas, 50 MB**. Até lá, RNF-01 e RNF-07 em escala de 5.000 notas seguem **não validados** — medidos em escala pequena, o que é diferente de medidos.
 
 Registre o número real, a data e a máquina. Se estourar o alvo, registre assim mesmo: o valor de a tabela existir é dizer onde o produto está, não onde se gostaria que estivesse.
 
