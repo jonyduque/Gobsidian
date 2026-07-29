@@ -20,11 +20,11 @@ type Token struct {
 	End     int64  // Offset em bytes do fim da ocorrência no texto original
 }
 
-var normTransform = transform.Chain(norm.NFD, runes.Remove(runes.In(unicode.Mn)), norm.NFC)
-
 // Normalize remove acentos e converte para caixa baixa.
+// Cria um novo transformer a cada chamada para garantir thread-safety total sob acesso concorrente.
 func Normalize(s string) string {
-	res, _, err := transform.String(normTransform, s)
+	t := transform.Chain(norm.NFD, runes.Remove(runes.In(unicode.Mn)), norm.NFC)
+	res, _, err := transform.String(t, s)
 	if err != nil {
 		res = s
 	}
