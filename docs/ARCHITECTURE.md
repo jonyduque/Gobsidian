@@ -318,7 +318,11 @@ O debouncer utiliza um **tique único e um conjunto sujo** (`map[vault.Canonical
 
 **Tratamento de overflow.** `ReadDirectoryChangesW` no Windows tem buffer finito. Sob rajada intensa, `fsnotify` emite `ErrEventOverflow`, e eventos foram perdidos — não se sabe quais. A única resposta correta é uma varredura completa de reconciliação: percorrer o cofre, comparar mtime e tamanho com o índice, reparsear divergências, remover notas que sumiram. Ignorar o overflow deixa o índice silenciosamente incorreto, que é o pior estado possível.
 
-**Renomeação.** `fsnotify` reporta rename como um par de eventos (remoção na origem, criação no destino) sem correlação explícita. O reconciliador correlaciona por hash de conteúdo: se um arquivo removido e um criado na mesma janela têm o mesmo `xxhash`, é uma renomeação, e os backlinks apontando para o caminho antigo são registrados como candidatos a atualização (reportados, não reescritos automaticamente — reescrever links por conta própria em resposta a uma ação externa violaria o princípio de não decidir conteúdo pelo usuário).
+**Correlação de Renames.** `fsnotify` reporta rename como um par de eventos (remoção na origem, criação no destino) sem correlação explícita. O debouncer entrega um lote de caminhos ao `Apply`. O `Apply` separa esses caminhos entre deletados (não existem mais no disco) e modificados/criados. Arquivos deletados e criados no *mesmo lote* que possuam exato o mesmo hash `xxhash` (calculado sobre o conteúdo bruto antes da remoção de BOM) e não sejam vazios são correlacionados como um rename em nível lógico, preservando o hash e marcando backlinks pendentes. Limitações documentadas:
+1. Cópias seguidas de remoções do original caem como rename se acontecerem na mesma janela de debounce.
+2. Remoção e criação separadas por tempo maior que o debounce não correlacionam.
+3. Apenas notas são hasheadas e correlacionadas, anexos e mídias não.
+4. Qualquer modificação de conteúdo simultânea ao move anula o rename lógico e ele decai para um remover e adicionar comum (remove+replace).
 
 ### 5.4 Escrita (`note_patch` sob um heading)
 

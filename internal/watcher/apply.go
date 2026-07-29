@@ -14,43 +14,59 @@ import (
 // Uma reescrita dentro do mesmo tique de mtime, preservando o tamanho, passa despercebida.
 // Isso é aceitável porque há dois anteparos: a reconciliação por overflow (Task 30)
 // e a reindexação no boot.
-func Apply(ctx context.Context, in <-chan vault.CanonicalPath, reconcile <-chan struct{}, idx *index.Index, v *vault.Vault, log *slog.Logger) (processed, skipped int64) {
+func Apply(ctx context.Context, in <-chan []vault.CanonicalPath, reconcile <-chan struct{}, idx *index.Index, v *vault.Vault, log *slog.Logger) (processed, skipped int64) {
 	for {
 		select {
 		case <-ctx.Done():
 			return processed, skipped
 		case <-reconcile:
 			Reconcile(ctx, v, idx, log)
-		case path, ok := <-in:
+		case batch, ok := <-in:
 			if !ok {
 				return processed, skipped
 			}
 
-			processed++
-			abs := v.Abs(path)
-			info, err := os.Stat(abs)
+			// Task 31: Correlate renames within the batch
+			renames, nonRenames := CorrelateRenames(batch, v, idx, log)
 
-			if err != nil {
-				if os.IsNotExist(err) {
-					idx.Remove(path)
-				} else {
-					log.Warn("Erro ao ler os.Stat, pulando mudança para evitar deleção indevida do índice", "path", abs, "err", err)
-				}
-				continue
+			// Process renames (report without rewriting content)
+			for _, rename := range renames {
+				processed += 2
+				log.Info("rename_correlated",
+					"from", rename.From,
+					"to", rename.To,
+					"backlinks", len(rename.Backlinks),
+				)
+				idx.MoveNote(rename.From, rename.To)
 			}
 
-			// Verifica se já está indexado e se mtime/tamanho bateram.
-			// Só compara para notas (pois idx.Get resolve apenas notas).
-			if n, ok := idx.Get(path); ok {
-				if n.ModTime.Equal(info.ModTime()) && n.Size == info.Size() {
-					skipped++
+			for _, path := range nonRenames {
+				processed++
+				abs := v.Abs(path)
+				info, err := os.Stat(abs)
+
+				if err != nil {
+					if os.IsNotExist(err) {
+						idx.Remove(path)
+					} else {
+						log.Warn("Erro ao ler os.Stat, pulando mudança para evitar deleção indevida do índice", "path", abs, "err", err)
+					}
 					continue
 				}
-			}
 
-			err = idx.Replace(ctx, v, path)
-			if err != nil {
-				log.Warn("Falha ao reindexar arquivo", "path", path, "err", err)
+				// Verifica se já está indexado e se mtime/tamanho bateram.
+				// Só compara para notas (pois idx.Get resolve apenas notas).
+				if n, ok := idx.Get(path); ok {
+					if n.ModTime.Equal(info.ModTime()) && n.Size == info.Size() {
+						skipped++
+						continue
+					}
+				}
+
+				err = idx.Replace(ctx, v, path)
+				if err != nil {
+					log.Warn("Falha ao reindexar arquivo", "path", path, "err", err)
+				}
 			}
 		}
 	}

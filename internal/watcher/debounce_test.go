@@ -13,7 +13,7 @@ import (
 
 func TestDebounce_Coalescence(t *testing.T) {
 	in := make(chan Event, 100)
-	out := make(chan vault.CanonicalPath, 100)
+	out := make(chan []vault.CanonicalPath, 100)
 	var buf bytes.Buffer
 	log := slog.New(slog.NewTextHandler(&buf, nil))
 
@@ -47,7 +47,7 @@ func TestDebounce_Coalescence(t *testing.T) {
 
 	var results []vault.CanonicalPath
 	for p := range out {
-		results = append(results, p)
+		results = append(results, p...)
 	}
 
 	if len(results) != 3 {
@@ -72,7 +72,7 @@ func TestDebounce_Coalescence(t *testing.T) {
 
 func TestDebounce_NoStarvation(t *testing.T) {
 	in := make(chan Event, 100)
-	out := make(chan vault.CanonicalPath, 100)
+	out := make(chan []vault.CanonicalPath, 100)
 	var buf bytes.Buffer
 	log := slog.New(slog.NewTextHandler(&buf, nil))
 

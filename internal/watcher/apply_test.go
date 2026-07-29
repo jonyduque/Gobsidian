@@ -22,7 +22,7 @@ func TestApply(t *testing.T) {
 	idx := index.New()
 
 	log := slog.New(slog.NewTextHandler(os.Stdout, nil))
-	in := make(chan vault.CanonicalPath, 10)
+	in := make(chan []vault.CanonicalPath, 10)
 
 	// Arquivo que não muda
 	path1 := filepath.Join(root, "same.md")
@@ -53,9 +53,7 @@ func TestApply(t *testing.T) {
 	os.Remove(path3)
 
 	// Arquivo com erro de parse ou inacessivel e processado sem derrubar o laco
-	in <- canon1
-	in <- canon2
-	in <- canon3
+	in <- []vault.CanonicalPath{canon1, canon2, canon3}
 	close(in)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)

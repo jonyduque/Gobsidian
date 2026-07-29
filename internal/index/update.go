@@ -300,3 +300,93 @@ func (ix *Index) reprocessLinksLocked() {
 		}
 	}
 }
+
+// MoveNote atualiza os caminhos de uma nota no índice sem precisar reler do disco.
+func (ix *Index) MoveNote(oldPath, newPath vault.CanonicalPath) {
+	ix.mu.Lock()
+	defer ix.mu.Unlock()
+
+	n, hasNote := ix.notes[oldPath]
+	if !hasNote {
+		return
+	}
+
+	atomic.AddUint64(&ix.generation, 1)
+
+	// 1. Atualizar notas
+	n.Path = newPath
+	ix.notes[newPath] = n
+	delete(ix.notes, oldPath)
+
+	// 2. Atualizar lowerPath
+	delete(ix.lowerPath, strings.ToLower(string(oldPath)))
+	ix.lowerPath[strings.ToLower(string(newPath))] = newPath
+
+	// 3. Atualizar byName
+	oldBase := vault.CanonicalPath(filepath.ToSlash(filepath.Base(string(oldPath))))
+	names := ix.byName[string(oldBase)]
+	filteredNames := make([]vault.CanonicalPath, 0, len(names))
+	for _, p := range names {
+		if p != oldPath {
+			filteredNames = append(filteredNames, p)
+		}
+	}
+	if len(filteredNames) == 0 {
+		delete(ix.byName, string(oldBase))
+	} else {
+		ix.byName[string(oldBase)] = filteredNames
+	}
+	newBase := vault.CanonicalPath(filepath.ToSlash(filepath.Base(string(newPath))))
+	ix.byName[string(newBase)] = append(ix.byName[string(newBase)], newPath)
+
+	// 4. Atualizar tags
+	for _, tag := range n.Tags {
+		paths := ix.tags[tag]
+		for i, p := range paths {
+			if p == oldPath {
+				paths[i] = newPath
+			}
+		}
+	}
+
+	// 5. Atualizar byAlias
+	for _, alias := range n.Aliases {
+		lower := strings.ToLower(alias)
+		al := ix.byAlias[lower]
+		for i, p := range al {
+			if p == oldPath {
+				al[i] = newPath
+			}
+		}
+	}
+
+	// 6. Atualizar incoming backlinks e a resolução nas notas que apontavam para cá
+	if bls, ok := ix.backlinks[oldPath]; ok {
+		ix.backlinks[newPath] = bls
+		delete(ix.backlinks, oldPath)
+		for _, bl := range bls {
+			if srcNote, ok := ix.notes[bl.From]; ok {
+				for i := range srcNote.Links {
+					if srcNote.Links[i].Resolved == oldPath {
+						srcNote.Links[i].Resolved = newPath
+					}
+				}
+			}
+		}
+	}
+
+	// 7. Atualizar outgoing backlinks
+	for _, l := range n.Links {
+		if l.Resolved != "" {
+			bls := ix.backlinks[l.Resolved]
+			for i, bl := range bls {
+				if bl.From == oldPath {
+					bls[i].From = newPath
+				}
+			}
+		}
+	}
+
+	// 8. Reprocessar os links garante que links recém-quebrados ou recém-resolvidos sejam notados
+	ix.reprocessLinksLocked()
+}

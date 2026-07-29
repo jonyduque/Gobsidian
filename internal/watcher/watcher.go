@@ -19,7 +19,7 @@ type Watcher struct {
 	root      string
 	log       *slog.Logger
 	events    chan Event
-	debounced chan vault.CanonicalPath
+	debounced chan []vault.CanonicalPath
 	debounce  time.Duration
 	v         *vault.Vault
 	idx       *index.Index
@@ -71,7 +71,7 @@ func New(v *vault.Vault, idx *index.Index, debounce time.Duration, log *slog.Log
 		root:      root,
 		log:       log,
 		events:    make(chan Event, 100),
-		debounced: make(chan vault.CanonicalPath, 100),
+		debounced: make(chan []vault.CanonicalPath, 100),
 		reconcile: make(chan struct{}, 1),
 		debounce:  debounce,
 		v:         v,

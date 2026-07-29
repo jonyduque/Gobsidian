@@ -10,7 +10,7 @@ import (
 
 // Debounce reads events from 'in' and emits coalesced paths to 'out'.
 // It uses a single ticker and a dirty set to coalesce multiple events on the same path.
-func Debounce(ctx context.Context, in <-chan Event, out chan<- vault.CanonicalPath, window time.Duration, log *slog.Logger) {
+func Debounce(ctx context.Context, in <-chan Event, out chan<- []vault.CanonicalPath, window time.Duration, log *slog.Logger) {
 	dirty := make(map[vault.CanonicalPath]struct{})
 
 	if window <= 0 {
@@ -42,13 +42,17 @@ func Debounce(ctx context.Context, in <-chan Event, out chan<- vault.CanonicalPa
 
 // flush empties the dirty set into the output channel.
 // It creates a new map instead of modifying the existing one, but doing it in-place is fine.
-func flush(ctx context.Context, dirty map[vault.CanonicalPath]struct{}, out chan<- vault.CanonicalPath) {
+func flush(ctx context.Context, dirty map[vault.CanonicalPath]struct{}, out chan<- []vault.CanonicalPath) {
+	if len(dirty) == 0 {
+		return
+	}
+	batch := make([]vault.CanonicalPath, 0, len(dirty))
 	for path := range dirty {
-		select {
-		case out <- path:
-			delete(dirty, path)
-		case <-ctx.Done():
-			return
-		}
+		batch = append(batch, path)
+		delete(dirty, path)
+	}
+	select {
+	case out <- batch:
+	case <-ctx.Done():
 	}
 }

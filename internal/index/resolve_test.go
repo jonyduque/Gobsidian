@@ -110,3 +110,55 @@ func TestResolvePathCaseInsensitiveAndAmbiguous(t *testing.T) {
 		t.Error("ResolvePath de caminho inexistente deveria falhar")
 	}
 }
+
+func TestMoveNote(t *testing.T) {
+	root := t.TempDir()
+	writeFile(t, root, "Origem.md", "---\naliases: [Movel, Voador]\ntags: [teste, movido]\n---\n# Origem\n\nTexto qualquer")
+	writeFile(t, root, "Linkador.md", "# Linkador\n\n[[Origem]]\n[[Movel]]\n[[Voador]]\n")
+
+	v, _ := vault.New(root)
+	idx := index.New()
+	if err := idx.Build(context.Background(), v); err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+
+	// Verifica estado antes de mover
+	if _, ok := idx.Get("Origem.md"); !ok {
+		t.Fatal("Origem.md ausente")
+	}
+
+	// Move a nota no índice (simulando que foi renomeada para Destino.md)
+	idx.MoveNote("Origem.md", "Destino.md")
+
+	// Verifica se a nota agora existe no novo caminho e não no velho
+	if _, ok := idx.Get("Origem.md"); ok {
+		t.Error("Origem.md ainda existe após MoveNote")
+	}
+	note, ok := idx.Get("Destino.md")
+	if !ok {
+		t.Fatal("Destino.md ausente após MoveNote")
+	}
+	if note.Path != "Destino.md" {
+		t.Errorf("Path da nota = %q, quer %q", note.Path, "Destino.md")
+	}
+
+	// Verifica se tags foram atualizadas
+	notes, _ := idx.List(index.Query{Tags: []string{"teste"}})
+	if len(notes) == 0 || notes[0].Path != "Destino.md" {
+		t.Errorf("Tag 'teste' não resolve para Destino.md")
+	}
+
+	// Verifica se backlinks da nota Linkador foram atualizados
+	// Apenas os links por alias (Movel, Voador) continuarão resolvendo.
+	// O link por nome (Origem) deve quebrar, pois não há mais arquivo chamado Origem.md e não é alias.
+	linkador, _ := idx.Get("Linkador.md")
+	if linkador.Links[0].Resolved != "" {
+		t.Errorf("link 0 (Origem) = %q, quer vazio", linkador.Links[0].Resolved)
+	}
+	if linkador.Links[1].Resolved != "Destino.md" {
+		t.Errorf("link 1 (Movel) = %q, quer Destino.md", linkador.Links[1].Resolved)
+	}
+	if linkador.Links[2].Resolved != "Destino.md" {
+		t.Errorf("link 2 (Voador) = %q, quer Destino.md", linkador.Links[2].Resolved)
+	}
+}
