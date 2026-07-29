@@ -119,7 +119,6 @@ func runServe(parent context.Context, cfg config.Config) error {
 	})
 	srv := mcpsrv.New(ctx, svc, cfg, log)
 
-
 	var wg sync.WaitGroup
 	wg.Add(1)
 	go func() {
