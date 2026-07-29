@@ -2,6 +2,7 @@ package mcpsrv
 
 import (
 	"context"
+	"time"
 
 	"github.com/jonyd/gobsidian/internal/index"
 	"github.com/jonyd/gobsidian/internal/service"
@@ -9,6 +10,56 @@ import (
 )
 
 func (s *Server) registerReadToolsInternal() {
+	mcp.AddTool(s.mcp,
+		&mcp.Tool{
+			Name:        "vault_search",
+			Description: "Busca full-text com ranking, combinável com filtros de metadados.",
+		},
+		guard(s.log, "vault_search",
+			func(ctx context.Context, _ *mcp.CallToolRequest, in vaultSearchInput) (*mcp.CallToolResult, service.SearchResult, error) {
+				snippetChars := 240
+				if in.SnippetChars != nil {
+					snippetChars = *in.SnippetChars
+				}
+				limit := 20
+				if in.Limit != nil {
+					limit = *in.Limit
+				}
+				offset := 0
+				if in.Offset != nil {
+					offset = *in.Offset
+				}
+
+				var modAfter, modBefore *time.Time
+				if in.ModifiedAfter != "" {
+					if t, err := time.Parse(time.RFC3339, in.ModifiedAfter); err == nil {
+						modAfter = &t
+					}
+				}
+				if in.ModifiedBefore != "" {
+					if t, err := time.Parse(time.RFC3339, in.ModifiedBefore); err == nil {
+						modBefore = &t
+					}
+				}
+
+				out, err := s.svc.Search(ctx, service.SearchOptions{
+					Query:          in.Query,
+					Folder:         in.Folder,
+					Tags:           in.Tags,
+					Frontmatter:    in.Frontmatter,
+					ModifiedAfter:  modAfter,
+					ModifiedBefore: modBefore,
+					SnippetChars:   snippetChars,
+					Limit:          limit,
+					Offset:         offset,
+				})
+				if err != nil {
+					return nil, service.SearchResult{}, toolErr(err)
+				}
+				return nil, out, nil
+			}),
+	)
+
 	mcp.AddTool(s.mcp,
 		&mcp.Tool{
 			Name:        "note_read",
@@ -160,6 +211,18 @@ func (s *Server) registerReadToolsInternal() {
 				return nil, out, nil
 			}),
 	)
+}
+
+type vaultSearchInput struct {
+	Query          string                 `json:"query,omitempty" jsonschema:"Termos de busca. Aspas duplas delimitam frase exata."`
+	Folder         string                 `json:"folder,omitempty" jsonschema:"Restringe a uma pasta e suas subpastas."`
+	Tags           []string               `json:"tags,omitempty" jsonschema:"Notas que contenham TODAS as tags."`
+	Frontmatter    map[string]interface{} `json:"frontmatter,omitempty" jsonschema:"Pares chave/valor que devem casar no frontmatter."`
+	ModifiedAfter  string                 `json:"modified_after,omitempty"`
+	ModifiedBefore string                 `json:"modified_before,omitempty"`
+	SnippetChars   *int                   `json:"snippet_chars,omitempty"`
+	Limit          *int                   `json:"limit,omitempty"`
+	Offset         *int                   `json:"offset,omitempty"`
 }
 
 type noteReadInput struct {

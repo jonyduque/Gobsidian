@@ -35,7 +35,7 @@ func newTestServer(t *testing.T, root string) *mcpsrv.Server {
 	if err != nil {
 		t.Fatalf("vault.New: %v", err)
 	}
-	svc := service.New(v, nil, nil, service.Options{})
+	svc := service.New(v, nil, nil, nil, service.Options{})
 	cfg := config.Defaults()
 
 	return mcpsrv.New(context.Background(), svc, cfg, slog.New(slog.NewTextHandler(io.Discard, nil)))

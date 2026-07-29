@@ -13,6 +13,7 @@ import (
 	"github.com/jonyd/gobsidian/internal/index"
 	"github.com/jonyd/gobsidian/internal/lifecycle"
 	"github.com/jonyd/gobsidian/internal/mcpsrv"
+	"github.com/jonyd/gobsidian/internal/search"
 	"github.com/jonyd/gobsidian/internal/service"
 	"github.com/jonyd/gobsidian/internal/vault"
 	"github.com/jonyd/gobsidian/internal/watcher"
@@ -108,12 +109,20 @@ func runServe(parent context.Context, cfg config.Config) error {
 	}
 	indexMS := time.Since(buildStart).Milliseconds()
 
+	inv := search.NewInverted()
+	for _, p := range idx.NotePaths() {
+		if data, err := v.ReadAll(ctx, p); err == nil {
+			body, _ := vault.StripBOM(data)
+			inv.Add(string(p), search.Analyze(string(body)))
+		}
+	}
+
 	w, err := watcher.New(v, idx, time.Duration(cfg.DebounceMS)*time.Millisecond, log)
 	if err != nil {
 		return err
 	}
 
-	svc := service.New(v, idx, watcherStats{w: w}, service.Options{
+	svc := service.New(v, idx, inv, watcherStats{w: w}, service.Options{
 		ReadOnly:   cfg.ReadOnly,
 		MaxResults: cfg.MaxResults,
 	})

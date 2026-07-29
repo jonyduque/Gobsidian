@@ -35,7 +35,7 @@ func newTestService(t *testing.T, root string) *Service {
 
 	// I need to use the interface Index if we didn't add the methods to Index yet.
 	// We'll update the Index interface in service.go.
-	return New(v, ix, nil, Options{})
+	return New(v, ix, nil, nil, Options{})
 }
 
 func TestReadNoteSection(t *testing.T) {

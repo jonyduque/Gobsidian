@@ -96,7 +96,7 @@ func TestService_VaultStats(t *testing.T) {
 		root := t.TempDir()
 		v, _ := vault.New(root)
 		idx := index.New()
-		svcWithWatcher := New(v, idx, dummyWatchStats{}, Options{})
+		svcWithWatcher := New(v, idx, nil, dummyWatchStats{}, Options{})
 
 		res, err := svcWithWatcher.VaultStats(context.Background(), StatsRequest{
 			IncludeRuntime: true,
@@ -129,7 +129,7 @@ func TestService_VaultStats(t *testing.T) {
 		root := t.TempDir()
 		v, _ := vault.New(root)
 		idx := index.New()
-		svcWithWatcher := New(v, idx, dummyWatchStats{}, Options{})
+		svcWithWatcher := New(v, idx, nil, dummyWatchStats{}, Options{})
 
 		res, err := svcWithWatcher.VaultStats(context.Background(), StatsRequest{
 			IncludeRuntime: false,

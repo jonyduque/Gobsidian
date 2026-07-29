@@ -18,16 +18,18 @@ import (
 // Query e o filtro de note_list: pasta, tags, campos de frontmatter,
 // ordenacao e limite. Os criterios se combinam por E.
 type Query struct {
-	Folder      string
-	Glob        string
-	Tags        []string
-	TagMode     string // "all" ou "any"
-	Frontmatter map[string]any
-	Recursive   bool
-	Sort        string
-	Order       string
-	Limit       int
-	Offset      int
+	Folder         string
+	Glob           string
+	Tags           []string
+	TagMode        string // "all" ou "any"
+	Frontmatter    map[string]any
+	ModifiedAfter  *time.Time
+	ModifiedBefore *time.Time
+	Recursive      bool
+	Sort           string
+	Order          string
+	Limit          int
+	Offset         int
 }
 
 // TagCount e uma tag com o numero de notas que a usam.
@@ -337,6 +339,22 @@ func (ix *Index) List(q Query) ([]*Note, int) {
 			if matchesAll {
 				filtered = append(filtered, c)
 			}
+		}
+		candidates = filtered
+	}
+
+	// 5. ModifiedAfter & ModifiedBefore
+	if q.ModifiedAfter != nil || q.ModifiedBefore != nil {
+		var filtered []vault.CanonicalPath
+		for _, c := range candidates {
+			note := ix.notes[c]
+			if q.ModifiedAfter != nil && note.ModTime.Before(*q.ModifiedAfter) {
+				continue
+			}
+			if q.ModifiedBefore != nil && note.ModTime.After(*q.ModifiedBefore) {
+				continue
+			}
+			filtered = append(filtered, c)
 		}
 		candidates = filtered
 	}

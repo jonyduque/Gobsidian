@@ -14,6 +14,7 @@ import (
 	"github.com/jonyd/gobsidian/internal/config"
 	"github.com/jonyd/gobsidian/internal/index"
 	"github.com/jonyd/gobsidian/internal/mcpsrv"
+	"github.com/jonyd/gobsidian/internal/search"
 	"github.com/jonyd/gobsidian/internal/service"
 	"github.com/jonyd/gobsidian/internal/vault"
 	"github.com/jonyd/gobsidian/internal/watcher"
@@ -33,7 +34,15 @@ func newTestServerWithIndex(t *testing.T, root string) *mcpsrv.Server {
 		t.Fatalf("idx.Build: %v", err)
 	}
 
-	svc := service.New(v, idx, nil, service.Options{})
+	inv := search.NewInverted()
+	for _, p := range idx.NotePaths() {
+		if data, err := v.ReadAll(context.Background(), p); err == nil {
+			body, _ := vault.StripBOM(data)
+			inv.Add(string(p), search.Analyze(string(body)))
+		}
+	}
+
+	svc := service.New(v, idx, inv, nil, service.Options{})
 	cfg := config.Defaults()
 
 	return mcpsrv.New(context.Background(), svc, cfg, slog.New(slog.NewTextHandler(io.Discard, nil)))
@@ -64,7 +73,7 @@ func TestReadTools(t *testing.T) {
 		if err != nil {
 			t.Fatalf("ListTools: %v", err)
 		}
-		wantTools := []string{"note_read", "note_list", "note_metadata", "link_graph", "tag_list"}
+		wantTools := []string{"vault_search", "note_read", "note_list", "note_metadata", "link_graph", "tag_list"}
 		found := make(map[string]bool)
 		for _, tool := range tools.Tools {
 			found[tool.Name] = true
@@ -83,6 +92,11 @@ func TestReadTools(t *testing.T) {
 		wantErr bool
 		errCode string
 	}{
+		{
+			name: "vault_search valid",
+			tool: "vault_search",
+			args: map[string]interface{}{"query": "Text"},
+		},
 		{
 			name: "note_read valid",
 			tool: "note_read",
@@ -142,7 +156,6 @@ func TestReadTools(t *testing.T) {
 				if res.StructuredContent != nil {
 					t.Errorf("Expected nil StructuredContent with IsError, got %v", res.StructuredContent)
 				}
-				// Verify errCode is in the message
 				msg := ""
 				if len(res.Content) > 0 {
 					b, _ := json.Marshal(res.Content[0])
@@ -167,7 +180,6 @@ func TestReadTools(t *testing.T) {
 		})
 	}
 
-	// Server continues responding
 	t.Run("Server alive after error", func(t *testing.T) {
 		_, err := session.ListTools(ctx, nil)
 		if err != nil {
@@ -237,7 +249,6 @@ func TestResources(t *testing.T) {
 	}
 }
 
-// Dummy WatchStats for testing
 type dummyWatchStats struct{}
 
 func (d dummyWatchStats) Stats() service.WatchCounters {
@@ -259,8 +270,7 @@ func TestVaultStatsWithWatcher(t *testing.T) {
 	idx := index.New()
 	_ = idx.Build(context.Background(), v)
 
-	// Inject dummy watcher
-	svc := service.New(v, idx, dummyWatchStats{}, service.Options{})
+	svc := service.New(v, idx, nil, dummyWatchStats{}, service.Options{})
 	cfg := config.Defaults()
 	srv := mcpsrv.New(context.Background(), svc, cfg, slog.New(slog.NewTextHandler(io.Discard, nil)))
 
@@ -357,7 +367,7 @@ func TestVaultStatsReflectsWatcherUpdate(t *testing.T) {
 		_ = w.Run(runCtx)
 	}()
 
-	svc := service.New(v, idx, nil, service.Options{ReadOnly: true})
+	svc := service.New(v, idx, nil, nil, service.Options{ReadOnly: true})
 	cfg := config.Defaults()
 	srv := mcpsrv.New(context.Background(), svc, cfg, log)
 
