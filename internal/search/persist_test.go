@@ -3,13 +3,17 @@ package search_test
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/jonyd/gobsidian/internal/index"
 	"github.com/jonyd/gobsidian/internal/search"
+	"github.com/jonyd/gobsidian/internal/vault"
 )
 
 func TestSaveAndLoadInvertedCache(t *testing.T) {
@@ -148,28 +152,118 @@ func TestCacheOutsideVault(t *testing.T) {
 	}
 }
 
-func TestQ3PerformanceMeasurement(t *testing.T) {
-	cacheDir := t.TempDir()
-	vaultPath := t.TempDir()
-
+// geraCorpus cria N notas com caminhos DISTINTOS e conteúdo distinto.
+func geraCorpus(t *testing.T, n int) (*vault.Vault, *index.Index, *search.Inverted, string) {
+	t.Helper()
+	root := t.TempDir()
+	for i := 0; i < n; i++ {
+		dir := filepath.Join(root, fmt.Sprintf("pasta%02d", i%10))
+		if err := os.MkdirAll(dir, 0755); err != nil {
+			t.Fatal(err)
+		}
+		corpo := fmt.Sprintf("---\ntags: [t%d]\n---\n\n# Nota %d\n\nprescricao intercorrente termo%d civil direito processo\n", i%7, i, i)
+		if err := os.WriteFile(filepath.Join(dir, fmt.Sprintf("nota%04d.md", i)), []byte(corpo), 0644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	v, err := vault.New(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	idx := index.New()
+	if err := idx.Build(context.Background(), v); err != nil {
+		t.Fatal(err)
+	}
 	inv := search.NewInverted()
-	for i := 0; i < 100; i++ {
-		inv.Add(filepath.Join("folder", "note.md"), search.Analyze("termo exemplo de teste de performance para o indice invertido"))
+	for _, p := range idx.NotePaths() {
+		data, err := v.ReadAll(context.Background(), p)
+		if err != nil {
+			t.Fatalf("corpus ilegivel em %s: %v", p, err)
+		}
+		body, _ := vault.StripBOM(data)
+		inv.Add(string(p), search.Analyze(string(body)))
 	}
 
-	ctx := context.Background()
-	startSave := time.Now()
-	if err := search.SaveInvertedCache(ctx, cacheDir, vaultPath, inv); err != nil {
-		t.Fatalf("Save: %v", err)
+	if got := idx.NoteCount(); got != n {
+		t.Fatalf("corpus tem %d notas, quer %d", got, n)
 	}
-	saveDur := time.Since(startSave)
+	return v, idx, inv, root
+}
+
+func TestQ3PerformanceMeasurement(t *testing.T) {
+	const n = 500
+	v, idx, inv, _ := geraCorpus(t, n)
+	cacheDir := t.TempDir()
+	vaultPath := v.Root()
+	ctx := context.Background()
+
+	if err := search.SaveInvertedCache(ctx, cacheDir, vaultPath, inv); err != nil {
+		t.Fatalf("SaveInvertedCache: %v", err)
+	}
 
 	startLoad := time.Now()
-	_, header, err := search.LoadInvertedCache(ctx, cacheDir, vaultPath)
+	loadedInv, header, err := search.LoadInvertedCache(ctx, cacheDir, vaultPath)
 	if err != nil {
-		t.Fatalf("Load: %v", err)
+		t.Fatalf("LoadInvertedCache: %v", err)
 	}
 	loadDur := time.Since(startLoad)
 
-	t.Logf("Q3 Medição: 100 notas | Save: %v | Load: %v | Notes: %d", saveDur, loadDur, header.NoteCount)
+	if header.NoteCount != n {
+		t.Fatalf("header.NoteCount = %d, quer %d", header.NoteCount, n)
+	}
+	if loadedInv.DocCount() != n {
+		t.Fatalf("loadedInv.DocCount() = %d, quer %d", loadedInv.DocCount(), n)
+	}
+
+	startRebuild := time.Now()
+	rebuiltInv := search.NewInverted()
+	for _, p := range idx.NotePaths() {
+		data, err := v.ReadAll(ctx, p)
+		if err != nil {
+			t.Fatalf("ReadAll: %v", err)
+		}
+		body, _ := vault.StripBOM(data)
+		rebuiltInv.Add(string(p), search.Analyze(string(body)))
+	}
+	rebuildDur := time.Since(startRebuild)
+
+	if rebuiltInv.DocCount() != n {
+		t.Fatalf("rebuiltInv.DocCount() = %d, quer %d", rebuiltInv.DocCount(), n)
+	}
+
+	t.Logf("Q3 Medição em %d notas distintas:", n)
+	t.Logf("  (a) LoadInvertedCache (disco): %v", loadDur)
+	t.Logf("  (b) Reconstruir Invertido (metadados): %v", rebuildDur)
+}
+
+func TestRNF04SearchLatencyPercentile(t *testing.T) {
+	const corpusSize = 500
+	const numQueries = 200
+	_, idx, inv, _ := geraCorpus(t, corpusSize)
+
+	durations := make([]time.Duration, numQueries)
+	for i := 0; i < numQueries; i++ {
+		termo := fmt.Sprintf("termo%d", i%100)
+		tokens := search.Analyze(termo)
+		start := time.Now()
+		_ = search.CalculateBM25(tokens, inv, idx)
+		durations[i] = time.Since(start)
+	}
+
+	sort.Slice(durations, func(i, j int) bool {
+		return durations[i] < durations[j]
+	})
+
+	minDur := durations[0]
+	medianDur := durations[numQueries/2]
+	p95Dur := durations[int(float64(numQueries)*0.95)]
+
+	t.Logf("RNF-04 Medição de Latência de Busca (%d consultas em %d notas):", numQueries, corpusSize)
+	t.Logf("  Mínimo:  %v", minDur)
+	t.Logf("  Mediana: %v", medianDur)
+	t.Logf("  p95:     %v", p95Dur)
+
+	if p95Dur > 100*time.Millisecond {
+		t.Errorf("p95 %v excede o limite de RNF-04 (100ms)", p95Dur)
+	}
 }
