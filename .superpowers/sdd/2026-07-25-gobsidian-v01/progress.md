@@ -46,6 +46,7 @@ Task 37: complete (commits a59e814..98eec3e, per-reason drop counters, coalesced
 Task 38: complete (commits 48d2c2f..74a8b5c, reject debounce-ms below 1 instead of silently defaulting, review Approved)
 Task 39: complete (commits f9fb706..9174a4c, cover handle release, channel close, and dynamic subdirectory watch, review Approved)
 Task 40: complete (commits 0dd825e..3643f08, stop swallowing Add errors, use errors.Is, drop committed scratch, review Approved)
+Task 41: complete (commits 688cd08..d7efdd3, vault_stats reflects a note created while the server runs, review Approved)
 
 === M0, M1 e M2 (Tasks 1-32) COMPLETAS! ===
 
