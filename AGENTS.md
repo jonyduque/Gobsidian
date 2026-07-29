@@ -157,6 +157,27 @@ python -c "open('ARQUIVO.md',encoding='utf-8').read()" && echo "[OK] UTF-8 valid
 
 ---
 
+## 6.1 Skills de Go instaladas neste repositório, e quando cada uma serve
+
+Estão em `.claude/skills/` e são versionadas de propósito: uma skill que só existe na máquina de quem instalou não reduz o erro de mais ninguém. Não são leitura obrigatória — invoque a que corresponde ao que você está fazendo. O mapa abaixo é por **defeito que este projeto já cometeu**, não por assunto.
+
+| Antes de… | Invoque | Porque, aqui |
+|---|---|---|
+| Commitar qualquer coisa | `golang-lint` | As Tasks 33–42 fecharam com 22 achados de `golangci-lint` — 18 `errcheck` e 4 `revive` — e nenhum dos dez relatórios mencionava ter rodado o linter. **`go vet` não pega `errcheck` e o `verify.ps1` não roda `golangci-lint`.** |
+| Passar ou receber `ctx` | `golang-context` | `context.Background()` dentro de `internal/` já passou por revisão aqui, numa função que lê arquivo. |
+| Mexer em goroutine, canal, `atomic` ou mutex | `golang-concurrency` | Um `map` compartilhado entre a goroutine que escreve e a que lê é corrida mesmo que só cresça, e `atomic` no valor não protege a estrutura. |
+| Escrever ou revisar teste | `golang-testing` **e** `mutation-proof-discipline` | A skill de Go dá a forma; a deste projeto dá a prova. Teste que não pode falhar é o defeito mais caro daqui. |
+| Comparar, embrulhar ou engolir erro | `golang-error-handling` | `err == fsnotify.ErrEventOverflow` com comparação de string ao lado, e um comentário afirmando usar `errors.Is` sem usar. |
+| Valor zero, nil, `defer` em laço | `golang-safety` | Zero é offset válido, debounce válido e contagem válida — onde também puder significar "ausente", os dois precisam ser distinguíveis. |
+| Nomear pacote, tipo, construtor, teste | `golang-naming` | Sem `helpers.go`, `utils.go`, `common.go`. |
+| Navegar código que você não escreveu | `golang-gopls` | Encontra chamadores antes de mudar assinatura. Uma mudança de wiring já foi propagada para `serve` e esquecida em `doctor`. |
+
+`golang-how-to` é orquestradora: em dúvida sobre qual carregar, comece por ela.
+
+**Onde uma skill de Go conflitar com este arquivo ou com o `CLAUDE.md`, este projeto vence.** As skills descrevem Go idiomático em geral; as regras daqui vieram de defeitos concretos e algumas são deliberadamente mais estritas — a de `ctx`, por exemplo, proíbe o parâmetro decorativo que muito código Go aceita.
+
+**A skill `obsidian` não serve para o servidor.** Ela é sobre escrever *plugins* do Obsidian em TypeScript — Vault API, `processFrontMatter`, ESLint, submissão à comunidade. O gobsidian **lê** um cofre em Go e nunca roda dentro do Obsidian. A única parte deste repositório em que ela ajuda é `tools/parity-dumper/`, que é um plugin de verdade, usado para despejar o `metadataCache` e gerar a referência de paridade da Task 25.
+
 ## 7. Onde as coisas ficam
 
 | Caminho | O quê |
@@ -173,6 +194,16 @@ python -c "open('ARQUIVO.md',encoding='utf-8').read()" && echo "[OK] UTF-8 valid
 | `docs/WINDOWS.md` | OneDrive, MAX_PATH, casing, fsnotify |
 
 `CLAUDE.md` tem o histórico completo das armadilhas e o estado do projeto. Este arquivo é o subconjunto necessário para executar sem lê-lo inteiro.
+
+Utilize o MCP `gopls-workspace-mcp`. Ele conta com as seguintes ferramentas:
+  • go_diagnostics: Consulta erros de compilação, avisos e lints do projeto.
+  • go_file_context: Obtém contexto estendido do LSP para um arquivo Go.
+  • go_package_api: Inspeciona a API exportada e documentação de pacotes Go.
+  • go_rename_symbol: Renomeia símbolos de forma segura em todo o workspace.
+  • go_search: Busca por símbolos, funções, tipos e estruturas no código.
+  • go_symbol_references: Encontra todas as referências de um determinado símbolo.
+  • go_vulncheck: Executa verificação de vulnerabilidades conhecidas em dependências.
+  • go_workspace: Analisa e retorna informações de estrutura do workspace Go.
 
 ---
 

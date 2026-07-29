@@ -7,7 +7,11 @@ if ($LASTEXITCODE -ne 0 -or -not $ModulePath) {
     exit 1
 }
 
-$Rows = go list -f '{{.ImportPath}}|{{join .Imports ","}}' ./...
+# Alvos explicitos, nao "./...": plugins de skills despejam .go de exemplo na
+# raiz do modulo, e o `go list` inteiro falha por causa de imports que nao
+# resolvem — a verificacao entao NAO RODA e avisa, o que e um gate que deixou
+# de gatear. internal/ e cmd/ sao exatamente os pacotes que a regra cobre.
+$Rows = go list -f '{{.ImportPath}}|{{join .Imports ","}}' ./internal/... ./cmd/...
 if ($LASTEXITCODE -ne 0 -or -not $Rows) {
     Write-Warning "[!] 'go list ./...' falhou ou nao retornou pacotes; verificacao nao executada"
     exit 1

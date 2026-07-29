@@ -16,8 +16,3 @@ As quatro regras abaixo estão repetidas aqui **de propósito**, porque violá-l
 2. **Nunca rode `go mod tidy`.** Dependências fixadas sem importador seriam removidas, junto com o pin obrigatório do SDK de MCP.
 3. **Nunca escreva em stdout a partir de código alcançável de `serve`.** stdout pertence ao JSON-RPC; log vai para stderr via `log/slog`.
 4. **Se você foi despachado para uma tarefa numerada, leia o brief inteiro primeiro:** `.superpowers/sdd/2026-07-25-gobsidian-v01/task-<N>-brief.md`. Ele é autocontido. Se algo faltar nele, responda `BLOCKED` — não preencha a lacuna por conta própria.
-
-## Skills e workflows
-
-- `.claude/skills/` — skills do projeto. **Fonte única.** `.agents/` é espelho gerado, não versionado, e não deve ser editado.
-- `.claude/workflows/` — workflows.

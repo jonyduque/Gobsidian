@@ -67,27 +67,40 @@ function Invoke-Step {
     }
 }
 
-Invoke-Step "go build" { go build ./... }
+# Os alvos sao os NOSSOS pacotes, nao "./...". Plugins de skills despejam
+# assets na raiz do modulo — hoje agent/, com .go de exemplo cujos imports nao
+# resolvem — e "./..." varre isso junto: build, test, vet, gofmt e check_net
+# reprovavam as SETE etapas por causa de codigo que nao e deste projeto.
+#
+# Restringir nao afrouxa o gate: internal/ e cmd/ sao o modulo inteiro que nos
+# escrevemos, e o codigo que vazar para fora deles nao teria onde ser
+# importado. Se um dia a raiz voltar a ter .go nosso, acrescente-o aqui.
+$Alvos = @("./internal/...", "./cmd/...")
 
-Invoke-Step "go test -race" { go test -race ./... }
+# gofmt nao entende padrao de pacote, so caminho de diretorio.
+$DirsFmt = @("internal", "cmd", "scripts") | Where-Object { Test-Path $_ }
 
-Invoke-Step "go vet (windows)" { go vet ./... }
+Invoke-Step "go build" { go build @Alvos }
+
+Invoke-Step "go test -race" { go test -race @Alvos }
+
+Invoke-Step "go vet (windows)" { go vet @Alvos }
 
 if (-not $SkipCross) {
     Invoke-Step "go vet (linux)" {
         $env:GOOS = "linux"
-        try { go vet ./... } finally { Remove-Item Env:\GOOS -ErrorAction SilentlyContinue }
+        try { go vet @Alvos } finally { Remove-Item Env:\GOOS -ErrorAction SilentlyContinue }
     }
     Invoke-Step "go vet (darwin)" {
         $env:GOOS = "darwin"
-        try { go vet ./... } finally { Remove-Item Env:\GOOS -ErrorAction SilentlyContinue }
+        try { go vet @Alvos } finally { Remove-Item Env:\GOOS -ErrorAction SilentlyContinue }
     }
 }
 else {
     Write-Output "[i] vet cruzado pulado (-SkipCross)"
 }
 
-Invoke-Step "gofmt" { gofmt -l . } -FailIfOutput
+Invoke-Step "gofmt" { gofmt -l @DirsFmt } -FailIfOutput
 
 if (-not $SkipNet) {
     Invoke-Step "check_net (RNF-30)" { & (Join-Path $PSScriptRoot "check_net.ps1") }
