@@ -113,7 +113,7 @@ func runServe(parent context.Context, cfg config.Config) error {
 		return err
 	}
 
-	svc := service.New(v, idx, w, service.Options{
+	svc := service.New(v, idx, watcherStats{w: w}, service.Options{
 		ReadOnly:   cfg.ReadOnly,
 		MaxResults: cfg.MaxResults,
 	})
@@ -248,4 +248,22 @@ func (m *mirrorReader) Read(p []byte) (int, error) {
 		_ = m.dst.CloseWithError(err)
 	}
 	return n, err
+}
+
+type watcherStats struct{ w *watcher.Watcher }
+
+func (a watcherStats) Stats() service.WatchCounters {
+	c := a.w.Stats()
+	return service.WatchCounters{
+		Active:            c.Active,
+		EventsReceived:    c.EventsReceived,
+		EventsDropped:     c.EventsDropped,
+		DroppedByReason:   c.DroppedByReason,
+		EventsCoalesced:   c.EventsCoalesced,
+		EventsProcessed:   c.EventsProcessed,
+		EventsSkipped:     c.EventsSkipped,
+		Reconciliations:   c.Reconciliations,
+		ReconciledUpdated: c.ReconciledUpdated,
+		ReconciledRemoved: c.ReconciledRemoved,
+	}
 }

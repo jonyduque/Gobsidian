@@ -26,12 +26,19 @@ type Watcher struct {
 	idx       *index.Index
 	reconcile chan struct{}
 
-	// Contadores (Task 32)
-	received        atomic.Int64
-	dropped         atomic.Int64
-	processed       atomic.Int64
-	skipped         atomic.Int64
-	reconciliations atomic.Int64
+	// Contadores (Task 32 e Task 37)
+	active              atomic.Bool
+	received            atomic.Int64
+	droppedChmod        atomic.Int64
+	droppedOutsideVault atomic.Int64
+	droppedExcluded     atomic.Int64
+	droppedUnknownOp    atomic.Int64
+	coalesced           atomic.Int64
+	processed           atomic.Int64
+	skipped             atomic.Int64
+	reconciliations     atomic.Int64
+	reconciledUpdated   atomic.Int64
+	reconciledRemoved   atomic.Int64
 }
 
 // New cria um novo Watcher observando a raiz do cofre.
@@ -41,7 +48,7 @@ func New(v *vault.Vault, idx *index.Index, debounce time.Duration, log *slog.Log
 		return nil, fmt.Errorf("criando fsnotify.Watcher: %w", err)
 	}
 
-	root := v.Root() // root can be fetched directly or via getter.
+	root := v.Root()
 
 	if err := fsWatcher.Add(root); err != nil {
 		fsWatcher.Close()
@@ -51,10 +58,9 @@ func New(v *vault.Vault, idx *index.Index, debounce time.Duration, log *slog.Log
 	// fsnotify v1.10.1 no Windows não é recursivo. Adiciona subdiretorios dinamicamente.
 	filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
 		if err != nil {
-			return nil // Ignora erro em subpasta para nao falhar tudo
+			return nil
 		}
 		if d.IsDir() {
-			// Se for excluido, pula (por exemplo .git)
 			canon, errCanon := vault.Canonicalize(root, path)
 			if errCanon == nil {
 				if vault.Classify(canon) == vault.ClassExcluded {
@@ -82,16 +88,19 @@ func New(v *vault.Vault, idx *index.Index, debounce time.Duration, log *slog.Log
 // Run entra em loop processando eventos do fsnotify ate o contexto ser cancelado
 // ou o watcher ser fechado.
 func (w *Watcher) Run(ctx context.Context) error {
+	w.active.Store(true)
+	defer w.active.Store(false)
+
 	defer close(w.events)
 	// Lança o debouncer lendo de w.events e escrevendo em w.debounced
 	go func() {
-		Debounce(ctx, w.events, w.debounced, w.debounce, w.log)
+		Debounce(ctx, w.events, w.debounced, w.debounce, w.log, &w.coalesced)
 		close(w.debounced)
 	}()
 
 	// Lança o aplicador lendo de w.debounced e escrevendo no índice
 	go func() {
-		Apply(ctx, w.debounced, w.reconcile, w.idx, w.v, w.log, &w.processed, &w.skipped)
+		Apply(ctx, w.debounced, w.reconcile, w.idx, w.v, w.log, &w.processed, &w.skipped, &w.reconciledUpdated, &w.reconciledRemoved)
 	}()
 
 	for {
@@ -102,9 +111,6 @@ func (w *Watcher) Run(ctx context.Context) error {
 			if !ok {
 				return nil
 			}
-			// fsnotify 1.10.1 envia ErrEventOverflow no canal de erros
-			// (embora a documentação oficial mencione Has(fsnotify.Overflow) para Windows,
-			// macOS reporta overflow the event/err layer dependendo da versao. Usamos Is).
 			if err == fsnotify.ErrEventOverflow || (err != nil && err.Error() == fsnotify.ErrEventOverflow.Error()) {
 				w.reconciliations.Add(1)
 				select {
@@ -133,9 +139,18 @@ func (w *Watcher) Run(ctx context.Context) error {
 				}
 			}
 
-			evt, ok := filter(e, w.root, w.log)
+			evt, ok, reason := filter(e, w.root, w.log)
 			if !ok {
-				w.dropped.Add(1)
+				switch reason {
+				case DropChmod:
+					w.droppedChmod.Add(1)
+				case DropOutsideVault:
+					w.droppedOutsideVault.Add(1)
+				case DropExcluded:
+					w.droppedExcluded.Add(1)
+				case DropUnknownOp:
+					w.droppedUnknownOp.Add(1)
+				}
 				continue
 			}
 

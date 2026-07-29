@@ -1,8 +1,8 @@
 package watcher
 
 import (
+	"io"
 	"log/slog"
-	"os"
 	"testing"
 
 	"github.com/fsnotify/fsnotify"
@@ -10,15 +10,16 @@ import (
 )
 
 func TestFilter(t *testing.T) {
-	log := slog.New(slog.NewTextHandler(os.Stderr, nil))
+	log := slog.New(slog.NewTextHandler(io.Discard, nil))
 	root := "C:\\test\\vault"
 
 	tests := []struct {
-		name     string
-		event    fsnotify.Event
-		wantEmit bool
-		wantOp   Op
-		wantPath vault.CanonicalPath
+		name       string
+		event      fsnotify.Event
+		wantEmit   bool
+		wantOp     Op
+		wantPath   vault.CanonicalPath
+		wantReason DropReason
 	}{
 		{
 			name: "ignora Chmod",
@@ -26,7 +27,17 @@ func TestFilter(t *testing.T) {
 				Name: "C:\\test\\vault\\nota.md",
 				Op:   fsnotify.Chmod,
 			},
-			wantEmit: false,
+			wantEmit:   false,
+			wantReason: DropChmod,
+		},
+		{
+			name: "ignora fora do vault",
+			event: fsnotify.Event{
+				Name: "D:\\outra_pasta\\nota.md",
+				Op:   fsnotify.Write,
+			},
+			wantEmit:   false,
+			wantReason: DropOutsideVault,
 		},
 		{
 			name: "ignora pasta excluida",
@@ -34,23 +45,17 @@ func TestFilter(t *testing.T) {
 				Name: "C:\\test\\vault\\.git\\config",
 				Op:   fsnotify.Write,
 			},
-			wantEmit: false,
+			wantEmit:   false,
+			wantReason: DropExcluded,
 		},
 		{
-			name: "ignora ruido desktop.ini",
+			name: "ignora op desconhecida",
 			event: fsnotify.Event{
-				Name: "C:\\test\\vault\\desktop.ini",
-				Op:   fsnotify.Create,
+				Name: "C:\\test\\vault\\nota.md",
+				Op:   0,
 			},
-			wantEmit: false,
-		},
-		{
-			name: "ignora extensao desconhecida",
-			event: fsnotify.Event{
-				Name: "C:\\test\\vault\\arquivo.txt",
-				Op:   fsnotify.Create,
-			},
-			wantEmit: false,
+			wantEmit:   false,
+			wantReason: DropUnknownOp,
 		},
 		{
 			name: "emite para nota md",
@@ -76,11 +81,15 @@ func TestFilter(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, emitted := filter(tt.event, root, log)
+			got, emitted, reason := filter(tt.event, root, log)
 			if emitted != tt.wantEmit {
 				t.Fatalf("emitted = %v, want %v", emitted, tt.wantEmit)
 			}
-			if emitted {
+			if !emitted {
+				if reason != tt.wantReason {
+					t.Errorf("reason = %q, want %q", reason, tt.wantReason)
+				}
+			} else {
 				if got.Op != tt.wantOp {
 					t.Errorf("Op = %v, want %v", got.Op, tt.wantOp)
 				}

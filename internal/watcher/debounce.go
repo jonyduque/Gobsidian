@@ -3,6 +3,7 @@ package watcher
 import (
 	"context"
 	"log/slog"
+	"sync/atomic"
 	"time"
 
 	"github.com/jonyd/gobsidian/internal/vault"
@@ -10,7 +11,7 @@ import (
 
 // Debounce reads events from 'in' and emits coalesced paths to 'out'.
 // It uses a single ticker and a dirty set to coalesce multiple events on the same path.
-func Debounce(ctx context.Context, in <-chan Event, out chan<- []vault.CanonicalPath, window time.Duration, log *slog.Logger) {
+func Debounce(ctx context.Context, in <-chan Event, out chan<- []vault.CanonicalPath, window time.Duration, log *slog.Logger, coalesced *atomic.Int64) {
 	dirty := make(map[vault.CanonicalPath]struct{})
 
 	if window <= 0 {
@@ -32,6 +33,11 @@ func Debounce(ctx context.Context, in <-chan Event, out chan<- []vault.Canonical
 				// input channel closed
 				flush(ctx, dirty, out)
 				return
+			}
+			if _, exists := dirty[evt.Path]; exists {
+				if coalesced != nil {
+					coalesced.Add(1)
+				}
 			}
 			dirty[evt.Path] = struct{}{}
 		case <-ticker.C:

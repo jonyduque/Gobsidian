@@ -242,6 +242,7 @@ func (d dummyWatchStats) Stats() service.WatchCounters {
 		Active:          true,
 		EventsReceived:  10,
 		EventsDropped:   2,
+		DroppedByReason: map[string]int64{"chmod": 0, "outside_vault": 0, "excluded": 2, "unknown_op": 0},
 		EventsProcessed: 8,
 		EventsSkipped:   1,
 		Reconciliations: 0,

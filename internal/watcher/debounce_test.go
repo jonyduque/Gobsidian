@@ -24,7 +24,7 @@ func TestDebounce_Coalescence(t *testing.T) {
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		Debounce(ctx, in, out, 50*time.Millisecond, log)
+		Debounce(ctx, in, out, 50*time.Millisecond, log, nil)
 	}()
 
 	// 10 events on same path
@@ -83,7 +83,7 @@ func TestDebounce_NoStarvation(t *testing.T) {
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		Debounce(ctx, in, out, 10*time.Millisecond, log)
+		Debounce(ctx, in, out, 10*time.Millisecond, log, nil)
 	}()
 
 	// Write continuously for 50ms, longer than the 10ms debounce tick

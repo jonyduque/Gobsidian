@@ -62,7 +62,7 @@ func TestApply(t *testing.T) {
 
 	reconcile := make(chan struct{})
 	var p, s atomic.Int64
-	watcher.Apply(ctx, in, reconcile, idx, v, log, &p, &s)
+	watcher.Apply(ctx, in, reconcile, idx, v, log, &p, &s, nil, nil)
 	processed, skipped := p.Load(), s.Load()
 
 	if processed != 3 {

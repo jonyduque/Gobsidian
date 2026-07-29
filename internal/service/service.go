@@ -25,12 +25,16 @@ type Index interface {
 
 // WatchCounters reporta a saude e os contadores do watcher em tempo de execucao.
 type WatchCounters struct {
-	Active          bool  `json:"active"`
-	EventsReceived  int64 `json:"events_received"`
-	EventsDropped   int64 `json:"events_dropped"`
-	EventsProcessed int64 `json:"events_processed"`
-	EventsSkipped   int64 `json:"events_skipped"`
-	Reconciliations int64 `json:"reconciliations"`
+	Active            bool             `json:"active"`
+	EventsReceived    int64            `json:"events_received"`
+	EventsDropped     int64            `json:"events_dropped"`
+	DroppedByReason   map[string]int64 `json:"events_dropped_by_reason"`
+	EventsCoalesced   int64            `json:"events_coalesced"`
+	EventsProcessed   int64            `json:"events_processed"`
+	EventsSkipped     int64            `json:"events_skipped"`
+	Reconciliations   int64            `json:"reconciliations"`
+	ReconciledUpdated int64            `json:"reconciled_updated"`
+	ReconciledRemoved int64            `json:"reconciled_removed"`
 }
 
 // WatchStats representa o subsistema do watcher, capaz de reportar seus contadores.

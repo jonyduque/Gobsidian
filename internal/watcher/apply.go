@@ -15,13 +15,19 @@ import (
 // Uma reescrita dentro do mesmo tique de mtime, preservando o tamanho, passa despercebida.
 // Isso é aceitável porque há dois anteparos: a reconciliação por overflow (Task 30)
 // e a reindexação no boot.
-func Apply(ctx context.Context, in <-chan []vault.CanonicalPath, reconcile <-chan struct{}, idx *index.Index, v *vault.Vault, log *slog.Logger, processed, skipped *atomic.Int64) {
+func Apply(ctx context.Context, in <-chan []vault.CanonicalPath, reconcile <-chan struct{}, idx *index.Index, v *vault.Vault, log *slog.Logger, processed, skipped, reconciledUpdated, reconciledRemoved *atomic.Int64) {
 	for {
 		select {
 		case <-ctx.Done():
 			return
 		case <-reconcile:
-			_, _, _ = Reconcile(ctx, v, idx, log)
+			up, rem, _ := Reconcile(ctx, v, idx, log)
+			if reconciledUpdated != nil {
+				reconciledUpdated.Add(int64(up))
+			}
+			if reconciledRemoved != nil {
+				reconciledRemoved.Add(int64(rem))
+			}
 		case batch, ok := <-in:
 			if !ok {
 				return

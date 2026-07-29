@@ -97,7 +97,7 @@ func TestApply_ReconcileSignal(t *testing.T) {
 	defer cancel()
 
 	log := slog.New(slog.NewTextHandler(io.Discard, nil))
-	go Apply(ctx, in, reconcile, idx, v, log, nil, nil)
+	go Apply(ctx, in, reconcile, idx, v, log, nil, nil, nil, nil)
 
 	if err := os.WriteFile(alvo, []byte("depois, bem maior"), 0644); err != nil {
 		t.Fatal(err)

@@ -23,24 +23,33 @@ type Event struct {
 	Op   Op
 }
 
+// DropReason e fechado: quatro valores, e nenhum outro entra sem mudar o plano.
+type DropReason string
+
+const (
+	DropChmod        DropReason = "chmod"
+	DropOutsideVault DropReason = "outside_vault"
+	DropExcluded     DropReason = "excluded"
+	DropUnknownOp    DropReason = "unknown_op"
+)
+
 // filter verifica se o evento do fsnotify e relevante.
-// Retorna um evento de dominio e um booleano indicando se deve ser emitido.
-// Eventos de Chmod e de caminhos irrelevantes sao descartados.
-func filter(e fsnotify.Event, root string, log *slog.Logger) (Event, bool) {
+// Retorna um evento de dominio, um booleano indicando se deve ser emitido, e o motivo do descarte caso contrario.
+func filter(e fsnotify.Event, root string, log *slog.Logger) (Event, bool, DropReason) {
 	if e.Op&fsnotify.Chmod == fsnotify.Chmod {
 		// Ignora mudanca de permissao que e muito comum e irrelevante para conteudo.
-		return Event{}, false
+		return Event{}, false, DropChmod
 	}
 
 	canon, err := vault.Canonicalize(root, e.Name)
 	if err != nil {
 		log.Warn("Evento sobre caminho invalido", "path", e.Name, "err", err)
-		return Event{}, false
+		return Event{}, false, DropOutsideVault
 	}
 
 	class := vault.Classify(canon)
 	if class == vault.ClassExcluded {
-		return Event{}, false
+		return Event{}, false, DropExcluded
 	}
 
 	var op Op
@@ -55,11 +64,11 @@ func filter(e fsnotify.Event, root string, log *slog.Logger) (Event, bool) {
 		op = OpRename
 	default:
 		// Não deveria ocorrer pois já filtramos Chmod, mas descarta.
-		return Event{}, false
+		return Event{}, false, DropUnknownOp
 	}
 
 	return Event{
 		Path: canon,
 		Op:   op,
-	}, true
+	}, true, ""
 }
