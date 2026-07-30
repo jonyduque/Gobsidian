@@ -79,6 +79,7 @@ Task 57: complete (commits 604e759..0b1460b, patch and append by heading, preser
 - Task 59: Write Tools (`note_create`, `note_append`, `note_patch`) | base 38f6032 | review 38f6032..eef8ff0 | review Approved; 0 Important doc-only fechados | commit eef8ff0 ("feat(mcpsrv): write tools with dry_run and expected_hash")
 - Task 60: --read-only verificado no ListTools | base 8f0741a | review 8f0741a..71f25d1 | review Approved; 0 Important doc-only fechados | commit 71f25d1 ("feat(mcpsrv): write tools absent from ListTools under read-only")
 - Task 61: A lacuna do RNF-04 — busca por frase | base 940a8d9 | review 940a8d9..e907aa5 | review Approved; 0 Important doc-only fechados | commit e907aa5 ("perf(search): bring exact-phrase p95 within RNF-04")
+- Task 62: Fechamento do M4 | base 34134eb | review 34134eb..3f3086a | review Approved; 0 Important doc-only fechados | commit 3f3086a ("docs: close M4 with the RNF-11 gate output")
 
 === REVISAO DO M2.1 (Tasks 33-42), 2026-07-29, pelo modelo principal ===
 Nove provas de mutacao rodadas com scripts/mutate.ps1, TODAS saindo 0 (o teste
