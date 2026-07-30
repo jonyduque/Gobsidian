@@ -2,8 +2,10 @@ package service_test
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"testing"
 	"time"
@@ -335,5 +337,113 @@ func TestVaultSearchOffsetOutOfBounds(t *testing.T) {
 	}
 	if len(res.Results) != 0 || res.Total != 1 {
 		t.Fatalf("Offset out of bounds failed: res = %+v", res)
+	}
+}
+
+// geraCorpusBusca cria n notas distintas. Um termo aparece em TODAS
+// ("prescricao"), um em um decimo delas, e um e unico por nota. Consulta
+// seletiva demais nao mede busca: com uma posting so, o BM25 devolve antes de
+// o relogio andar, e foi o que produziu "Minimo: 0s, Mediana: 0s" na primeira
+// medicao deste RNF.
+func geraCorpusBusca(n int) map[string]string {
+	files := make(map[string]string, n)
+	for i := 0; i < n; i++ {
+		rel := fmt.Sprintf("pasta%02d/nota%04d.md", i%10, i)
+		files[rel] = fmt.Sprintf(
+			"---\ntags: [t%d]\n---\n\n# Nota %d\n\n"+
+				"A prescricao intercorrente corre no processo civil. "+
+				"%s Este paragrafo existe para o trecho ter de onde ser recortado, "+
+				"porque gerar trecho le do disco e e a parte cara da consulta. "+
+				"termo%04d encerra a nota.\n",
+			i%7, i, map[bool]string{true: "usucapiao extraordinaria tambem.", false: ""}[i%10 == 0], i)
+	}
+	return files
+}
+
+// TestRNF04VaultSearchLatencyP95 mede o RNF-04 pelo caminho que o RNF nomeia:
+// service.Search, com geracao de trecho ligada e filtros no meio. A medicao
+// anterior chamava search.CalculateBM25 direto, deixando de fora o parsing da
+// consulta, os filtros, limit/offset e — o que mais custa — a leitura de disco
+// de cada trecho. Ela reportou 0,58 ms; o numero real e duas ordens de
+// grandeza maior.
+//
+// A medicao e POR FORMATO DE CONSULTA, nao um p95 unico sobre a mistura. A
+// latencia da tool escala com `limit`, porque gerar trecho le do disco uma vez
+// por resultado: um p95 sobre formatos misturados vira o percentil do formato
+// mais caro presente na mistura, e muda de valor quando a proporcao muda.
+// Medir por formato diz onde o orcamento estoura, e estoura.
+func TestRNF04VaultSearchLatencyP95(t *testing.T) {
+	const corpusSize = 500
+	const porFormato = 30
+
+	svc, _, idx, _ := createSearchService(t, geraCorpusBusca(corpusSize))
+	if got := idx.NoteCount(); got != corpusSize {
+		t.Fatalf("corpus tem %d notas, quer %d", got, corpusSize)
+	}
+
+	formatos := []struct {
+		nome string
+		opts service.SearchOptions
+		// teto e o limite que ESTE teste faz valer, e alvo e o do RNF-04.
+		// Onde os dois diferem, o alvo NAO esta atingido e a diferenca esta
+		// registrada aqui e no OPERACAO.md — nao escondida com t.Skip nem
+		// afrouxada para os outros formatos. O teto guarda contra REGRESSAO
+		// enquanto a lacuna espera tarefa.
+		teto time.Duration
+		nota string
+	}{
+		{"termo amplo, limit default", service.SearchOptions{Query: "prescricao"}, 100 * time.Millisecond, ""},
+		{"dois termos", service.SearchOptions{Query: "prescricao intercorrente"}, 100 * time.Millisecond, ""},
+		{"termo seletivo", service.SearchOptions{Query: "usucapiao"}, 100 * time.Millisecond, ""},
+		{"filtro de pasta", service.SearchOptions{Query: "prescricao", Folder: "pasta03"}, 100 * time.Millisecond, ""},
+		{"filtro de tag", service.SearchOptions{Query: "prescricao", Tags: []string{"t2"}}, 100 * time.Millisecond, ""},
+		// FORA DO ALVO. Medido em 2026-07-29: p95 ~181 ms, 1,8x os 100 ms do
+		// RNF-04. E o unico formato que estoura. A busca por frase percorre as
+		// posicoes da forma crua em todas as postings do termo mais raro; o
+		// caminho de termo solto nao faz isso. Teto de 250 ms guarda contra
+		// piorar enquanto a lacuna espera tarefa.
+		{"frase exata (FORA DO ALVO)", service.SearchOptions{Query: `"prescricao intercorrente"`}, 250 * time.Millisecond, "RNF-04 nao atingido: alvo 100 ms"},
+		{"trecho maximo", service.SearchOptions{Query: "processo civil", SnippetChars: 1000}, 100 * time.Millisecond, ""},
+		{"limit maximo do schema", service.SearchOptions{Query: "prescricao", Limit: 200}, 100 * time.Millisecond, ""},
+	}
+
+	t.Logf("RNF-04 por service.Search — %d notas, %d consultas por formato", corpusSize, porFormato)
+	for _, f := range formatos {
+		duracoes := make([]time.Duration, 0, porFormato)
+		comTrecho := 0
+		for i := 0; i < porFormato; i++ {
+			start := time.Now()
+			res, err := svc.Search(context.Background(), f.opts)
+			duracoes = append(duracoes, time.Since(start))
+			if err != nil {
+				t.Fatalf("%s: %v", f.nome, err)
+			}
+			// Consulta que nao devolve nada nao mede busca. Sem esta guarda, a
+			// medicao anterior media um dicionario dando miss.
+			if len(res.Results) == 0 {
+				t.Fatalf("%s devolveu zero resultados; a medicao nao mediria nada", f.nome)
+			}
+			if res.Results[0].Snippet != "" {
+				comTrecho++
+			}
+		}
+		if comTrecho == 0 {
+			t.Errorf("%s: nenhum resultado trouxe trecho; a leitura de disco ficou fora da medicao", f.nome)
+		}
+
+		sort.Slice(duracoes, func(i, j int) bool { return duracoes[i] < duracoes[j] })
+		p95 := duracoes[int(float64(len(duracoes))*0.95)]
+		t.Logf("  %-30s mediana %-12v p95 %-12v teto %-8v %s",
+			f.nome, duracoes[len(duracoes)/2], p95, f.teto, f.nota)
+
+		// Sob -race o numero nao e comparavel com o teto: o detector multiplica
+		// a latencia. A medicao fica no log dos dois modos; o teto so e cobrado
+		// onde ele significa alguma coisa.
+		if raceEnabled {
+			continue
+		}
+		if p95 > f.teto {
+			t.Errorf("%s: p95 = %v, excede o teto de %v deste teste", f.nome, p95, f.teto)
+		}
 	}
 }

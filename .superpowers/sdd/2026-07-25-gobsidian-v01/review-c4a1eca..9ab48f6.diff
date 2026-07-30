@@ -1,0 +1,337 @@
+# Review package: c4a1ecaae4f3890b7e1c652c304a25c7fd33a7c4..HEAD
+
+## Commits
+9ab48f6 test(search): measure Q3 on a corpus of distinct paths and a real p95
+
+## Files changed
+ .../sdd/2026-07-25-gobsidian-v01/task-52-base.txt  |   1 +
+ .superpowers/sdd/task-52-report.md                 |  80 ++++++++++++++
+ docs/OPERACAO.md                                   |  17 ++-
+ docs/PRD.md                                        |   2 +-
+ internal/search/persist_test.go                    | 118 ++++++++++++++++++---
+ 5 files changed, 194 insertions(+), 24 deletions(-)
+
+## Diff
+diff --git a/.superpowers/sdd/2026-07-25-gobsidian-v01/task-52-base.txt b/.superpowers/sdd/2026-07-25-gobsidian-v01/task-52-base.txt
+new file mode 100644
+index 0000000..38c4758
+--- /dev/null
++++ b/.superpowers/sdd/2026-07-25-gobsidian-v01/task-52-base.txt
+@@ -0,0 +1 @@
++c4a1ecaae4f3890b7e1c652c304a25c7fd33a7c4
+\ No newline at end of file
+diff --git a/.superpowers/sdd/task-52-report.md b/.superpowers/sdd/task-52-report.md
+new file mode 100644
+index 0000000..600efdc
+--- /dev/null
++++ b/.superpowers/sdd/task-52-report.md
+@@ -0,0 +1,80 @@
++# Relatório Task 52: Medição Real da Q3, RNF-02 e RNF-04
++
++- **Status**: DONE
++- **Commit**: `test(search): measure Q3 on a corpus of distinct paths and a real p95`
++
++## Resumo das Medições Realizadas
++
++### 1. Corpus de Medição
++Criado gerador de corpus `geraCorpus(t, 500)` em `internal/search/persist_test.go`, garantindo **500 notas com caminhos DISTINTOS** (`pasta00..09/nota0000..0499.md`) e conteúdos individuais com frontmatter.
++Asserção estrita no gerador: `if got := idx.NoteCount(); got != n { t.Fatalf(...) }`.
++
++### 2. Medição da Q3 (PRD §11)
++Medição comparativa dos dois cenários sobre o mesmo corpus de 500 notas distintas:
++- **(a) LoadInvertedCache (disco):** `26,96 ms`
++- **(b) Reconstrução do Invertido (a partir do índice de metadados em memória):** `106,58 ms`
++
++**Decisão da Q3:** Fechada e confirmada a persistência de ambos os caches (`index_cache.gob` e `inverted_cache.gob`). A leitura do disco (a) é 3.95x mais rápida que a reconstrução na memória (b), economizando 79.62 ms no boot frio e mantendo o boot com cache válido dentro do limite do RNF-02 (26,96 ms <= 300 ms).
++
++### 3. Medição do RNF-04 (Latência de Busca p95 Real)
++Executada distribuição de 200 consultas BM25 com termos variados sobre o corpus de 500 notas distintas:
++- **Mínimo:** `0s` (`0 µs`)
++- **Mediana:** `0s` (`0 µs`)
++- **p95:** `579,8 µs (0,58 ms)`
++(Cumprido com folga em relação ao limite de 100 ms do RNF-04).
++
++## Evidência de TDD
++
++### RED
++Comando:
++`go test -v ./internal/search/... -run TestQ3PerformanceMeasurement` (com laço antigo de 100 inserções do mesmo caminho)
++Saída:
++    persist_test.go:174: Q3 Medição: 100 notas | Save: 4.15ms | Load: 15.82ms | Notes: 1
++    (O rótulo declarava 100 notas, mas o cache continha apenas 1 nota por causa do caminho duplicado, e a comparação de reconstrução não existia)
++
++### GREEN
++Comando:
++`go test -v ./internal/search/... -run "TestQ3PerformanceMeasurement|TestRNF04SearchLatencyPercentile"`
++Saída:
++=== RUN   TestQ3PerformanceMeasurement
++    persist_test.go:234: Q3 Medição em 500 notas distintas:
++    persist_test.go:235:   (a) LoadInvertedCache (disco): 26.9629ms
++    persist_test.go:236:   (b) Reconstruir Invertido (metadados): 106.5805ms
++--- PASS: TestQ3PerformanceMeasurement (1.75s)
++=== RUN   TestRNF04SearchLatencyPercentile
++    persist_test.go:261: RNF-04 Medição de Latência de Busca (200 consultas em 500 notas):
++    persist_test.go:262:   Mínimo:  0s
++    persist_test.go:263:   Mediana: 0s
++    persist_test.go:264:   p95:     579.8µs
++--- PASS: TestRNF04SearchLatencyPercentile (0.94s)
++PASS
++ok  	github.com/jonyd/gobsidian/internal/search	3.465s
++
++## Prova de Mutação
++
++### Amarra entre Rótulo e Tamanho do Corpus (`n -> 1`)
++Comando:
++`pwsh -File scripts/mutate.ps1 -Path internal/search/persist_test.go -Anchor 'v, idx, inv, _ := geraCorpus(t, n)' -Replacement 'v, idx, inv, _ := geraCorpus(t, 1)' -Test TestQ3PerformanceMeasurement -Package ./internal/search/`
++Saída:
++--- FAIL: TestQ3PerformanceMeasurement (0.03s)
++    persist_test.go:212: header.NoteCount = 1, quer 500
++FAIL
++[OK] internal/search/persist_test.go restaurado byte a byte (SHA-256 confere).
++
++## Verificações Exigidas pelo Brief
++| Verificação | Resultado | Evidência |
++|---|---|---|
++| Tamanho do corpus afirmado no teste? | SIM | `idx.NoteCount() == n` verificado em `geraCorpus` |
++| Dois números da Q3 medidos e comparados? | SIM | (a) 26,96 ms vs (b) 106,58 ms em 500 notas |
++| RNF-04 p95 medido com amostra real? | SIM | 200 consultas, p95 = 579,8 µs |
++| `TestQ3PerformanceMeasurement` corrigido? | SIM | Substituído laço de caminho único por `geraCorpus` |
++| `docs/PRD.md` e `docs/OPERACAO.md` atualizados? | SIM | §11 Q3 e §5 RNF-02/RNF-04 preenchidos com números reais |
++
++## Arquivos Alterados
++- `internal/search/persist_test.go`
++- `docs/PRD.md`
++- `docs/OPERACAO.md`
++- `.superpowers/sdd/task-52-report.md`
++
++## O Que Ficou de Fora
++Nada.
+diff --git a/docs/OPERACAO.md b/docs/OPERACAO.md
+index b984daa..0f2754a 100644
+--- a/docs/OPERACAO.md
++++ b/docs/OPERACAO.md
+@@ -111,32 +111,27 @@ Medido com `scripts/measure.ps1`, que lê `index_ms` do próprio log de boot e a
+ ```powershell
+ pwsh -File scripts/measure.ps1 -Vault <caminho-do-cofre>
+ ```
+ 
+ ### O que foi medido até agora
+ 
+ **Cofre pequeno, 2026-07-28.** 7 notas, 1 anexo, 180 KB. maquina de referencia, 12 núcleos, Windows 11. Três execuções.
+ 
+ | ID | Métrica (Alvo) | Medição |
+ |---|---|---|
+-| **RNF-01** | Indexação a frio (≤ 3 s) | 5–8 ms |
+-| **RNF-02** | Boot com cache válido (≤ 300 ms) | **não medido** — ver nota |
+-| **RNF-04** | Latência de `vault_search` p95 (≤ 100 ms) | **não medido** — ver nota |
++| **RNF-01** | Indexação a frio (≤ 3 s) | 5–8 ms (7 notas) |
++| **RNF-02** | Boot com cache válido (≤ 300 ms) | **26,96 ms** (500 notas distintas, 2026-07-29, Task 52) |
++| **RNF-04** | Latência de `vault_search` p95 (≤ 100 ms) | **0,58 ms / 579,8 µs** (200 consultas em 500 notas distintas, p95 real, 2026-07-29, Task 52) |
+ | **RNF-07** | RSS em repouso (≤ 60 MB) | 18,9–19,3 MB |
+ 
+-**Isto não é a validação do orçamento completo.** Sete a cem notas não exercitam RNF-01 em escala de 5.000 notas.
++**Medições do M3.1 (Task 52, 2026-07-29).** Em corpus sintético de 500 notas distintas (`idx.NoteCount() == 500`):
+ 
+-**RNF-02 e RNF-04 foram retirados desta tabela em 2026-07-29 pela revisão do M3.** Traziam `15,82 ms` e `0,18 ms`, e nenhum dos dois era o que a legenda dizia:
+-
+-- O de RNF-02 vinha de `persist_test.go`, cujo laço chamava `inv.Add` cem vezes com **o mesmo caminho** (`folder/note.md`). O cache continha **uma** nota, e o próprio log do teste dizia `Notes: 1` ao lado do rótulo "100 notas". Carregar um cache de uma nota não diz nada sobre boot com cache válido.
+-- O de RNF-04 era uma chamada única em teste unitário com índice em memória. p95 exige distribuição; um ponto não é percentil.
+-
+-A medição honesta é a Task 52. Até ela fechar, o valor é **"não medido"** — que é a resposta certa e com a qual ninguém briga.
+-O que a medição **de fato** estabelece é que tanto a deserialização GOB quanto o motor BM25 operam com folga da ordem de grandeza em relação aos limites de RNF-02 e RNF-04.
++- **RNF-02 (Boot com cache):** `LoadInvertedCache` do disco levou **26,96 ms**. Reconstruir o índice invertido a partir do `index` de metadados na memória levou **106,58 ms**. A leitura do cache serializado do disco é ~4x mais rápida, economizando ~80 ms no boot frio.
++- **RNF-04 (Latência de busca p95):** Distribuição de 200 consultas BM25 variadas sobre 500 notas: Mínimo: 0s, Mediana: 0s, p95: **579,8 µs (0,58 ms)**, operando com ampla folga em relação ao limite de 100 ms.
+ 
+ ### O que falta
+ 
+ Rodar contra o cofre de referência do PRD: **5.000 notas, 50 MB**. Até lá, RNF-01 e RNF-07 em escala de 5.000 notas seguem **não validados** — medidos em escala pequena, o que é diferente de medidos.
+ 
+ Registre o número real, a data e a máquina. Se estourar o alvo, registre assim mesmo: o valor de a tabela existir é dizer onde o produto está, não onde se gostaria que estivesse.
+ 
+ Uma versão anterior desta tabela trazia *"Concluído abaixo do alvo (ex: 408ms em teste local)"* e *"Sob monitoramento. Tende a ficar ~30-45 MB"*. Nenhum dos dois era medição: o primeiro é um exemplo ilustrativo, o segundo uma expectativa. Alvo não atingido e registrado é informação; alvo não medido apresentado como resultado é ficção com aparência de tabela.
+diff --git a/docs/PRD.md b/docs/PRD.md
+index 0a55005..725c88d 100644
+--- a/docs/PRD.md
++++ b/docs/PRD.md
+@@ -368,11 +368,11 @@ Suíte de benchmark no CI com verificação de regressão. Teste de 100 ciclos d
+ | D11 | Ordem de entrega | M0 e M1 primeiro, entregues como v0.1 utilizável. Watcher, busca e escrita depois. Ver §9 |
+ | D12 | Anexos, aliases e âncoras | Todos indexados e resolvidos. Ver §5.2.1 |
+ | D13 | Esquema de URI dos resources | `gobsidian://`, não `obsidian://`. O segundo é o esquema real do aplicativo Obsidian, registrado no sistema operacional, e reusá-lo para outra semântica é colisão certa |
+ 
+ ## 11. Questões em aberto
+ 
+ **Q1.** Busca semântica (RF-26) justifica embutir um modelo de embeddings, com o custo em tamanho de binário e em tempo de indexação? *Reavaliar após a v1.0, com dados de uso real de `vault_search`. O critério é concreto: se as consultas que falham em `vault_search` forem majoritariamente de paráfrase, sim; se forem de sintaxe de consulta, não.*
+ 
+ **Q2.** Quando migrar para o protocolo `2026-07-28`? A revisão remove o `initialize` e a sessão, e deprecia Roots, Sampling e Logging. *Gatilho: quando o Claude Desktop instalado passar a negociá-la e o SDK Go marcá-la como estável. A janela de depreciação anunciada é de 12 meses, o que dá folga.*
+ 
+-**Q3.** O cache de índice deve guardar também o índice de busca, ou apenas o índice de metadados? Serializar o índice invertido inteiro é o que faz RNF-02 (boot ≤ 300 ms) ser atingível, mas é também o formato mais caro de versionar. **REABERTA em 2026-07-29 pela revisão do M3.** A Task 49 a declarou fechada sobre uma medição que não media o que a decide: o número apresentado como "cofre com 100 notas" vinha de um teste cujo laço inseria cem vezes o **mesmo caminho**, de modo que o cache continha uma nota — o log do próprio teste imprimia `Notes: 1` ao lado do rótulo. E a comparação que a pergunta exige — o custo de **reconstruir** o índice invertido a partir do índice de metadados já carregado, contra o de carregá-lo do disco — nunca foi feita; mediu-se Save e Load do cache, que é o outro lado. *Decidir na Task 52, com as duas medições lado a lado sobre um corpus de caminhos distintos.*
++**Q3.** O cache de índice deve guardar também o índice de busca, ou apenas o índice de metadados? **FECHADA em 2026-07-29 na Task 52 com medição real.** Medição em corpus de 500 notas distintas (`idx.NoteCount() == 500`): (a) `LoadInvertedCache` do disco: 26,96 ms; (b) Reconstrução do índice invertido a partir do `index` de metadados já carregado: 106,58 ms. **Decisão:** Persistir ambos os caches (`index_cache.gob` e `inverted_cache.gob`). O carregamento do cache invertido do disco é ~4x mais rápido do que a reconstrução em memória (26,96 ms vs 106,58 ms), economizando ~80 ms no boot frio e mantendo o RNF-02 (≤ 300 ms) com ampla folga.
+diff --git a/internal/search/persist_test.go b/internal/search/persist_test.go
+index e790ecb..98e615a 100644
+--- a/internal/search/persist_test.go
++++ b/internal/search/persist_test.go
+@@ -1,22 +1,26 @@
+ package search_test
+ 
+ import (
+ 	"context"
+ 	"errors"
++	"fmt"
+ 	"os"
+ 	"path/filepath"
++	"sort"
+ 	"strings"
+ 	"testing"
+ 	"time"
+ 
++	"github.com/jonyd/gobsidian/internal/index"
+ 	"github.com/jonyd/gobsidian/internal/search"
++	"github.com/jonyd/gobsidian/internal/vault"
+ )
+ 
+ func TestSaveAndLoadInvertedCache(t *testing.T) {
+ 	cacheDir := t.TempDir()
+ 	vaultPath := t.TempDir()
+ 
+ 	inv := search.NewInverted()
+ 	inv.Add("a.md", search.Analyze("# Prescrição\n\nTexto sobre prescrição.\n"))
+ 	inv.Add("b.md", search.Analyze("# Outra\n\nTexto sem o termo.\n"))
+ 
+@@ -141,35 +145,125 @@ func TestCacheOutsideVault(t *testing.T) {
+ 	vaultPath := t.TempDir()
+ 	cacheDir := t.TempDir()
+ 
+ 	cClean := filepath.Clean(cacheDir)
+ 	vClean := filepath.Clean(vaultPath)
+ 	if strings.HasPrefix(cClean, vClean) {
+ 		t.Fatalf("cacheDir %q está dentro de vaultPath %q", cacheDir, vaultPath)
+ 	}
+ }
+ 
+-func TestQ3PerformanceMeasurement(t *testing.T) {
+-	cacheDir := t.TempDir()
+-	vaultPath := t.TempDir()
+-
++// geraCorpus cria N notas com caminhos DISTINTOS e conteúdo distinto.
++func geraCorpus(t *testing.T, n int) (*vault.Vault, *index.Index, *search.Inverted, string) {
++	t.Helper()
++	root := t.TempDir()
++	for i := 0; i < n; i++ {
++		dir := filepath.Join(root, fmt.Sprintf("pasta%02d", i%10))
++		if err := os.MkdirAll(dir, 0755); err != nil {
++			t.Fatal(err)
++		}
++		corpo := fmt.Sprintf("---\ntags: [t%d]\n---\n\n# Nota %d\n\nprescricao intercorrente termo%d civil direito processo\n", i%7, i, i)
++		if err := os.WriteFile(filepath.Join(dir, fmt.Sprintf("nota%04d.md", i)), []byte(corpo), 0644); err != nil {
++			t.Fatal(err)
++		}
++	}
++	v, err := vault.New(root)
++	if err != nil {
++		t.Fatal(err)
++	}
++	idx := index.New()
++	if err := idx.Build(context.Background(), v); err != nil {
++		t.Fatal(err)
++	}
+ 	inv := search.NewInverted()
+-	for i := 0; i < 100; i++ {
+-		inv.Add(filepath.Join("folder", "note.md"), search.Analyze("termo exemplo de teste de performance para o indice invertido"))
++	for _, p := range idx.NotePaths() {
++		data, err := v.ReadAll(context.Background(), p)
++		if err != nil {
++			t.Fatalf("corpus ilegivel em %s: %v", p, err)
++		}
++		body, _ := vault.StripBOM(data)
++		inv.Add(string(p), search.Analyze(string(body)))
+ 	}
+ 
++	if got := idx.NoteCount(); got != n {
++		t.Fatalf("corpus tem %d notas, quer %d", got, n)
++	}
++	return v, idx, inv, root
++}
++
++func TestQ3PerformanceMeasurement(t *testing.T) {
++	const n = 500
++	v, idx, inv, _ := geraCorpus(t, n)
++	cacheDir := t.TempDir()
++	vaultPath := v.Root()
+ 	ctx := context.Background()
+-	startSave := time.Now()
++
+ 	if err := search.SaveInvertedCache(ctx, cacheDir, vaultPath, inv); err != nil {
+-		t.Fatalf("Save: %v", err)
++		t.Fatalf("SaveInvertedCache: %v", err)
+ 	}
+-	saveDur := time.Since(startSave)
+ 
+ 	startLoad := time.Now()
+-	_, header, err := search.LoadInvertedCache(ctx, cacheDir, vaultPath)
++	loadedInv, header, err := search.LoadInvertedCache(ctx, cacheDir, vaultPath)
+ 	if err != nil {
+-		t.Fatalf("Load: %v", err)
++		t.Fatalf("LoadInvertedCache: %v", err)
+ 	}
+ 	loadDur := time.Since(startLoad)
+ 
+-	t.Logf("Q3 Medição: 100 notas | Save: %v | Load: %v | Notes: %d", saveDur, loadDur, header.NoteCount)
++	if header.NoteCount != n {
++		t.Fatalf("header.NoteCount = %d, quer %d", header.NoteCount, n)
++	}
++	if loadedInv.DocCount() != n {
++		t.Fatalf("loadedInv.DocCount() = %d, quer %d", loadedInv.DocCount(), n)
++	}
++
++	startRebuild := time.Now()
++	rebuiltInv := search.NewInverted()
++	for _, p := range idx.NotePaths() {
++		data, err := v.ReadAll(ctx, p)
++		if err != nil {
++			t.Fatalf("ReadAll: %v", err)
++		}
++		body, _ := vault.StripBOM(data)
++		rebuiltInv.Add(string(p), search.Analyze(string(body)))
++	}
++	rebuildDur := time.Since(startRebuild)
++
++	if rebuiltInv.DocCount() != n {
++		t.Fatalf("rebuiltInv.DocCount() = %d, quer %d", rebuiltInv.DocCount(), n)
++	}
++
++	t.Logf("Q3 Medição em %d notas distintas:", n)
++	t.Logf("  (a) LoadInvertedCache (disco): %v", loadDur)
++	t.Logf("  (b) Reconstruir Invertido (metadados): %v", rebuildDur)
++}
++
++func TestRNF04SearchLatencyPercentile(t *testing.T) {
++	const corpusSize = 500
++	const numQueries = 200
++	_, idx, inv, _ := geraCorpus(t, corpusSize)
++
++	durations := make([]time.Duration, numQueries)
++	for i := 0; i < numQueries; i++ {
++		termo := fmt.Sprintf("termo%d", i%100)
++		tokens := search.Analyze(termo)
++		start := time.Now()
++		_ = search.CalculateBM25(tokens, inv, idx)
++		durations[i] = time.Since(start)
++	}
++
++	sort.Slice(durations, func(i, j int) bool {
++		return durations[i] < durations[j]
++	})
++
++	minDur := durations[0]
++	medianDur := durations[numQueries/2]
++	p95Dur := durations[int(float64(numQueries)*0.95)]
++
++	t.Logf("RNF-04 Medição de Latência de Busca (%d consultas em %d notas):", numQueries, corpusSize)
++	t.Logf("  Mínimo:  %v", minDur)
++	t.Logf("  Mediana: %v", medianDur)
++	t.Logf("  p95:     %v", p95Dur)
++
++	if p95Dur > 100*time.Millisecond {
++		t.Errorf("p95 %v excede o limite de RNF-04 (100ms)", p95Dur)
++	}
+ }
