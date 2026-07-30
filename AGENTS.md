@@ -29,14 +29,13 @@ Violar qualquer uma destas causa dano que não aparece imediatamente. Não há e
 ## 2. Comandos
 
 ```bash
-pwsh -File scripts/verify.ps1     # build, go test -race, vet nos 3 alvos, gofmt, check_net
+pwsh -File scripts/verify.ps1     # build, test -race, vet x3, gofmt, golangci-lint, check_net
 pwsh -File scripts/build.ps1
-golangci-lint run ./...           # confira `golangci-lint version` == v2.12.2 antes
 ```
 
-**Verde obrigatório antes de qualquer commit.** `verify.ps1` cobre tudo e para no primeiro erro. Ele existe porque a lista solta convida a rodar três dos cinco.
+**Verde obrigatório antes de qualquer commit.** `verify.ps1` cobre as oito etapas e para no primeiro erro. Ele existe porque a lista solta convida a rodar três dos cinco.
 
-`golangci-lint` local verde **não** significa CI verde: o `go.mod` declara `go 1.25.0`, e um binário compilado com Go mais antigo recusa o config antes de analisar linha nenhuma. Confira a versão antes de confiar num zero.
+**O `golangci-lint` entrou na bateria em 2026-07-29** e não é mais comando separado: enquanto era, era um comando que alguém esquecia — as Tasks 33–42 fecharam com 22 achados (18 `errcheck`, 4 `revive`) e nenhum dos dez relatórios mencionava ter rodado o linter. **`go vet` não pega `errcheck`.** A etapa confere a versão antes de rodar, porque um binário compilado com Go mais antigo que o `go 1.25.0` do `go.mod` recusa o config antes de analisar linha nenhuma, e um zero local não diria nada sobre o CI.
 
 ### Prova de mutação — use a ferramenta, nunca a mão
 
@@ -98,6 +97,14 @@ Oito tarefas deste projeto foram entregues como concluídas sem terem sido. Cada
 **Não deixe sua deliberação no código.** Comentários começando com `Wait,`, `For the sake of simplicity` e `Actually` já foram commitados; um documentava um defeito como se fosse decisão. Comentário explica **por que** o código é assim; raciocínio sobre o que fazer não é comentário.
 
 **Escopo não encolhe em silêncio.** Se alguma parte não deu para fazer, entregue o resto inteiro e **diga o que ficou de fora e por quê**. Reduzir escopo é decisão de quem pediu. `BLOCKED` com o motivo é resposta melhor que uma entrega que parece completa.
+
+**Meça pela camada que o requisito nomeia.** RNF-04 diz *"latência de `vault_search`"*. A primeira medição chamou `search.CalculateBM25` direto e reportou **0,58 ms**; medida por `service.Search`, com trecho e filtros, a mesma coisa dá **entre 6 e 174 ms**. Não foi número inventado — foi aritmética honesta sobre a fatia errada, rotulada com o nome do todo. Antes de escrever o número, pergunte por qual função o requisito passaria se um usuário o exercitasse.
+
+**Distribuição com mediana zero está medindo o relógio, não o código.** A mesma medição publicou `Mínimo: 0s, Mediana: 0s` ao lado de um p95, porque consultava termos que casavam **uma** nota em 500 — a consulta mais seletiva possível. Se metade das amostras dá zero, a carga não existe. E p95 sobre formatos de custo diferente não é p95 de nada: vira o percentil do formato mais caro presente, e muda quando a proporção muda. **Meça por formato.**
+
+**Asserção de tempo não sobrevive ao `-race`.** O detector multiplica a latência por 2× a 6× — aqui, busca por frase foi de 174 ms para 1,00 s. O gate roda `-race`, então um teto de tempo cobrado sob ele reprova por motivo que não é o do produto. Guarde a asserção atrás de constante com build tag (`//go:build race`), em arquivo separado, e **continue registrando a medição nos dois modos**. A condição pertence à compilação, não ao corpo do teste — mesma razão do código de plataforma.
+
+**Alvo não atingido e registrado é informação; alvo escondido é dívida.** Quando o número estoura, não use `t.Skip` e não afrouxe o alvo dos outros casos. Faça o teste cobrar um **teto medido** naquele caso, escreva ao lado que o alvo do RNF não está atingido, e registre a lacuna. O teto guarda contra piorar enquanto a lacuna espera tarefa.
 
 **O relatório é o entregável, não o resumo dele.** Comando rodado, saída real colada, prova de mutação. "Testes passam" não é evidência; a saída do teste é.
 

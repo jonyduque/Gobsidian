@@ -661,3 +661,55 @@ parametros de schema e os seis campos de retorno da Task 48 tem teste nomeado
 cada um. Ledger sem SHA fantasma, reusado ou intervalo vazio nas 43-50.
 
 === M3.1 ESCRITO: Tasks 51-53, prontas para delegar ===
+
+=== REVISAO DO M3.1 (Tasks 51-53), 2026-07-29, pelo modelo principal ===
+Tasks 51 e 53 CORRETAS, verificadas por mutacao: w.inv->nil e
+searchInv.Remove->_ = path ambas reprovam TestWatcherUpdatesSearchIndex, entao
+a fiacao E a metade da REMOCAO estao cobertas. O variadico morreu. Os testes do
+BM25 foram renomeados como pedido: TestBM25ParamB virou
+TestBM25DocumentLengthNormalization — o nome agora diz o que verifica.
+
+Task 52 mediu bem e decidiu por outro critério. O corpus esta amarrado por
+QUATRO asserçoes (NoteCount, header.NoteCount, loadedInv.DocCount,
+rebuiltInv.DocCount) e as DUAS medicoes da Q3 foram feitas. Mas o plano
+pre-comprometia o critério — "se (b) couber em 300 ms, persista SO os
+metadados, porque e o formato mais barato de versionar" — e (b) deu 106,58 ms,
+que cabe. A decisao entregue foi persistir ambos, por velocidade (~80 ms de
+boot). DECISAO MANTIDA por escolha de quem pediu, em 2026-07-29. O que era
+defeito era o silencio: nem o relatorio nem o PRD diziam que havia regra.
+
+RNF-04 REMEDIDO pelo modelo principal. A medicao da Task 52 chamava
+search.CalculateBM25 direto e reportou 0,58 ms — aritmetica honesta sobre a
+fatia errada, rotulada com o nome do todo, e consultando termos que casavam UMA
+nota em 500 (dai "Minimo: 0s, Mediana: 0s" ao lado de um p95). Medido por
+service.Search, com trecho e filtros, POR FORMATO de consulta:
+  termo amplo 14,9ms | dois termos 17,7ms | seletivo 5,7ms | pasta 17,4ms
+  tag 11,9ms | FRASE EXATA 174,2ms | trecho 1000 24,5ms | limit 200 85,0ms
+RNF-04 ATINGIDO EM 7 DE 8 FORMATOS. NAO atingido em frase exata: 174 ms contra
+100 ms. Registrado no OPERACAO.md como falha, com teto de 250 ms no teste —
+guarda contra piorar sem afrouxar os outros sete nem esconder com t.Skip.
+Fechar a lacuna e a Task 61. Minha suposicao de que limit=200 estouraria estava
+ERRADA: cabe (85 ms).
+Asserçao de tempo nao vale sob -race (frase exata: 174 ms -> 1,00 s). Guardada
+atras de constante com build tag em arquivo separado; medicao continua nos dois.
+
+OPERACAO.md: duas afirmacoes ficaram para tras do M2 INTEIRO — "a v0.1 nao tem
+um watcher de arquivos ativo" e "no futuro, overflow indicara problemas com o
+watcher". As duas eram verdade quando escritas e deixaram de ser nas Tasks 27 e
+30. Corrigidas, e a tabela de vault_stats ganhou os dez campos de watcher.
+
+HARNESS: golangci-lint entrou no verify.ps1 como oitava etapa, com conferencia
+da versao v2.12.2. Enquanto era comando separado, era comando que alguem
+esquecia — 22 achados nas Tasks 33-42, dez relatorios, nenhum mencionando o
+lint. `go vet` NAO pega errcheck. AGENTS.md 4 ganhou as quatro licoes de
+medicao; GEMINI.md ganhou a regra de escrita atomica inline, porque o M4 e o
+marco que pode destruir dados.
+
+=== M4 (ESCRITA) ESCRITO: Tasks 54-62, prontas para delegar ===
+54 trava por caminho          55 escrita atomica + GATE RNF-11 (1.000 crashes)
+56 diff de Myers              57 patch/append por heading (offset com BOM+CRLF)
+58 replace_block por ^id      59 tools com dry_run e expected_hash
+60 read-only fora do ListTools 61 lacuna do RNF-04 (frase exata)
+62 fechamento do M4
+RNF-11 e o critério de bloqueio: zero notas corrompidas em 1.000 iteracoes de
+crash injetado. Nenhuma outra tarefa fecha antes da 55 passar.

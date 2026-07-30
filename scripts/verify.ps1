@@ -27,6 +27,9 @@
 [CmdletBinding()]
 param(
     [switch]$SkipCross,
+
+    # Pula o golangci-lint. Para iteracao rapida; o gate roda tudo.
+    [switch]$SkipLint,
     [switch]$SkipNet
 )
 
@@ -101,6 +104,29 @@ else {
 }
 
 Invoke-Step "gofmt" { gofmt -l @DirsFmt } -FailIfOutput
+
+# O lint entra na bateria porque ficar de fora dela custou 22 achados. `go vet`
+# NAO pega errcheck, e as Tasks 33-42 fecharam com 18 errcheck e 4 revive sem
+# que nada no loop por tarefa reportasse — dez relatorios, nenhum mencionando
+# ter rodado o linter. Enquanto era um comando separado, era um comando que
+# alguem esquecia.
+#
+# A versao e conferida antes: o go.mod declara go 1.25.0, e um golangci-lint
+# compilado com Go mais antigo recusa o config ANTES de analisar linha nenhuma,
+# saindo com erro que nao diz que o problema e a versao. Sem a conferencia, um
+# zero local nao diz nada sobre o CI, que fixa a v2.12.2.
+if (-not $SkipLint) {
+    Invoke-Step "golangci-lint" {
+        $Ver = (golangci-lint version 2>&1) -join " "
+        if ($Ver -notmatch "2\.12\.2") {
+            throw "golangci-lint fora da versao fixada pelo CI (v2.12.2): $Ver"
+        }
+        golangci-lint run @Alvos
+    }
+}
+else {
+    Write-Output "[i] lint pulado (-SkipLint)"
+}
 
 if (-not $SkipNet) {
     Invoke-Step "check_net (RNF-30)" { & (Join-Path $PSScriptRoot "check_net.ps1") }
