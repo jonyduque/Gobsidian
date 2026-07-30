@@ -75,7 +75,10 @@ Task 54: complete (commits c702e60..a4b7056, per-path write lock, review Approve
 Task 55: complete (commits 05ee7e5..a33679b, atomic write with fsync and rename retry, review Approved)
 Task 56: complete (commits 7c66b6b..d93af4b, line-based Myers diff, review Approved)
 Task 57: complete (commits 604e759..0b1460b, patch and append by heading, preserving EOL and BOM, review Approved)
-Task 58: complete (commits 602b84f..653cefe, replace block by id, review Approved)
+- Task 58: Substituir Bloco por ^id | base 602b84f | review 602b84f..653cefe | review Approved; 0 Important doc-only fechados | commit 653cefe ("feat(writer): replace block by id")
+- Task 59: Write Tools (`note_create`, `note_append`, `note_patch`) | base 38f6032 | review 38f6032..eef8ff0 | review Approved; 0 Important doc-only fechados | commit eef8ff0 ("feat(mcpsrv): write tools with dry_run and expected_hash")
+- Task 60: --read-only verificado no ListTools | base 8f0741a | review 8f0741a..71f25d1 | review Approved; 0 Important doc-only fechados | commit 71f25d1 ("feat(mcpsrv): write tools absent from ListTools under read-only")
+- Task 61: A lacuna do RNF-04 — busca por frase | base 940a8d9 | review 940a8d9..e907aa5 | review Approved; 0 Important doc-only fechados | commit e907aa5 ("perf(search): bring exact-phrase p95 within RNF-04")
 
 === REVISAO DO M2.1 (Tasks 33-42), 2026-07-29, pelo modelo principal ===
 Nove provas de mutacao rodadas com scripts/mutate.ps1, TODAS saindo 0 (o teste
