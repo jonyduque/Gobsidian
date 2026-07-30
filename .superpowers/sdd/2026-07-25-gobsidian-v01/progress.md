@@ -722,3 +722,60 @@ marco que pode destruir dados.
 62 fechamento do M4
 RNF-11 e o critério de bloqueio: zero notas corrompidas em 1.000 iteracoes de
 crash injetado. Nenhuma outra tarefa fecha antes da 55 passar.
+
+=== REVISAO DO M4 (Tasks 54-62), 2026-07-30, pelo modelo principal ===
+Gate verde nas OITO etapas, arvore limpa, nove relatorios, nove tarefas no
+ledger. RNF-11 e honesto: o crash mata um SUBPROCESSO de verdade (TestMain
+despachando por env), nao uma goroutine. Sondei quantas iteracoes exercitam a
+escrita: 340 de 1000 terminaram com o conteudo novo. Minha suspeita de que o
+kill em 0-39 ms sempre chegasse antes da escrita comecar estava ERRADA.
+Task 61 e o melhor trabalho do marco: pprof rodado, causa raiz nomeada
+(matchPhraseInNote chamava Postings por candidato), p95 da frase exata de
+174,2 ms para 22,1 ms, e reproduz aqui em 33,2 ms. Dentro do alvo de 100 ms.
+Task 60 afirma a LISTA do ListTools nome por nome, nos dois modos.
+
+QUATRO ACHADOS, TODOS CORRIGIDOS pelo modelo principal em 2026-07-30 (delegar
+nao compensava: a unica decisao de projeto era onde por a varredura, e ela e a
+maior parte do valor):
+
+1. CORRIDA NO VARREDOR (Important). WriteAtomic chamava CleanStaleTempFiles(dir)
+   no inicio, e o glob apaga TODOS os .gobsidian-tmp-* do diretorio — inclusive
+   o de outra escrita em voo. A trava do writer e por CAMINHO de proposito
+   (Task 54), entao duas notas na mesma pasta escrevem em paralelo; o recurso
+   compartilhado e o DIRETORIO e a trava nao o cobre.
+   Medido: os.Remove sobre arquivo com handle aberto FALHA no Windows com
+   sharing violation, e o erro era engolido — a corrida ficava mascarada. Em
+   Linux e macOS o unlink sucede por POSIX, a outra escrita segue gravando num
+   inode desvinculado, e o rename falha com ENOENT. O projeto faz vet nos tres
+   alvos e o M6 publica binario para os tres.
+   CORRECAO: a varredura saiu de WriteAtomic. WriteAtomic ja removia o proprio
+   temporario no defer em qualquer falha normal; o unico caso que sobrava era
+   processo morto, que nao roda defer. Novo SweepStaleTempFiles(ctx, root) roda
+   NO BOOT, onde nao ha escrita em voo — e resolve o achado 3 de graca.
+   Regressao: TestWriteAtomicConcurrentSameDirectory, 8 escritores x 25
+   escritas na mesma pasta. ATENCAO: no Windows ele passa dos dois jeitos
+   (sharing violation mascara); reprova de verdade em Linux e macOS. Esta
+   escrito no comentario do teste.
+
+2. ASSERCAO QUE NAO PODIA FALHAR (Important). O teste do RNF-11 chamava
+   CleanStaleTempFiles e DEPOIS afirmava que nao havia sobras: a linha de cima
+   garantia a de baixo. Medido: com a limpeza neutralizada, o teste REPROVA —
+   havia temporarios reais sendo mascarados.
+   CORRECAO: conta os orfaos ANTES da varredura, afirma que a varredura removeu
+   todos, e afirma zero DEPOIS. E reprova se os orfaos forem ZERO: 92 orfaos em
+   1.000 iteracoes sao as que morreram entre criar o temporario e renomear, que
+   e exatamente a janela que a atomicidade cobre. Zero significaria que o crash
+   nunca caiu nessa janela e o teste nao exercitou o que promete.
+
+3. TEMPORARIO ORFAO FICAVA NO COFRE (Minor). A varredura preguicosa so rodava
+   na proxima escrita naquela pasta; se ela nunca fosse escrita de novo, o
+   temporario ficava para sempre. Resolvido pela varredura de boot, e agora
+   documentado no OPERACAO.md com a linha de log que aparece.
+
+4. O AUDITOR PAROU DE GATEAR EM CINCO TAREFAS (Minor). O ledger passou a usar
+   um segundo formato de linha nas Tasks 58-62 ("- Task NN: Titulo | base X |
+   review Y..Z | commit W"), que o regex do audit_reports.ps1 nao casava. As
+   tres checagens de SHA simplesmente NAO RODARAM naquelas cinco linhas, sem
+   aviso. CORRECAO: o auditor aceita os dois formatos. Provado por sonda —
+   troquei o SHA de review da Task 60 por "deadbee" e ele acusou SHA-FANTASMA na
+   linha 80; restaurado.

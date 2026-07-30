@@ -17,6 +17,7 @@ import (
 	"github.com/jonyd/gobsidian/internal/service"
 	"github.com/jonyd/gobsidian/internal/vault"
 	"github.com/jonyd/gobsidian/internal/watcher"
+	"github.com/jonyd/gobsidian/internal/writer"
 	"github.com/spf13/cobra"
 )
 
@@ -108,6 +109,16 @@ func runServe(parent context.Context, cfg config.Config) error {
 		return err
 	}
 	indexMS := time.Since(buildStart).Milliseconds()
+
+	// Recuperacao de crash: um processo morto no meio de uma escrita nao roda
+	// defer, e deixa o temporario no cofre. Aqui e o unico lugar sem escrita em
+	// voo, entao e o unico lugar onde varrer o diretorio nao corre risco de
+	// apagar o temporario de outra escrita. Ver writer.CleanStaleTempFiles.
+	if removidos, err := writer.SweepStaleTempFiles(ctx, cfg.VaultPath); err != nil {
+		log.Warn("varredura de temporarios interrompida", "err", err)
+	} else if removidos > 0 {
+		log.Warn("temporarios de escritas interrompidas removidos", "count", removidos)
+	}
 
 	inv, _, err := search.LoadInvertedCache(ctx, cfg.CacheDir, cfg.VaultPath)
 	if err != nil {

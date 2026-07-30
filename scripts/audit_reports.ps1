@@ -193,11 +193,30 @@ foreach ($Ledger in $Ledgers) {
         # num ledger que mandava duas tarefas para o mesmo lugar, e o trabalho
         # real da 31 (d5d1bf0) deixou de ser referenciado por qualquer linha.
         # As tres checagens abaixo cobrem o que a existencia nao cobre.
-        if ($L -match '(?i)^Task\s+([\d/]+)\s*:\s*(complete|completa)\s*\(commits?\s+([0-9a-f]{7,40})(?:\.\.([0-9a-f]{7,40}))?\s*,?\s*([^)]*)\)') {
+        # DOIS formatos de linha, porque o ledger tem os dois. O segundo apareceu
+        # nas Tasks 58-62 do M4 e passou cinco tarefas sem ser auditado: o
+        # regex antigo nao casava, e as tres checagens de SHA simplesmente NAO
+        # RODAVAM naquelas linhas — sem aviso, o que e um gate que parou de
+        # gatear enquanto continuava saindo verde.
+        #   A) Task 54: complete (commits AAAA..BBBB, descricao, review ...)
+        #   B) - Task 58: Titulo | base AAAA | review AAAA..BBBB | ... | commit BBBB ("assunto")
+        $CasouA = $L -match '(?i)^Task\s+([\d/]+)\s*:\s*(complete|completa)\s*\(commits?\s+([0-9a-f]{7,40})(?:\.\.([0-9a-f]{7,40}))?\s*,?\s*([^)]*)\)'
+        if ($CasouA) {
             $TarefaID  = $Matches[1]
             $De        = $Matches[3]
             $Ate       = if ($Matches[4]) { $Matches[4] } else { $Matches[3] }
             $Descricao = $Matches[5]
+        }
+        else {
+            $CasouB = $L -match '(?i)^\s*-?\s*Task\s+([\d/]+)\s*:\s*([^|]+)\|.*?review\s+([0-9a-f]{7,40})\.\.([0-9a-f]{7,40})'
+            if ($CasouB) {
+                $TarefaID  = $Matches[1]
+                $Descricao = $Matches[2]
+                $De        = $Matches[3]
+                $Ate       = $Matches[4]
+            }
+        }
+        if ($CasouA -or $CasouB) {
 
             # (a) Intervalo vazio. "A..A" nao contem commit nenhum, e uma tarefa
             # cujo intervalo nao contem trabalho nao esta registrada, esta
