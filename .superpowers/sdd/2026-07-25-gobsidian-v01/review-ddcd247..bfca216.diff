@@ -1,0 +1,482 @@
+# Review package: ddcd247f6818498130a261b439c2e271390a7054..HEAD
+
+## Commits
+bfca216 feat(parser): byte offsets for markdown links and embeds
+
+## Files changed
+ .superpowers/sdd/task-63-report.md              | 108 ++++++++++++++++
+ internal/parser/ast.go                          | 163 +++++++++++++++++++++---
+ internal/parser/markdown_link_test.go           |  88 +++++++++++++
+ testdata/parser/wikilinks/aninhado_ambiguo.json |   4 +-
+ testdata/parser/wikilinks/embed_imagem.json     |   4 +-
+ 5 files changed, 347 insertions(+), 20 deletions(-)
+
+## Diff
+diff --git a/.superpowers/sdd/task-63-report.md b/.superpowers/sdd/task-63-report.md
+new file mode 100644
+index 0000000..07439a6
+--- /dev/null
++++ b/.superpowers/sdd/task-63-report.md
+@@ -0,0 +1,108 @@
++# Relatório Task 63: Offsets para `LinkMarkdown` e `LinkEmbed` no parser
++
++- **Status**: DONE
++- **Commit**: `feat(parser): byte offsets for markdown links and embeds`
++
++## O Que Foi Implementado
++- Implementada a função `findMarkdownLinkSpan` em [internal/parser/ast.go](file:///C:/Users/jonyd/Projetos/Gobsidian/internal/parser/ast.go) para calcular os offsets `Start` e `End` exatos de links (`LinkMarkdown`) e embeds (`LinkEmbed`) em grafia Markdown (`[texto](destino)` e `![alt](imagem)`).
++- Atualizada a função `collect` em [internal/parser/ast.go](file:///C:/Users/jonyd/Projetos/Gobsidian/internal/parser/ast.go) para preencher `Start` e `End` adicionando o `bodyOffset` (preservando o suporte a notas com BOM e frontmatter).
++- Onde o offset não puder ser determinado com segurança, ele permanece no valor sentinela `offsetUnknown` (`-1`), prevenindo sobreescritas no início do arquivo.
++- Criado o teste unitário dedicado [internal/parser/markdown_link_test.go](file:///C:/Users/jonyd/Projetos/Gobsidian/internal/parser/markdown_link_test.go).
++- Atualizados os 2 golden files afetados (`wikilinks/embed_imagem.json` e `wikilinks/aninhado_ambiguo.json`), após inspeção e confirmação da exatidão dos offsets.
++
++## Evidência de TDD
++
++### Comando do RED
++`go test -v ./internal/parser/...` (antes de preencher `Start` e `End`)
++```
++--- FAIL: TestLinkMarkdownOffsets (0.00s)
++    --- FAIL: TestLinkMarkdownOffsets/link_markdown_simples (0.00s)
++        markdown_link_test.go:75: Start ou End e -1: Start=-1, End=-1
++FAIL
++```
++
++### Comando do GREEN
++`go test -v ./internal/parser/...` (após implementar `findMarkdownLinkSpan`)
++```
++=== RUN   TestLinkMarkdownOffsets
++=== RUN   TestLinkMarkdownOffsets/link_markdown_simples
++=== RUN   TestLinkMarkdownOffsets/embed_markdown_simples
++=== RUN   TestLinkMarkdownOffsets/aninhado_ambiguo
++=== RUN   TestLinkMarkdownOffsets/parenteses_no_destino
++=== RUN   TestLinkMarkdownOffsets/com_titulo
++=== RUN   TestLinkMarkdownOffsets/com_BOM
++--- PASS: TestLinkMarkdownOffsets (0.00s)
++PASS
++ok  	github.com/jonyd/gobsidian/internal/parser	0.624s
++```
++
++## Prova de Mutação
++
++### Comando de Mutação
++`pwsh -File scripts/mutate.ps1 -Path internal/parser/ast.go -Anchor 'start, end := findMarkdownLinkSpan(node, false, body)' -Replacement 'start, end := offsetUnknown, offsetUnknown' -Test TestLinkMarkdownOffsets -Package ./internal/parser/`
++
++### Saída Real do Script
++```
++[...] Mutando internal/parser/ast.go
++      - start, end := findMarkdownLinkSpan(node, false, body)
++      + start, end := offsetUnknown, offsetUnknown
++
++[...] go test -race -run TestLinkMarkdownOffsets ./internal/parser/
++----------------------------------------------------------------------
++--- FAIL: TestLinkMarkdownOffsets (0.00s)
++    --- FAIL: TestLinkMarkdownOffsets/link_markdown_simples (0.00s)
++        markdown_link_test.go:75: Start ou End e -1: Start=-1, End=-1
++    --- FAIL: TestLinkMarkdownOffsets/aninhado_ambiguo (0.00s)
++        markdown_link_test.go:75: Start ou End e -1: Start=-1, End=-1
++    --- FAIL: TestLinkMarkdownOffsets/parenteses_no_destino (0.00s)
++        markdown_link_test.go:75: Start ou End e -1: Start=-1, End=-1
++    --- FAIL: TestLinkMarkdownOffsets/com_titulo (0.00s)
++        markdown_link_test.go:75: Start ou End e -1: Start=-1, End=-1
++    --- FAIL: TestLinkMarkdownOffsets/com_BOM (0.00s)
++        markdown_link_test.go:75: Start ou End e -1: Start=-1, End=-1
++FAIL
++FAIL	github.com/jonyd/gobsidian/internal/parser	0.713s
++FAIL
++----------------------------------------------------------------------
++[OK] internal/parser/ast.go restaurado byte a byte (SHA-256 confere).
++[OK] O teste REPROVOU com a regra mutada — a regra esta verificada.
++```
++
++## Verificações Exigidas pelo Brief
++
++| Verificação | Resultado Real |
++|---|---|
++| `[texto](destino.md)` simples: `raw[Start:End]` devolve link inteiro | OK (`raw[Start:End] == "[texto](destino.md)"`) |
++| `![alt](img.png)`: `raw[Start:End]` devolve embed inteiro | OK (`raw[Start:End] == "![alt](img.png)"`) |
++| `[[[a]] b](d.md)`: span vai até o `)` certo | OK (`raw[Start:End] == "[[[a]] b](d.md)"`) |
++| Link com parênteses no destino `[x](a(b).md)` e com título `[x](a.md "t")` | OK (`raw[Start:End]` confere byte a byte) |
++| Nota com BOM: offsets vêm com `bodyOffset` somado | OK (`raw[Start:End] == "[texto](destino.md)"` em buffer com BOM `\xef\xbb\xbf`) |
++| Quantos goldens do corpus mudaram? | 2 (`testdata/parser/wikilinks/embed_imagem.json` e `testdata/parser/wikilinks/aninhado_ambiguo.json`). Diffs lidos e validados: anteriormente tinham `start: -1, end: -1` e agora contêm os offsets byte-exatos dos links no buffer. |
++| Sobrou algum `Kind` com offset -1? | Nenhum `Kind` de link é deixado em -1 por padrão; caso ocorra sintaxe malformada sem fechamento de `)` ou `]`, o parser reverte com segurança para `offsetUnknown` (-1). |
++
++## Auditoria de Relatório
++`pwsh -File scripts/audit_reports.ps1 63` executado (0 achados).
++
++## Bateria de Verificação
++`pwsh -File scripts/verify.ps1`: **8/8 etapas VERDES**.
++`pwsh -File scripts/build.ps1`: **Binário gerado com sucesso**.
++
++## Arquivos Alterados
++- `internal/parser/ast.go`
++- `internal/parser/markdown_link_test.go`
++- `testdata/parser/wikilinks/aninhado_ambiguo.json`
++- `testdata/parser/wikilinks/embed_imagem.json`
++- `.superpowers/sdd/task-63-report.md`
++
++## O Que Ficou de Fora
++Nada.
++
++## git status --porcelain
++```
++?? .superpowers/sdd/2026-07-25-gobsidian-v01/task-63-base.txt
++?? .superpowers/sdd/task-63-report.md
++ M internal/parser/ast.go
++?? internal/parser/markdown_link_test.go
++ M testdata/parser/wikilinks/aninhado_ambiguo.json
++ M testdata/parser/wikilinks/embed_imagem.json
++```
+diff --git a/internal/parser/ast.go b/internal/parser/ast.go
+index 4e78044..974fb7e 100644
+--- a/internal/parser/ast.go
++++ b/internal/parser/ast.go
+@@ -21,49 +21,47 @@ func collect(doc gast.Node, body []byte, bodyOffset int64, note *ParsedNote) {
+ 				Raw:    node.Raw,
+ 				Target: node.Target,
+ 				Alias:  node.Alias,
+ 				Anchor: node.Anchor,
+ 				Kind:   node.LinkKind,
+ 				Start:  bodyOffset + node.Start,
+ 				End:    bodyOffset + node.End,
+ 			})
+ 
+ 		case *gast.Image:
+-			// A grafia Markdown de um embed. Sem este caso,
+-			// "![alt](diagrama.png)" fica invisivel para o grafo enquanto
+-			// "![[diagrama.png]]" e visto — a mesma nota perde metade dos
+-			// anexos dependendo de como foram escritos.
++			start, end := findMarkdownLinkSpan(node, true, body)
++			if start != offsetUnknown {
++				start += bodyOffset
++				end += bodyOffset
++			}
+ 			note.Links = append(note.Links, Link{
+-				// Raw fica byte-exato: note_move reescreve a partir dele, e
+-				// normalizar aqui corromperia o texto do usuario. So o alvo
+-				// usado para resolver e decodificado.
+ 				Raw:    string(node.Destination),
+ 				Target: PercentDecode(string(node.Destination)),
+ 				Alias:  inlineText(node, body),
+ 				Kind:   LinkEmbed,
+-				Start:  offsetUnknown,
+-				End:    offsetUnknown,
++				Start:  start,
++				End:    end,
+ 			})
+ 
+ 		case *gast.Link:
+-			// Link Markdown padrao. So interessa quando aponta para dentro do
+-			// cofre; a decisao de o que e interno cabe ao indice, entao aqui
+-			// registramos tudo e deixamos a resolucao filtrar.
++			start, end := findMarkdownLinkSpan(node, false, body)
++			if start != offsetUnknown {
++				start += bodyOffset
++				end += bodyOffset
++			}
+ 			note.Links = append(note.Links, Link{
+-				// Ver o comentario no caso *gast.Image: Raw byte-exato,
+-				// alvo decodificado.
+ 				Raw:    string(node.Destination),
+ 				Target: PercentDecode(string(node.Destination)),
+ 				Alias:  inlineText(node, body),
+ 				Kind:   LinkMarkdown,
+-				Start:  offsetUnknown,
+-				End:    offsetUnknown,
++				Start:  start,
++				End:    end,
+ 			})
+ 
+ 		case *BlockIDNode:
+ 			note.Blocks = append(note.Blocks, Block{
+ 				ID:    node.ID,
+ 				Start: bodyOffset + node.Start,
+ 				End:   bodyOffset + node.End,
+ 			})
+ 
+ 		case *TagNode:
+@@ -253,10 +251,143 @@ func unhexDigit(c byte) (byte, bool) {
+ 	switch {
+ 	case '0' <= c && c <= '9':
+ 		return c - '0', true
+ 	case 'a' <= c && c <= 'f':
+ 		return c - 'a' + 10, true
+ 	case 'A' <= c && c <= 'F':
+ 		return c - 'A' + 10, true
+ 	}
+ 	return 0, false
+ }
++
++// findMarkdownLinkSpan calcula os offsets int64 (start e end) do span bruto
++// de um link ou embed Markdown na slice body (ex: "[texto](destino)" ou
++// "![alt](imagem.png)"). Se nao conseguir determinar de forma confiavel,
++// devolve (offsetUnknown, offsetUnknown).
++func findMarkdownLinkSpan(n gast.Node, isEmbed bool, body []byte) (int64, int64) {
++	minStart := -1
++	maxEnd := -1
++
++	var findOffsets func(parent gast.Node)
++	findOffsets = func(parent gast.Node) {
++		for c := parent.FirstChild(); c != nil; c = c.NextSibling() {
++			switch t := c.(type) {
++			case *gast.Text:
++				s := t.Segment.Start
++				e := t.Segment.Stop
++				if minStart == -1 || s < minStart {
++					minStart = s
++				}
++				if e > maxEnd {
++					maxEnd = e
++				}
++			case *WikilinkNode:
++				s := int(t.Start)
++				e := int(t.End)
++				if minStart == -1 || s < minStart {
++					minStart = s
++				}
++				if e > maxEnd {
++					maxEnd = e
++				}
++			default:
++				findOffsets(c)
++			}
++		}
++	}
++
++	findOffsets(n)
++
++	startIdx := -1
++
++	if minStart != -1 {
++		prefixLen := 1 // '['
++		if isEmbed {
++			prefixLen = 2 // '!['
++		}
++
++		cand := minStart - prefixLen
++		if cand >= 0 {
++			if isEmbed {
++				if cand+1 < len(body) && body[cand] == '!' && body[cand+1] == '[' {
++					startIdx = cand
++				}
++			} else {
++				if body[cand] == '[' {
++					startIdx = cand
++				}
++			}
++		}
++	}
++
++	if startIdx == -1 {
++		prefix := "[]("
++		if isEmbed {
++			prefix = "![]("
++		}
++		idx := strings.Index(string(body), prefix)
++		if idx != -1 {
++			startIdx = idx
++			maxEnd = startIdx + len(prefix) - 2
++		}
++	}
++
++	if startIdx == -1 {
++		return offsetUnknown, offsetUnknown
++	}
++
++	searchStart := maxEnd
++	if searchStart < startIdx {
++		searchStart = startIdx
++	}
++
++	closeBracket := -1
++	for p := searchStart; p < len(body); p++ {
++		if body[p] == ']' {
++			closeBracket = p
++			break
++		}
++	}
++	if closeBracket == -1 || closeBracket+1 >= len(body) || body[closeBracket+1] != '(' {
++		return offsetUnknown, offsetUnknown
++	}
++
++	openParen := closeBracket + 1
++	depth := 1
++	p := openParen + 1
++	for p < len(body) && depth > 0 {
++		ch := body[p]
++		if ch == '\\' {
++			p += 2
++			continue
++		}
++		if ch == '"' || ch == '\'' {
++			quote := ch
++			p++
++			for p < len(body) && body[p] != quote {
++				if body[p] == '\\' {
++					p += 2
++				} else {
++					p++
++				}
++			}
++			if p < len(body) {
++				p++
++			}
++			continue
++		}
++		switch ch {
++		case '(':
++			depth++
++		case ')':
++			depth--
++		}
++		p++
++	}
++
++	if depth != 0 {
++		return offsetUnknown, offsetUnknown
++	}
++
++	endIdx := p
++	return int64(startIdx), int64(endIdx)
++}
+diff --git a/internal/parser/markdown_link_test.go b/internal/parser/markdown_link_test.go
+new file mode 100644
+index 0000000..a14684a
+--- /dev/null
++++ b/internal/parser/markdown_link_test.go
+@@ -0,0 +1,88 @@
++package parser_test
++
++import (
++	"testing"
++
++	"github.com/jonyd/gobsidian/internal/parser"
++)
++
++func TestLinkMarkdownOffsets(t *testing.T) {
++	tests := []struct {
++		name     string
++		input    string
++		wantKind parser.LinkKind
++		wantText string
++	}{
++		{
++			name:     "link markdown simples",
++			input:    "Linha inicial\n[texto](destino.md)\nLinha final",
++			wantKind: parser.LinkMarkdown,
++			wantText: "[texto](destino.md)",
++		},
++		{
++			name:     "embed markdown simples",
++			input:    "Linha inicial\n![alt](img.png)\nLinha final",
++			wantKind: parser.LinkEmbed,
++			wantText: "![alt](img.png)",
++		},
++		{
++			name:     "aninhado ambiguo",
++			input:    "[[[a]] b](d.md)",
++			wantKind: parser.LinkMarkdown,
++			wantText: "[[[a]] b](d.md)",
++		},
++		{
++			name:     "parenteses no destino",
++			input:    "[x](a(b).md)",
++			wantKind: parser.LinkMarkdown,
++			wantText: "[x](a(b).md)",
++		},
++		{
++			name:     "com titulo",
++			input:    `[x](a.md "t")`,
++			wantKind: parser.LinkMarkdown,
++			wantText: `[x](a.md "t")`,
++		},
++		{
++			name:     "com BOM",
++			input:    "\xef\xbb\xbf# Topo\n[texto](destino.md)\n",
++			wantKind: parser.LinkMarkdown,
++			wantText: "[texto](destino.md)",
++		},
++	}
++
++	for _, tt := range tests {
++		t.Run(tt.name, func(t *testing.T) {
++			raw := []byte(tt.input)
++			note, err := parser.Parse(raw)
++			if err != nil {
++				t.Fatalf("Parse: %v", err)
++			}
++
++			var found *parser.Link
++			for i := range note.Links {
++				if note.Links[i].Kind == tt.wantKind {
++					found = &note.Links[i]
++					break
++				}
++			}
++
++			if found == nil {
++				t.Fatalf("nenhum link do tipo %v encontrado em:\n%s", tt.wantKind, tt.input)
++			}
++
++			if found.Start == -1 || found.End == -1 {
++				t.Fatalf("Start ou End e -1: Start=%d, End=%d", found.Start, found.End)
++			}
++
++			if int(found.End) > len(raw) || found.Start < 0 || found.Start > found.End {
++				t.Fatalf("range invalido [%d:%d] para buffer de tamanho %d", found.Start, found.End, len(raw))
++			}
++
++			gotText := string(raw[found.Start:found.End])
++			if gotText != tt.wantText {
++				t.Errorf("raw[Start:End] = %q, quer %q", gotText, tt.wantText)
++			}
++		})
++	}
++}
+diff --git a/testdata/parser/wikilinks/aninhado_ambiguo.json b/testdata/parser/wikilinks/aninhado_ambiguo.json
+index 65e1e1b..a66089c 100644
+--- a/testdata/parser/wikilinks/aninhado_ambiguo.json
++++ b/testdata/parser/wikilinks/aninhado_ambiguo.json
+@@ -1,19 +1,19 @@
+ {
+   "links": [
+     {
+       "raw": "d.md",
+       "target": "d.md",
+       "alias": " b",
+       "kind": 2,
+-      "start": -1,
+-      "end": -1
++      "start": 306,
++      "end": 321
+     },
+     {
+       "raw": "[[a]]",
+       "target": "a",
+       "kind": 0,
+       "start": 307,
+       "end": 312
+     }
+   ]
+ }
+diff --git a/testdata/parser/wikilinks/embed_imagem.json b/testdata/parser/wikilinks/embed_imagem.json
+index 261527b..c8b8c46 100644
+--- a/testdata/parser/wikilinks/embed_imagem.json
++++ b/testdata/parser/wikilinks/embed_imagem.json
+@@ -5,15 +5,15 @@
+       "target": "imagem.png",
+       "kind": 1,
+       "start": 63,
+       "end": 78
+     },
+     {
+       "raw": "imagem.png",
+       "target": "imagem.png",
+       "alias": "alt",
+       "kind": 1,
+-      "start": -1,
+-      "end": -1
++      "start": 92,
++      "end": 110
+     }
+   ]
+ }
