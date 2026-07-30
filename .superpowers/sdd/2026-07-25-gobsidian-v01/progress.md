@@ -82,6 +82,7 @@ Task 57: complete (commits 604e759..0b1460b, patch and append by heading, preser
 - Task 62: Fechamento do M4 | base 34134eb | review 34134eb..3f3086a | review Approved; 0 Important doc-only fechados | commit 3f3086a ("docs: close M4 with the RNF-11 gate output")
 - Task 63: Offsets para LinkMarkdown no parser | base ddcd247 | review ddcd247..bfca216 | review Approved; 0 Important doc-only fechados | commit bfca216 ("feat(parser): byte offsets for markdown links and embeds")
 - Task 64: internal/writer/linkrewrite.go | base bfca216 | review bfca216..6be0fdc | review Approved; 0 Important doc-only fechados | commit 6be0fdc ("feat(writer): faithful link rewriting from Link.Raw")
+- Task 65: Tool note_move | base 6be0fdc | review 6be0fdc..88376f1 | review Approved; 0 Important doc-only fechados | commit 88376f1 ("feat(mcpsrv): note_move with faithful link rewriting")
 
 === REVISAO DO M2.1 (Tasks 33-42), 2026-07-29, pelo modelo principal ===
 Nove provas de mutacao rodadas com scripts/mutate.ps1, TODAS saindo 0 (o teste
