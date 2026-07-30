@@ -74,6 +74,7 @@ Task 53: complete (commits 7fd6c5c..4385d24, stop swallowing errors and name the
 Task 54: complete (commits c702e60..a4b7056, per-path write lock, review Approved)
 Task 55: complete (commits 05ee7e5..a33679b, atomic write with fsync and rename retry, review Approved)
 Task 56: complete (commits 7c66b6b..d93af4b, line-based Myers diff, review Approved)
+Task 57: complete (commits 604e759..0b1460b, patch and append by heading, preserving EOL and BOM, review Approved)
 
 === REVISAO DO M2.1 (Tasks 33-42), 2026-07-29, pelo modelo principal ===
 Nove provas de mutacao rodadas com scripts/mutate.ps1, TODAS saindo 0 (o teste
