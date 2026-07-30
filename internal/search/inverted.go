@@ -99,23 +99,43 @@ func (ix *Inverted) Postings(term string) []Posting {
 	defer ix.mu.RUnlock()
 
 	docs, ok := ix.terms[norm]
-	if !ok || len(docs) == 0 {
+	if !ok {
 		return nil
 	}
 
-	res := make([]Posting, 0, len(docs))
+	result := make([]Posting, 0, len(docs))
 	for path, posList := range docs {
-		res = append(res, Posting{
+		result = append(result, Posting{
 			Path:      path,
 			Positions: posList,
 			Frequency: len(posList),
 		})
 	}
 
-	sort.Slice(res, func(i, j int) bool {
-		return res[i].Path < res[j].Path
+	sort.Slice(result, func(i, j int) bool {
+		return result[i].Path < result[j].Path
 	})
 
+	return result
+}
+
+// Positions devolve as posicoes de um termo em uma nota especifica.
+func (ix *Inverted) Positions(term, path string) []TokenPosition {
+	norm := Normalize(term)
+
+	ix.mu.RLock()
+	defer ix.mu.RUnlock()
+
+	docs, ok := ix.terms[norm]
+	if !ok {
+		return nil
+	}
+	posList := docs[path]
+	if len(posList) == 0 {
+		return nil
+	}
+	res := make([]TokenPosition, len(posList))
+	copy(res, posList)
 	return res
 }
 

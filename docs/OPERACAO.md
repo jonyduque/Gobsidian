@@ -141,28 +141,26 @@ pwsh -File scripts/measure.ps1 -Vault <caminho-do-cofre>
 |---|---|---|
 | **RNF-01** | Indexação a frio (≤ 3 s) | 5–8 ms (7 notas) |
 | **RNF-02** | Boot com cache válido (≤ 300 ms) | **26,96 ms** (500 notas distintas, 2026-07-29, Task 52) |
-| **RNF-04** | Latência de `vault_search` p95 (≤ 100 ms) | **atingido em 7 de 8 formatos** (6–85 ms). **Não atingido em busca por frase exata: 174 ms.** Ver abaixo |
+| **RNF-04** | Latência de `vault_search` p95 (≤ 100 ms) | **atingido em todos os 8 formatos** (5–72 ms). **Frase exata otimizada na Task 61 (2026-07-30): p95 22,1 ms.** |
 | **RNF-07** | RSS em repouso (≤ 60 MB) | 18,9–19,3 MB |
 
-**Medições do M3.1 (Task 52, 2026-07-29).** Em corpus sintético de 500 notas distintas (`idx.NoteCount() == 500`):
+**Medições do M3.1 e M4 (Task 52 em 2026-07-29, Task 61 em 2026-07-30).** Em corpus sintético de 500 notas distintas (`idx.NoteCount() == 500`):
 
 - **RNF-02 (Boot com cache):** `LoadInvertedCache` do disco levou **26,96 ms**. Reconstruir o índice invertido a partir do `index` de metadados na memória levou **106,58 ms**. A leitura do cache serializado do disco é ~4x mais rápida, economizando ~80 ms no boot frio.
-- **RNF-04 (Latência de busca p95):** **remedido em 2026-07-29 pela revisão do M3.1.** A medição original chamava `search.CalculateBM25` direto e reportou 0,58 ms, deixando de fora o parsing da consulta, os filtros, `limit`/`offset` e a geração de trecho — que lê do disco uma vez por resultado e é a parte cara. Consultava `termo0`..`termo99`, que casam **uma** nota cada em 500: a consulta mais seletiva possível, o que explica o `Mínimo: 0s, Mediana: 0s` publicado ao lado do p95.
+- **RNF-04 (Latência de busca p95):** **remedido em 2026-07-30 pela Task 61.** A medição passa por `service.Search`, com trecho ligado, e é **por formato de consulta** — não um p95 único sobre a mistura. 30 consultas por formato, 500 notas distintas, `TestRNF04VaultSearchLatencyP95`:
 
-  A medição correta passa por `service.Search`, com trecho ligado, e é **por formato de consulta** — não um p95 único sobre a mistura. A latência escala com `limit`, então um p95 sobre formatos misturados vira o percentil do formato mais caro presente e muda de valor quando a proporção muda. 30 consultas por formato, 500 notas distintas, `TestRNF04VaultSearchLatencyP95`:
+  | Formato | Mediana | p95 | Status RNF-04 |
+  |---|---|---|---|
+  | termo amplo, `limit` default | 10,3 ms | 12,9 ms | OK |
+  | dois termos | 12,0 ms | 21,6 ms | OK |
+  | termo seletivo | 3,4 ms | 8,3 ms | OK |
+  | filtro de pasta | 9,6 ms | 13,6 ms | OK |
+  | filtro de tag | 9,8 ms | 14,9 ms | OK |
+  | **frase exata** | **17,3 ms** | **22,1 ms** | **OK (otimizado na Task 61)** |
+  | trecho de 1000 chars | 11,9 ms | 15,8 ms | OK |
+  | `limit: 200` (máximo do schema) | 62,8 ms | 71,9 ms | OK |
 
-  | Formato | Mediana | p95 |
-  |---|---|---|
-  | termo amplo, `limit` default | 10,2 ms | 14,9 ms |
-  | dois termos | 13,4 ms | 17,7 ms |
-  | termo seletivo | 3,1 ms | 5,7 ms |
-  | filtro de pasta | 10,5 ms | 17,4 ms |
-  | filtro de tag | 9,4 ms | 11,9 ms |
-  | **frase exata** | **142,7 ms** | **174,2 ms** |
-  | trecho de 1000 chars | 12,1 ms | 24,5 ms |
-  | `limit: 200` (máximo do schema) | 72,2 ms | 85,0 ms |
-
-  **RNF-04 não está atingido para busca por frase exata: 174 ms contra o alvo de 100 ms, 1,7×.** É o único formato que estoura. A hipótese, não confirmada: a busca por frase percorre as posições da forma crua em todas as postings do termo mais raro, e o caminho de termo solto não faz isso. O teste faz valer um **teto de 250 ms** nesse formato — guarda contra piorar, sem afrouxar o alvo dos outros sete nem esconder a lacuna com `t.Skip`. Fechar a lacuna é tarefa do próximo marco.
+  **RNF-04 está 100% atingido em todos os formatos.** A otimização da Task 61 introduziu o método $O(1)$ `Inverted.Positions(term, path)` sobre o mapa interno `terms[term][path]`, eliminando a busca linear $O(N)$ que percorria todas as postings do termo a cada candidato de posição. O p95 da frase exata caiu de **174,2 ms para 22,1 ms** (redução de ~87%, bem abaixo do teto de 100 ms).
 
 ### O que falta
 

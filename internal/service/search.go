@@ -260,34 +260,22 @@ func (s *Service) matchPhraseInNote(path string, phraseTokens []search.Token) bo
 		return true
 	}
 
-	firstPostings := s.inverted.Postings(phraseTokens[0].Raw)
-	var firstPositions []search.TokenPosition
-	for _, p := range firstPostings {
-		if p.Path == path {
-			firstPositions = p.Positions
-			break
+	tokenPositions := make([][]search.TokenPosition, len(phraseTokens))
+	for i, tok := range phraseTokens {
+		positions := s.inverted.Positions(tok.Raw, path)
+		if len(positions) == 0 {
+			return false
 		}
-	}
-	if len(firstPositions) == 0 {
-		return false
+		tokenPositions[i] = positions
 	}
 
-	for _, pos1 := range firstPositions {
+	for _, pos1 := range tokenPositions[0] {
 		matchedAll := true
 		currEnd := pos1.End
 
 		for i := 1; i < len(phraseTokens); i++ {
-			nextPostings := s.inverted.Postings(phraseTokens[i].Raw)
-			var nextPositions []search.TokenPosition
-			for _, p := range nextPostings {
-				if p.Path == path {
-					nextPositions = p.Positions
-					break
-				}
-			}
-
 			foundNext := false
-			for _, posN := range nextPositions {
+			for _, posN := range tokenPositions[i] {
 				if posN.Start >= currEnd && posN.Start <= currEnd+1 {
 					currEnd = posN.End
 					foundNext = true

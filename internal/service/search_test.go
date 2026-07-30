@@ -397,12 +397,9 @@ func TestRNF04VaultSearchLatencyP95(t *testing.T) {
 		{"termo seletivo", service.SearchOptions{Query: "usucapiao"}, 100 * time.Millisecond, ""},
 		{"filtro de pasta", service.SearchOptions{Query: "prescricao", Folder: "pasta03"}, 100 * time.Millisecond, ""},
 		{"filtro de tag", service.SearchOptions{Query: "prescricao", Tags: []string{"t2"}}, 100 * time.Millisecond, ""},
-		// FORA DO ALVO. Medido em 2026-07-29: p95 ~181 ms, 1,8x os 100 ms do
-		// RNF-04. E o unico formato que estoura. A busca por frase percorre as
-		// posicoes da forma crua em todas as postings do termo mais raro; o
-		// caminho de termo solto nao faz isso. Teto de 250 ms guarda contra
-		// piorar enquanto a lacuna espera tarefa.
-		{"frase exata (FORA DO ALVO)", service.SearchOptions{Query: `"prescricao intercorrente"`}, 250 * time.Millisecond, "RNF-04 nao atingido: alvo 100 ms"},
+		// Medido em 2026-07-30 (Task 61): otimizado com Positions O(1), p95 ~22 ms,
+		// dentro do alvo de 100 ms do RNF-04.
+		{"frase exata", service.SearchOptions{Query: `"prescricao intercorrente"`}, 100 * time.Millisecond, ""},
 		{"trecho maximo", service.SearchOptions{Query: "processo civil", SnippetChars: 1000}, 100 * time.Millisecond, ""},
 		{"limit maximo do schema", service.SearchOptions{Query: "prescricao", Limit: 200}, 100 * time.Millisecond, ""},
 	}
