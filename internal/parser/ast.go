@@ -28,35 +28,33 @@ func collect(doc gast.Node, body []byte, bodyOffset int64, note *ParsedNote) {
 			})
 
 		case *gast.Image:
-			// A grafia Markdown de um embed. Sem este caso,
-			// "![alt](diagrama.png)" fica invisivel para o grafo enquanto
-			// "![[diagrama.png]]" e visto — a mesma nota perde metade dos
-			// anexos dependendo de como foram escritos.
+			start, end := findMarkdownLinkSpan(node, true, body)
+			if start != offsetUnknown {
+				start += bodyOffset
+				end += bodyOffset
+			}
 			note.Links = append(note.Links, Link{
-				// Raw fica byte-exato: note_move reescreve a partir dele, e
-				// normalizar aqui corromperia o texto do usuario. So o alvo
-				// usado para resolver e decodificado.
 				Raw:    string(node.Destination),
 				Target: PercentDecode(string(node.Destination)),
 				Alias:  inlineText(node, body),
 				Kind:   LinkEmbed,
-				Start:  offsetUnknown,
-				End:    offsetUnknown,
+				Start:  start,
+				End:    end,
 			})
 
 		case *gast.Link:
-			// Link Markdown padrao. So interessa quando aponta para dentro do
-			// cofre; a decisao de o que e interno cabe ao indice, entao aqui
-			// registramos tudo e deixamos a resolucao filtrar.
+			start, end := findMarkdownLinkSpan(node, false, body)
+			if start != offsetUnknown {
+				start += bodyOffset
+				end += bodyOffset
+			}
 			note.Links = append(note.Links, Link{
-				// Ver o comentario no caso *gast.Image: Raw byte-exato,
-				// alvo decodificado.
 				Raw:    string(node.Destination),
 				Target: PercentDecode(string(node.Destination)),
 				Alias:  inlineText(node, body),
 				Kind:   LinkMarkdown,
-				Start:  offsetUnknown,
-				End:    offsetUnknown,
+				Start:  start,
+				End:    end,
 			})
 
 		case *BlockIDNode:
@@ -259,4 +257,137 @@ func unhexDigit(c byte) (byte, bool) {
 		return c - 'A' + 10, true
 	}
 	return 0, false
+}
+
+// findMarkdownLinkSpan calcula os offsets int64 (start e end) do span bruto
+// de um link ou embed Markdown na slice body (ex: "[texto](destino)" ou
+// "![alt](imagem.png)"). Se nao conseguir determinar de forma confiavel,
+// devolve (offsetUnknown, offsetUnknown).
+func findMarkdownLinkSpan(n gast.Node, isEmbed bool, body []byte) (int64, int64) {
+	minStart := -1
+	maxEnd := -1
+
+	var findOffsets func(parent gast.Node)
+	findOffsets = func(parent gast.Node) {
+		for c := parent.FirstChild(); c != nil; c = c.NextSibling() {
+			switch t := c.(type) {
+			case *gast.Text:
+				s := t.Segment.Start
+				e := t.Segment.Stop
+				if minStart == -1 || s < minStart {
+					minStart = s
+				}
+				if e > maxEnd {
+					maxEnd = e
+				}
+			case *WikilinkNode:
+				s := int(t.Start)
+				e := int(t.End)
+				if minStart == -1 || s < minStart {
+					minStart = s
+				}
+				if e > maxEnd {
+					maxEnd = e
+				}
+			default:
+				findOffsets(c)
+			}
+		}
+	}
+
+	findOffsets(n)
+
+	startIdx := -1
+
+	if minStart != -1 {
+		prefixLen := 1 // '['
+		if isEmbed {
+			prefixLen = 2 // '!['
+		}
+
+		cand := minStart - prefixLen
+		if cand >= 0 {
+			if isEmbed {
+				if cand+1 < len(body) && body[cand] == '!' && body[cand+1] == '[' {
+					startIdx = cand
+				}
+			} else {
+				if body[cand] == '[' {
+					startIdx = cand
+				}
+			}
+		}
+	}
+
+	if startIdx == -1 {
+		prefix := "[]("
+		if isEmbed {
+			prefix = "![]("
+		}
+		idx := strings.Index(string(body), prefix)
+		if idx != -1 {
+			startIdx = idx
+			maxEnd = startIdx + len(prefix) - 2
+		}
+	}
+
+	if startIdx == -1 {
+		return offsetUnknown, offsetUnknown
+	}
+
+	searchStart := maxEnd
+	if searchStart < startIdx {
+		searchStart = startIdx
+	}
+
+	closeBracket := -1
+	for p := searchStart; p < len(body); p++ {
+		if body[p] == ']' {
+			closeBracket = p
+			break
+		}
+	}
+	if closeBracket == -1 || closeBracket+1 >= len(body) || body[closeBracket+1] != '(' {
+		return offsetUnknown, offsetUnknown
+	}
+
+	openParen := closeBracket + 1
+	depth := 1
+	p := openParen + 1
+	for p < len(body) && depth > 0 {
+		ch := body[p]
+		if ch == '\\' {
+			p += 2
+			continue
+		}
+		if ch == '"' || ch == '\'' {
+			quote := ch
+			p++
+			for p < len(body) && body[p] != quote {
+				if body[p] == '\\' {
+					p += 2
+				} else {
+					p++
+				}
+			}
+			if p < len(body) {
+				p++
+			}
+			continue
+		}
+		switch ch {
+		case '(':
+			depth++
+		case ')':
+			depth--
+		}
+		p++
+	}
+
+	if depth != 0 {
+		return offsetUnknown, offsetUnknown
+	}
+
+	endIdx := p
+	return int64(startIdx), int64(endIdx)
 }
