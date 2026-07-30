@@ -84,6 +84,7 @@ Task 57: complete (commits 604e759..0b1460b, patch and append by heading, preser
 - Task 64: internal/writer/linkrewrite.go | base bfca216 | review bfca216..6be0fdc | review Approved; 0 Important doc-only fechados | commit 6be0fdc ("feat(writer): faithful link rewriting from Link.Raw")
 - Task 65: Tool note_move | base 6be0fdc | review 6be0fdc..88376f1 | review Approved; 0 Important doc-only fechados | commit 88376f1 ("feat(mcpsrv): note_move with faithful link rewriting")
 - Task 66: Tool note_delete | base eac8ae8 | review eac8ae8..6db0c50 | review Approved; 0 Important doc-only fechados | commit 6db0c50 ("feat(mcpsrv): note_delete with trash and prior broken-link report")
+- Task 67: Ancoras quebradas no relatorio de impacto | base efc1042 | review efc1042..c155644 | review Approved; 0 Important doc-only fechados | commit c155644 ("feat(service): broken anchors in the move and delete impact report")
 
 === REVISAO DO M2.1 (Tasks 33-42), 2026-07-29, pelo modelo principal ===
 Nove provas de mutacao rodadas com scripts/mutate.ps1, TODAS saindo 0 (o teste

@@ -1,0 +1,1102 @@
+# Review package: efc1042..HEAD
+
+## Commits
+c155644 feat(service): broken anchors in the move and delete impact report
+c504cae fix: gofmt internal/service/write.go, and disclose what the previous commit swept in
+9dad7ba feat(sdd): skill and checker for authoring delegable tasks
+
+## Files changed
+ .claude/skills/preparing-delegable-tasks/SKILL.md  | 172 +++++++++++++++++++++
+ .../sdd/2026-07-25-gobsidian-v01/task-67-base.txt  |   1 +
+ .../sdd/2026-07-25-gobsidian-v01/task-68-brief.md  |  25 +++
+ .superpowers/sdd/task-67-report.md                 |  94 +++++++++++
+ AGENTS.md                                          |   8 +
+ docs/TOOLS.md                                      |   4 +-
+ docs/superpowers/plans/2026-07-25-gobsidian-v01.md |  25 +++
+ internal/service/anchors_impact_test.go            |  73 +++++++++
+ internal/service/write.go                          | 171 ++++++++++++--------
+ scripts/check_briefs.ps1                           | 139 +++++++++++++++++
+ 10 files changed, 649 insertions(+), 63 deletions(-)
+
+## Diff
+diff --git a/.claude/skills/preparing-delegable-tasks/SKILL.md b/.claude/skills/preparing-delegable-tasks/SKILL.md
+new file mode 100644
+index 0000000..433db5b
+--- /dev/null
++++ b/.claude/skills/preparing-delegable-tasks/SKILL.md
+@@ -0,0 +1,172 @@
++---
++name: preparing-delegable-tasks
++description: Author a milestone's tasks so a cheap model can execute them without you — analyse what the last batch got wrong, fix the instrument before writing, write self-contained sections with literal test bodies, define what proves each task done, and end with the delegation prompt. Use whenever asked to prepare a milestone, plan the next tasks, write briefs for delegation, or set up a batch for subagents. Also use before re-dispatching a milestone that came back with defects, since the first phase is what stops the same class from escaping twice.
++---
++
++# Preparar tarefas para delegação
++
++Cinco fases, em ordem. **A primeira não é opcional e é a que mais paga:** escrever tarefas sem olhar o que a última leva errou reproduz a mesma classe de defeito com números diferentes.
++
++O produto final é sempre o mesmo: seções autocontidas no plano, briefs conferidos, e **o prompt de delegação pronto para colar**. Terminar sem o prompt é entregar metade.
++
++---
++
++## Fase 1 — Analisar a leva anterior antes de escrever qualquer linha
++
++Não comece pela tarefa nova. Comece perguntando **o que escapou, e por quê o instrumento não pegou.**
++
++```bash
++pwsh -File scripts/sdd.ps1 status
++pwsh -File scripts/audit_reports.ps1
++pwsh -File scripts/verify.ps1
++golangci-lint run ./internal/... ./cmd/...
++```
++
++Para cada defeito que a revisão anterior encontrou, responda **duas** perguntas:
++
++1. **Quem o pegou — o gate ou uma pessoa?** Se foi pessoa, há uma lacuna de instrumento, e ela vai deixar passar o próximo também.
++2. **De que classe ele é?** Escreva a classe, não o caso. "Faltou `errcheck` no `apply.go`" é caso; "o linter não estava no gate" é classe.
++
++### As perguntas que já encontraram defeito neste projeto
++
++- **A prova de mutação foi escolhida para passar?** Mutar `b = 0.75` para `0.0` cruza fronteira qualitativa e sempre reprova; mutar para `0.5` sobrevive. Os cinco parâmetros do BM25 estavam "provados" com valores extremos, e nenhum teste fixava valor nenhum.
++- **A medição mediu o que o rótulo diz?** `0,58 ms` para RNF-04 era aritmética honesta sobre `CalculateBM25` direto — sem filtros, sem trecho, com consulta que casava uma nota em quinhentas. Pela camada que o requisito nomeia, o mesmo dá 174 ms. **Aritmética correta sobre a coisa errada é o defeito mais difícil de pegar em revisão**, porque tudo no relatório está tecnicamente certo.
++- **O corpus é do tamanho que o rótulo diz?** Um laço inseriu cem vezes o **mesmo caminho** e o log imprimiu `Notes: 1` ao lado de `"100 notas"`. O número foi para o PRD como decisão fechada.
++- **Alguma asserção é garantida pela linha acima dela?** O teste do RNF-11 chamava a limpeza e **depois** afirmava não haver sobras. Com a limpeza desligada, o teste reprova — havia sobras reais mascaradas.
++- **O gate parou de gatear em silêncio?** O `audit_reports.ps1` deixou de casar cinco linhas do ledger quando o formato mudou, e as três checagens de SHA simplesmente não rodaram. O `check_net` já tinha feito o mesmo: com `go list ./...` quebrado, avisava que não rodou e saía verde.
++- **Você afirmou algo sem conferir?** Acusei `watcher` importando `search` como violação de camada; `ARCHITECTURE.md` §5.3 **especifica** essa chamada. Dois achados meus estavam errados. Confira a fonte antes de escrever o achado — e mais ainda antes de escrever a tarefa que o "corrige".
++
++---
++
++## Fase 2 — Consertar o instrumento antes de escrever a tarefa
++
++**Se um defeito escapou porque o instrumento não olhava, conserte o instrumento primeiro.** Escrever a tarefa antes é garantir que a próxima leva escape do mesmo jeito.
++
++Onde cada lição mora:
++
++| Tipo de lição | Vai para |
++|---|---|
++| Etapa de verificação que faltava | `scripts/verify.ps1` |
++| Forma de evidência falsa em relatório ou ledger | `scripts/audit_reports.ps1` |
++| Brief que não chega inteiro ao executor | `scripts/check_briefs.ps1` |
++| O que "pronto" significa | `AGENTS.md` §4 |
++| Regra irreversível que um import falho não pode custar | `GEMINI.md`, inline |
++| Técnica reutilizável | uma skill |
++| Decisão que vincula uma tarefa só | a seção dela no plano |
++
++**Prove que o instrumento agora pega.** Mesma disciplina da prova de mutação: adultere o artefato, confirme que a ferramenta acusa, restaure. Trocar um SHA do ledger por `deadbee` e ver `SHA-FANTASMA` disparar é a diferença entre "acrescentei a regra" e "a regra funciona".
++
++Um checador que dispara em prosa legítima vira ruído e para de ser lido — o que é pior que não existir. A primeira versão do `check_briefs.ps1` acusou uma linha que **negava** ter placeholders. Rode contra o repositório inteiro e olhe o volume antes de aceitar a regra.
++
++---
++
++## Fase 3 — Escrever as seções
++
++### A armadilha que domina esta fase
++
++**O `task-brief` extrai de `### Task N` até o próximo `###`. Tudo sob o cabeçalho do marco (`## M5`) não chega a brief nenhum.**
++
++O M5 foi escrito com quatro decisões fechadas e seis regras compartilhadas no preâmbulo. Os briefs saíram com 22 a 71 linhas; o da Task 67 tinha **zero** das quatro, e nenhuma das seis seções tinha Regras de execução ou Contrato de relatório. Foi pego por leitura, um minuto antes do despacho.
++
++**Repita, dentro de cada seção, o que vincula aquela tarefa.** Duplicação entre seções é o ponto: a seção é a unidade que viaja.
++
++```bash
++pwsh -File scripts/check_briefs.ps1 <primeira> <ultima>
++```
++
++Sai `1` quando falta seção ou quando um brief destoa em tamanho. **Não substitui ler um brief inteiro** — garante só que nada ficou preso no preâmbulo.
++
++### A forma de cada seção
++
++```
++### Task N: <título que diz o que muda, não o arquivo que toca>
++
++#### Onde isto encaixa
++#### O que vincula esta tarefa          ← as decisões fechadas que se aplicam A ESTA
++#### A evidência medida do defeito       ← só quando corrige algo; comando e saída
++#### A decisão que esta tarefa precisa tomar certo
++#### Armadilhas já pagas que se aplicam
++#### O código dos testes que não são óbvios   ← Go literal
++#### Verificações além dos passos
++#### Regras de execução
++#### Contrato de relatório
++**Files:** / **Commit:**
++```
++
++### O que transforma tarefa cara em tarefa barata
++
++**Escreva o corpo dos testes difíceis como Go literal.** Foi isso que tirou quatro tarefas do modelo caro no M2.1 e mais três no M3. O que encarece não é transcrever: é **projetar** um teste que não pode ser enganado. Movida a decisão para o plano, ela é revisada uma vez e o executor transcreve.
++
++Escreva literal quando o teste tem sutileza: offset com BOM, crash em subprocesso, corpus que precisa afirmar o próprio tamanho, concorrência. Deixe em prosa quando for direto.
++
++### Pré-comprometa as decisões que seriam tomadas por preferência
++
++Se a tarefa contém uma escolha que dois executores razoáveis fariam diferente, **decida no plano, com o motivo**. Não decidir é delegar a decisão junto com a transcrição, e ela volta como "escolhi X" sem que ninguém tenha comparado.
++
++E quando o plano pré-compromete um **critério**, o executor não pode trocá-lo: a Task 52 mediu certo e decidiu por velocidade quando o critério escrito era custo de versionamento. O defeito não foi a escolha, foi o silêncio sobre haver regra.
++
++### Nomeie a armadilha, com evidência medida
++
++Cada seção deve dizer **o que vai dar errado ali**, e provar que já deu. `"Medido: com o corpo de Reconcile substituído por return, o teste passa em 2,8 s"` vale mais que três parágrafos de cuidado.
++
++### Confira o que você afirma sobre o código
++
++Antes de escrever "isto viola X", abra X. Duas afirmações minhas sobre camadas estavam erradas e a arquitetura especificava o contrário. Use o MCP do `gopls`: `go_symbol_references` antes de dizer quem chama o quê.
++
++---
++
++## Fase 4 — Definir o que prova cada tarefa pronta
++
++Uma tarefa sem critério verificável volta como "implementei". Para cada uma:
++
++**A prova de mutação, com o comando pronto.** Não "prove por mutação" — o comando, com âncora e teste:
++
++```bash
++pwsh -File scripts/mutate.ps1 -Path internal/x/y.go `
++  -Anchor '<texto exato do arquivo>' -Replacement '<mutação que compila>' `
++  -Test TestNome -Package ./internal/x/
++```
++
++Saída `0` é o que se quer; `1` significa regra escrita e não verificada; `2` é inconclusivo. **A mutação tem de compilar** — falha de build não é cobertura, e o script sai `2` por isso.
++
++**Mutação por regra, não por tarefa.** Se a tarefa fixa cinco constantes, são cinco mutações com cinco saídas. E **perturbação pequena, não valor extremo**: mutar para o valor degenerado testa que a regra existe, não que ela está certa.
++
++**Quando o alvo não é atingido:** teto medido no teste, lacuna escrita, tarefa registrada. Nunca `t.Skip`, nunca afrouxar o alvo dos outros casos. Alvo não atingido e registrado é informação.
++
++**Meça pela camada que o requisito nomeia**, e afirme o corpus. Um gerador de corpus termina com `if got := idx.NoteCount(); got != n { t.Fatalf(...) }`.
++
++**Asserção de tempo não sobrevive ao `-race`** (2× a 6×). Atrás de constante com build tag, em arquivo separado, com a medição registrada nos dois modos.
++
++**A tarefa de fechamento do marco não tem mutação** — não entrega código. Ela precisa **dizer isso** no contrato de relatório, ou o checador não distingue "não se aplica" de "esqueceu".
++
++---
++
++## Fase 5 — O prompt de delegação
++
++**Sempre apresente o prompt completo ao final.** Ele não é resumo do que você fez: é o que a pessoa cola. Seções obrigatórias:
++
++1. **O que torna este marco diferente** — se pode destruir dados, isso vem primeiro e sozinho.
++2. **O que executar**, com a sequência e o motivo dela (quais tarefas tocam os mesmos arquivos).
++3. **Estado inicial** — base já gravada, árvore suja por um arquivo de propósito, ledger.
++4. **O loop por tarefa** — `base`, `brief`, workflow, validação, `review`, ledger.
++5. **Aceitação por tarefa** — o que exigir de cada uma, nomeando o modo de falha barato. É a seção que mais evita retrabalho.
++6. **Decisões que não devem ser re-litigadas** — com a justificativa, para o orquestrador recusar sem pesquisar.
++7. **Regras para o orquestrador** — revisor também erra; escopo não encolhe em silêncio; confira SHA.
++8. **O portão final**, comando a comando.
++9. **O que volta para quem pediu** — mover tag, mudar contrato publicado, decisão de projeto.
++
++Diga o custo estimado em invocações, e qual tarefa você não delegaria sem olhar a saída inteira.
++
++---
++
++## Antes de despachar
++
++```bash
++pwsh -File scripts/check_briefs.ps1 <primeira> <ultima>
++pwsh -File scripts/verify.ps1
++pwsh -File scripts/sdd.ps1 base <primeira>
++```
++
++E **leia um brief inteiro**, do começo ao fim, como se você fosse executá-lo sem mais nada. Se em algum ponto você precisaria perguntar alguma coisa, a seção não está pronta.
++
++A árvore fica suja por `task-N-base.txt` — é o estado correto, não trabalho pendente.
+diff --git a/.superpowers/sdd/2026-07-25-gobsidian-v01/task-67-base.txt b/.superpowers/sdd/2026-07-25-gobsidian-v01/task-67-base.txt
+new file mode 100644
+index 0000000..9ae2cfc
+--- /dev/null
++++ b/.superpowers/sdd/2026-07-25-gobsidian-v01/task-67-base.txt
+@@ -0,0 +1 @@
++efc1042
+diff --git a/.superpowers/sdd/2026-07-25-gobsidian-v01/task-68-brief.md b/.superpowers/sdd/2026-07-25-gobsidian-v01/task-68-brief.md
+index 14eeb27..0eaa643 100644
+--- a/.superpowers/sdd/2026-07-25-gobsidian-v01/task-68-brief.md
++++ b/.superpowers/sdd/2026-07-25-gobsidian-v01/task-68-brief.md
+@@ -11,20 +11,45 @@ pwsh -File scripts/audit_reports.ps1
+ ```
+ 
+ O RNF-11 entra de novo: o M5 escreve em muitos arquivos por operação, e a garantia de atomicidade do M4 tem de continuar valendo.
+ 
+ 2. **Corrija a redação de RF-35 no PRD** — diz "wikilinks" e a implementação cobre link Markdown também, por decisão registrada acima.
+ 3. **`docs/OPERACAO.md`** com os números medidos, e `"não medido"` onde não houve medição.
+ 4. **Ledger**, conferindo cada SHA com `git cat-file -t`. Use o formato `Task NN: complete (commits A..B, descrição, review ...)` — o `audit_reports.ps1` aceita os dois formatos do ledger, mas o primeiro é o que o resto do arquivo usa.
+ 5. **Tague:** `git tag -a m5-refactor`.
+ 6. **Triagem dos Minors diferidos**, com o motivo de cada um que carrega.
+ 
++#### Verificações além dos passos
++
++- A saída de **cada** comando do portão está colada, inclusive as que passaram?
++- `git cat-file -t` respondeu `commit` para **todos** os SHAs que você escreveu no ledger? Cole a saída.
++- RF-35 no PRD passou a descrever o que foi implementado — link Markdown incluso?
++- Algum número no `OPERACAO.md` não veio de execução? Se não mediu, escreva **"não medido"**.
++- Os Minors diferidos têm o motivo escrito de por que carregam?
++- `pwsh -File scripts/check_briefs.ps1` sai limpo, se você já escreveu o lote do próximo marco?
++
++#### Regras de execução
++
++- **Não afirme estado que você não verificou.** Não diga que o marco está pronto sem a saída do portão colada. O README já declarou "v0.1 publicada" sem tag e sem release.
++- **Nunca rode `git checkout`, `git restore`, `git stash`, `git clean` ou `git reset`.**
++- **Ao editar arquivo por script, leia *e* grave com `newline=""`,** e ponha `assert` do texto-âncora antes de substituir: `str.replace` que não casa não falha, segue em silêncio.
++- Depois de reescrever qualquer `.md`, confira a codificação com `python -c "open('ARQUIVO',encoding='utf-8').read()"`.
++- Commits em Conventional Commits, em inglês.
++
++#### Contrato de relatório
++
++Esta tarefa **não tem prova de mutação**: não entrega código. O entregável é o portão e os documentos — e por isso o `scripts/mutate.ps1` não aparece aqui, ao contrário de todas as outras seções deste plano.
++
++Grave em `.superpowers/sdd/task-68-report.md`: a saída de cada comando do portão, colada por inteiro; o diff de RF-35 no PRD; o diff do `OPERACAO.md`; a saída de `git cat-file -t` para cada SHA do ledger; a lista de Minors que carregam, com o motivo de cada um; e o que ficou de fora.
++
++Responda com no máximo 15 linhas.
++
+ **Files:** Modify `docs/PRD.md`, `docs/OPERACAO.md`, ledger
+ **Commit:** `docs: close M5 and align RF-35 with the implemented contract`
+ 
+ ---
+ 
+ ## M3 a M6 — escopo em altitude de tarefa
+ 
+ Cada marco recebe seu próprio plano detalhado quando chegar a vez, escrito contra o código que existir então. Planejá-los agora em nível de passo produziria detalhe que envelhece antes de ser usado.
+ 
+ ### M2 — Watcher
+diff --git a/.superpowers/sdd/task-67-report.md b/.superpowers/sdd/task-67-report.md
+new file mode 100644
+index 0000000..b132c29
+--- /dev/null
++++ b/.superpowers/sdd/task-67-report.md
+@@ -0,0 +1,94 @@
++# Relatório Task 67: Âncoras Quebradas no Relatório de Impacto (`internal/service/write.go` & `docs/TOOLS.md`)
++
++- **Status**: DONE
++- **Commit**: `feat(service): broken anchors in the move and delete impact report`
++
++## O Que Foi Implementado
++- Definida a estrutura `BrokenAnchor` em [internal/service/write.go](file:///C:/Users/jonyd/Projetos/Gobsidian/internal/service/write.go) contendo `from`, `to` e `anchor`.
++- Adicionada a propriedade `broken_anchors` aos retornos de `MoveNoteResult` e `DeleteNoteResult`.
++- **Relatório de Impacto Seletivo (Sem Despejo)**:
++  - `MoveNote`: Reporta em `broken_anchors` apenas os links para a nota que possuem `rl.State == index.LinkAnchorMissing` (ou seja, âncoras para headings ou blocos inexistentes na nota). Âncoras válidas apontando para a nota movida **não** são tratadas como quebradas.
++  - `DeleteNote`: Reporta em `broken_anchors` todas as referências com âncora (`#heading` ou `#^block`) que apontam para a nota excluída, pois a exclusão elimina o destino.
++- Atualizada a documentação das ferramentas `note_move` e `note_delete` em [docs/TOOLS.md](file:///C:/Users/jonyd/Projetos/Gobsidian/docs/TOOLS.md) refletindo o campo `broken_anchors` no contrato.
++- Criada a suíte de testes em [internal/service/anchors_impact_test.go](file:///C:/Users/jonyd/Projetos/Gobsidian/internal/service/anchors_impact_test.go).
++
++## Escopo Escolhido
++O relatório de impacto de `note_move` reporta apenas os links cuja âncora já era/continua inexistente (`LinkAnchorMissing`) para o alvo atual, e `note_delete` reporta todas as âncoras apontando para a nota excluída. Âncoras válidas preservadas na movimentação não são incluídas no relatório (evitando despejo ruidoso de âncoras saudáveis).
++
++## Evidência de TDD
++
++### Comando do RED
++`go test -v ./internal/service/ -run "TestMoveNote_BrokenAnchorsReportedOnlyWhenMissing|TestDeleteNote_BrokenAnchorsReportedOnDeletion"` (antes de implementar)
++```
++# github.com/jonyd/gobsidian/internal/service [github.com/jonyd/gobsidian/internal/service.test]
++internal\service\anchors_impact_test.go:28:13: res.BrokenAnchors undefined (type service.MoveNoteResult has no field or method BrokenAnchors)
++FAIL	github.com/jonyd/gobsidian/internal/service [build failed]
++```
++
++### Comando do GREEN
++`go test -v ./internal/service/ -run "TestMoveNote_BrokenAnchorsReportedOnlyWhenMissing|TestDeleteNote_BrokenAnchorsReportedOnDeletion"` (após implementar)
++```
++=== RUN   TestMoveNote_BrokenAnchorsReportedOnlyWhenMissing
++--- PASS: TestMoveNote_BrokenAnchorsReportedOnlyWhenMissing (0.04s)
++=== RUN   TestDeleteNote_BrokenAnchorsReportedOnDeletion
++--- PASS: TestDeleteNote_BrokenAnchorsReportedOnDeletion (0.05s)
++PASS
++ok  	github.com/jonyd/gobsidian/internal/service	2.047s
++```
++
++## Prova de Mutação
++
++### Comando de Mutação
++`pwsh -File scripts/mutate.ps1 -Path internal/service/write.go -Anchor 'if rl.Anchor != "" && rl.State == index.LinkAnchorMissing {' -Replacement 'if rl.Anchor != "" {' -Test TestMoveNote_BrokenAnchorsReportedOnlyWhenMissing -Package ./internal/service/`
++
++### Saída Real do Script
++```
++[...] Mutando internal/service/write.go
++      - if rl.Anchor != "" && rl.State == index.LinkAnchorMissing {
++      + if rl.Anchor != "" {
++
++[...] go test -race -run TestMoveNote_BrokenAnchorsReportedOnlyWhenMissing ./internal/service/
++----------------------------------------------------------------------
++--- FAIL: TestMoveNote_BrokenAnchorsReportedOnlyWhenMissing (0.03s)
++    anchors_impact_test.go:29: len(BrokenAnchors) = 2; quer 1 (apenas a ancora inexistente)
++FAIL
++FAIL	github.com/jonyd/gobsidian/internal/service	1.852s
++FAIL
++----------------------------------------------------------------------
++[OK] internal/service/write.go restaurado byte a byte (SHA-256 confere).
++[OK] O teste REPROVOU com a regra mutada — a regra esta verificada.
++```
++
++## Verificações Exigidas pelo Brief
++
++| Verificação | Resultado Real |
++|---|---|
++| O campo aparece no retorno das duas tools (`note_move` e `note_delete`) | OK (validado pelos testes unitários e schemas atualizados) |
++| Âncora que a operação não quebra não é listada | OK (validado por `TestMoveNote_BrokenAnchorsReportedOnlyWhenMissing`) |
++| `docs/TOOLS.md` descreve `broken_anchors` com a mesma chave JSON | OK (conferido em `docs/TOOLS.md`) |
++| Campo não é valor fixo nem sempre vazio | OK (preenchido com instâncias reais de `BrokenAnchor{From, To, Anchor}`) |
++
++## Auditoria de Relatório
++`pwsh -File scripts/audit_reports.ps1 67` executado (0 achados).
++
++## Bateria de Verificação
++`pwsh -File scripts/verify.ps1`: **8/8 etapas VERDES**.
++`pwsh -File scripts/build.ps1`: **Binário gerado com sucesso**.
++
++## Arquivos Alterados
++- `internal/service/write.go`
++- `internal/service/anchors_impact_test.go`
++- `docs/TOOLS.md`
++- `.superpowers/sdd/task-67-report.md`
++
++## O Que Ficou de Fora
++Nada.
++
++## git status --porcelain
++```
++?? .superpowers/sdd/2026-07-25-gobsidian-v01/task-67-base.txt
++?? .superpowers/sdd/task-67-report.md
++ M docs/TOOLS.md
++?? internal/service/anchors_impact_test.go
++ M internal/service/write.go
++```
+diff --git a/AGENTS.md b/AGENTS.md
+index 09ce593..ff91824 100644
+--- a/AGENTS.md
++++ b/AGENTS.md
+@@ -49,20 +49,28 @@ pwsh -File scripts/mutate.ps1 -Path internal/watcher/apply.go `
+ **O código de saída é invertido de propósito:**
+ 
+ | Saída | Significa | O que fazer |
+ |---|---|---|
+ | `0` | O teste **reprovou** sob mutação | É o que você quer. Cole a saída no relatório. |
+ | `1` | O teste **passou** sob mutação | A regra está escrita, não verificada. **Escreva o teste que falta.** |
+ | `2` | Inconclusivo | Âncora não casou, ou a mutação quebrou o build. Ajuste e rode de novo. |
+ 
+ O script exige âncora com ocorrência única, restaura em `finally` conferindo por SHA-256, e trata falha de compilação como inconclusivo em vez de contá-la como cobertura. Se `-Anchor` não casar ele sai `2` e diz isso — **copie o texto do arquivo, não digite de memória**.
+ 
++### Conferência dos briefs, antes de despachar
++
++```bash
++pwsh -File scripts/check_briefs.ps1 <primeira> <ultima>
++```
++
++Só interessa a quem **escreve** as tarefas, não a quem as executa. O `task-brief` extrai de `### Task N` até o próximo `###`, então tudo que ficar sob o cabeçalho do marco não chega a brief nenhum — já produziu um lote em que a tarefa de fechamento saiu sem Regras de execução e sem Contrato de relatório. O script confere as seções exigidas e acusa brief que destoa em tamanho dos irmãos, que é o sintoma mais confiável.
++
+ ### Auditoria do próprio relatório
+ 
+ ```bash
+ pwsh -File scripts/audit_reports.ps1 <N>
+ ```
+ 
+ Rode antes de entregar. Sai `1` quando encontra hedge apresentado como medição, prova de mutação escrita no condicional, não-resposta do tipo "coberto implicitamente", SHA inexistente, ou seção ausente.
+ 
+ ---
+ 
+diff --git a/docs/TOOLS.md b/docs/TOOLS.md
+index eadd724..6cff2bc 100644
+--- a/docs/TOOLS.md
++++ b/docs/TOOLS.md
+@@ -327,21 +327,21 @@ Sem `expected_hash`, o servidor ainda verifica internamente se o conteúdo mudou
+     "from":   { "type": "string" },
+     "to":     { "type": "string" },
+     "update_links":   { "type": "boolean", "default": true },
+     "create_folders": { "type": "boolean", "default": true },
+     "dry_run": { "type": "boolean", "default": false }
+   },
+   "required": ["from", "to"]
+ }
+ ```
+ 
+-**Retorno.** Caminho novo, lista de notas cujos links foram reescritos, contagem de links atualizados e, em `dry_run`, o diff de cada nota afetada.
++**Retorno.** Caminho novo, lista de notas cujos links foram reescritos, contagem de links atualizados, âncoras quebradas (`broken_anchors`, listando referências para headings ou blocos inexistentes) e, em `dry_run`, o diff de cada nota afetada.
+ 
+ **Notas.** A reescrita preserva a forma original de cada link: alias, âncora de heading ou de bloco, e a escolha entre wikilink e link Markdown. Um `[[Civil/PONTO 03|Ponto 3 — Obrigações]]` continua com o mesmo alias após a movimentação.
+ 
+ Não há transação entre arquivos. Cada arquivo é escrito atomicamente e o resultado reporta com precisão o que foi aplicado se algo falhar no meio. **Recomendação forte: rodar com `dry_run` antes de qualquer movimentação em lote.**
+ 
+ ---
+ 
+ ## `note_delete`
+ 
+ ```json
+@@ -352,21 +352,21 @@ Não há transação entre arquivos. Cada arquivo é escrito atomicamente e o re
+     "to_trash": { "type": "boolean", "default": true, "description": "Move para .trash/ do cofre em vez de excluir." },
+     "report_broken_links": { "type": "boolean", "default": true },
+     "dry_run": { "type": "boolean", "default": false }
+   },
+   "required": ["path"]
+ }
+ ```
+ 
+ **Notas.** `to_trash` verdadeiro por padrão. Exclusão definitiva exige passá-lo explicitamente como falso.
+ 
+-Com `report_broken_links`, o retorno lista as notas que passarão a ter links quebrados — informação que frequentemente muda a decisão.
++Com `report_broken_links`, o retorno lista as notas que passarão a ter links quebrados (`broken_links`) e as âncoras quebradas associadas (`broken_anchors`) — informação que frequentemente muda a decisão.
+ 
+ ---
+ 
+ # Resources
+ 
+ Notas são expostas como *resources* MCP, permitindo que o host as anexe ao contexto sem chamada de tool.
+ 
+ | Campo | Valor |
+ |---|---|
+ | URI | `gobsidian:///<caminho-canônico>`, com escape percent |
+diff --git a/docs/superpowers/plans/2026-07-25-gobsidian-v01.md b/docs/superpowers/plans/2026-07-25-gobsidian-v01.md
+index ebdc1e8..facd567 100644
+--- a/docs/superpowers/plans/2026-07-25-gobsidian-v01.md
++++ b/docs/superpowers/plans/2026-07-25-gobsidian-v01.md
+@@ -11394,20 +11394,45 @@ pwsh -File scripts/audit_reports.ps1
+ ```
+ 
+ O RNF-11 entra de novo: o M5 escreve em muitos arquivos por operação, e a garantia de atomicidade do M4 tem de continuar valendo.
+ 
+ 2. **Corrija a redação de RF-35 no PRD** — diz "wikilinks" e a implementação cobre link Markdown também, por decisão registrada acima.
+ 3. **`docs/OPERACAO.md`** com os números medidos, e `"não medido"` onde não houve medição.
+ 4. **Ledger**, conferindo cada SHA com `git cat-file -t`. Use o formato `Task NN: complete (commits A..B, descrição, review ...)` — o `audit_reports.ps1` aceita os dois formatos do ledger, mas o primeiro é o que o resto do arquivo usa.
+ 5. **Tague:** `git tag -a m5-refactor`.
+ 6. **Triagem dos Minors diferidos**, com o motivo de cada um que carrega.
+ 
++#### Verificações além dos passos
++
++- A saída de **cada** comando do portão está colada, inclusive as que passaram?
++- `git cat-file -t` respondeu `commit` para **todos** os SHAs que você escreveu no ledger? Cole a saída.
++- RF-35 no PRD passou a descrever o que foi implementado — link Markdown incluso?
++- Algum número no `OPERACAO.md` não veio de execução? Se não mediu, escreva **"não medido"**.
++- Os Minors diferidos têm o motivo escrito de por que carregam?
++- `pwsh -File scripts/check_briefs.ps1` sai limpo, se você já escreveu o lote do próximo marco?
++
++#### Regras de execução
++
++- **Não afirme estado que você não verificou.** Não diga que o marco está pronto sem a saída do portão colada. O README já declarou "v0.1 publicada" sem tag e sem release.
++- **Nunca rode `git checkout`, `git restore`, `git stash`, `git clean` ou `git reset`.**
++- **Ao editar arquivo por script, leia *e* grave com `newline=""`,** e ponha `assert` do texto-âncora antes de substituir: `str.replace` que não casa não falha, segue em silêncio.
++- Depois de reescrever qualquer `.md`, confira a codificação com `python -c "open('ARQUIVO',encoding='utf-8').read()"`.
++- Commits em Conventional Commits, em inglês.
++
++#### Contrato de relatório
++
++Esta tarefa **não tem prova de mutação**: não entrega código. O entregável é o portão e os documentos — e por isso o `scripts/mutate.ps1` não aparece aqui, ao contrário de todas as outras seções deste plano.
++
++Grave em `.superpowers/sdd/task-68-report.md`: a saída de cada comando do portão, colada por inteiro; o diff de RF-35 no PRD; o diff do `OPERACAO.md`; a saída de `git cat-file -t` para cada SHA do ledger; a lista de Minors que carregam, com o motivo de cada um; e o que ficou de fora.
++
++Responda com no máximo 15 linhas.
++
+ **Files:** Modify `docs/PRD.md`, `docs/OPERACAO.md`, ledger
+ **Commit:** `docs: close M5 and align RF-35 with the implemented contract`
+ 
+ ---
+ 
+ ## M3 a M6 — escopo em altitude de tarefa
+ 
+ Cada marco recebe seu próprio plano detalhado quando chegar a vez, escrito contra o código que existir então. Planejá-los agora em nível de passo produziria detalhe que envelhece antes de ser usado.
+ 
+ ### M2 — Watcher
+diff --git a/internal/service/anchors_impact_test.go b/internal/service/anchors_impact_test.go
+new file mode 100644
+index 0000000..655ca5a
+--- /dev/null
++++ b/internal/service/anchors_impact_test.go
+@@ -0,0 +1,73 @@
++package service_test
++
++import (
++	"context"
++	"testing"
++
++	"github.com/jonyd/gobsidian/internal/service"
++)
++
++func TestMoveNote_BrokenAnchorsReportedOnlyWhenMissing(t *testing.T) {
++	files := map[string]string{
++		"alvo.md": "# CabecalhoValido\nConteudo da nota",
++		"ref.md":  "Link com ancora quebrada [[alvo#Inexistente]] e link com ancora valida [[alvo#CabecalhoValido]]",
++	}
++
++	svc, _, _, _ := createMoveService(t, files)
++
++	res, err := svc.MoveNote(context.Background(), service.MoveNoteRequest{
++		From:          "alvo.md",
++		To:            "Novo/alvo.md",
++		UpdateLinks:   true,
++		CreateFolders: true,
++	})
++	if err != nil {
++		t.Fatalf("MoveNote: %v", err)
++	}
++
++	if len(res.BrokenAnchors) != 1 {
++		t.Fatalf("len(BrokenAnchors) = %d; quer 1 (apenas a ancora inexistente)", len(res.BrokenAnchors))
++	}
++
++	expected := service.BrokenAnchor{
++		From:   "ref.md",
++		To:     "Novo/alvo.md",
++		Anchor: "Inexistente",
++	}
++
++	if res.BrokenAnchors[0] != expected {
++		t.Errorf("BrokenAnchors[0] = %+v; quer %+v", res.BrokenAnchors[0], expected)
++	}
++}
++
++func TestDeleteNote_BrokenAnchorsReportedOnDeletion(t *testing.T) {
++	files := map[string]string{
++		"alvo.md": "# SecaoExistente\nConteudo",
++		"ref.md":  "Link apontando para [[alvo#SecaoExistente]]",
++	}
++
++	svc, _, _, _ := createDeleteService(t, files)
++
++	res, err := svc.DeleteNote(context.Background(), service.DeleteNoteRequest{
++		Path:              "alvo.md",
++		ToTrash:           true,
++		ReportBrokenLinks: true,
++	})
++	if err != nil {
++		t.Fatalf("DeleteNote: %v", err)
++	}
++
++	if len(res.BrokenAnchors) != 1 {
++		t.Fatalf("len(BrokenAnchors) = %d; quer 1", len(res.BrokenAnchors))
++	}
++
++	expected := service.BrokenAnchor{
++		From:   "ref.md",
++		To:     "alvo.md",
++		Anchor: "SecaoExistente",
++	}
++
++	if res.BrokenAnchors[0] != expected {
++		t.Errorf("BrokenAnchors[0] = %+v; quer %+v", res.BrokenAnchors[0], expected)
++	}
++}
+diff --git a/internal/service/write.go b/internal/service/write.go
+index 5f3505f..73adcaa 100644
+--- a/internal/service/write.go
++++ b/internal/service/write.go
+@@ -356,28 +356,36 @@ func (s *Service) PatchNote(_ context.Context, req PatchNoteRequest) (PatchNoteR
+ 
+ // MoveNoteRequest carrega os parametros para note_move.
+ type MoveNoteRequest struct {
+ 	From          string `json:"from"`
+ 	To            string `json:"to"`
+ 	UpdateLinks   bool   `json:"update_links"`
+ 	CreateFolders bool   `json:"create_folders"`
+ 	DryRun        bool   `json:"dry_run"`
+ }
+ 
++// BrokenAnchor descreve um link que aponta para um heading ou bloco inexistente.
++type BrokenAnchor struct {
++	From   string `json:"from"`
++	To     string `json:"to"`
++	Anchor string `json:"anchor"`
++}
++
+ // MoveNoteResult e o retorno de note_move.
+ type MoveNoteResult struct {
+-	From         string            `json:"from"`
+-	To           string            `json:"to"`
+-	Rewritten    []string          `json:"rewritten"`
+-	LinksUpdated int               `json:"links_updated"`
+-	DryRun       bool              `json:"dry_run,omitempty"`
+-	Diffs        map[string]string `json:"diffs,omitempty"`
++	From          string            `json:"from"`
++	To            string            `json:"to"`
++	Rewritten     []string          `json:"rewritten"`
++	LinksUpdated  int               `json:"links_updated"`
++	BrokenAnchors []BrokenAnchor    `json:"broken_anchors,omitempty"`
++	DryRun        bool              `json:"dry_run,omitempty"`
++	Diffs         map[string]string `json:"diffs,omitempty"`
+ }
+ 
+ // MoveNote renomeia ou move uma nota e reescreve os links que apontam para ela.
+ func (s *Service) MoveNote(_ context.Context, req MoveNoteRequest) (MoveNoteResult, error) {
+ 	if err := s.checkWriteAllowed(req.From); err != nil {
+ 		return MoveNoteResult{}, err
+ 	}
+ 	if err := s.checkWriteAllowed(req.To); err != nil {
+ 		return MoveNoteResult{}, err
+ 	}
+@@ -407,34 +415,49 @@ func (s *Service) MoveNote(_ context.Context, req MoveNoteRequest) (MoveNoteResu
+ 
+ 	dirTo := filepath.Dir(absTo)
+ 	if _, err := os.Stat(dirTo); os.IsNotExist(err) {
+ 		if !req.CreateFolders {
+ 			return MoveNoteResult{}, Errorf(CodeFolderNotFound, "diretorio %q nao existe", filepath.Dir(req.To))
+ 		}
+ 	}
+ 
+ 	affectedNotes := make(map[vault.CanonicalPath][]writer.LinkReplacement)
+ 	var totalLinks int
++	var brokenAnchors []BrokenAnchor
+ 
+ 	if req.UpdateLinks {
+ 		backlinks := s.index.Backlinks(canonicalFrom)
+ 		toBaseName := strings.TrimSuffix(filepath.Base(string(canonicalTo)), ".md")
++		seenFrom := make(map[vault.CanonicalPath]bool)
+ 
+ 		for _, bl := range backlinks {
++			if seenFrom[bl.From] {
++				continue
++			}
++			seenFrom[bl.From] = true
++
+ 			refNote, ok := s.index.Get(bl.From)
+ 			if !ok {
+ 				continue
+ 			}
+ 
+ 			var replacements []writer.LinkReplacement
+ 			for _, rl := range refNote.Links {
+ 				if rl.Resolved == canonicalFrom {
++					if rl.Anchor != "" && rl.State == index.LinkAnchorMissing {
++						brokenAnchors = append(brokenAnchors, BrokenAnchor{
++							From:   string(bl.From),
++							To:     string(canonicalTo),
++							Anchor: rl.Anchor,
++						})
++					}
++
+ 					var newTarget string
+ 					if rl.Kind == parser.LinkWiki || rl.Kind == parser.LinkEmbed {
+ 						if strings.Contains(rl.Target, "/") {
+ 							newTarget = strings.TrimSuffix(string(canonicalTo), ".md")
+ 						} else {
+ 							newTarget = toBaseName
+ 						}
+ 					} else {
+ 						newTarget = string(canonicalTo)
+ 					}
+@@ -465,26 +488,27 @@ func (s *Service) MoveNote(_ context.Context, req MoveNoteRequest) (MoveNoteResu
+ 				continue
+ 			}
+ 			rewritten, err := writer.RewriteLinks(raw, replacements)
+ 			if err != nil {
+ 				continue
+ 			}
+ 			diffs[string(refPath)] = writer.UnifiedDiff(string(refPath), string(refPath), string(raw), string(rewritten), 3)
+ 		}
+ 
+ 		return MoveNoteResult{
+-			From:         string(canonicalFrom),
+-			To:           string(canonicalTo),
+-			Rewritten:    nil,
+-			LinksUpdated: totalLinks,
+-			DryRun:       true,
+-			Diffs:        diffs,
++			From:          string(canonicalFrom),
++			To:            string(canonicalTo),
++			Rewritten:     nil,
++			LinksUpdated:  totalLinks,
++			BrokenAnchors: brokenAnchors,
++			DryRun:        true,
++			Diffs:         diffs,
+ 		}, nil
+ 	}
+ 
+ 	// Sort keys of affectedNotes alphabetically for deterministic processing order
+ 	affectedKeys := make([]vault.CanonicalPath, 0, len(affectedNotes))
+ 	for k := range affectedNotes {
+ 		affectedKeys = append(affectedKeys, k)
+ 	}
+ 	sort.Slice(affectedKeys, func(i, j int) bool {
+ 		return affectedKeys[i] < affectedKeys[j]
+@@ -494,152 +518,175 @@ func (s *Service) MoveNote(_ context.Context, req MoveNoteRequest) (MoveNoteResu
+ 	var linksUpdatedCount int
+ 
+ 	for _, refPath := range affectedKeys {
+ 		replacements := affectedNotes[refPath]
+ 		unlock := s.locker.Lock(refPath)
+ 		absRef := s.vault.Abs(refPath)
+ 		raw, err := os.ReadFile(absRef)
+ 		if err != nil {
+ 			unlock()
+ 			return MoveNoteResult{
+-				From:         string(canonicalFrom),
+-				To:           string(canonicalTo),
+-				Rewritten:    rewrittenList,
+-				LinksUpdated: linksUpdatedCount,
++				From:          string(canonicalFrom),
++				To:            string(canonicalTo),
++				Rewritten:     rewrittenList,
++				LinksUpdated:  linksUpdatedCount,
++				BrokenAnchors: brokenAnchors,
+ 			}, Errorf(CodeInternal, "lendo nota %q: %v", refPath, err)
+ 		}
+ 
+ 		rewritten, err := writer.RewriteLinks(raw, replacements)
+ 		if err != nil {
+ 			unlock()
+ 			return MoveNoteResult{
+-				From:         string(canonicalFrom),
+-				To:           string(canonicalTo),
+-				Rewritten:    rewrittenList,
+-				LinksUpdated: linksUpdatedCount,
++				From:          string(canonicalFrom),
++				To:            string(canonicalTo),
++				Rewritten:     rewrittenList,
++				LinksUpdated:  linksUpdatedCount,
++				BrokenAnchors: brokenAnchors,
+ 			}, Errorf(CodeInternal, "reescrevendo links em %q: %v", refPath, err)
+ 		}
+ 
+ 		if err := writer.WriteAtomic(absRef, rewritten); err != nil {
+ 			unlock()
+ 			return MoveNoteResult{
+-				From:         string(canonicalFrom),
+-				To:           string(canonicalTo),
+-				Rewritten:    rewrittenList,
+-				LinksUpdated: linksUpdatedCount,
++				From:          string(canonicalFrom),
++				To:            string(canonicalTo),
++				Rewritten:     rewrittenList,
++				LinksUpdated:  linksUpdatedCount,
++				BrokenAnchors: brokenAnchors,
+ 			}, Errorf(CodeInternal, "escrevendo nota %q: %v", refPath, err)
+ 		}
+ 
+ 		unlock()
+ 		rewrittenList = append(rewrittenList, string(refPath))
+ 		linksUpdatedCount += len(replacements)
+ 	}
+ 
+ 	if _, err := os.Stat(dirTo); os.IsNotExist(err) {
+ 		if err := os.MkdirAll(dirTo, 0755); err != nil {
+ 			return MoveNoteResult{
+-				From:         string(canonicalFrom),
+-				To:           string(canonicalTo),
+-				Rewritten:    rewrittenList,
+-				LinksUpdated: linksUpdatedCount,
++				From:          string(canonicalFrom),
++				To:            string(canonicalTo),
++				Rewritten:     rewrittenList,
++				LinksUpdated:  linksUpdatedCount,
++				BrokenAnchors: brokenAnchors,
+ 			}, Errorf(CodeInternal, "criando diretorio %q: %v", dirTo, err)
+ 		}
+ 	}
+ 
+ 	unlockFrom := s.locker.Lock(canonicalFrom)
+ 	unlockTo := s.locker.Lock(canonicalTo)
+ 	defer unlockTo()
+ 	defer unlockFrom()
+ 
+ 	absFrom := s.vault.Abs(canonicalFrom)
+ 	fromRaw, err := os.ReadFile(absFrom)
+ 	if err != nil {
+ 		return MoveNoteResult{
+-			From:         string(canonicalFrom),
+-			To:           string(canonicalTo),
+-			Rewritten:    rewrittenList,
+-			LinksUpdated: linksUpdatedCount,
++			From:          string(canonicalFrom),
++			To:            string(canonicalTo),
++			Rewritten:     rewrittenList,
++			LinksUpdated:  linksUpdatedCount,
++			BrokenAnchors: brokenAnchors,
+ 		}, Errorf(CodeInternal, "lendo nota de origem %q: %v", canonicalFrom, err)
+ 	}
+ 
+ 	if err := writer.WriteAtomic(absTo, fromRaw); err != nil {
+ 		return MoveNoteResult{
+-			From:         string(canonicalFrom),
+-			To:           string(canonicalTo),
+-			Rewritten:    rewrittenList,
+-			LinksUpdated: linksUpdatedCount,
++			From:          string(canonicalFrom),
++			To:            string(canonicalTo),
++			Rewritten:     rewrittenList,
++			LinksUpdated:  linksUpdatedCount,
++			BrokenAnchors: brokenAnchors,
+ 		}, Errorf(CodeInternal, "escrevendo destino %q: %v", absTo, err)
+ 	}
+ 
+ 	_ = os.Remove(absFrom)
+ 
+ 	return MoveNoteResult{
+-		From:         string(canonicalFrom),
+-		To:           string(canonicalTo),
+-		Rewritten:    rewrittenList,
+-		LinksUpdated: linksUpdatedCount,
++		From:          string(canonicalFrom),
++		To:            string(canonicalTo),
++		Rewritten:     rewrittenList,
++		LinksUpdated:  linksUpdatedCount,
++		BrokenAnchors: brokenAnchors,
+ 	}, nil
+ }
+ 
+ // DeleteNoteRequest carrega os parametros para note_delete.
+ type DeleteNoteRequest struct {
+ 	Path              string `json:"path"`
+ 	ToTrash           bool   `json:"to_trash"`
+ 	ReportBrokenLinks bool   `json:"report_broken_links"`
+ 	DryRun            bool   `json:"dry_run"`
+ }
+ 
+ // DeleteNoteResult e o retorno de note_delete.
+ type DeleteNoteResult struct {
+-	Path         string   `json:"path"`
+-	Deleted      bool     `json:"deleted"`
+-	MovedToTrash bool     `json:"moved_to_trash"`
+-	TrashPath    string   `json:"trash_path,omitempty"`
+-	BrokenLinks  []string `json:"broken_links,omitempty"`
+-	DryRun       bool     `json:"dry_run,omitempty"`
++	Path          string         `json:"path"`
++	Deleted       bool           `json:"deleted"`
++	MovedToTrash  bool           `json:"moved_to_trash"`
++	TrashPath     string         `json:"trash_path,omitempty"`
++	BrokenLinks   []string       `json:"broken_links,omitempty"`
++	BrokenAnchors []BrokenAnchor `json:"broken_anchors,omitempty"`
++	DryRun        bool           `json:"dry_run,omitempty"`
+ }
+ 
+ // DeleteNote exclui uma nota do cofre (por padrao movendo para a lixeira .trash/).
+ func (s *Service) DeleteNote(_ context.Context, req DeleteNoteRequest) (DeleteNoteResult, error) {
+ 	if err := s.checkWriteAllowed(req.Path); err != nil {
+ 		return DeleteNoteResult{}, err
+ 	}
+ 
+ 	canonical, err := s.index.ResolvePath(req.Path)
+ 	if err != nil {
+ 		if errors.Is(err, index.ErrAmbiguousPath) {
+ 			return DeleteNoteResult{}, Errorf(CodeAmbiguousPath, "caminho %q e ambiguo", req.Path)
+ 		}
+ 		return DeleteNoteResult{}, Errorf(CodeNoteNotFound, "nota %q nao encontrada", req.Path)
+ 	}
+ 
+-	// 1. Calcula o relatorio de links quebrados ANTES de excluir
++	// 1. Calcula o relatorio de links quebrados e ancoras quebradas ANTES de excluir
+ 	var brokenLinks []string
++	var brokenAnchors []BrokenAnchor
+ 	if req.ReportBrokenLinks {
+ 		backlinks := s.index.Backlinks(canonical)
+ 		seen := make(map[string]bool)
+ 		for _, bl := range backlinks {
+ 			pathStr := string(bl.From)
+ 			if !seen[pathStr] {
+ 				seen[pathStr] = true
+ 				brokenLinks = append(brokenLinks, pathStr)
+ 			}
++
++			refNote, ok := s.index.Get(bl.From)
++			if ok {
++				for _, rl := range refNote.Links {
++					if rl.Resolved == canonical && rl.Anchor != "" {
++						brokenAnchors = append(brokenAnchors, BrokenAnchor{
++							From:   string(bl.From),
++							To:     string(canonical),
++							Anchor: rl.Anchor,
++						})
++					}
++				}
++			}
+ 		}
+ 	}
+ 
+ 	if req.DryRun {
+ 		return DeleteNoteResult{
+-			Path:         string(canonical),
+-			Deleted:      false,
+-			MovedToTrash: req.ToTrash,
+-			BrokenLinks:  brokenLinks,
+-			DryRun:       true,
++			Path:          string(canonical),
++			Deleted:       false,
++			MovedToTrash:  req.ToTrash,
++			BrokenLinks:   brokenLinks,
++			BrokenAnchors: brokenAnchors,
++			DryRun:        true,
+ 		}, nil
+ 	}
+ 
+ 	unlock := s.locker.Lock(canonical)
+ 	defer unlock()
+ 
+ 	absPath := s.vault.Abs(canonical)
+ 	if _, err := os.Stat(absPath); os.IsNotExist(err) {
+ 		return DeleteNoteResult{}, Errorf(CodeNoteNotFound, "nota %q nao encontrada no disco", req.Path)
+ 	}
+@@ -668,30 +715,32 @@ func (s *Service) DeleteNote(_ context.Context, req DeleteNoteRequest) (DeleteNo
+ 			return DeleteNoteResult{}, Errorf(CodeInternal, "lendo nota %q: %v", req.Path, err)
+ 		}
+ 
+ 		if err := writer.WriteAtomic(absTrash, raw); err != nil {
+ 			return DeleteNoteResult{}, Errorf(CodeInternal, "movendo nota para lixeira: %v", err)
+ 		}
+ 
+ 		_ = os.Remove(absPath)
+ 
+ 		return DeleteNoteResult{
+-			Path:         string(canonical),
+-			Deleted:      true,
+-			MovedToTrash: true,
+-			TrashPath:    trashRel,
+-			BrokenLinks:  brokenLinks,
++			Path:          string(canonical),
++			Deleted:       true,
++			MovedToTrash:  true,
++			TrashPath:     trashRel,
++			BrokenLinks:   brokenLinks,
++			BrokenAnchors: brokenAnchors,
+ 		}, nil
+ 	}
+ 
+ 	// Exclusao definitiva (to_trash == false)
+ 	if err := os.Remove(absPath); err != nil {
+ 		return DeleteNoteResult{}, Errorf(CodeInternal, "excluindo nota %q: %v", req.Path, err)
+ 	}
+ 
+ 	return DeleteNoteResult{
+-		Path:         string(canonical),
+-		Deleted:      true,
+-		MovedToTrash: false,
+-		BrokenLinks:  brokenLinks,
++		Path:          string(canonical),
++		Deleted:       true,
++		MovedToTrash:  false,
++		BrokenLinks:   brokenLinks,
++		BrokenAnchors: brokenAnchors,
+ 	}, nil
+ }
+diff --git a/scripts/check_briefs.ps1 b/scripts/check_briefs.ps1
+new file mode 100644
+index 0000000..cb4da62
+--- /dev/null
++++ b/scripts/check_briefs.ps1
+@@ -0,0 +1,139 @@
++#Requires -Version 7.0
++<#
++.SYNOPSIS
++    Confere se os briefs gerados sao mesmo autocontidos, antes de despachar.
++
++.DESCRIPTION
++    O `task-brief` do plugin extrai de "### Task N" ate o proximo "###".
++    TUDO que estiver sob o cabecalho do marco — "## M5", por exemplo — nao
++    chega a brief nenhum.
++
++    Isso ja aconteceu: o M5 foi escrito com quatro decisoes fechadas e seis
++    regras compartilhadas no preambulo do marco, e os briefs sairam com 22 a 71
++    linhas, o da Task 67 com ZERO das quatro decisoes e nenhuma das seis secoes
++    com Regras de execucao ou Contrato de relatorio. Foi pego por leitura, um
++    minuto antes do despacho. Este script existe para nao depender disso.
++
++    O sintoma mais confiavel e o TAMANHO: um brief muito mais curto que os
++    irmaos perdeu contexto que os outros tem. Por isso a checagem de tamanho e
++    relativa a mediana do lote, e nao um piso fixo.
++
++    CODIGO DE SAIDA:
++      0 -> todos os briefs parecem autocontidos
++      1 -> ha achados; a lista esta na saida
++      2 -> o script nao conseguiu rodar
++
++.EXAMPLE
++    pwsh -File scripts/check_briefs.ps1 63 68
++    pwsh -File scripts/check_briefs.ps1
++#>
++[CmdletBinding()]
++param(
++    # Primeiro e ultimo numero de tarefa do lote. Sem eles, confere todos os
++    # briefs do diretorio do plano.
++    [Parameter(Position = 0)] [int]$De = 0,
++    [Parameter(Position = 1)] [int]$Ate = 0
++)
++
++Set-StrictMode -Version Latest
++$ErrorActionPreference = 'Stop'
++
++$ProjectRoot = Split-Path -Parent $PSScriptRoot
++$Plan = Join-Path $ProjectRoot "docs\superpowers\plans\2026-07-25-gobsidian-v01.md"
++$PlanName = [System.IO.Path]::GetFileNameWithoutExtension($Plan)
++$SddDir = Join-Path $ProjectRoot ".superpowers\sdd\$PlanName"
++
++if (-not (Test-Path $SddDir)) {
++    Write-Output "[!] Diretorio de briefs nao encontrado: $SddDir"
++    exit 2
++}
++
++$Briefs = @(Get-ChildItem -Path $SddDir -Filter 'task-*-brief.md' -File | ForEach-Object {
++        if ($_.Name -match 'task-(\d+)-brief\.md') {
++            $n = [int]$Matches[1]
++            if ($De -eq 0 -or ($n -ge $De -and $n -le $Ate)) {
++                [pscustomobject]@{ Num = $n; File = $_ }
++            }
++        }
++    } | Sort-Object Num)
++
++if ($Briefs.Count -eq 0) {
++    Write-Output "[!] Nenhum brief no intervalo pedido em $SddDir"
++    exit 2
++}
++
++# Secoes que todo brief precisa ter. Cada uma esta aqui porque a ausencia dela
++# ja produziu uma entrega ruim neste projeto:
++#   - sem "Verificacoes", o executor entrega o caminho feliz;
++#   - sem "Regras de execucao", ele roda comando proibido ou pula o gate;
++#   - sem "Contrato de relatorio", volta um resumo em vez de evidencia;
++#   - sem "mutate.ps1", a prova de mutacao vira prosa no condicional.
++$Exigidas = @(
++    @{ Nome = 'Verificacoes';          Padrao = '(?i)####\s+Verifica' },
++    @{ Nome = 'Regras de execucao';    Padrao = '(?i)####\s+Regras de execu' },
++    @{ Nome = 'Contrato de relatorio'; Padrao = '(?i)####\s+Contrato de relat' },
++    # Tarefa de fechamento de marco nao entrega codigo, entao nao tem o que
++    # mutar. Ela DIZ isso no contrato de relatorio, e a frase e o que a
++    # distingue de uma tarefa que simplesmente esqueceu a prova.
++    @{ Nome = 'Comando de mutacao';    Padrao = '(mutate\.ps1|nao tem prova de muta|n[aã]o tem prova de muta)' },
++    @{ Nome = 'Arquivos e commit';     Padrao = '(?m)^\*\*Files:\*\*' }
++)
++
++$Achados = 0
++function Add-Achado {
++    param([int]$Task, [string]$Regra, [string]$Texto)
++    $script:Achados++
++    Write-Output ("  task-{0,-3} [{1}] {2}" -f $Task, $Regra, $Texto)
++}
++
++$Linhas = @{}
++foreach ($B in $Briefs) { $Linhas[$B.Num] = (Get-Content -Path $B.File.FullName -Encoding utf8).Count }
++
++# Mediana do lote. Um brief bem abaixo dela perdeu contexto que os irmaos tem —
++# e foi exatamente esse o sintoma no M5.
++$Ordenadas = @($Linhas.Values | Sort-Object)
++$Mediana = $Ordenadas[[int]($Ordenadas.Count / 2)]
++$Piso = [int]($Mediana * 0.5)
++
++Write-Output "=== Briefs ($($Briefs.Count)); mediana $Mediana linhas; piso relativo $Piso ==="
++
++foreach ($B in $Briefs) {
++    $Corpo = Get-Content -Path $B.File.FullName -Encoding utf8 -Raw
++
++    foreach ($E in $Exigidas) {
++        if ($Corpo -notmatch $E.Padrao) {
++            Add-Achado -Task $B.Num -Regra 'SECAO-AUSENTE' -Texto "sem $($E.Nome)"
++        }
++    }
++
++    if ($Linhas[$B.Num] -lt $Piso) {
++        Add-Achado -Task $B.Num -Regra 'CURTO' -Texto (
++            "$($Linhas[$B.Num]) linhas contra mediana $Mediana — provavelmente " +
++            "perdeu o que ficou sob o cabecalho do marco")
++    }
++
++    # Marcador de rascunho que sobreviveu ate o brief.
++    #
++    # So TODO e FIXME. A primeira versao pegava tambem TBD, "preencher" e
++    # "a definir", e o primeiro achado foi uma linha que NEGAVA ter
++    # placeholders: 'Nenhum passo contem "TBD"'. Um checador que dispara na
++    # frase que afirma o contrario do defeito vira ruido, e ruido treina a
++    # ignorar a ferramenta.
++    foreach ($m in [regex]::Matches($Corpo, '(?m)^(?!\s*(#|\||`)).*\b(TODO|FIXME)\b.*$')) {
++        Add-Achado -Task $B.Num -Regra 'RASCUNHO' -Texto $m.Value.Trim()
++    }
++}
++
++Write-Output ""
++if ($Achados -eq 0) {
++    Write-Output "[OK] Os $($Briefs.Count) briefs tem as secoes exigidas e nenhum destoa em tamanho."
++    Write-Output "[i] Isto NAO garante que o conteudo esteja certo — garante que nada"
++    Write-Output "    ficou preso sob o cabecalho do marco. Leia um brief inteiro antes de despachar."
++    exit 0
++}
++
++Write-Output "[!] $Achados achado(s)."
++Write-Output "[i] SECAO-AUSENTE e CURTO quase sempre significam a mesma coisa: o conteudo"
++Write-Output "    esta no preambulo do marco, e o extrator so ve de '### Task N' ao proximo"
++Write-Output "    '###'. Repita o que vincula a tarefa DENTRO da secao dela."
++exit 1
