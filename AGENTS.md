@@ -56,6 +56,14 @@ pwsh -File scripts/mutate.ps1 -Path internal/watcher/apply.go `
 
 O script exige âncora com ocorrência única, restaura em `finally` conferindo por SHA-256, e trata falha de compilação como inconclusivo em vez de contá-la como cobertura. Se `-Anchor` não casar ele sai `2` e diz isso — **copie o texto do arquivo, não digite de memória**.
 
+### Conferência dos briefs, antes de despachar
+
+```bash
+pwsh -File scripts/check_briefs.ps1 <primeira> <ultima>
+```
+
+Só interessa a quem **escreve** as tarefas, não a quem as executa. O `task-brief` extrai de `### Task N` até o próximo `###`, então tudo que ficar sob o cabeçalho do marco não chega a brief nenhum — já produziu um lote em que a tarefa de fechamento saiu sem Regras de execução e sem Contrato de relatório. O script confere as seções exigidas e acusa brief que destoa em tamanho dos irmãos, que é o sintoma mais confiável.
+
 ### Auditoria do próprio relatório
 
 ```bash

@@ -334,7 +334,7 @@ Sem `expected_hash`, o servidor ainda verifica internamente se o conteúdo mudou
 }
 ```
 
-**Retorno.** Caminho novo, lista de notas cujos links foram reescritos, contagem de links atualizados e, em `dry_run`, o diff de cada nota afetada.
+**Retorno.** Caminho novo, lista de notas cujos links foram reescritos, contagem de links atualizados, âncoras quebradas (`broken_anchors`, listando referências para headings ou blocos inexistentes) e, em `dry_run`, o diff de cada nota afetada.
 
 **Notas.** A reescrita preserva a forma original de cada link: alias, âncora de heading ou de bloco, e a escolha entre wikilink e link Markdown. Um `[[Civil/PONTO 03|Ponto 3 — Obrigações]]` continua com o mesmo alias após a movimentação.
 
@@ -359,7 +359,7 @@ Não há transação entre arquivos. Cada arquivo é escrito atomicamente e o re
 
 **Notas.** `to_trash` verdadeiro por padrão. Exclusão definitiva exige passá-lo explicitamente como falso.
 
-Com `report_broken_links`, o retorno lista as notas que passarão a ter links quebrados — informação que frequentemente muda a decisão.
+Com `report_broken_links`, o retorno lista as notas que passarão a ter links quebrados (`broken_links`) e as âncoras quebradas associadas (`broken_anchors`) — informação que frequentemente muda a decisão.
 
 ---
 

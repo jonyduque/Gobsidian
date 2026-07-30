@@ -363,14 +363,22 @@ type MoveNoteRequest struct {
 	DryRun        bool   `json:"dry_run"`
 }
 
+// BrokenAnchor descreve um link que aponta para um heading ou bloco inexistente.
+type BrokenAnchor struct {
+	From   string `json:"from"`
+	To     string `json:"to"`
+	Anchor string `json:"anchor"`
+}
+
 // MoveNoteResult e o retorno de note_move.
 type MoveNoteResult struct {
-	From         string            `json:"from"`
-	To           string            `json:"to"`
-	Rewritten    []string          `json:"rewritten"`
-	LinksUpdated int               `json:"links_updated"`
-	DryRun       bool              `json:"dry_run,omitempty"`
-	Diffs        map[string]string `json:"diffs,omitempty"`
+	From          string            `json:"from"`
+	To            string            `json:"to"`
+	Rewritten     []string          `json:"rewritten"`
+	LinksUpdated  int               `json:"links_updated"`
+	BrokenAnchors []BrokenAnchor    `json:"broken_anchors,omitempty"`
+	DryRun        bool              `json:"dry_run,omitempty"`
+	Diffs         map[string]string `json:"diffs,omitempty"`
 }
 
 // MoveNote renomeia ou move uma nota e reescreve os links que apontam para ela.
@@ -414,12 +422,19 @@ func (s *Service) MoveNote(_ context.Context, req MoveNoteRequest) (MoveNoteResu
 
 	affectedNotes := make(map[vault.CanonicalPath][]writer.LinkReplacement)
 	var totalLinks int
+	var brokenAnchors []BrokenAnchor
 
 	if req.UpdateLinks {
 		backlinks := s.index.Backlinks(canonicalFrom)
 		toBaseName := strings.TrimSuffix(filepath.Base(string(canonicalTo)), ".md")
+		seenFrom := make(map[vault.CanonicalPath]bool)
 
 		for _, bl := range backlinks {
+			if seenFrom[bl.From] {
+				continue
+			}
+			seenFrom[bl.From] = true
+
 			refNote, ok := s.index.Get(bl.From)
 			if !ok {
 				continue
@@ -428,6 +443,14 @@ func (s *Service) MoveNote(_ context.Context, req MoveNoteRequest) (MoveNoteResu
 			var replacements []writer.LinkReplacement
 			for _, rl := range refNote.Links {
 				if rl.Resolved == canonicalFrom {
+					if rl.Anchor != "" && rl.State == index.LinkAnchorMissing {
+						brokenAnchors = append(brokenAnchors, BrokenAnchor{
+							From:   string(bl.From),
+							To:     string(canonicalTo),
+							Anchor: rl.Anchor,
+						})
+					}
+
 					var newTarget string
 					if rl.Kind == parser.LinkWiki || rl.Kind == parser.LinkEmbed {
 						if strings.Contains(rl.Target, "/") {
@@ -472,12 +495,13 @@ func (s *Service) MoveNote(_ context.Context, req MoveNoteRequest) (MoveNoteResu
 		}
 
 		return MoveNoteResult{
-			From:         string(canonicalFrom),
-			To:           string(canonicalTo),
-			Rewritten:    nil,
-			LinksUpdated: totalLinks,
-			DryRun:       true,
-			Diffs:        diffs,
+			From:          string(canonicalFrom),
+			To:            string(canonicalTo),
+			Rewritten:     nil,
+			LinksUpdated:  totalLinks,
+			BrokenAnchors: brokenAnchors,
+			DryRun:        true,
+			Diffs:         diffs,
 		}, nil
 	}
 
@@ -501,10 +525,11 @@ func (s *Service) MoveNote(_ context.Context, req MoveNoteRequest) (MoveNoteResu
 		if err != nil {
 			unlock()
 			return MoveNoteResult{
-				From:         string(canonicalFrom),
-				To:           string(canonicalTo),
-				Rewritten:    rewrittenList,
-				LinksUpdated: linksUpdatedCount,
+				From:          string(canonicalFrom),
+				To:            string(canonicalTo),
+				Rewritten:     rewrittenList,
+				LinksUpdated:  linksUpdatedCount,
+				BrokenAnchors: brokenAnchors,
 			}, Errorf(CodeInternal, "lendo nota %q: %v", refPath, err)
 		}
 
@@ -512,20 +537,22 @@ func (s *Service) MoveNote(_ context.Context, req MoveNoteRequest) (MoveNoteResu
 		if err != nil {
 			unlock()
 			return MoveNoteResult{
-				From:         string(canonicalFrom),
-				To:           string(canonicalTo),
-				Rewritten:    rewrittenList,
-				LinksUpdated: linksUpdatedCount,
+				From:          string(canonicalFrom),
+				To:            string(canonicalTo),
+				Rewritten:     rewrittenList,
+				LinksUpdated:  linksUpdatedCount,
+				BrokenAnchors: brokenAnchors,
 			}, Errorf(CodeInternal, "reescrevendo links em %q: %v", refPath, err)
 		}
 
 		if err := writer.WriteAtomic(absRef, rewritten); err != nil {
 			unlock()
 			return MoveNoteResult{
-				From:         string(canonicalFrom),
-				To:           string(canonicalTo),
-				Rewritten:    rewrittenList,
-				LinksUpdated: linksUpdatedCount,
+				From:          string(canonicalFrom),
+				To:            string(canonicalTo),
+				Rewritten:     rewrittenList,
+				LinksUpdated:  linksUpdatedCount,
+				BrokenAnchors: brokenAnchors,
 			}, Errorf(CodeInternal, "escrevendo nota %q: %v", refPath, err)
 		}
 
@@ -537,10 +564,11 @@ func (s *Service) MoveNote(_ context.Context, req MoveNoteRequest) (MoveNoteResu
 	if _, err := os.Stat(dirTo); os.IsNotExist(err) {
 		if err := os.MkdirAll(dirTo, 0755); err != nil {
 			return MoveNoteResult{
-				From:         string(canonicalFrom),
-				To:           string(canonicalTo),
-				Rewritten:    rewrittenList,
-				LinksUpdated: linksUpdatedCount,
+				From:          string(canonicalFrom),
+				To:            string(canonicalTo),
+				Rewritten:     rewrittenList,
+				LinksUpdated:  linksUpdatedCount,
+				BrokenAnchors: brokenAnchors,
 			}, Errorf(CodeInternal, "criando diretorio %q: %v", dirTo, err)
 		}
 	}
@@ -554,29 +582,32 @@ func (s *Service) MoveNote(_ context.Context, req MoveNoteRequest) (MoveNoteResu
 	fromRaw, err := os.ReadFile(absFrom)
 	if err != nil {
 		return MoveNoteResult{
-			From:         string(canonicalFrom),
-			To:           string(canonicalTo),
-			Rewritten:    rewrittenList,
-			LinksUpdated: linksUpdatedCount,
+			From:          string(canonicalFrom),
+			To:            string(canonicalTo),
+			Rewritten:     rewrittenList,
+			LinksUpdated:  linksUpdatedCount,
+			BrokenAnchors: brokenAnchors,
 		}, Errorf(CodeInternal, "lendo nota de origem %q: %v", canonicalFrom, err)
 	}
 
 	if err := writer.WriteAtomic(absTo, fromRaw); err != nil {
 		return MoveNoteResult{
-			From:         string(canonicalFrom),
-			To:           string(canonicalTo),
-			Rewritten:    rewrittenList,
-			LinksUpdated: linksUpdatedCount,
+			From:          string(canonicalFrom),
+			To:            string(canonicalTo),
+			Rewritten:     rewrittenList,
+			LinksUpdated:  linksUpdatedCount,
+			BrokenAnchors: brokenAnchors,
 		}, Errorf(CodeInternal, "escrevendo destino %q: %v", absTo, err)
 	}
 
 	_ = os.Remove(absFrom)
 
 	return MoveNoteResult{
-		From:         string(canonicalFrom),
-		To:           string(canonicalTo),
-		Rewritten:    rewrittenList,
-		LinksUpdated: linksUpdatedCount,
+		From:          string(canonicalFrom),
+		To:            string(canonicalTo),
+		Rewritten:     rewrittenList,
+		LinksUpdated:  linksUpdatedCount,
+		BrokenAnchors: brokenAnchors,
 	}, nil
 }
 
@@ -590,12 +621,13 @@ type DeleteNoteRequest struct {
 
 // DeleteNoteResult e o retorno de note_delete.
 type DeleteNoteResult struct {
-	Path         string   `json:"path"`
-	Deleted      bool     `json:"deleted"`
-	MovedToTrash bool     `json:"moved_to_trash"`
-	TrashPath    string   `json:"trash_path,omitempty"`
-	BrokenLinks  []string `json:"broken_links,omitempty"`
-	DryRun       bool     `json:"dry_run,omitempty"`
+	Path          string         `json:"path"`
+	Deleted       bool           `json:"deleted"`
+	MovedToTrash   bool           `json:"moved_to_trash"`
+	TrashPath     string         `json:"trash_path,omitempty"`
+	BrokenLinks   []string       `json:"broken_links,omitempty"`
+	BrokenAnchors []BrokenAnchor `json:"broken_anchors,omitempty"`
+	DryRun        bool           `json:"dry_run,omitempty"`
 }
 
 // DeleteNote exclui uma nota do cofre (por padrao movendo para a lixeira .trash/).
@@ -612,8 +644,9 @@ func (s *Service) DeleteNote(_ context.Context, req DeleteNoteRequest) (DeleteNo
 		return DeleteNoteResult{}, Errorf(CodeNoteNotFound, "nota %q nao encontrada", req.Path)
 	}
 
-	// 1. Calcula o relatorio de links quebrados ANTES de excluir
+	// 1. Calcula o relatorio de links quebrados e ancoras quebradas ANTES de excluir
 	var brokenLinks []string
+	var brokenAnchors []BrokenAnchor
 	if req.ReportBrokenLinks {
 		backlinks := s.index.Backlinks(canonical)
 		seen := make(map[string]bool)
@@ -623,16 +656,30 @@ func (s *Service) DeleteNote(_ context.Context, req DeleteNoteRequest) (DeleteNo
 				seen[pathStr] = true
 				brokenLinks = append(brokenLinks, pathStr)
 			}
+
+			refNote, ok := s.index.Get(bl.From)
+			if ok {
+				for _, rl := range refNote.Links {
+					if rl.Resolved == canonical && rl.Anchor != "" {
+						brokenAnchors = append(brokenAnchors, BrokenAnchor{
+							From:   string(bl.From),
+							To:     string(canonical),
+							Anchor: rl.Anchor,
+						})
+					}
+				}
+			}
 		}
 	}
 
 	if req.DryRun {
 		return DeleteNoteResult{
-			Path:         string(canonical),
-			Deleted:      false,
-			MovedToTrash: req.ToTrash,
-			BrokenLinks:  brokenLinks,
-			DryRun:       true,
+			Path:          string(canonical),
+			Deleted:       false,
+			MovedToTrash:  req.ToTrash,
+			BrokenLinks:   brokenLinks,
+			BrokenAnchors: brokenAnchors,
+			DryRun:        true,
 		}, nil
 	}
 
@@ -675,11 +722,12 @@ func (s *Service) DeleteNote(_ context.Context, req DeleteNoteRequest) (DeleteNo
 		_ = os.Remove(absPath)
 
 		return DeleteNoteResult{
-			Path:         string(canonical),
-			Deleted:      true,
-			MovedToTrash: true,
-			TrashPath:    trashRel,
-			BrokenLinks:  brokenLinks,
+			Path:          string(canonical),
+			Deleted:       true,
+			MovedToTrash:  true,
+			TrashPath:     trashRel,
+			BrokenLinks:   brokenLinks,
+			BrokenAnchors: brokenAnchors,
 		}, nil
 	}
 
@@ -689,9 +737,10 @@ func (s *Service) DeleteNote(_ context.Context, req DeleteNoteRequest) (DeleteNo
 	}
 
 	return DeleteNoteResult{
-		Path:         string(canonical),
-		Deleted:      true,
-		MovedToTrash: false,
-		BrokenLinks:  brokenLinks,
+		Path:          string(canonical),
+		Deleted:       true,
+		MovedToTrash:  false,
+		BrokenLinks:   brokenLinks,
+		BrokenAnchors: brokenAnchors,
 	}, nil
 }
