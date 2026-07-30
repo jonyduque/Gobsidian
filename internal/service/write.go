@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	"github.com/jonyd/gobsidian/internal/index"
@@ -350,4 +351,230 @@ func (s *Service) PatchNote(_ context.Context, req PatchNoteRequest) (PatchNoteR
 	}
 
 	return PatchNoteResult{Path: req.Path, Diff: "", Patched: true}, nil
+}
+
+// MoveNoteRequest carrega os parametros para note_move.
+type MoveNoteRequest struct {
+	From          string `json:"from"`
+	To            string `json:"to"`
+	UpdateLinks   bool   `json:"update_links"`
+	CreateFolders bool   `json:"create_folders"`
+	DryRun        bool   `json:"dry_run"`
+}
+
+// MoveNoteResult e o retorno de note_move.
+type MoveNoteResult struct {
+	From         string            `json:"from"`
+	To           string            `json:"to"`
+	Rewritten    []string          `json:"rewritten"`
+	LinksUpdated int               `json:"links_updated"`
+	DryRun       bool              `json:"dry_run,omitempty"`
+	Diffs        map[string]string `json:"diffs,omitempty"`
+}
+
+// MoveNote renomeia ou move uma nota e reescreve os links que apontam para ela.
+func (s *Service) MoveNote(_ context.Context, req MoveNoteRequest) (MoveNoteResult, error) {
+	if err := s.checkWriteAllowed(req.From); err != nil {
+		return MoveNoteResult{}, err
+	}
+	if err := s.checkWriteAllowed(req.To); err != nil {
+		return MoveNoteResult{}, err
+	}
+
+	canonicalFrom, err := s.index.ResolvePath(req.From)
+	if err != nil {
+		if errors.Is(err, index.ErrAmbiguousPath) {
+			return MoveNoteResult{}, Errorf(CodeAmbiguousPath, "caminho de origem %q e ambiguo", req.From)
+		}
+		return MoveNoteResult{}, Errorf(CodeNoteNotFound, "nota de origem %q nao encontrada", req.From)
+	}
+
+	cleanTo := filepath.ToSlash(filepath.Clean(req.To))
+	if !strings.HasSuffix(cleanTo, ".md") {
+		cleanTo += ".md"
+	}
+	canonicalTo := vault.CanonicalPath(cleanTo)
+
+	if _, ok := s.index.Get(canonicalTo); ok {
+		return MoveNoteResult{}, Errorf(CodeNoteExists, "destino %q ja existe no cofre", req.To)
+	}
+
+	absTo := s.vault.Abs(canonicalTo)
+	if _, err := os.Stat(absTo); err == nil {
+		return MoveNoteResult{}, Errorf(CodeNoteExists, "destino %q ja existe no cofre", req.To)
+	}
+
+	dirTo := filepath.Dir(absTo)
+	if _, err := os.Stat(dirTo); os.IsNotExist(err) {
+		if !req.CreateFolders {
+			return MoveNoteResult{}, Errorf(CodeFolderNotFound, "diretorio %q nao existe", filepath.Dir(req.To))
+		}
+	}
+
+	affectedNotes := make(map[vault.CanonicalPath][]writer.LinkReplacement)
+	var totalLinks int
+
+	if req.UpdateLinks {
+		backlinks := s.index.Backlinks(canonicalFrom)
+		toBaseName := strings.TrimSuffix(filepath.Base(string(canonicalTo)), ".md")
+
+		for _, bl := range backlinks {
+			refNote, ok := s.index.Get(bl.From)
+			if !ok {
+				continue
+			}
+
+			var replacements []writer.LinkReplacement
+			for _, rl := range refNote.Links {
+				if rl.Resolved == canonicalFrom {
+					var newTarget string
+					if rl.Kind == parser.LinkWiki || rl.Kind == parser.LinkEmbed {
+						if strings.Contains(rl.Target, "/") {
+							newTarget = strings.TrimSuffix(string(canonicalTo), ".md")
+						} else {
+							newTarget = toBaseName
+						}
+					} else {
+						newTarget = string(canonicalTo)
+					}
+					replacements = append(replacements, writer.LinkReplacement{
+						Link:      rl.Link,
+						NewTarget: newTarget,
+					})
+				}
+			}
+
+			if len(replacements) > 0 {
+				affectedNotes[bl.From] = replacements
+				totalLinks += len(replacements)
+			}
+		}
+	}
+
+	if req.DryRun {
+		diffs := make(map[string]string)
+		absFrom := s.vault.Abs(canonicalFrom)
+		fromRaw, _ := os.ReadFile(absFrom)
+		diffs[string(canonicalFrom)] = writer.UnifiedDiff(string(canonicalFrom), string(canonicalTo), string(fromRaw), string(fromRaw), 3)
+
+		for refPath, replacements := range affectedNotes {
+			absRef := s.vault.Abs(refPath)
+			raw, err := os.ReadFile(absRef)
+			if err != nil {
+				continue
+			}
+			rewritten, err := writer.RewriteLinks(raw, replacements)
+			if err != nil {
+				continue
+			}
+			diffs[string(refPath)] = writer.UnifiedDiff(string(refPath), string(refPath), string(raw), string(rewritten), 3)
+		}
+
+		return MoveNoteResult{
+			From:         string(canonicalFrom),
+			To:           string(canonicalTo),
+			Rewritten:    nil,
+			LinksUpdated: totalLinks,
+			DryRun:       true,
+			Diffs:        diffs,
+		}, nil
+	}
+
+	// Sort keys of affectedNotes alphabetically for deterministic processing order
+	affectedKeys := make([]vault.CanonicalPath, 0, len(affectedNotes))
+	for k := range affectedNotes {
+		affectedKeys = append(affectedKeys, k)
+	}
+	sort.Slice(affectedKeys, func(i, j int) bool {
+		return affectedKeys[i] < affectedKeys[j]
+	})
+
+	var rewrittenList []string
+	var linksUpdatedCount int
+
+	for _, refPath := range affectedKeys {
+		replacements := affectedNotes[refPath]
+		unlock := s.locker.Lock(refPath)
+		absRef := s.vault.Abs(refPath)
+		raw, err := os.ReadFile(absRef)
+		if err != nil {
+			unlock()
+			return MoveNoteResult{
+				From:         string(canonicalFrom),
+				To:           string(canonicalTo),
+				Rewritten:    rewrittenList,
+				LinksUpdated: linksUpdatedCount,
+			}, Errorf(CodeInternal, "lendo nota %q: %v", refPath, err)
+		}
+
+		rewritten, err := writer.RewriteLinks(raw, replacements)
+		if err != nil {
+			unlock()
+			return MoveNoteResult{
+				From:         string(canonicalFrom),
+				To:           string(canonicalTo),
+				Rewritten:    rewrittenList,
+				LinksUpdated: linksUpdatedCount,
+			}, Errorf(CodeInternal, "reescrevendo links em %q: %v", refPath, err)
+		}
+
+		if err := writer.WriteAtomic(absRef, rewritten); err != nil {
+			unlock()
+			return MoveNoteResult{
+				From:         string(canonicalFrom),
+				To:           string(canonicalTo),
+				Rewritten:    rewrittenList,
+				LinksUpdated: linksUpdatedCount,
+			}, Errorf(CodeInternal, "escrevendo nota %q: %v", refPath, err)
+		}
+
+		unlock()
+		rewrittenList = append(rewrittenList, string(refPath))
+		linksUpdatedCount += len(replacements)
+	}
+
+	if _, err := os.Stat(dirTo); os.IsNotExist(err) {
+		if err := os.MkdirAll(dirTo, 0755); err != nil {
+			return MoveNoteResult{
+				From:         string(canonicalFrom),
+				To:           string(canonicalTo),
+				Rewritten:    rewrittenList,
+				LinksUpdated: linksUpdatedCount,
+			}, Errorf(CodeInternal, "criando diretorio %q: %v", dirTo, err)
+		}
+	}
+
+	unlockFrom := s.locker.Lock(canonicalFrom)
+	unlockTo := s.locker.Lock(canonicalTo)
+	defer unlockTo()
+	defer unlockFrom()
+
+	absFrom := s.vault.Abs(canonicalFrom)
+	fromRaw, err := os.ReadFile(absFrom)
+	if err != nil {
+		return MoveNoteResult{
+			From:         string(canonicalFrom),
+			To:           string(canonicalTo),
+			Rewritten:    rewrittenList,
+			LinksUpdated: linksUpdatedCount,
+		}, Errorf(CodeInternal, "lendo nota de origem %q: %v", canonicalFrom, err)
+	}
+
+	if err := writer.WriteAtomic(absTo, fromRaw); err != nil {
+		return MoveNoteResult{
+			From:         string(canonicalFrom),
+			To:           string(canonicalTo),
+			Rewritten:    rewrittenList,
+			LinksUpdated: linksUpdatedCount,
+		}, Errorf(CodeInternal, "escrevendo destino %q: %v", absTo, err)
+	}
+
+	_ = os.Remove(absFrom)
+
+	return MoveNoteResult{
+		From:         string(canonicalFrom),
+		To:           string(canonicalTo),
+		Rewritten:    rewrittenList,
+		LinksUpdated: linksUpdatedCount,
+	}, nil
 }

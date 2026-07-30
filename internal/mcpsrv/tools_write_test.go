@@ -60,7 +60,7 @@ func TestListTools_ReadOnlyTrue(t *testing.T) {
 	}
 
 	// Tools de escrita devem estar ausentes
-	writeTools := []string{"note_create", "note_append", "note_patch"}
+	writeTools := []string{"note_create", "note_append", "note_patch", "note_move"}
 	for _, wt := range writeTools {
 		if toolNames[wt] {
 			t.Errorf("tool de escrita %q NAO deveria estar presente sob --read-only", wt)
@@ -105,7 +105,7 @@ func TestListTools_ReadOnlyFalse(t *testing.T) {
 	}
 
 	// Tools de escrita devem estar presentes quando ReadOnly = false
-	writeTools := []string{"note_create", "note_append", "note_patch"}
+	writeTools := []string{"note_create", "note_append", "note_patch", "note_move"}
 	for _, wt := range writeTools {
 		if !toolNames[wt] {
 			t.Errorf("tool de escrita %q deveria estar presente sem --read-only", wt)

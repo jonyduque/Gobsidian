@@ -37,6 +37,14 @@ type patchInput struct {
 	DryRun       bool   `json:"dry_run,omitempty" jsonschema:"se verdadeiro devolve apenas o diff sem alterar o disco"`
 }
 
+type moveInput struct {
+	From          string `json:"from" jsonschema:"caminho relativo da nota de origem"`
+	To            string `json:"to" jsonschema:"caminho relativo do destino"`
+	UpdateLinks   *bool  `json:"update_links,omitempty" jsonschema:"se verdadeiro reescreve links apontando para o antigo caminho (padrao: true)"`
+	CreateFolders *bool  `json:"create_folders,omitempty" jsonschema:"cria diretorios intermediarios se nao existirem (padrao: true)"`
+	DryRun        bool   `json:"dry_run,omitempty" jsonschema:"se verdadeiro devolve apenas os diffs sem alterar o disco"`
+}
+
 func (s *Server) registerWriteTools() {
 	mcp.AddTool(s.mcp,
 		&mcp.Tool{
@@ -102,6 +110,36 @@ func (s *Server) registerWriteTools() {
 				})
 				if err != nil {
 					return nil, service.PatchNoteResult{}, toolErr(err)
+				}
+				return nil, out, nil
+			}),
+	)
+
+	mcp.AddTool(s.mcp,
+		&mcp.Tool{
+			Name:        "note_move",
+			Description: "Move ou renomeia uma nota no cofre e atualiza os links que apontam para ela.",
+		},
+		guard(s.log, "note_move",
+			func(ctx context.Context, _ *mcp.CallToolRequest, in moveInput) (*mcp.CallToolResult, service.MoveNoteResult, error) {
+				updateLinks := true
+				if in.UpdateLinks != nil {
+					updateLinks = *in.UpdateLinks
+				}
+				createFolders := true
+				if in.CreateFolders != nil {
+					createFolders = *in.CreateFolders
+				}
+
+				out, err := s.svc.MoveNote(ctx, service.MoveNoteRequest{
+					From:          in.From,
+					To:            in.To,
+					UpdateLinks:   updateLinks,
+					CreateFolders: createFolders,
+					DryRun:        in.DryRun,
+				})
+				if err != nil {
+					return nil, service.MoveNoteResult{}, toolErr(err)
 				}
 				return nil, out, nil
 			}),
