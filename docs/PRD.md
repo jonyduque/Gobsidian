@@ -183,7 +183,7 @@ A redução em si é deliberadamente conservadora: plurais regulares e os sufixo
 | RF-32 | Substituição do conteúdo sob um heading, preservando o heading e as subseções fora do alvo | P0 |
 | RF-33 | Substituição de bloco identificado por `^id` | P1 |
 | RF-34 | Escrita atômica: arquivo temporário no mesmo volume seguido de rename | P0 |
-| RF-35 | Movimentação e renomeação com reescrita de todos os wikilinks apontando para a nota, preservando alias e âncora | P0 |
+| RF-35 | Movimentação e renomeação com reescrita de todos os links (wikilinks e links Markdown) apontando para a nota, preservando alias e âncora | P0 |
 | RF-36 | Exclusão com relatório prévio de links que ficarão quebrados | P1 |
 | RF-37 | Modo *dry-run* em todas as tools de escrita, retornando o diff sem tocar o disco | P1 |
 | RF-38 | Preservação do estilo de fim de linha original do arquivo (CRLF/LF) | P0 |

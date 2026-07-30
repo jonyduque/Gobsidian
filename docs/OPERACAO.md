@@ -170,6 +170,8 @@ pwsh -File scripts/measure.ps1 -Vault <caminho-do-cofre>
 
   **RNF-04 está 100% atingido em todos os formatos.** A otimização da Task 61 introduziu o método $O(1)$ `Inverted.Positions(term, path)` sobre o mapa interno `terms[term][path]`, eliminando a busca linear $O(N)$ que percorria todas as postings do termo a cada candidato de posição. O p95 da frase exata caiu de **174,2 ms para 22,1 ms** (redução de ~87%, bem abaixo do teto de 100 ms).
 
+**Medições do M5 (Tasks 63 a 67 em 2026-07-30).** `note_move` e `note_delete` validados funcionalmente com 100% de cobertura nos testes de mutação. Latências de movimentação e exclusão em lote no cofre de 5.000 notas: **não medido** (agendado para o endurecimento M6/H1).
+
 ### O que falta
 
 Rodar contra o cofre de referência do PRD: **5.000 notas, 50 MB**. Até lá, RNF-01 e RNF-07 em escala de 5.000 notas seguem **não validados** — medidos em escala pequena, o que é diferente de medidos.
