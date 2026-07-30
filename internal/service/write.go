@@ -623,7 +623,7 @@ type DeleteNoteRequest struct {
 type DeleteNoteResult struct {
 	Path          string         `json:"path"`
 	Deleted       bool           `json:"deleted"`
-	MovedToTrash   bool           `json:"moved_to_trash"`
+	MovedToTrash  bool           `json:"moved_to_trash"`
 	TrashPath     string         `json:"trash_path,omitempty"`
 	BrokenLinks   []string       `json:"broken_links,omitempty"`
 	BrokenAnchors []BrokenAnchor `json:"broken_anchors,omitempty"`
