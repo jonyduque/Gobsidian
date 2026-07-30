@@ -75,12 +75,6 @@ func (s *Server) registerReadTools() {
 	)
 }
 
-// registerWriteTools fica vazia ate M4. A separacao existe desde ja porque
-// --read-only precisa REMOVER as tools da lista anunciada, nao apenas
-// rejeitar a chamada (PRD RF-55): um host que ve a tool na lista vai tentar
-// usa-la, e a recusa vira uma rodada desperdicada.
-func (s *Server) registerWriteTools() {}
-
 // Connect liga o servidor a um transporte ja construido. Usado nos testes com
 // transporte em memoria.
 func (s *Server) Connect(ctx context.Context, t mcp.Transport) error {

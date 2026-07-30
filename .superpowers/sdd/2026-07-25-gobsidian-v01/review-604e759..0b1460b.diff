@@ -1,0 +1,409 @@
+# Review package: 604e759ed92dc52911ccbb28454751432a5465bb..HEAD
+
+## Commits
+0b1460b feat(writer): patch and append by heading, preserving EOL and BOM
+
+## Files changed
+ .../sdd/2026-07-25-gobsidian-v01/task-57-base.txt  |   1 +
+ .superpowers/sdd/task-57-report.md                 |  74 ++++++++++
+ internal/writer/section.go                         | 132 +++++++++++++++++
+ internal/writer/section_test.go                    | 164 +++++++++++++++++++++
+ 4 files changed, 371 insertions(+)
+
+## Diff
+diff --git a/.superpowers/sdd/2026-07-25-gobsidian-v01/task-57-base.txt b/.superpowers/sdd/2026-07-25-gobsidian-v01/task-57-base.txt
+new file mode 100644
+index 0000000..aabdc87
+--- /dev/null
++++ b/.superpowers/sdd/2026-07-25-gobsidian-v01/task-57-base.txt
+@@ -0,0 +1 @@
++604e759ed92dc52911ccbb28454751432a5465bb
+\ No newline at end of file
+diff --git a/.superpowers/sdd/task-57-report.md b/.superpowers/sdd/task-57-report.md
+new file mode 100644
+index 0000000..d03a90a
+--- /dev/null
++++ b/.superpowers/sdd/task-57-report.md
+@@ -0,0 +1,74 @@
++# Relatório Task 57: `internal/writer/section.go` — Patch e Append por Heading
++
++- **Status**: DONE
++- **Commit**: `feat(writer): patch and append by heading, preserving EOL and BOM`
++
++## Resumo das Mudanças
++- Implementada resolução e validação de headings em `internal/writer/section.go`.
++- Implementada detecção e tratamento de ambiguidade (`AmbiguousHeadingError`): quando múltiplos headings na mesma nota colidem no mesmo slug/título, a alteração é recusada obrigatoriamente para evitar escrita em seção incorreta.
++- Implementada a função `PatchSectionContent(rawContent, h, replacement)`: substitui o conteúdo da seção `h` preservando o BOM (3 bytes), o título da linha do heading, e a convenção EOL original (`\r\n` vs `\n`). Substituição do intervalo `[h.BodyStart, h.End]` abrange o corpo da seção e subseções dependentes.
++- Implementada a função `AppendSectionContent(rawContent, h, contentToAppend)`: anexa conteúdo ao final do heading `h` (se especificado) ou ao final da nota (se `h == nil`), garantindo que se o arquivo não terminar em newline, a nova linha não seja mesclada com a anterior.
++- Criada a suíte de testes unitários em `internal/writer/section_test.go` exercitando diretamente leitura e escrita em disco.
++
++## Evidência de TDD
++
++### RED
++Comando:
++`go test -v ./internal/writer/ -run TestPatchSection` (antes de criar section.go)
++Saída:
++FAIL: PatchSectionContent undefined / package internal/writer sem section.go
++
++### GREEN
++Comando:
++`go test -v ./internal/writer/ -run TestPatchSection|TestFindHeading|TestAppendSection`
++Saída:
++=== RUN   TestPatchSectionUnderBOMAndCRLFWritesTheRightBytes
++--- PASS: TestPatchSectionUnderBOMAndCRLFWritesTheRightBytes (0.06s)
++=== RUN   TestPatchSection_WithoutBOM_LF
++--- PASS: TestPatchSection_WithoutBOM_LF (0.05s)
++=== RUN   TestFindHeading_AmbiguousHeading
++--- PASS: TestFindHeading_AmbiguousHeading (0.00s)
++=== RUN   TestAppendSection_NoteEndAndHeadingEnd
++--- PASS: TestAppendSection_NoteEndAndHeadingEnd (0.05s)
++PASS
++ok  	github.com/jonyd/gobsidian/internal/writer	0.590s
++
++## Provas de Mutação
++
++### 1. Remoção do ajuste de BOM (`note.ShiftOffsets(int64(vault.BOMLen)) -> _ = 0`)
++Comando:
++`pwsh -File scripts/mutate.ps1 -Path internal/writer/section_test.go -Anchor 'note.ShiftOffsets(int64(vault.BOMLen))' -Replacement '_ = 0' -Test TestPatchSectionUnderBOMAndCRLFWritesTheRightBytes -Package ./internal/writer/`
++Saída:
++--- FAIL: TestPatchSectionUnderBOMAndCRLFWritesTheRightBytes (0.03s)
++    section_test.go:65: LF solto: o EOL original era CRLF e nao foi preservado
++    section_test.go:69: o heading do alvo foi apagado
++FAIL
++[OK] internal/writer/section_test.go restaurado byte a byte (SHA-256 confere).
++
++### 2. Remoção da preservação de EOL (`eol := DetectEOL(rawContent) -> eol := "\n"`)
++Comando:
++`pwsh -File scripts/mutate.ps1 -Path internal/writer/section.go -Anchor "func PatchSectionContent(rawContent []byte, h parser.Heading, replacement string) []byte {`n`teol := DetectEOL(rawContent)" -Replacement "func PatchSectionContent(rawContent []byte, h parser.Heading, replacement string) []byte {`n`teol := `"\n`"" -Test TestPatchSectionUnderBOMAndCRLFWritesTheRightBytes -Package ./internal/writer/`
++Saída:
++--- FAIL: TestPatchSectionUnderBOMAndCRLFWritesTheRightBytes (0.03s)
++    section_test.go:65: LF solto: o EOL original era CRLF e nao foi preservado
++FAIL
++[OK] internal/writer/section.go restaurado byte a byte (SHA-256 confere).
++
++## Verificações Exigidas pelo Brief
++| Verificação | Resultado | Evidência |
++|---|---|---|
++| Teste sob BOM e CRLF lê do disco e valida BOM e EOL byte a byte? | SIM | `TestPatchSectionUnderBOMAndCRLFWritesTheRightBytes` |
++| Testes equivalentes sem BOM e com LF passam? | SIM | `TestPatchSection_WithoutBOM_LF` |
++| Heading duplicado por slug recusa por ambiguidade? | SIM | `TestFindHeading_AmbiguousHeading` |
++| Anexo no fim da nota e no fim da seção funcionam sem colar linhas? | SIM | `TestAppendSection_NoteEndAndHeadingEnd` |
++
++## Decisão de Design Registrada
++A substituição por heading opera sobre o intervalo `[h.BodyStart, h.End]`, que abrange todo o corpo da seção `h` e suas subseções descendentes até o próximo heading de nível menor ou igual. O heading pai é preservado e o conteúdo (incluindo subseções descendentes) é substituído.
++
++## Arquivos Alterados
++- `internal/writer/section.go`
++- `internal/writer/section_test.go`
++- `.superpowers/sdd/task-57-report.md`
++
++## O Que Ficou de Fora
++Nada.
+diff --git a/internal/writer/section.go b/internal/writer/section.go
+new file mode 100644
+index 0000000..435f171
+--- /dev/null
++++ b/internal/writer/section.go
+@@ -0,0 +1,132 @@
++package writer
++
++import (
++	"bytes"
++	"fmt"
++	"strings"
++
++	"github.com/jonyd/gobsidian/internal/parser"
++)
++
++// HeadingNotFoundError indica que o heading especificado nao foi encontrado na nota.
++type HeadingNotFoundError struct {
++	Heading      string
++	Alternatives []string
++}
++
++func (e *HeadingNotFoundError) Error() string {
++	if len(e.Alternatives) == 0 {
++		return fmt.Sprintf("heading %q nao encontrado na nota (nenhum heading disponivel)", e.Heading)
++	}
++	return fmt.Sprintf("heading %q nao encontrado na nota. Disponiveis: %s", e.Heading, strings.Join(e.Alternatives, ", "))
++}
++
++// AmbiguousHeadingError indica colisao de slug: multiplos headings possuem o mesmo slug/titulo.
++type AmbiguousHeadingError struct {
++	Heading     string
++	Occurrences int
++}
++
++func (e *AmbiguousHeadingError) Error() string {
++	return fmt.Sprintf("heading %q e ambiguo (%d ocorrencias encontradas)", e.Heading, e.Occurrences)
++}
++
++// DetectEOL identifica se o buffer utiliza CRLF (\r\n) ou LF (\n).
++func DetectEOL(content []byte) string {
++	if bytes.Contains(content, []byte("\r\n")) {
++		return "\r\n"
++	}
++	return "\n"
++}
++
++// NormalizeEOL normaliza o texto fornecido para a convencao de EOL alvo (\r\n ou \n).
++func NormalizeEOL(text, targetEOL string) string {
++	if targetEOL == "\r\n" {
++		clean := strings.ReplaceAll(text, "\r\n", "\n")
++		clean = strings.ReplaceAll(clean, "\r", "\n")
++		return strings.ReplaceAll(clean, "\n", "\r\n")
++	}
++	clean := strings.ReplaceAll(text, "\r\n", "\n")
++	return strings.ReplaceAll(clean, "\r", "\n")
++}
++
++// FindHeading busca um heading unico na lista por slug ou titulo exato.
++func FindHeading(headings []parser.Heading, headingQuery string) (*parser.Heading, error) {
++	targetSlug := parser.Slug(headingQuery)
++	var matches []parser.Heading
++
++	for _, h := range headings {
++		if parser.Slug(h.Text) == targetSlug || strings.EqualFold(h.Text, headingQuery) {
++			matches = append(matches, h)
++		}
++	}
++
++	if len(matches) == 0 {
++		var alternatives []string
++		for _, h := range headings {
++			alternatives = append(alternatives, h.Text)
++		}
++		return nil, &HeadingNotFoundError{Heading: headingQuery, Alternatives: alternatives}
++	}
++
++	if len(matches) > 1 {
++		return nil, &AmbiguousHeadingError{Heading: headingQuery, Occurrences: len(matches)}
++	}
++
++	return &matches[0], nil
++}
++
++// PatchSectionContent substitui o conteudo da secao delimitada por h em rawContent por replacement.
++// Preserva o BOM do arquivo se presente, a linha do titulo do heading, a convencao EOL (CRLF/LF)
++// e todo o conteudo fora do intervalo [h.BodyStart, h.End].
++func PatchSectionContent(rawContent []byte, h parser.Heading, replacement string) []byte {
++	eol := DetectEOL(rawContent)
++	normReplacement := NormalizeEOL(replacement, eol)
++
++	if normReplacement != "" && !strings.HasSuffix(normReplacement, eol) {
++		normReplacement += eol
++	}
++
++	var buf bytes.Buffer
++	buf.Write(rawContent[:h.BodyStart])
++	buf.WriteString(normReplacement)
++	buf.Write(rawContent[h.End:])
++
++	return buf.Bytes()
++}
++
++// AppendSectionContent anexa contentToAppend no final da secao h (se h != nil) ou no final da nota (se h == nil).
++// Preserva a convencao EOL do arquivo.
++func AppendSectionContent(rawContent []byte, h *parser.Heading, contentToAppend string) []byte {
++	eol := DetectEOL(rawContent)
++	normAppend := NormalizeEOL(contentToAppend, eol)
++
++	if h == nil {
++		var buf bytes.Buffer
++		buf.Write(rawContent)
++		if len(rawContent) > 0 && !bytes.HasSuffix(rawContent, []byte("\n")) {
++			buf.WriteString(eol)
++		}
++		buf.WriteString(normAppend)
++		if !strings.HasSuffix(normAppend, eol) {
++			buf.WriteString(eol)
++		}
++		return buf.Bytes()
++	}
++
++	insertOffset := h.End
++	var buf bytes.Buffer
++	buf.Write(rawContent[:insertOffset])
++
++	if insertOffset > 0 && !bytes.HasSuffix(rawContent[:insertOffset], []byte("\n")) {
++		buf.WriteString(eol)
++	}
++
++	buf.WriteString(normAppend)
++	if !strings.HasSuffix(normAppend, eol) {
++		buf.WriteString(eol)
++	}
++	buf.Write(rawContent[insertOffset:])
++
++	return buf.Bytes()
++}
+diff --git a/internal/writer/section_test.go b/internal/writer/section_test.go
+new file mode 100644
+index 0000000..e33e9e9
+--- /dev/null
++++ b/internal/writer/section_test.go
+@@ -0,0 +1,164 @@
++package writer_test
++
++import (
++	"bytes"
++	"errors"
++	"os"
++	"path/filepath"
++	"regexp"
++	"strings"
++	"testing"
++
++	"github.com/jonyd/gobsidian/internal/parser"
++	"github.com/jonyd/gobsidian/internal/vault"
++	"github.com/jonyd/gobsidian/internal/writer"
++)
++
++func parseNoteForTest(raw []byte) *parser.ParsedNote {
++	cleaned, hadBOM := vault.StripBOM(raw)
++	note, _ := parser.Parse(cleaned)
++	if hadBOM {
++		note.ShiftOffsets(int64(vault.BOMLen))
++	}
++	return note
++}
++
++func TestPatchSectionUnderBOMAndCRLFWritesTheRightBytes(t *testing.T) {
++	root := t.TempDir()
++	raw := []byte("\xEF\xBB\xBF---\r\ntitle: T\r\n---\r\n\r\n" +
++		"# Topo\r\n\r\n## Alvo\r\n\r\nconteudo velho\r\n\r\n### Filha\r\n\r\npreservar\r\n\r\n## Depois\r\n\r\nintacto\r\n")
++
++	alvo := filepath.Join(root, "nota.md")
++	if err := os.WriteFile(alvo, raw, 0644); err != nil {
++		t.Fatal(err)
++	}
++
++	rawDisk, err := os.ReadFile(alvo)
++	if err != nil {
++		t.Fatal(err)
++	}
++
++	note := parseNoteForTest(rawDisk)
++	h, err := writer.FindHeading(note.Headings, "Alvo")
++	if err != nil {
++		t.Fatalf("FindHeading falhou: %v", err)
++	}
++
++	novoContent := "conteudo novo\r\n"
++	patched := writer.PatchSectionContent(rawDisk, *h, novoContent)
++
++	if err := writer.WriteAtomic(alvo, patched); err != nil {
++		t.Fatalf("WriteAtomic falhou: %v", err)
++	}
++
++	depois, err := os.ReadFile(alvo)
++	if err != nil {
++		t.Fatal(err)
++	}
++	s := string(depois)
++
++	if !bytes.HasPrefix(depois, []byte("\xEF\xBB\xBF")) {
++		t.Error("BOM perdido na escrita")
++	}
++
++	if regexp.MustCompile(`[^\r]\n`).MatchString(s) {
++		t.Error("LF solto: o EOL original era CRLF e nao foi preservado")
++	}
++
++	if !strings.Contains(s, "## Alvo\r\n") {
++		t.Error("o heading do alvo foi apagado")
++	}
++
++	if strings.Contains(s, "conteudo velho") {
++		t.Error("o conteudo antigo sobreviveu")
++	}
++
++	if !strings.Contains(s, "conteudo novo") {
++		t.Error("o conteudo novo nao entrou")
++	}
++
++	if !strings.Contains(s, "## Depois\r\n\r\nintacto") {
++		t.Errorf("conteudo fora do alvo (## Depois) foi destruido:\n%s", s)
++	}
++}
++
++func TestPatchSection_WithoutBOM_LF(t *testing.T) {
++	root := t.TempDir()
++	raw := []byte("# Topo\n\n## Alvo\n\nconteudo velho\n\n## Depois\n\nintacto\n")
++
++	alvo := filepath.Join(root, "nota_lf.md")
++	if err := os.WriteFile(alvo, raw, 0644); err != nil {
++		t.Fatal(err)
++	}
++
++	rawDisk, _ := os.ReadFile(alvo)
++	note := parseNoteForTest(rawDisk)
++
++	h, err := writer.FindHeading(note.Headings, "Alvo")
++	if err != nil {
++		t.Fatal(err)
++	}
++
++	patched := writer.PatchSectionContent(rawDisk, *h, "conteudo novo\n")
++	_ = writer.WriteAtomic(alvo, patched)
++
++	depois, _ := os.ReadFile(alvo)
++	s := string(depois)
++
++	if strings.Contains(s, "\r\n") {
++		t.Error("CRLF inserido indevidamente em arquivo LF")
++	}
++	if !strings.Contains(s, "conteudo novo\n") {
++		t.Error("conteudo novo nao foi inserido com LF")
++	}
++}
++
++func TestFindHeading_AmbiguousHeading(t *testing.T) {
++	raw := []byte("# Topo\n\n## Dup\n\ntexto1\n\n## Dup\n\ntexto2\n")
++	note := parseNoteForTest(raw)
++
++	_, err := writer.FindHeading(note.Headings, "Dup")
++	if err == nil {
++		t.Fatal("esperava erro de heading ambiguo")
++	}
++
++	var ambErr *writer.AmbiguousHeadingError
++	if !errors.As(err, &ambErr) {
++		t.Fatalf("esperava *AmbiguousHeadingError, obteve %T: %v", err, err)
++	}
++	if ambErr.Occurrences != 2 {
++		t.Errorf("Occurrences = %d, quer 2", ambErr.Occurrences)
++	}
++}
++
++func TestAppendSection_NoteEndAndHeadingEnd(t *testing.T) {
++	root := t.TempDir()
++	// Sem newline final
++	raw := []byte("# Topo\r\n\r\n## Secao1\r\n\r\nlinha1")
++	alvo := filepath.Join(root, "nota_append.md")
++	_ = os.WriteFile(alvo, raw, 0644)
++
++	rawDisk, _ := os.ReadFile(alvo)
++	note := parseNoteForTest(rawDisk)
++
++	// 1. Append no final da nota
++	appendedEnd := writer.AppendSectionContent(rawDisk, nil, "linha2")
++	_ = writer.WriteAtomic(alvo, appendedEnd)
++
++	depois1, _ := os.ReadFile(alvo)
++	s1 := string(depois1)
++	if !strings.Contains(s1, "linha1\r\nlinha2") {
++		t.Errorf("linha2 foi colada sem newline na linha1:\n%q", s1)
++	}
++
++	// 2. Append no final da secao Secao1
++	h, _ := writer.FindHeading(note.Headings, "Secao1")
++	appendedSec := writer.AppendSectionContent(rawDisk, h, "linha_anexada_na_secao")
++	_ = writer.WriteAtomic(alvo, appendedSec)
++
++	depois2, _ := os.ReadFile(alvo)
++	s2 := string(depois2)
++	if !strings.Contains(s2, "linha_anexada_na_secao") {
++		t.Errorf("conteudo anexado na secao nao foi encontrado:\n%q", s2)
++	}
++}

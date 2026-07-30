@@ -4,6 +4,7 @@ import (
 	"github.com/jonyd/gobsidian/internal/index"
 	"github.com/jonyd/gobsidian/internal/search"
 	"github.com/jonyd/gobsidian/internal/vault"
+	"github.com/jonyd/gobsidian/internal/writer"
 )
 
 // Index e a dependencia do servico sobre o indice.
@@ -54,6 +55,7 @@ type Service struct {
 	inverted *search.Inverted
 	watcher  WatchStats
 	opts     Options
+	locker   *writer.PathLocker
 }
 
 // New monta o servico.
@@ -64,6 +66,7 @@ func New(v *vault.Vault, idx Index, inv *search.Inverted, w WatchStats, opts Opt
 		inverted: inv,
 		watcher:  w,
 		opts:     opts,
+		locker:   writer.NewPathLocker(),
 	}
 }
 

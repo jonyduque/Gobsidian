@@ -24,6 +24,8 @@ const (
 	CodeHeadingNotFound  Code = "HEADING_NOT_FOUND"
 	CodeAmbiguousHeading Code = "AMBIGUOUS_HEADING"
 	CodeBlockNotFound    Code = "BLOCK_NOT_FOUND"
+	CodeAmbiguousBlock   Code = "AMBIGUOUS_BLOCK"
+	CodeFolderNotFound   Code = "FOLDER_NOT_FOUND"
 	CodeHashMismatch     Code = "HASH_MISMATCH"
 	CodeFileLocked       Code = "FILE_LOCKED"
 	CodeCloudOnlyFile    Code = "CLOUD_ONLY_FILE"
