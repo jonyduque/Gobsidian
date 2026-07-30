@@ -779,3 +779,38 @@ maior parte do valor):
    aviso. CORRECAO: o auditor aceita os dois formatos. Provado por sonda —
    troquei o SHA de review da Task 60 por "deadbee" e ele acusou SHA-FANTASMA na
    linha 80; restaurado.
+
+=== M5 (REFATORACAO DO COFRE) ESCRITO: Tasks 63-68, prontas para delegar ===
+63 offsets de link Markdown no parser   64 writer/linkrewrite.go
+65 tool note_move                       66 tool note_delete
+67 ancoras quebradas no impacto         68 fechamento do M5
+
+Segundo marco que pode destruir dados, e mais insidioso que o M4: uma escrita
+malfeita aqui nao corrompe UMA nota, reescreve links em DEZENAS que o usuario
+nao pediu para tocar.
+
+QUATRO DECISOES FECHADAS em 2026-07-30:
+1. LINK MARKDOWN E REESCRITO. Contradicao de contrato resolvida a favor do
+   TOOLS.md: RF-35 diz "todos os wikilinks", o TOOLS.md promete preservar "a
+   escolha entre wikilink e link Markdown", e o TOOLS.md e o que o modelo do
+   outro lado le. Um note_move que deixa [texto](Civil/PONTO 03.md) apontando
+   para o caminho antigo quebra em silencio. Por isso a Task 63 existe: o
+   parser so preenche Start/End para LinkWiki e LinkEmbed, e o comentario em
+   types.go JA atribuia essa lacuna ao M5. RF-35 e corrigido na Task 68.
+2. A REESCRITA PASSA PELOS Links DA NOTA DE ORIGEM, nao pelo Backlink.
+   index.Backlink nao tem Raw nem offsets — o laco obvio,
+   for bl := range idx.Backlinks(alvo), nao consegue reescrever fielmente.
+3. SEM TRANSACAO ENTRE ARQUIVOS, E O ARQUIVO MOVE POR ULTIMO. Falha antes do
+   move deixa links reescritos apontando para arquivo que ainda existe no lugar
+   antigo: inconsistente, mas nada quebrado, e reexecutar conserta.
+4. .trash/ JA ESTA EM excludedDirs (walk.go:31). A nota sai do indice pelo
+   watcher sozinha. NAO acrescentar caso especial.
+
+DEFEITO MEU, PEGO ANTES DE DESPACHAR: o `task-brief` extrai de "### Task N" ate
+o proximo "###". Tudo sob o cabecalho "## M5" — as quatro decisoes acima e seis
+regras compartilhadas — NAO chegava a brief nenhum. Os briefs saiam com 22 a 71
+linhas e o da 67 tinha ZERO das quatro decisoes; nenhuma das seis secoes tinha
+Regras de execucao nem Contrato de relatorio. Corrigido: cada secao repete o que
+a vincula, mais as regras e o contrato proprios. Conferido por grep depois de
+regerar, nao suposto. A skill gobsidian-execution ganhou o aviso, porque o mesmo
+provavelmente valeu para o M4 e passou por sorte.

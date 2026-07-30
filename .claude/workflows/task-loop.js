@@ -3,7 +3,7 @@ export const meta = {
   description: 'Executa uma tarefa do plano gobsidian: implementa, revisa por tres lentes independentes, corrige Critical/Important, re-revisa.',
   whenToUse:
     'Quando for executar UMA tarefa numerada de docs/superpowers/plans/2026-07-25-gobsidian-v01.md ' +
-    '(hoje, as Tasks 54-62 do M4). Passe o numero em args, por exemplo args: 56. ' +
+    '(hoje, as Tasks 63-68 do M5). Passe o numero em args, por exemplo args: 64. ' +
     'O corpo dos testes dificeis entra no plano como codigo Go literal, entao a maioria das ' +
     'tarefas e transcricao. As que pedem projeto e nao transcricao sobem de modelo sozinhas ' +
     '(hoje 46 e 49); passe args.projeto para mudar essa lista. ' +
@@ -37,11 +37,11 @@ if (!task) {
 const PROJETO_NAO_TRANSCRICAO = new Set(
   (typeof args === 'object' && args !== null && Array.isArray(args.projeto))
     ? args.projeto.map(Number)
-    // M4: a 55 e o gate de RNF-11 e a unica tarefa do projeto que pode
-    // corromper dado do usuario; a 57 e a de offset com BOM, CRLF e subsecao no
-    // mesmo arquivo; a 61 exige perfil de CPU antes de otimizar, e o modo de
-    // falha barato e otimizar o lugar errado por suposicao.
-    : [55, 57, 61],
+    // M5: a 63 mexe no parser, que esta congelado por 48 golden files, e
+    // offset errado ali vira nota corrompida na 64; a 65 e a tool que reescreve
+    // dezenas de notas que o usuario nao pediu para tocar, e a ordem das
+    // operacoes e o que separa uma falha recuperavel de um cofre quebrado.
+    : [63, 65],
 )
 
 const numero = Number(task)
@@ -295,7 +295,7 @@ Lente REGRAS DO PROJETO. Leia CLAUDE.md e confira o diff contra ele.
 // diff de markdown. Passe args.docs para marcar outra.
 const TAREFA_DOCS = (typeof args === 'object' && args !== null && args.docs !== undefined)
   ? Number(args.docs)
-  : 62
+  : 68
 const LENTES = numero === TAREFA_DOCS ? LENTES_DOCS : LENTES_CODIGO
 
 log(

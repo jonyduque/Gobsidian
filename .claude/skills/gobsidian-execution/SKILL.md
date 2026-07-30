@@ -27,6 +27,14 @@ Execution goes to the cheapest model that can do it. Review and planning stay wi
 
 **Tasks 19–32 of the plan are self-contained.** Each carries, inside its own section: where it fits, the closed decisions that bind it, the traps already paid for that apply to it, verifications beyond the numbered steps, execution rules, and the report contract. The extracted brief is enough to execute — do **not** paste accumulated context into the dispatch prompt. That was necessary before and is now duplication.
 
+## Writing a milestone's tasks: the extractor only sees the task section
+
+`task-brief` extracts from `### Task N` to the next `###`. **Anything written under the `## <Milestone>` heading — closed decisions, shared rules, sequencing — reaches nobody.** M5 was written with four closed decisions and six shared rules in the milestone preamble, and the generated briefs were 22 to 71 lines with none of them; task 67's brief had zero of the four. Caught before dispatch, but it would have shipped a brief that claims to be self-contained and is not.
+
+Repeat, inside each task section, the decisions that bind *that* task, plus its own `#### Regras de execução` and `#### Contrato de relatório`. Duplication across sections is the point: the section is the unit that travels.
+
+Check it, do not assume: after generating, `grep` each brief for a phrase that only exists in the preamble. A brief noticeably shorter than its siblings is the symptom.
+
 ## The per-task loop
 
 Everything moves as files, not pasted text — what you paste into a prompt stays in your context for the rest of the session.
