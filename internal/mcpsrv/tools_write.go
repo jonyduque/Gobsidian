@@ -45,6 +45,13 @@ type moveInput struct {
 	DryRun        bool   `json:"dry_run,omitempty" jsonschema:"se verdadeiro devolve apenas os diffs sem alterar o disco"`
 }
 
+type deleteInput struct {
+	Path              string `json:"path" jsonschema:"caminho relativo da nota a excluir"`
+	ToTrash           *bool  `json:"to_trash,omitempty" jsonschema:"se verdadeiro move para a lixeira .trash/ em vez de exclusao definitiva (padrao: true)"`
+	ReportBrokenLinks *bool  `json:"report_broken_links,omitempty" jsonschema:"se verdadeiro lista notas cujos links ficarao quebrados (padrao: true)"`
+	DryRun            bool   `json:"dry_run,omitempty" jsonschema:"se verdadeiro devolve apenas o relatorio sem excluir o arquivo"`
+}
+
 func (s *Server) registerWriteTools() {
 	mcp.AddTool(s.mcp,
 		&mcp.Tool{
@@ -140,6 +147,35 @@ func (s *Server) registerWriteTools() {
 				})
 				if err != nil {
 					return nil, service.MoveNoteResult{}, toolErr(err)
+				}
+				return nil, out, nil
+			}),
+	)
+
+	mcp.AddTool(s.mcp,
+		&mcp.Tool{
+			Name:        "note_delete",
+			Description: "Exclui uma nota do cofre (por padrao movendo para a lixeira .trash/).",
+		},
+		guard(s.log, "note_delete",
+			func(ctx context.Context, _ *mcp.CallToolRequest, in deleteInput) (*mcp.CallToolResult, service.DeleteNoteResult, error) {
+				toTrash := true
+				if in.ToTrash != nil {
+					toTrash = *in.ToTrash
+				}
+				reportBrokenLinks := true
+				if in.ReportBrokenLinks != nil {
+					reportBrokenLinks = *in.ReportBrokenLinks
+				}
+
+				out, err := s.svc.DeleteNote(ctx, service.DeleteNoteRequest{
+					Path:              in.Path,
+					ToTrash:           toTrash,
+					ReportBrokenLinks: reportBrokenLinks,
+					DryRun:            in.DryRun,
+				})
+				if err != nil {
+					return nil, service.DeleteNoteResult{}, toolErr(err)
 				}
 				return nil, out, nil
 			}),

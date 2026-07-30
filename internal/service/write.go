@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/jonyd/gobsidian/internal/index"
 	"github.com/jonyd/gobsidian/internal/parser"
@@ -576,5 +577,121 @@ func (s *Service) MoveNote(_ context.Context, req MoveNoteRequest) (MoveNoteResu
 		To:           string(canonicalTo),
 		Rewritten:    rewrittenList,
 		LinksUpdated: linksUpdatedCount,
+	}, nil
+}
+
+// DeleteNoteRequest carrega os parametros para note_delete.
+type DeleteNoteRequest struct {
+	Path              string `json:"path"`
+	ToTrash           bool   `json:"to_trash"`
+	ReportBrokenLinks bool   `json:"report_broken_links"`
+	DryRun            bool   `json:"dry_run"`
+}
+
+// DeleteNoteResult e o retorno de note_delete.
+type DeleteNoteResult struct {
+	Path         string   `json:"path"`
+	Deleted      bool     `json:"deleted"`
+	MovedToTrash bool     `json:"moved_to_trash"`
+	TrashPath    string   `json:"trash_path,omitempty"`
+	BrokenLinks  []string `json:"broken_links,omitempty"`
+	DryRun       bool     `json:"dry_run,omitempty"`
+}
+
+// DeleteNote exclui uma nota do cofre (por padrao movendo para a lixeira .trash/).
+func (s *Service) DeleteNote(_ context.Context, req DeleteNoteRequest) (DeleteNoteResult, error) {
+	if err := s.checkWriteAllowed(req.Path); err != nil {
+		return DeleteNoteResult{}, err
+	}
+
+	canonical, err := s.index.ResolvePath(req.Path)
+	if err != nil {
+		if errors.Is(err, index.ErrAmbiguousPath) {
+			return DeleteNoteResult{}, Errorf(CodeAmbiguousPath, "caminho %q e ambiguo", req.Path)
+		}
+		return DeleteNoteResult{}, Errorf(CodeNoteNotFound, "nota %q nao encontrada", req.Path)
+	}
+
+	// 1. Calcula o relatorio de links quebrados ANTES de excluir
+	var brokenLinks []string
+	if req.ReportBrokenLinks {
+		backlinks := s.index.Backlinks(canonical)
+		seen := make(map[string]bool)
+		for _, bl := range backlinks {
+			pathStr := string(bl.From)
+			if !seen[pathStr] {
+				seen[pathStr] = true
+				brokenLinks = append(brokenLinks, pathStr)
+			}
+		}
+	}
+
+	if req.DryRun {
+		return DeleteNoteResult{
+			Path:         string(canonical),
+			Deleted:      false,
+			MovedToTrash: req.ToTrash,
+			BrokenLinks:  brokenLinks,
+			DryRun:       true,
+		}, nil
+	}
+
+	unlock := s.locker.Lock(canonical)
+	defer unlock()
+
+	absPath := s.vault.Abs(canonical)
+	if _, err := os.Stat(absPath); os.IsNotExist(err) {
+		return DeleteNoteResult{}, Errorf(CodeNoteNotFound, "nota %q nao encontrada no disco", req.Path)
+	}
+
+	if req.ToTrash {
+		baseName := filepath.Base(string(canonical))
+		trashRel := filepath.ToSlash(filepath.Join(".trash", baseName))
+		absTrash := s.vault.Abs(vault.CanonicalPath(trashRel))
+
+		// Resolve colisoes de nome na lixeira adicionando timestamp
+		if _, err := os.Stat(absTrash); err == nil {
+			ext := filepath.Ext(baseName)
+			stem := strings.TrimSuffix(baseName, ext)
+			uniqueName := fmt.Sprintf("%s_%d%s", stem, time.Now().UnixNano(), ext)
+			trashRel = filepath.ToSlash(filepath.Join(".trash", uniqueName))
+			absTrash = s.vault.Abs(vault.CanonicalPath(trashRel))
+		}
+
+		trashDir := filepath.Dir(absTrash)
+		if err := os.MkdirAll(trashDir, 0755); err != nil {
+			return DeleteNoteResult{}, Errorf(CodeInternal, "criando diretorio lixeira: %v", err)
+		}
+
+		raw, err := os.ReadFile(absPath)
+		if err != nil {
+			return DeleteNoteResult{}, Errorf(CodeInternal, "lendo nota %q: %v", req.Path, err)
+		}
+
+		if err := writer.WriteAtomic(absTrash, raw); err != nil {
+			return DeleteNoteResult{}, Errorf(CodeInternal, "movendo nota para lixeira: %v", err)
+		}
+
+		_ = os.Remove(absPath)
+
+		return DeleteNoteResult{
+			Path:         string(canonical),
+			Deleted:      true,
+			MovedToTrash: true,
+			TrashPath:    trashRel,
+			BrokenLinks:  brokenLinks,
+		}, nil
+	}
+
+	// Exclusao definitiva (to_trash == false)
+	if err := os.Remove(absPath); err != nil {
+		return DeleteNoteResult{}, Errorf(CodeInternal, "excluindo nota %q: %v", req.Path, err)
+	}
+
+	return DeleteNoteResult{
+		Path:         string(canonical),
+		Deleted:      true,
+		MovedToTrash: false,
+		BrokenLinks:  brokenLinks,
 	}, nil
 }
