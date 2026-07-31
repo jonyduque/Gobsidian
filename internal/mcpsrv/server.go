@@ -51,8 +51,8 @@ func New(ctx context.Context, svc *service.Service, cfg config.Config, log *slog
 }
 
 type statsInput struct {
-	IncludeHealth  bool `json:"include_health,omitempty" jsonschema:"inclui contagem de orfas, links quebrados e ancoras quebradas"`
-	IncludeRuntime bool `json:"include_runtime,omitempty" jsonschema:"inclui RSS, goroutines e contadores do watcher"`
+	IncludeHealth  *bool `json:"include_health,omitempty" jsonschema:"inclui contagem de orfas, links quebrados e ancoras quebradas (padrao: true)"`
+	IncludeRuntime bool  `json:"include_runtime,omitempty" jsonschema:"inclui RSS, goroutines e contadores do watcher"`
 }
 
 func (s *Server) registerReadTools() {
@@ -63,8 +63,22 @@ func (s *Server) registerReadTools() {
 		},
 		guard(s.log, "vault_stats",
 			func(ctx context.Context, _ *mcp.CallToolRequest, in statsInput) (*mcp.CallToolResult, service.StatsResult, error) {
+				// docs/TOOLS.md declara "default": true. Omitido com bool simples,
+
+				// orphans, broken_links e broken_anchors sumiam da resposta em
+
+				// silencio, contrariando o contrato que o chamador leu.
+
+				includeHealth := true
+
+				if in.IncludeHealth != nil {
+
+					includeHealth = *in.IncludeHealth
+
+				}
+
 				out, err := s.svc.VaultStats(ctx, service.StatsRequest{
-					IncludeHealth:  in.IncludeHealth,
+					IncludeHealth:  includeHealth,
 					IncludeRuntime: in.IncludeRuntime,
 				})
 				if err != nil {

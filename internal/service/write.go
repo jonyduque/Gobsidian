@@ -199,18 +199,33 @@ func (s *Service) AppendNote(_ context.Context, req AppendNoteRequest) (AppendNo
 		}
 	}
 
+	// ensure_blank_line separa o conteudo anexado do que ja estava la. Ate
+	// 2026-07-30 o campo era declarado em docs/TOOLS.md com "default": true, na
+	// struct de entrada da tool e nesta request — e nunca era lido. Fazia nada.
+	// E o defeito que note_list.fields ja tinha custado: o modelo do outro lado
+	// le o schema para decidir, pede o comportamento, e nao tem como saber que
+	// o pedido nao fez efeito. A regra deste projeto e "ou implemente, ou tire
+	// do schema e da documentacao"; implementado.
+	//
+	// O EOL vem do arquivo, nao de uma constante: escrever LF numa nota CRLF
+	// produz diff de arquivo inteiro em cofre versionado por Git (RF-38).
+	eol := writer.DetectEOL(raw)
+	conteudo := req.Content
+	if req.EnsureBlankLine && len(raw) > 0 && !strings.HasPrefix(conteudo, eol) {
+		conteudo = eol + conteudo
+	}
+
 	var proposed []byte
 	if req.Heading != "" && targetH == nil && req.CreateIfMissing {
-		eol := writer.DetectEOL(raw)
 		level := req.HeadingLevel
 		if level <= 0 {
 			level = 2
 		}
 		headingLine := fmt.Sprintf("%s %s%s", strings.Repeat("#", level), req.Heading, eol)
-		appended := writer.AppendSectionContent(raw, nil, headingLine+req.Content)
+		appended := writer.AppendSectionContent(raw, nil, headingLine+conteudo)
 		proposed = appended
 	} else {
-		proposed = writer.AppendSectionContent(raw, targetH, req.Content)
+		proposed = writer.AppendSectionContent(raw, targetH, conteudo)
 	}
 
 	if req.DryRun {

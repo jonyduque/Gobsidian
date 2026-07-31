@@ -11,7 +11,7 @@ type createInput struct {
 	Path          string         `json:"path" jsonschema:"caminho relativo da nota no cofre"`
 	Content       string         `json:"content" jsonschema:"conteudo textual da nota"`
 	Frontmatter   map[string]any `json:"frontmatter,omitempty" jsonschema:"metadados frontmatter em mapa chave/valor"`
-	CreateFolders bool           `json:"create_folders,omitempty" jsonschema:"cria diretorios intermediarios se nao existirem"`
+	CreateFolders *bool          `json:"create_folders,omitempty" jsonschema:"cria diretorios intermediarios se nao existirem (padrao: true)"`
 	DryRun        bool           `json:"dry_run,omitempty" jsonschema:"se verdadeiro devolve apenas o diff sem alterar o disco"`
 }
 
@@ -21,7 +21,7 @@ type appendInput struct {
 	Heading         string `json:"heading,omitempty" jsonschema:"heading onde anexar; ausente anexa ao fim da nota"`
 	HeadingLevel    int    `json:"heading_level,omitempty" jsonschema:"nivel do heading (1-6) para desambiguar"`
 	CreateIfMissing bool   `json:"create_if_missing,omitempty" jsonschema:"cria o heading se nao existir"`
-	EnsureBlankLine bool   `json:"ensure_blank_line,omitempty" jsonschema:"garante linha em branco antes do conteudo anexado"`
+	EnsureBlankLine *bool  `json:"ensure_blank_line,omitempty" jsonschema:"garante linha em branco antes do conteudo anexado (padrao: true)"`
 	ExpectedHash    string `json:"expected_hash,omitempty" jsonschema:"hash xxhash para concorrencia otimista"`
 	DryRun          bool   `json:"dry_run,omitempty" jsonschema:"se verdadeiro devolve apenas o diff sem alterar o disco"`
 }
@@ -60,11 +60,21 @@ func (s *Server) registerWriteTools() {
 		},
 		guard(s.log, "note_create",
 			func(ctx context.Context, _ *mcp.CallToolRequest, in createInput) (*mcp.CallToolResult, service.CreateNoteResult, error) {
+				// docs/TOOLS.md declara "default": true. Com bool simples o
+				// valor omitido chega como false e a promessa do schema quebra:
+				// quem le o contrato omite o campo esperando true e recebe o
+				// contrario. E a armadilha que ReadOnlySet e DebounceMSSet
+				// existem para evitar, na camada da tool.
+				createFolders := true
+				if in.CreateFolders != nil {
+					createFolders = *in.CreateFolders
+				}
+
 				out, err := s.svc.CreateNote(ctx, service.CreateNoteRequest{
 					Path:          in.Path,
 					Content:       in.Content,
 					Frontmatter:   in.Frontmatter,
-					CreateFolders: in.CreateFolders,
+					CreateFolders: createFolders,
 					DryRun:        in.DryRun,
 				})
 				if err != nil {
@@ -81,13 +91,20 @@ func (s *Server) registerWriteTools() {
 		},
 		guard(s.log, "note_append",
 			func(ctx context.Context, _ *mcp.CallToolRequest, in appendInput) (*mcp.CallToolResult, service.AppendNoteResult, error) {
+				// Mesmo motivo do create_folders: docs/TOOLS.md declara
+				// "default": true para ensure_blank_line.
+				ensureBlankLine := true
+				if in.EnsureBlankLine != nil {
+					ensureBlankLine = *in.EnsureBlankLine
+				}
+
 				out, err := s.svc.AppendNote(ctx, service.AppendNoteRequest{
 					Path:            in.Path,
 					Content:         in.Content,
 					Heading:         in.Heading,
 					HeadingLevel:    in.HeadingLevel,
 					CreateIfMissing: in.CreateIfMissing,
-					EnsureBlankLine: in.EnsureBlankLine,
+					EnsureBlankLine: ensureBlankLine,
 					ExpectedHash:    in.ExpectedHash,
 					DryRun:          in.DryRun,
 				})

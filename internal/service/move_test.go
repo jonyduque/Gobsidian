@@ -238,3 +238,76 @@ func TestMoveNote_PreservesAliasAndAnchor(t *testing.T) {
 		t.Errorf("obtido %q, quer %q", string(refRaw), want)
 	}
 }
+
+// TestMoveNote_HappyPathActuallyMovesTheFile e o teste que faltava ao M5.
+//
+// Medido na revisao de 2026-07-30: neutralizando a escrita do arquivo de
+// destino dentro de MoveNote, a suite INTEIRA de internal/service continuava
+// verde. Os testes de move cobriam dry-run, update_links:false,
+// create_folders:false, caminho fora do cofre, preservacao de alias e ancora, e
+// falha parcial — e nenhum afirmava que a nota chega ao caminho novo.
+//
+// O caminho feliz da ferramenta mais perigosa do marco estava sem verificacao:
+// note_move reescreve links em dezenas de notas que o usuario nao pediu para
+// tocar, e um move que reescreve tudo e nao move o arquivo deixa o cofre com
+// dezenas de links apontando para um caminho vazio.
+func TestMoveNote_HappyPathActuallyMovesTheFile(t *testing.T) {
+	conteudo := "---\ntags: [civil]\n---\r\n\r\n# Alvo\r\n\r\nconteudo que precisa chegar inteiro\r\n"
+	svc, _, idx, root := createMoveService(t, map[string]string{
+		"alvo.md": conteudo,
+		"ref.md":  "aponta para [[alvo]] e para [texto](alvo.md)\n",
+	})
+
+	// CreateFolders explicito: no nivel do SERVICO o zero-value false e
+	// legitimo, porque e uma API Go. Quem aplica o "default: true" do
+	// docs/TOOLS.md e a camada da tool, em internal/mcpsrv — e foi la que a
+	// revisao de 2026-07-30 achou tres campos com bool simples onde o schema
+	// promete true.
+	res, err := svc.MoveNote(context.Background(), service.MoveNoteRequest{
+		From:          "alvo.md",
+		To:            "Novo/alvo.md",
+		UpdateLinks:   true,
+		CreateFolders: true,
+	})
+	if err != nil {
+		t.Fatalf("MoveNote: %v", err)
+	}
+
+	// 1. O arquivo esta no lugar novo, com o conteudo byte a byte. CRLF e
+	//    frontmatter incluidos: RF-38 vale no move como vale na escrita.
+	destino := filepath.Join(root, "Novo", "alvo.md")
+	lido, err := os.ReadFile(destino)
+	if err != nil {
+		t.Fatalf("a nota nao chegou ao caminho novo: %v", err)
+	}
+	if string(lido) != conteudo {
+		t.Errorf("conteudo no destino difere do original:\n got %q\nwant %q", lido, conteudo)
+	}
+
+	// 2. E saiu do lugar antigo. Um "move" que copia deixa duas notas, e o
+	//    cofre passa a ter duplicata que o indice reporta como duas.
+	if _, err := os.Stat(filepath.Join(root, "alvo.md")); !os.IsNotExist(err) {
+		t.Errorf("a nota continua no caminho antigo (err=%v)", err)
+	}
+
+	// 3. O retorno diz o caminho novo — o chamador usa isso para a proxima
+	//    chamada, e um campo errado aqui manda o modelo para o lugar errado.
+	if res.To != "Novo/alvo.md" {
+		t.Errorf("res.To = %q, quer %q", res.To, "Novo/alvo.md")
+	}
+
+	// NAO se afirma o indice aqui, e a razao importa: NENHUMA tool de escrita
+	// deste projeto atualiza o indice diretamente — todas leem dele e deixam a
+	// atualizacao para o watcher, que ve a propria escrita chegar como evento.
+	// E consistente entre CreateNote, AppendNote, PatchNote, MoveNote e
+	// DeleteNote, e nao e defeito.
+	//
+	// O que NAO esta verificado em lugar nenhum e a COMPOSICAO: com o servidor
+	// rodando, note_move remove o arquivo antigo e escreve um novo com conteudo
+	// identico, o que o watcher tem de correlacionar como rename e aplicar via
+	// index.MoveNote. O brief da Task 65 pedia esse teste ponta a ponta
+	// ("mover com o servidor rodando e confirmar que vault_search e link_graph
+	// refletem o caminho novo") e ele nao foi escrito. Registrado na revisao de
+	// 2026-07-30; fechar isso e tarefa, nao assercao para este teste de unidade.
+	_ = idx
+}
