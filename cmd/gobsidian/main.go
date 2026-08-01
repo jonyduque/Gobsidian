@@ -36,7 +36,7 @@ func main() {
 		SilenceErrors: true,
 	}
 
-	root.AddCommand(newServeCmd(), newDoctorCmd(), newVersionCmd())
+	root.AddCommand(newServeCmd(), newDoctorCmd(), newVersionCmd(), newIndexCmd(), newSearchCmd(), newInspectCmd())
 
 	if err := root.Execute(); err != nil {
 		fmt.Fprintf(os.Stderr, "[!] %v\n", err)
