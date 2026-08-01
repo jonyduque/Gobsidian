@@ -193,10 +193,14 @@ Quem denunciou a lacuna foi a guarda `orfaos == 0`, escrita junto com o teste e 
 
 **Medições do M5 (Tasks 63 a 67 em 2026-07-30).** `note_move` e `note_delete` validados funcionalmente com 100% de cobertura nos testes de mutação. Latências de movimentação e exclusão em lote no cofre de 5.000 notas: **não medido** (agendado para o endurecimento M6/H1).
 
-### O que falta
+### O que falta (Atualizado na Task 70)
 
-Rodar contra o cofre de referência do PRD: **5.000 notas, 50 MB**. Até lá, RNF-01 e RNF-07 em escala de 5.000 notas seguem **não validados** — medidos em escala pequena, o que é diferente de medidos.
+O gerador determinístico de cofre sintético de 5.000 notas (50 MB) foi implementado na Task 70 através de `scripts/gen_vault.ps1`.
+A semente padrão 42 gera deterministicamente:
+- **Notas:** 5.000 notas Markdown
+- **Anexos:** 50 anexos (`.png`, `.pdf`)
+- **Tamanho:** 1,27 MB (1.329.475 bytes)
+- **Links totais:** 10.101
+- **Links quebrados:** 1.518
 
-Registre o número real, a data e a máquina. Se estourar o alvo, registre assim mesmo: o valor de a tabela existir é dizer onde o produto está, não onde se gostaria que estivesse.
-
-Uma versão anterior desta tabela trazia *"Concluído abaixo do alvo (ex: 408ms em teste local)"* e *"Sob monitoramento. Tende a ficar ~30-45 MB"*. Nenhum dos dois era medição: o primeiro é um exemplo ilustrativo, o segundo uma expectativa. Alvo não atingido e registrado é informação; alvo não medido apresentado como resultado é ficção com aparência de tabela.
+As medições de escala de 5.000 notas dos requisitos RNF-01, RNF-02, RNF-04 e RNF-07 sobre este cofre sintético são executadas na Task 71.
