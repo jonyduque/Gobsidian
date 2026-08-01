@@ -316,12 +316,21 @@ type StatsRequest struct {
 // publico: docs/TOOLS.md descreve cada um pelo nome JSON, e um campo declarado
 // que ninguem preenche e pior que um campo ausente, porque quem le acredita.
 type StatsResult struct {
-	Notes        int            `json:"notes"`
-	Assets       int            `json:"assets"`
-	TotalSize    int64          `json:"total_size"`
-	Orphans      int            `json:"orphans"`
-	BrokenLinks  int            `json:"broken_links"`
-	BrokenAnchor int            `json:"broken_anchors"`
+	Notes     int   `json:"notes"`
+	Assets    int   `json:"assets"`
+	TotalSize int64 `json:"total_size"`
+	// Ponteiro, e nao int com omitempty. Zero e contagem legitima: um cofre sem
+	// orfas reporta orphans=0. Se include_health desligado tambem reportasse 0,
+	// o chamador nao distinguiria "nao ha orfas" de "nao perguntei" — que e a
+	// regra deste projeto sobre o que um zero significa, e o motivo de
+	// ReadOnlySet e DebounceMSSet existirem. `omitempty` em int seria pior
+	// ainda: sumiria com o zero legitimo quando a saude FOI pedida.
+	//
+	// nil  = nao pedido (include_health false)
+	// &0   = pedido, e nao ha nenhum
+	Orphans      *int           `json:"orphans,omitempty"`
+	BrokenLinks  *int           `json:"broken_links,omitempty"`
+	BrokenAnchor *int           `json:"broken_anchors,omitempty"`
 	Collisions   int            `json:"alias_collisions"`
 	Generation   uint64         `json:"generation"`
 	Runtime      *RuntimeStats  `json:"runtime,omitempty"`
@@ -347,39 +356,50 @@ func (s *Service) VaultStats(ctx context.Context, req StatsRequest) (StatsResult
 		return out, nil
 	}
 
+	// A varredura so acontece quando a saude foi pedida. Ate 2026-07-31 o campo
+	// IncludeHealth era declarado aqui e em docs/TOOLS.md e NUNCA lido: a
+	// varredura rodava sempre, e o parametro nao fazia nada. E o defeito do
+	// note_list.fields — o schema e justamente o que o chamador le para decidir.
 	var orphans, brokenLinks, brokenAnchors int
 
-	// NotePaths, nao Paths: Paths inclui anexos, que Get nao resolve.
-	for _, p := range s.index.NotePaths() {
-		n, ok := s.index.Get(p)
-		if ok {
-			bl := s.index.Backlinks(p)
-			if len(bl) == 0 {
-				orphans++
-			}
-			for _, l := range n.Links {
-				// LinkExternal nao entra em nenhuma das duas contagens: uma
-				// URL nunca foi para o cofre, e conta-la como quebrada afoga
-				// o sinal de saude em falso positivo.
-				switch l.State {
-				case index.LinkTargetMissing:
-					brokenLinks++
-				case index.LinkAnchorMissing:
-					brokenAnchors++
+	if req.IncludeHealth {
+		// NotePaths, nao Paths: Paths inclui anexos, que Get nao resolve.
+		for _, p := range s.index.NotePaths() {
+			n, ok := s.index.Get(p)
+			if ok {
+				bl := s.index.Backlinks(p)
+				if len(bl) == 0 {
+					orphans++
+				}
+				for _, l := range n.Links {
+					// LinkExternal nao entra em nenhuma das duas contagens: uma
+					// URL nunca foi para o cofre, e conta-la como quebrada afoga
+					// o sinal de saude em falso positivo.
+					switch l.State {
+					case index.LinkTargetMissing:
+						brokenLinks++
+					case index.LinkAnchorMissing:
+						brokenAnchors++
+					}
 				}
 			}
 		}
+
 	}
 
 	res := StatsResult{
-		Notes:        s.index.NoteCount(),
-		Assets:       s.index.AssetCount(),
-		TotalSize:    s.index.TotalSize(),
-		Orphans:      orphans,
-		BrokenLinks:  brokenLinks,
-		BrokenAnchor: brokenAnchors,
-		Collisions:   s.index.AliasCollisions(),
-		Generation:   s.index.Generation(),
+		Notes:     s.index.NoteCount(),
+		Assets:    s.index.AssetCount(),
+		TotalSize: s.index.TotalSize(),
+
+		Collisions: s.index.AliasCollisions(),
+		Generation: s.index.Generation(),
+	}
+
+	if req.IncludeHealth {
+		res.Orphans = &orphans
+		res.BrokenLinks = &brokenLinks
+		res.BrokenAnchor = &brokenAnchors
 	}
 
 	if req.IncludeRuntime {

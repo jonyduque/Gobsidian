@@ -138,3 +138,45 @@ func TestDefault_VaultStatsIncludesHealthWhenOmitted(t *testing.T) {
 			resposta.Orphans, bruto)
 	}
 }
+
+// TestIncludeHealthFalseOmitsTheCounts e o outro lado do default: pedido
+// explicitamente como false, os campos de saude tem de SUMIR da resposta, nao
+// virem zerados.
+//
+// Zero e contagem legitima — um cofre sem orfas reporta orphans=0. Se o
+// desligado tambem reportasse 0, o chamador nao distinguiria "nao ha orfas" de
+// "nao perguntei", que e a regra deste projeto sobre o que um zero significa.
+// Por isso os tres campos sao *int com omitempty: nil some, &0 aparece.
+func TestIncludeHealthFalseOmitsTheCounts(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "orfa.md"), []byte("# Orfa\n\nsem backlink\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	session, ctx := novaSessao(t, root)
+
+	res, err := session.CallTool(ctx, &mcp.CallToolParams{
+		Name:      "vault_stats",
+		Arguments: map[string]any{"include_health": false},
+	})
+	if err != nil {
+		t.Fatalf("CallTool: %v", err)
+	}
+	if res.IsError {
+		t.Fatalf("vault_stats devolveu erro: %+v", res.Content)
+	}
+
+	bruto, err := json.Marshal(res.StructuredContent)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, campo := range []string{"orphans", "broken_links", "broken_anchors"} {
+		if strings.Contains(string(bruto), campo) {
+			t.Errorf("%q presente com include_health=false; docs/TOOLS.md diz que "+
+				"esses campos so vem com include_health:\n%s", campo, bruto)
+		}
+	}
+	// E o resto continua vindo: desligar a saude nao pode esvaziar a resposta.
+	if !strings.Contains(string(bruto), "notes") {
+		t.Errorf("a resposta perdeu os campos que nao dependem de saude:\n%s", bruto)
+	}
+}
