@@ -895,3 +895,32 @@ verde nas nove etapas depois do ultimo.
 **M6 ainda NAO preparado.** Antes de escrever tarefa, a Fase 2 pendente: o
 padrao "parametro de schema que o codigo ignora" apareceu cinco vezes nesta
 revisao e merece instrumento, nao mais uma linha em `AGENTS.md`.
+
+## M6 preparado para delegacao — 2026-08-01
+
+Tasks 69 a 77 escritas autocontidas em `docs/superpowers/plans/2026-07-25-gobsidian-v01.md`,
+commit `2069311`. Briefs gerados e conferidos por `check_briefs.ps1`: as nove
+carregam Verificacoes, Regras de execucao, Contrato de relatorio, clausula de
+mutacao e linha de Files, e as nove passam do piso relativo de tamanho.
+
+**Fase 2 do preparo (melhoria de harness) rendeu instrumento novo.** O padrao
+"parametro de schema que o codigo ignora" tinha aparecido CINCO vezes e sempre
+fora pego por pessoa lendo codigo. `scripts/check_tool_params.ps1` (commit
+`9b7c871`) o mecaniza: todo campo de struct `*Input` em `internal/mcpsrv` tem
+de ter o identificador Go aparecendo alem da propria declaracao. Nenhum gate
+pegava porque nenhum podia — o campo E usado, pelo decodificador de JSON, o que
+satisfaz todo analisador de uso.
+
+**Achou quatro instancias novas na primeira execucao**, todas com contrato
+documentado em `docs/TOOLS.md` que o codigo nao honra: `note_metadata.include`,
+`link_graph.direction`, `link_graph.include_broken`, `link_graph.include_embeds`.
+Viraram a Task 69. O checador NAO entrou no `verify.ps1` ainda, de proposito:
+entraria vermelho. Entra junto com a correcao, na propria 69.
+
+**Divisao para delegacao.** Ao modelo barato: **69, 70, 71, 72, 74, 75** — as
+seis sao transcricao ou medicao com passos fechados. Ficam com o principal:
+**73** (o gate de bench precisa julgar o que conta como regressao e provar que
+dispara), **76** (o entregavel e projetar um cenario de teste que hoje nao
+existe, e o modo de falha e escrever teste que nao pode falhar) e **77** (o
+entregavel sao relatorios com evidencia real, e o modo de falha de um modelo
+barato pedido a "escrever relatorios com evidencia" e fabrica-la).
