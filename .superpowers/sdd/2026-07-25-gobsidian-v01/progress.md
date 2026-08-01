@@ -820,3 +820,78 @@ Regras de execucao nem Contrato de relatorio. Corrigido: cada secao repete o que
 a vincula, mais as regras e o contrato proprios. Conferido por grep depois de
 regerar, nao suposto. A skill gobsidian-execution ganhou o aviso, porque o mesmo
 provavelmente valeu para o M4 e passou por sorte.
+
+## Revisao do M5 — pendencias fechadas em 2026-08-01
+
+Fechadas as duas pendencias que a revisao do M5 deixou abertas. Ambas rederam
+defeito real, nenhum deles inferido: cada um esta reproduzido, corrigido e
+provado por mutacao.
+
+**1. O teto do RNF-04 nao era cobrado em lugar nenhum.** Existiam DUAS
+assercoes de RNF-04. A do `internal/search` media `CalculateBM25` direto com um
+termo presente em 5 de 500 notas — `Mediana: 0s, p95: 1,02 ms` contra teto de
+100 ms, um teste que nao podia falhar — e era a unica que o gate rodava. A do
+`internal/service`, que mede pela camada que o RNF nomeia, e pulada sob `-race`,
+e `-race` era o unico modo em que `verify.ps1` rodava testes. O gate cobrava a
+tautologia e pulava a medicao.
+
+- `TestRNF04SearchLatencyPercentile` virou `TestBM25KernelLatency`, com consulta
+  que casa as 500 notas (mediana 4,1 ms), teto medido de 80 ms e falha explicita
+  se a mediana for zero. Mutacao: voltando a consulta seletiva, reprova
+  (`a consulta casou 1 notas de 500`) — `[OK] VERIFICADA`.
+- `verify.ps1` ganhou a etapa `go test (RNF-04, sem -race)`. Sao ~7 s.
+- A instabilidade que motivou a investigacao foi reproduzida: quatro copias do
+  binario de teste ao mesmo tempo dao p95 de 100,6 / 102,9 / 107,4 ms em tres de
+  quatro, contra 81 ms ocioso. Uma delas estourava por 0,6%. A medicao agora
+  repete ate 3 vezes antes de reprovar — pico de carga nao sobrevive a tres
+  rodadas, regressao sobrevive a todas. Mutacao: baixando o teto do formato
+  `limit: 200` para 10 ms, reprova depois das tres rodadas — `[OK] VERIFICADA`.
+- Repetir NAO cria folga. `limit: 200` segue com ~20% dela, registrado em
+  `docs/OPERACAO.md` como lacuna de M6, nao como alvo atingido com conforto.
+
+**2. O teste ponta a ponta de `note_move` (Task 65) foi escrito — e achou uma
+corrida de dados em producao.** `internal/mcpsrv/e2e_move_test.go` monta a pilha
+como `cmd/gobsidian` monta, move pela tool com o servidor no ar e confirma que
+`vault_search` e `link_graph` respondem pelo caminho novo.
+
+Na primeira execucao sob `-race`: `index.MoveNote` escrevendo `n.Path` contra
+`service.Search` lendo `note.Path`. Nao e trava esquecida — `MoveNote` segura
+`ix.mu.Lock()` inteiro. O mutex protege o MAPA; o `*Note` escapa por `Get` e por
+`List`, e o chamador le os campos depois de soltar o `RLock`.
+`reprocessLinksLocked` tinha o mesmo defeito e alcance muito maior: reescreve os
+`Links` de todas as notas, a cada evento do watcher, nao so em move.
+
+Invariante agora explicita e por uma funcao so (`mutarNotaLocked`): **`*Note`
+publicado em `ix.notes` e imutavel; quem muda uma nota troca a entrada por uma
+copia.** `Build` e `Replace` ja obedeciam sem que ninguem tivesse escrito a
+regra. Mutacao: desligando o `w.Run`, o teste reprova
+(`vault_search ainda responde por "origem/alvo.md"`) — `[OK] VERIFICADA`.
+
+**3. Achado nao previsto: o criterio de bloqueio do M4 nao verificava nada.**
+Aparecido quando o gate ficou vermelho por outro motivo.
+`TestRNF11NoCorruptionUnder1000Crashes` matava o filho de 0 a 39 ms contados do
+`cmd.Start()`. Mas o filho e o proprio binario de teste, e paga init antes de
+chegar em `WriteAtomic`. Medido: escrita nao interrompida leva mediana de
+**47,2 ms sem `-race` e 1,077 s com**. A janela cabia inteira dentro do init —
+sob `-race`, em 100% das 1.000 iteracoes. O teste relatava "0 corrompidas em
+1.000 iteracoes" sem ter escrito um byte.
+
+Quem denunciou foi a guarda `orfaos == 0`, escrita junto com o teste e correta
+desde entao. Corrigido sincronizando com a escrita: o filho avisa em stdout
+imediatamente antes de `WriteAtomic`, e o pai mata de 0 a 9,95 ms depois do
+aviso. Iteracoes em pool, porque sequencial sob `-race` daria ~18 min.
+
+  antes: 0 orfaos, 69 s
+  depois: 381 orfaos sob `-race` (280 sem), 0 corrompidas, ~20 s
+
+Mutacao, possivel pela primeira vez: trocando `os.CreateTemp` por
+`os.OpenFile(alvo, O_TRUNC)`, o teste reprova com **7 de 1.000 iteracoes
+corrompidas**, truncadas a 0 bytes — `[OK] VERIFICADA`. A mesma mutacao passava
+verde antes.
+
+**Commits:** `de3272e`, `4fbec09`, `67016de`, `847bde1`. Bateria `verify.ps1`
+verde nas nove etapas depois do ultimo.
+
+**M6 ainda NAO preparado.** Antes de escrever tarefa, a Fase 2 pendente: o
+padrao "parametro de schema que o codigo ignora" apareceu cinco vezes nesta
+revisao e merece instrumento, nao mais uma linha em `AGENTS.md`.
