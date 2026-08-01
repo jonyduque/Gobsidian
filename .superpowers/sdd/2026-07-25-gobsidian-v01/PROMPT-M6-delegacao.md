@@ -16,20 +16,38 @@ Leia, nesta ordem, e não pule:
 
 **Não leia o plano inteiro.** Cada tarefa tem um brief autocontido; é ele que você executa.
 
-## As seis tarefas, na ordem obrigatória
+## Quais tarefas são suas
 
-Execute **uma de cada vez**, na ordem abaixo. Não comece a seguinte antes de a anterior estar commitada e com relatório gravado.
+O marco M6 tem nove tarefas no plano, numeradas de 69 a 77. **Seis são suas:**
 
-| Ordem | Tarefa | Motivo de estar nesta posição |
+> ### Task 69, Task 70, Task 71, Task 72, Task 74 e Task 75
+
+**As Tasks 73, 76 e 77 NÃO são suas.** Não as execute, não gere brief delas, não as commite. Elas ficam com outro modelo porque o entregável de cada uma é projeto ou julgamento, não transcrição:
+
+- **73** precisa decidir o que conta como regressão de desempenho e provar que o gate dispara;
+- **76** precisa projetar um cenário de teste que hoje não existe, e o modo de falha é escrever teste que não pode falhar;
+- **77** produz relatórios com evidência real, e o modo de falha de um modelo pedido a "escrever relatório com evidência" é fabricá-la.
+
+Se ao terminar a Task 72 você sentir vontade de continuar para a 73: **pare.** Sua entrega acaba na 72. Diga que as seis acabaram e devolva a lista de SHAs.
+
+## A ordem de execução, que é obrigatória
+
+Execute **uma de cada vez**, na sequência abaixo. Não comece a seguinte antes de a anterior estar commitada, revisada e registrada no ledger.
+
+| Passo | Execute | Motivo de estar nesta posição |
 |---|---|---|
-| 1 | **75** subcomandos `index`, `search`, `inspect` | Isolada em `cmd/gobsidian`; não toca arquivo de nenhuma outra |
-| 2 | **69** os quatro parâmetros de schema ignorados | Acrescenta a primeira etapa nova ao `scripts/verify.ps1` |
-| 3 | **74** `netcheck` como analisador de `go vet` | Acrescenta a segunda etapa ao `verify.ps1` — nunca junto com a 69 |
-| 4 | **70** gerador determinístico de cofre de 5.000 notas | Destrava a 71 |
-| 5 | **71** RNF-01, RNF-02, RNF-04 e RNF-07 medidos a 5.000 | Precisa do cofre da 70 |
-| 6 | **72** a folga fina do RNF-04 em `limit: 200` | Precisa do número de escala da 71 para mirar |
+| 1º | **Task 75** — subcomandos `index`, `search`, `inspect` | Isolada em `cmd/gobsidian`; não toca arquivo de nenhuma outra |
+| 2º | **Task 69** — os quatro parâmetros de schema ignorados | Acrescenta a primeira etapa nova ao `scripts/verify.ps1` |
+| 3º | **Task 74** — `netcheck` como analisador de `go vet` | Acrescenta a segunda etapa ao `verify.ps1` — nunca junto com a 69 |
+| 4º | **Task 70** — gerador determinístico de cofre de 5.000 notas | Destrava a 71 |
+| 5º | **Task 71** — RNF-01, RNF-02, RNF-04 e RNF-07 medidos a 5.000 | Precisa do cofre que a 70 gera |
+| 6º | **Task 72** — a folga fina do RNF-04 em `limit: 200` | Precisa do número em escala que a 71 mede |
 
-A ordem não é sugestão. A 71 depende de dados da 70; a 72 depende de números da 71; e 69 e 74 editam o mesmo arquivo.
+A ordem não é sugestão, e as três razões são independentes:
+
+1. A **71** não tem o que medir sem o cofre que a **70** gera.
+2. A **72** deve mirar o número de 5.000 notas que a **71** produz; otimizar contra o corpus de 500 e deixar o grande desatualizado recria a lacuna que a 71 existe para fechar.
+3. A **69** e a **74** acrescentam etapa ao **mesmo** `scripts/verify.ps1`. Fora de ordem, ou em paralelo, uma sobrescreve a etapa da outra sem erro nenhum aparecer.
 
 ## O laço, tarefa a tarefa
 
@@ -122,4 +140,19 @@ O MCP do gopls está disponível (`go_diagnostics`, `go_file_context`, `go_searc
 
 ## Comece
 
-Rode `pwsh -File scripts/sdd.ps1 status`, depois `base 75`, depois `brief 75`. Ao terminar cada tarefa, diga qual acabou, cole o SHA do commit e siga para a próxima da tabela.
+Rode:
+
+```bash
+pwsh -File scripts/sdd.ps1 status
+pwsh -File scripts/sdd.ps1 base 75
+pwsh -File scripts/sdd.ps1 brief 75
+```
+
+Ao terminar cada tarefa, diga qual acabou, cole o SHA do commit e siga para a próxima **da tabela de seis**.
+
+Ao terminar a **Task 72**, você acabou. Não siga para a 73. Devolva:
+
+- os seis SHAs, um por tarefa, cada um conferido com `git cat-file -t`;
+- a saída de `pwsh -File scripts/sdd.ps1 status`;
+- o que ficou de fora em qualquer uma das seis, com o motivo;
+- os defeitos que você encontrou fora do escopo e registrou sem consertar.

@@ -3,10 +3,12 @@ export const meta = {
   description: 'Executa uma tarefa do plano gobsidian: implementa, revisa por tres lentes independentes, corrige Critical/Important, re-revisa.',
   whenToUse:
     'Quando for executar UMA tarefa numerada de docs/superpowers/plans/2026-07-25-gobsidian-v01.md ' +
-    '(hoje, as Tasks 63-68 do M5). Passe o numero em args, por exemplo args: 64. ' +
+    '(hoje, as Tasks 69-77 do M6). Passe o numero em args, por exemplo args: 75. ' +
+    'AO MODELO BARATO vao SEIS: 69, 70, 71, 72, 74 e 75, nesta ordem de execucao: ' +
+    '75, 69, 74, 70, 71, 72. As Tasks 73, 76 e 77 NAO sao dele e sobem de modelo. ' +
     'O corpo dos testes dificeis entra no plano como codigo Go literal, entao a maioria das ' +
     'tarefas e transcricao. As que pedem projeto e nao transcricao sobem de modelo sozinhas ' +
-    '(hoje 46 e 49); passe args.projeto para mudar essa lista. ' +
+    '(hoje 73, 76 e 77); passe args.projeto para mudar essa lista. ' +
     'As tarefas sao estritamente sequenciais: rode uma, valide, feche no ledger, comece a proxima. ' +
     'Rodar duas em paralelo conflita: as tarefas de um marco tocam os mesmos arquivos.',
   phases: [
@@ -37,11 +39,14 @@ if (!task) {
 const PROJETO_NAO_TRANSCRICAO = new Set(
   (typeof args === 'object' && args !== null && Array.isArray(args.projeto))
     ? args.projeto.map(Number)
-    // M5: a 63 mexe no parser, que esta congelado por 48 golden files, e
-    // offset errado ali vira nota corrompida na 64; a 65 e a tool que reescreve
-    // dezenas de notas que o usuario nao pediu para tocar, e a ordem das
-    // operacoes e o que separa uma falha recuperavel de um cofre quebrado.
-    : [63, 65],
+    // M6: a 73 precisa JULGAR o que conta como regressao e provar que o gate
+    // dispara — nao ha o que transcrever, e um gate que nao dispara passa por
+    // gate. A 76 tem de PROJETAR um cenario que hoje nao existe (stdin aberto e
+    // pai morto), e o modo de falha e escrever teste que nao pode falhar, que ja
+    // aconteceu aqui tres vezes. A 77 produz relatorios com evidencia real, e o
+    // modo de falha de um modelo barato pedido a "escrever relatorio com
+    // evidencia" e fabrica-la.
+    : [73, 76, 77],
 )
 
 const numero = Number(task)
@@ -210,8 +215,8 @@ nao aconteceram. Para cada afirmacao sobre o que foi feito, confirme contra o
 git log, contra o diff, e contra os arquivos no disco. Divergencia entre o
 relatorio e o repositorio e achado Critical.
 
-O ledger reflete o estado real de cada tarefa 27 a 42? Nenhuma marcada
-"Approved" sem revisao que tenha acontecido?
+O ledger reflete o estado real de cada tarefa do marco corrente? Nenhuma
+marcada "Approved" sem revisao que tenha acontecido?
 `,
   },
 ]
@@ -295,7 +300,7 @@ Lente REGRAS DO PROJETO. Leia CLAUDE.md e confira o diff contra ele.
 // diff de markdown. Passe args.docs para marcar outra.
 const TAREFA_DOCS = (typeof args === 'object' && args !== null && args.docs !== undefined)
   ? Number(args.docs)
-  : 68
+  : 77
 const LENTES = numero === TAREFA_DOCS ? LENTES_DOCS : LENTES_CODIGO
 
 log(
