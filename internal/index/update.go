@@ -256,21 +256,74 @@ func (ix *Index) resolveLinksForNoteLocked(n *Note) {
 	}
 }
 
+// mutarNotaLocked devolve a nota de path pronta para escrita, publicando uma
+// COPIA no lugar da entrada atual na primeira chamada e devolvendo a mesma
+// copia nas seguintes.
+//
+// Existe por causa de uma corrida de dados real, encontrada sob -race por
+// TestE2E_NoteMoveIsReflectedBySearchAndGraph: index.MoveNote escrevia
+// n.Path enquanto service.Search lia note.Path. O mutex do indice nao cobria,
+// e nao e bug de trava esquecida — MoveNote segura ix.mu.Lock() do inicio ao
+// fim. O mutex protege o MAPA; o *Note para onde a entrada aponta escapa por
+// Get e por List, e o chamador le os campos DEPOIS de soltar o RLock. Mutar o
+// objeto no lugar e escrever no que outra goroutine esta lendo, com trava ou
+// sem.
+//
+// Dai a invariante: **um *Note publicado em ix.notes e imutavel**. Quem muda
+// uma nota troca a entrada do mapa por uma copia. Build e Replace ja
+// obedeciam sem que ninguem tivesse escrito a regra — montam Note novo e so
+// entao publicam. Quem nao obedecia era MoveNote e reprocessLinksLocked, e
+// esta ultima roda em TODO evento do watcher, sobre TODAS as notas: era a
+// corrida mais larga das duas.
+//
+// Toda escrita em nota publicada passa por aqui. Nao e para consertar as duas
+// que estavam erradas: e para a proxima nao ter onde nascer.
+//
+// A copia e preguicosa de proposito. reprocessLinksLocked visita as N notas
+// do cofre a cada evento, e quase nenhuma muda; copiar todas trocaria uma
+// corrida por lixo proporcional ao cofre a cada salvamento de arquivo.
+func (ix *Index) mutarNotaLocked(path vault.CanonicalPath, copia **Note) *Note {
+	if *copia != nil {
+		return *copia
+	}
+	atual := ix.notes[path]
+	c := *atual
+	// Links tem de ser fatia propria: a copia rasa compartilha o array de
+	// apoio, e escrever em c.Links[i] escreveria no do original.
+	c.Links = append([]ResolvedLink(nil), atual.Links...)
+	*copia = &c
+	ix.notes[path] = &c
+	return &c
+}
+
 func (ix *Index) reprocessLinksLocked() {
 	// Reavalia todos os links em todas as notas.
 	// E mais simples e garante consistencia.
-	for _, n := range ix.notes {
+	//
+	// Escrever na entrada do mapa durante o range e legal em Go quando a chave
+	// ja existe — nenhuma chave e criada aqui.
+	for path, n := range ix.notes {
+		var copia *Note
+
 		for i := range n.Links {
 			resolved, via, state := ix.resolveTarget(n.Links[i].Target, n.Path)
 
 			oldResolved := n.Links[i].Resolved
 
-			n.Links[i].Resolved = resolved
-			n.Links[i].Via = via
-			n.Links[i].State = state
+			// Monta o link novo fora do indice e so publica se ele mudou.
+			// ResolvedLink e comparavel — parser.Link tem so escalares e
+			// strings — entao a comparacao e a propria condicao de copia.
+			novo := n.Links[i]
+			novo.Resolved = resolved
+			novo.Via = via
+			novo.State = state
 
 			if state == LinkOK {
-				ix.resolveAnchor(&n.Links[i])
+				ix.resolveAnchor(&novo)
+			}
+
+			if novo != n.Links[i] {
+				ix.mutarNotaLocked(path, &copia).Links[i] = novo
 			}
 
 			// Atualizar backlinks se o alvo mudou
@@ -310,15 +363,26 @@ func (ix *Index) MoveNote(v *vault.Vault, oldPath, newPath vault.CanonicalPath) 
 	ix.mu.Lock()
 	defer ix.mu.Unlock()
 
-	n, hasNote := ix.notes[oldPath]
+	original, hasNote := ix.notes[oldPath]
 	if !hasNote {
 		return
 	}
 
 	atomic.AddUint64(&ix.generation, 1)
 
-	// 1. Atualizar notas
-	n.Path = newPath
+	// 1. Atualizar notas.
+	//
+	// Copia, nao mutacao no lugar: ver mutarNotaLocked. Era exatamente aqui
+	// que o detector de corrida apontava — `n.Path = newPath` contra
+	// service.Search lendo note.Path fora do RLock.
+	//
+	// A copia entra no mapa sob newPath; a entrada de oldPath e apagada logo
+	// abaixo. Quem ja segurava o ponteiro antigo continua lendo a nota antiga,
+	// coerente, ate largar — que e o contrato de qualquer leitura sem trava.
+	movida := *original
+	movida.Links = append([]ResolvedLink(nil), original.Links...)
+	movida.Path = newPath
+	n := &movida
 
 	var info os.FileInfo
 	var err error
@@ -386,9 +450,13 @@ func (ix *Index) MoveNote(v *vault.Vault, oldPath, newPath vault.CanonicalPath) 
 		delete(ix.backlinks, oldPath)
 		for _, bl := range bls {
 			if srcNote, ok := ix.notes[bl.From]; ok {
+				// Mesma invariante: a nota que APONTA para a movida tambem
+				// esta publicada, e mudar Resolved nela no lugar corre contra
+				// quem estiver lendo o grafo.
+				var copia *Note
 				for i := range srcNote.Links {
 					if srcNote.Links[i].Resolved == oldPath {
-						srcNote.Links[i].Resolved = newPath
+						ix.mutarNotaLocked(bl.From, &copia).Links[i].Resolved = newPath
 					}
 				}
 			}
