@@ -7,15 +7,19 @@ import (
 	"time"
 
 	"github.com/jonyd/gobsidian/internal/index"
+	"github.com/jonyd/gobsidian/internal/parser"
 	"github.com/jonyd/gobsidian/internal/vault"
 )
 
 // GraphRequest sao os parametros de link_graph. Depth e Limit existem porque
 // o grafo de um cofre real cresce depressa demais para caber numa resposta.
 type GraphRequest struct {
-	Path  string `json:"path"`
-	Depth int    `json:"depth"`
-	Limit int    `json:"limit"`
+	Path          string `json:"path"`
+	Direction     string `json:"direction"` // "outgoing", "incoming", "both"
+	Depth         int    `json:"depth"`
+	IncludeBroken bool   `json:"include_broken"`
+	IncludeEmbeds bool   `json:"include_embeds"`
+	Limit         int    `json:"limit"`
 }
 
 // GraphNode e uma nota no grafo de links.
@@ -24,8 +28,7 @@ type GraphNode struct {
 	Title string `json:"title,omitempty"`
 }
 
-// GraphEdge e um link resolvido, da origem para o alvo. Link externo e link
-// quebrado nao viram aresta: nao ha nota do outro lado.
+// GraphEdge e um link resolvido, da origem para o alvo.
 type GraphEdge struct {
 	Source string `json:"source"`
 	Target string `json:"target"`
@@ -39,9 +42,6 @@ type GraphResult struct {
 }
 
 // LinkGraph percorre o grafo a partir de uma nota, ate a profundidade pedida.
-//
-// Nao recebe ctx util: le so o indice em memoria, e um ctx que nenhum corpo
-// verifica ensina o revisor a ignorar ctx onde ele importa.
 func (s *Service) LinkGraph(_ context.Context, req GraphRequest) (GraphResult, error) {
 	if s.index == nil {
 		return GraphResult{}, fmt.Errorf("index not available")
@@ -58,6 +58,11 @@ func (s *Service) LinkGraph(_ context.Context, req GraphRequest) (GraphResult, e
 	limit := req.Limit
 	if limit <= 0 {
 		limit = 100
+	}
+
+	direction := req.Direction
+	if direction == "" {
+		direction = "both"
 	}
 
 	startPath, err := s.index.ResolvePath(req.Path)
@@ -97,23 +102,47 @@ func (s *Service) LinkGraph(_ context.Context, req GraphRequest) (GraphResult, e
 			continue
 		}
 
-		for _, link := range n.Links {
-			if link.State == index.LinkOK && link.Resolved != "" {
-				edgeID := string(curr.Path) + "->" + string(link.Resolved)
-				edgesMap[edgeID] = GraphEdge{Source: string(curr.Path), Target: string(link.Resolved)}
+		if direction == "outgoing" || direction == "both" {
+			for _, link := range n.Links {
+				if link.Kind == parser.LinkEmbed && !req.IncludeEmbeds {
+					continue
+				}
 
-				if !visited[link.Resolved] && len(nodesMap)+len(queue) < limit {
-					queue = append(queue, queueItem{Path: link.Resolved, Depth: curr.Depth + 1})
+				if link.State == index.LinkOK || link.State == index.LinkAnchorMissing {
+					if link.Resolved != "" {
+						edgeID := string(curr.Path) + "->" + string(link.Resolved)
+						edgesMap[edgeID] = GraphEdge{Source: string(curr.Path), Target: string(link.Resolved), Kind: link.Kind.String()}
+
+						if !visited[link.Resolved] && len(nodesMap)+len(queue) < limit {
+							queue = append(queue, queueItem{Path: link.Resolved, Depth: curr.Depth + 1})
+						}
+					}
+				} else if link.State == index.LinkTargetMissing && req.IncludeBroken {
+					targetPath := string(link.Resolved)
+					if targetPath == "" {
+						targetPath = link.Target
+					}
+					if targetPath != "" {
+						edgeID := string(curr.Path) + "->" + targetPath
+						edgesMap[edgeID] = GraphEdge{Source: string(curr.Path), Target: targetPath, Kind: link.Kind.String()}
+						nodesMap[vault.CanonicalPath(targetPath)] = GraphNode{Path: targetPath}
+					}
 				}
 			}
 		}
 
-		for _, bl := range s.index.Backlinks(curr.Path) {
-			edgeID := string(bl.From) + "->" + string(curr.Path)
-			edgesMap[edgeID] = GraphEdge{Source: string(bl.From), Target: string(curr.Path), Kind: fmt.Sprint(bl.Kind)}
+		if direction == "incoming" || direction == "both" {
+			for _, bl := range s.index.Backlinks(curr.Path) {
+				if bl.Kind == parser.LinkEmbed && !req.IncludeEmbeds {
+					continue
+				}
 
-			if !visited[bl.From] && len(nodesMap)+len(queue) < limit {
-				queue = append(queue, queueItem{Path: bl.From, Depth: curr.Depth + 1})
+				edgeID := string(bl.From) + "->" + string(curr.Path)
+				edgesMap[edgeID] = GraphEdge{Source: string(bl.From), Target: string(curr.Path), Kind: bl.Kind.String()}
+
+				if !visited[bl.From] && len(nodesMap)+len(queue) < limit {
+					queue = append(queue, queueItem{Path: bl.From, Depth: curr.Depth + 1})
+				}
 			}
 		}
 	}
@@ -243,12 +272,15 @@ func selectFields(fm map[string]any, want []string) map[string]any {
 
 // MetadataRequest sao os parametros de note_metadata.
 type MetadataRequest struct {
-	Path string `json:"path"`
+	Path    string   `json:"path"`
+	Include []string `json:"include,omitempty"`
 }
 
 // MetadataResult e tudo o que o indice sabe de uma nota sem ler o disco.
 type MetadataResult struct {
 	Path        string               `json:"path"`
+	Title       string               `json:"title"`
+	Hash        string               `json:"hash"`
 	Frontmatter map[string]any       `json:"frontmatter,omitempty"`
 	Tags        []string             `json:"tags,omitempty"`
 	Aliases     []string             `json:"aliases,omitempty"`
@@ -273,25 +305,54 @@ func (s *Service) NoteMetadata(_ context.Context, req MetadataRequest) (Metadata
 		return MetadataResult{}, Wrap(CodeNoteNotFound, nil, "note not found")
 	}
 
-	headings := make([]string, len(n.Headings))
-	for i, h := range n.Headings {
-		headings[i] = h.Text
-	}
-	blocks := make([]string, len(n.Blocks))
-	for i, b := range n.Blocks {
-		blocks[i] = b.ID
+	includeSet := make(map[string]bool)
+	if len(req.Include) == 0 {
+		includeSet["frontmatter"] = true
+		includeSet["tags"] = true
+		includeSet["headings"] = true
+		includeSet["links"] = true
+		includeSet["backlinks"] = true
+	} else {
+		for _, inc := range req.Include {
+			includeSet[inc] = true
+		}
 	}
 
-	return MetadataResult{
-		Path:        string(n.Path),
-		Frontmatter: n.Frontmatter,
-		Tags:        n.Tags,
-		Aliases:     n.Aliases,
-		Headings:    headings,
-		Blocks:      blocks,
-		Links:       n.Links,
-		Backlinks:   s.index.Backlinks(cp),
-	}, nil
+	res := MetadataResult{
+		Path:  string(n.Path),
+		Title: n.Title,
+		Hash:  fmt.Sprintf("%016x", n.Hash),
+	}
+
+	if includeSet["frontmatter"] {
+		res.Frontmatter = n.Frontmatter
+		res.Aliases = n.Aliases
+	}
+	if includeSet["tags"] {
+		res.Tags = n.Tags
+	}
+	if includeSet["headings"] {
+		headings := make([]string, len(n.Headings))
+		for i, h := range n.Headings {
+			headings[i] = h.Text
+		}
+		res.Headings = headings
+	}
+	if includeSet["blocks"] {
+		blocks := make([]string, len(n.Blocks))
+		for i, b := range n.Blocks {
+			blocks[i] = b.ID
+		}
+		res.Blocks = blocks
+	}
+	if includeSet["links"] {
+		res.Links = n.Links
+	}
+	if includeSet["backlinks"] {
+		res.Backlinks = s.index.Backlinks(cp)
+	}
+
+	return res, nil
 }
 
 // RuntimeStats sao os numeros do runtime do Go, para diagnosticar consumo de

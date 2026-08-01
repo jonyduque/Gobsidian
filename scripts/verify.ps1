@@ -148,6 +148,8 @@ else {
     Write-Output "[i] check_net pulado (-SkipNet)"
 }
 
+Invoke-Step "check_tool_params" { & (Join-Path $PSScriptRoot "check_tool_params.ps1") }
+
 Pop-Location
 
 Write-Output ""

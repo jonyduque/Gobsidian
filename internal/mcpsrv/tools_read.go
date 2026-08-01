@@ -153,7 +153,8 @@ func (s *Server) registerReadToolsInternal() {
 		guard(s.log, "note_metadata",
 			func(ctx context.Context, _ *mcp.CallToolRequest, in noteMetadataInput) (*mcp.CallToolResult, service.MetadataResult, error) {
 				out, err := s.svc.NoteMetadata(ctx, service.MetadataRequest{
-					Path: in.Path,
+					Path:    in.Path,
+					Include: in.Include,
 				})
 				if err != nil {
 					return nil, service.MetadataResult{}, toolErr(err)
@@ -177,10 +178,26 @@ func (s *Server) registerReadToolsInternal() {
 				if in.Limit != nil {
 					limit = *in.Limit
 				}
+				direction := "both"
+				if in.Direction != "" {
+					direction = in.Direction
+				}
+				includeBroken := true
+				if in.IncludeBroken != nil {
+					includeBroken = *in.IncludeBroken
+				}
+				includeEmbeds := true
+				if in.IncludeEmbeds != nil {
+					includeEmbeds = *in.IncludeEmbeds
+				}
+
 				out, err := s.svc.LinkGraph(ctx, service.GraphRequest{
-					Path:  in.Path,
-					Depth: depth,
-					Limit: limit,
+					Path:          in.Path,
+					Direction:     direction,
+					Depth:         depth,
+					IncludeBroken: includeBroken,
+					IncludeEmbeds: includeEmbeds,
+					Limit:         limit,
 				})
 				if err != nil {
 					return nil, service.GraphResult{}, toolErr(err)
