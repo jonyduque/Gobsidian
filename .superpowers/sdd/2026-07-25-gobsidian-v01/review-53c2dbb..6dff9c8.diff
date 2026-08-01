@@ -1,0 +1,815 @@
+# Review package: 53c2dbbf8f7f7d0f7461f8cdaebe6648888fa777..HEAD
+
+## Commits
+6dff9c8 fix(mcpsrv,service): honour the four schema params the handlers dropped
+
+## Files changed
+ .superpowers/sdd/task-69-report.md    | 169 ++++++++++++++++++++++++
+ internal/mcpsrv/schema_params_test.go | 242 ++++++++++++++++++++++++++++++++++
+ internal/mcpsrv/tools_read.go         |  25 +++-
+ internal/service/graph.go             | 133 ++++++++++++++-----
+ scripts/verify.ps1                    |   2 +
+ 5 files changed, 531 insertions(+), 40 deletions(-)
+
+## Diff
+diff --git a/.superpowers/sdd/task-69-report.md b/.superpowers/sdd/task-69-report.md
+new file mode 100644
+index 0000000..18aa30c
+--- /dev/null
++++ b/.superpowers/sdd/task-69-report.md
+@@ -0,0 +1,169 @@
++# Relatório Task 69: Os quatro parâmetros de schema que o código ignora
++
++- **Status**: DONE
++- **Commit**: `fix(mcpsrv,service): honour the four schema params the handlers dropped`
++
++## O Que Foi Implementado
++- Passados e honrados os quatro parâmetros declarados no schema MCP que eram ignorados nos handlers:
++  1. `note_metadata.include`: em [internal/mcpsrv/tools_read.go](file:///C:/Users/jonyd/Projetos/Gobsidian/internal/mcpsrv/tools_read.go) e [internal/service/graph.go](file:///C:/Users/jonyd/Projetos/Gobsidian/internal/service/graph.go). Permite filtrar o conjunto de campos retornado pela tool (`frontmatter`, `tags`, `headings`, `blocks`, `links`, `backlinks`), mantendo `path`, `title` e `hash` sempre presentes.
++  2. `link_graph.direction`: enums `"outgoing"`, `"incoming"`, `"both"` (default `"both"`).
++  3. `link_graph.include_broken`: booleano (default `true`). Permite incluir ou excluir arestas e nós de alvos de links quebrados.
++  4. `link_graph.include_embeds`: booleano (default `true`). Permite incluir ou excluir links do tipo embed (`![[...]`).
++- Adicionada a etapa `check_tool_params` no script [scripts/verify.ps1](file:///C:/Users/jonyd/Projetos/Gobsidian/scripts/verify.ps1) para garantir que nenhum parâmetro de schema fique sem leitura em handlers futuros.
++- Criada a suíte de testes em [internal/mcpsrv/schema_params_test.go](file:///C:/Users/jonyd/Projetos/Gobsidian/internal/mcpsrv/schema_params_test.go).
++
++## Evidência de TDD
++
++### Comando do RED
++`pwsh -File scripts/check_tool_params.ps1` (antes de passar os parâmetros nos handlers)
++```
++[i] 12 structs de entrada, 68 parametros declarados.
++[!] 4 parametro(s) declarado(s) e nunca lido(s):
++    tools_read.go:253  noteMetadataInput.Include  (json: "include")
++    tools_read.go:258  linkGraphInput.Direction  (json: "direction")
++    tools_read.go:260  linkGraphInput.IncludeBroken  (json: "include_broken")
++    tools_read.go:261  linkGraphInput.IncludeEmbeds  (json: "include_embeds")
++```
++
++### Comando do GREEN
++`pwsh -File scripts/check_tool_params.ps1` (após implementar a passagem de parâmetros)
++```
++[i] 12 structs de entrada, 68 parametros declarados.
++[OK] todo parametro declarado e lido em algum lugar.
++```
++
++## Saída do `check_tool_params.ps1`
++
++### Antes da alteração
++```
++[i] 12 structs de entrada, 68 parametros declarados.
++[!] 4 parametro(s) declarado(s) e nunca lido(s):
++    tools_read.go:253  noteMetadataInput.Include  (json: "include")
++    tools_read.go:258  linkGraphInput.Direction  (json: "direction")
++    tools_read.go:260  linkGraphInput.IncludeBroken  (json: "include_broken")
++    tools_read.go:261  linkGraphInput.IncludeEmbeds  (json: "include_embeds")
++```
++
++### Depois da alteração
++```
++[i] 12 structs de entrada, 68 parametros declarados.
++[OK] todo parametro declarado e lido em algum lugar.
++```
++
++## Provas de Mutação
++
++### 1. `note_metadata.include`
++Comando: `pwsh -File scripts/mutate.ps1 -Path internal/mcpsrv/tools_read.go -Anchor 'Include: in.Include,' -Replacement 'Include: nil,' -Test TestNoteMetadata_IncludeParameter -Package ./internal/mcpsrv/`
++Saída real:
++```
++[...] Mutando internal/mcpsrv/tools_read.go
++      - Include: in.Include,
++      + Include: nil,
++
++[...] go test -race -run TestNoteMetadata_IncludeParameter ./internal/mcpsrv/
++----------------------------------------------------------------------
++--- FAIL: TestNoteMetadata_IncludeParameter (0.08s)
++    schema_params_test.go:134: headings deveria ser vazio quando include=['tags'], obteve: [Heading A]
++    schema_params_test.go:137: links deveria ser vazio quando include=['tags'], obteve: [map[Resolved:note_b.md State:0 Via:2 end:66 kind:0 raw:[[note_b]] start:56 target:note_b] map[Resolved:note_c.md State:0 Via:2 end:88 kind:1 raw:![[note_c]] start:77 target:note_c] map[Resolved: State:1 Via:0 end:116 kind:0 raw:[[missing_note]] start:100 target:missing_note]]
++    schema_params_test.go:140: frontmatter deveria ser vazio quando include=['tags'], obteve: map[tags:[tagA] title:Note A]
++FAIL
++FAIL	github.com/jonyd/gobsidian/internal/mcpsrv	1.426s
++FAIL
++----------------------------------------------------------------------
++[OK] internal/mcpsrv/tools_read.go restaurado byte a byte (SHA-256 confere).
++[OK] O teste REPROVOU com a regra mutada — a regra esta verificada.
++```
++
++### 2. `link_graph.direction`
++Comando: `pwsh -File scripts/mutate.ps1 -Path internal/mcpsrv/tools_read.go -Anchor 'direction = in.Direction' -Replacement 'direction = "both"' -Test TestLinkGraph_DirectionParameter -Package ./internal/mcpsrv/`
++Saída real:
++```
++[...] Mutando internal/mcpsrv/tools_read.go
++      - direction = in.Direction
++      + direction = "both"
++
++[...] go test -race -run TestLinkGraph_DirectionParameter ./internal/mcpsrv/
++----------------------------------------------------------------------
++--- FAIL: TestLinkGraph_DirectionParameter (0.06s)
++    schema_params_test.go:173: nao esperava incoming edge quando direction='outgoing', encontrou: {Source:note_b.md Target:note_a.md}
++FAIL
++FAIL	github.com/jonyd/gobsidian/internal/mcpsrv	1.354s
++FAIL
++----------------------------------------------------------------------
++[OK] internal/mcpsrv/tools_read.go restaurado byte a byte (SHA-256 confere).
++[OK] O teste REPROVOU com a regra mutada — a regra esta verificada.
++```
++
++### 3. `link_graph.include_broken`
++Comando: `pwsh -File scripts/mutate.ps1 -Path internal/mcpsrv/tools_read.go -Anchor 'includeBroken = *in.IncludeBroken' -Replacement 'includeBroken = true' -Test TestLinkGraph_IncludeBrokenParameter -Package ./internal/mcpsrv/`
++Saída real:
++```
++[...] Mutando internal/mcpsrv/tools_read.go
++      - includeBroken = *in.IncludeBroken
++      + includeBroken = true
++
++[...] go test -race -run TestLinkGraph_IncludeBrokenParameter ./internal/mcpsrv/
++----------------------------------------------------------------------
++--- FAIL: TestLinkGraph_IncludeBrokenParameter (0.06s)
++    schema_params_test.go:206: nao esperava aresta quebrada quando include_broken=false, obteve: {Target:missing_note}
++FAIL
++FAIL	github.com/jonyd/gobsidian/internal/mcpsrv	1.373s
++FAIL
++----------------------------------------------------------------------
++[OK] internal/mcpsrv/tools_read.go restaurado byte a byte (SHA-256 confere).
++[OK] O teste REPROVOU com a regra mutada — a regra esta verificada.
++```
++
++### 4. `link_graph.include_embeds`
++Comando: `pwsh -File scripts/mutate.ps1 -Path internal/mcpsrv/tools_read.go -Anchor 'includeEmbeds = *in.IncludeEmbeds' -Replacement 'includeEmbeds = true' -Test TestLinkGraph_IncludeEmbedsParameter -Package ./internal/mcpsrv/`
++Saída real:
++```
++[...] Mutando internal/mcpsrv/tools_read.go
++      - includeEmbeds = *in.IncludeEmbeds
++      + includeEmbeds = true
++
++[...] go test -race -run TestLinkGraph_IncludeEmbedsParameter ./internal/mcpsrv/
++----------------------------------------------------------------------
++--- FAIL: TestLinkGraph_IncludeEmbedsParameter (0.06s)
++    schema_params_test.go:239: nao esperava aresta de embed quando include_embeds=false, obteve: {Target:note_c.md}
++FAIL
++FAIL	github.com/jonyd/gobsidian/internal/mcpsrv	1.354s
++FAIL
++----------------------------------------------------------------------
++[OK] internal/mcpsrv/tools_read.go restaurado byte a byte (SHA-256 confere).
++[OK] O teste REPROVOU com a regra mutada — a regra esta verificada.
++```
++
++## Diff em `scripts/verify.ps1`
++```diff
++@@ -148,6 +148,8 @@ if (-not $SkipNet) {
++     Write-Output "[i] check_net pulado (-SkipNet)"
++ }
++
+++Invoke-Step "check_tool_params" { & (Join-Path $PSScriptRoot "check_tool_params.ps1") }
+++
++ Pop-Location
++```
++
++## Bateria de Verificação
++`pwsh -File scripts/verify.ps1`: **10/10 etapas VERDES**.
++
++## Arquivos Alterados
++- `internal/mcpsrv/tools_read.go`
++- `internal/service/graph.go`
++- `scripts/verify.ps1`
++- `internal/mcpsrv/schema_params_test.go`
++- `.superpowers/sdd/task-69-report.md`
++
++## O Que Ficou de Fora
++Nada.
++
++## git status --porcelain
++```
++?? .superpowers/sdd/2026-07-25-gobsidian-v01/task-69-base.txt
++?? .superpowers/sdd/task-69-report.md
++ M internal/mcpsrv/schema_params_test.go
++ M internal/mcpsrv/tools_read.go
++ M internal/service/graph.go
++ M scripts/verify.ps1
++```
+diff --git a/internal/mcpsrv/schema_params_test.go b/internal/mcpsrv/schema_params_test.go
+new file mode 100644
+index 0000000..a53e34b
+--- /dev/null
++++ b/internal/mcpsrv/schema_params_test.go
+@@ -0,0 +1,242 @@
++package mcpsrv_test
++
++import (
++	"context"
++	"encoding/json"
++	"io"
++	"log/slog"
++	"os"
++	"path/filepath"
++	"testing"
++	"time"
++
++	"github.com/jonyd/gobsidian/internal/config"
++	"github.com/jonyd/gobsidian/internal/index"
++	"github.com/jonyd/gobsidian/internal/mcpsrv"
++	"github.com/jonyd/gobsidian/internal/search"
++	"github.com/jonyd/gobsidian/internal/service"
++	"github.com/jonyd/gobsidian/internal/vault"
++	"github.com/modelcontextprotocol/go-sdk/mcp"
++)
++
++func setupMCPServer(t *testing.T) (*mcp.ClientSession, func()) {
++	t.Helper()
++	dir := t.TempDir()
++
++	files := map[string]string{
++		"note_a.md": "---\ntitle: Note A\ntags: [tagA]\n---\n# Heading A\n\nLink to [[note_b]] and embed ![[note_c]] and broken [[missing_note]].\n",
++		"note_b.md": "---\ntitle: Note B\n---\nBacklink to [[note_a]].\n",
++		"note_c.md": "---\ntitle: Note C\n---\nTarget of embed.\n",
++	}
++
++	for rel, content := range files {
++		full := filepath.Join(dir, rel)
++		if err := os.WriteFile(full, []byte(content), 0644); err != nil {
++			t.Fatalf("WriteFile: %v", err)
++		}
++	}
++
++	v, err := vault.New(dir)
++	if err != nil {
++		t.Fatalf("vault.New: %v", err)
++	}
++	idx := index.New()
++	if err := idx.Build(context.Background(), v); err != nil {
++		t.Fatalf("idx.Build: %v", err)
++	}
++	inv := search.NewInverted()
++	for _, p := range idx.NotePaths() {
++		if data, err := v.ReadAll(context.Background(), p); err == nil {
++			body, _ := vault.StripBOM(data)
++			inv.Add(string(p), search.Analyze(string(body)))
++		}
++	}
++
++	svc := service.New(v, idx, inv, nil, service.Options{})
++	cfg := config.Defaults()
++	srv := mcpsrv.New(context.Background(), svc, cfg, slog.New(slog.NewTextHandler(io.Discard, nil)))
++
++	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
++
++	clientTransport, serverTransport := mcp.NewInMemoryTransports()
++	go func() { _ = srv.Connect(ctx, serverTransport) }()
++
++	client := mcp.NewClient(&mcp.Implementation{Name: "test", Version: "0.0.1"}, nil)
++	session, err := client.Connect(ctx, clientTransport, nil)
++	if err != nil {
++		cancel()
++		t.Fatalf("Connect: %v", err)
++	}
++
++	cleanup := func() {
++		_ = session.Close()
++		cancel()
++	}
++
++	return session, cleanup
++}
++
++func TestNoteMetadata_IncludeParameter(t *testing.T) {
++	session, cleanup := setupMCPServer(t)
++	defer cleanup()
++
++	ctx := context.Background()
++
++	// Default behavior (include omitted)
++	resDefault, err := session.CallTool(ctx, &mcp.CallToolParams{
++		Name: "note_metadata",
++		Arguments: map[string]any{
++			"path": "note_a.md",
++		},
++	})
++	if err != nil || resDefault.IsError {
++		t.Fatalf("CallTool default err: %v, content: %v", err, resDefault.Content)
++	}
++	var dataDefault struct {
++		Tags     []string `json:"tags"`
++		Headings []string `json:"headings"`
++		Links    []any    `json:"links"`
++	}
++	bDefault, _ := json.Marshal(resDefault.StructuredContent)
++	_ = json.Unmarshal(bDefault, &dataDefault)
++
++	if len(dataDefault.Tags) == 0 {
++		t.Error("esperava tags no retorno default")
++	}
++	if len(dataDefault.Headings) == 0 {
++		t.Error("esperava headings no retorno default")
++	}
++
++	// Non-default behavior (include = ["tags"])
++	resTags, err := session.CallTool(ctx, &mcp.CallToolParams{
++		Name: "note_metadata",
++		Arguments: map[string]any{
++			"path":    "note_a.md",
++			"include": []string{"tags"},
++		},
++	})
++	if err != nil || resTags.IsError {
++		t.Fatalf("CallTool include tags err: %v, content: %v", err, resTags.Content)
++	}
++	var dataTags struct {
++		Tags        []string       `json:"tags"`
++		Headings    []string       `json:"headings"`
++		Links       []any          `json:"links"`
++		Frontmatter map[string]any `json:"frontmatter"`
++	}
++	bTags, _ := json.Marshal(resTags.StructuredContent)
++	_ = json.Unmarshal(bTags, &dataTags)
++
++	if len(dataTags.Tags) == 0 {
++		t.Error("esperava tags quando include=['tags']")
++	}
++	if len(dataTags.Headings) != 0 {
++		t.Errorf("headings deveria ser vazio quando include=['tags'], obteve: %v", dataTags.Headings)
++	}
++	if len(dataTags.Links) != 0 {
++		t.Errorf("links deveria ser vazio quando include=['tags'], obteve: %v", dataTags.Links)
++	}
++	if len(dataTags.Frontmatter) != 0 {
++		t.Errorf("frontmatter deveria ser vazio quando include=['tags'], obteve: %v", dataTags.Frontmatter)
++	}
++}
++
++func TestLinkGraph_DirectionParameter(t *testing.T) {
++	session, cleanup := setupMCPServer(t)
++	defer cleanup()
++
++	ctx := context.Background()
++
++	// Non-default behavior (direction = "outgoing")
++	res, err := session.CallTool(ctx, &mcp.CallToolParams{
++		Name: "link_graph",
++		Arguments: map[string]any{
++			"path":      "note_a.md",
++			"direction": "outgoing",
++		},
++	})
++	if err != nil || res.IsError {
++		t.Fatalf("CallTool direction outgoing err: %v, content: %v", err, res.Content)
++	}
++
++	var data struct {
++		Edges []struct {
++			Source string `json:"source"`
++			Target string `json:"target"`
++		} `json:"edges"`
++	}
++	b, _ := json.Marshal(res.StructuredContent)
++	_ = json.Unmarshal(b, &data)
++
++	for _, e := range data.Edges {
++		if e.Target == "note_a.md" {
++			t.Errorf("nao esperava incoming edge quando direction='outgoing', encontrou: %+v", e)
++		}
++	}
++}
++
++func TestLinkGraph_IncludeBrokenParameter(t *testing.T) {
++	session, cleanup := setupMCPServer(t)
++	defer cleanup()
++
++	ctx := context.Background()
++
++	// Non-default behavior (include_broken = false)
++	res, err := session.CallTool(ctx, &mcp.CallToolParams{
++		Name: "link_graph",
++		Arguments: map[string]any{
++			"path":           "note_a.md",
++			"include_broken": false,
++		},
++	})
++	if err != nil || res.IsError {
++		t.Fatalf("CallTool include_broken=false err: %v, content: %v", err, res.Content)
++	}
++
++	var data struct {
++		Edges []struct {
++			Target string `json:"target"`
++		} `json:"edges"`
++	}
++	b, _ := json.Marshal(res.StructuredContent)
++	_ = json.Unmarshal(b, &data)
++
++	for _, e := range data.Edges {
++		if e.Target == "missing_note.md" || e.Target == "missing_note" {
++			t.Errorf("nao esperava aresta quebrada quando include_broken=false, obteve: %+v", e)
++		}
++	}
++}
++
++func TestLinkGraph_IncludeEmbedsParameter(t *testing.T) {
++	session, cleanup := setupMCPServer(t)
++	defer cleanup()
++
++	ctx := context.Background()
++
++	// Non-default behavior (include_embeds = false)
++	res, err := session.CallTool(ctx, &mcp.CallToolParams{
++		Name: "link_graph",
++		Arguments: map[string]any{
++			"path":           "note_a.md",
++			"include_embeds": false,
++		},
++	})
++	if err != nil || res.IsError {
++		t.Fatalf("CallTool include_embeds=false err: %v, content: %v", err, res.Content)
++	}
++
++	var data struct {
++		Edges []struct {
++			Target string `json:"target"`
++		} `json:"edges"`
++	}
++	b, _ := json.Marshal(res.StructuredContent)
++	_ = json.Unmarshal(b, &data)
++
++	for _, e := range data.Edges {
++		if e.Target == "note_c.md" {
++			t.Errorf("nao esperava aresta de embed quando include_embeds=false, obteve: %+v", e)
++		}
++	}
++}
+diff --git a/internal/mcpsrv/tools_read.go b/internal/mcpsrv/tools_read.go
+index 9d17062..ca7cec0 100644
+--- a/internal/mcpsrv/tools_read.go
++++ b/internal/mcpsrv/tools_read.go
+@@ -146,21 +146,22 @@ func (s *Server) registerReadToolsInternal() {
+ 	)
+ 
+ 	mcp.AddTool(s.mcp,
+ 		&mcp.Tool{
+ 			Name:        "note_metadata",
+ 			Description: "Metadados estruturais completos de uma nota, sem o corpo.",
+ 		},
+ 		guard(s.log, "note_metadata",
+ 			func(ctx context.Context, _ *mcp.CallToolRequest, in noteMetadataInput) (*mcp.CallToolResult, service.MetadataResult, error) {
+ 				out, err := s.svc.NoteMetadata(ctx, service.MetadataRequest{
+-					Path: in.Path,
++					Path:    in.Path,
++					Include: in.Include,
+ 				})
+ 				if err != nil {
+ 					return nil, service.MetadataResult{}, toolErr(err)
+ 				}
+ 				return nil, out, nil
+ 			}),
+ 	)
+ 
+ 	mcp.AddTool(s.mcp,
+ 		&mcp.Tool{
+@@ -170,24 +171,40 @@ func (s *Server) registerReadToolsInternal() {
+ 		guard(s.log, "link_graph",
+ 			func(ctx context.Context, _ *mcp.CallToolRequest, in linkGraphInput) (*mcp.CallToolResult, service.GraphResult, error) {
+ 				depth := 1
+ 				if in.Depth != nil {
+ 					depth = *in.Depth
+ 				}
+ 				limit := 100
+ 				if in.Limit != nil {
+ 					limit = *in.Limit
+ 				}
++				direction := "both"
++				if in.Direction != "" {
++					direction = in.Direction
++				}
++				includeBroken := true
++				if in.IncludeBroken != nil {
++					includeBroken = *in.IncludeBroken
++				}
++				includeEmbeds := true
++				if in.IncludeEmbeds != nil {
++					includeEmbeds = *in.IncludeEmbeds
++				}
++
+ 				out, err := s.svc.LinkGraph(ctx, service.GraphRequest{
+-					Path:  in.Path,
+-					Depth: depth,
+-					Limit: limit,
++					Path:          in.Path,
++					Direction:     direction,
++					Depth:         depth,
++					IncludeBroken: includeBroken,
++					IncludeEmbeds: includeEmbeds,
++					Limit:         limit,
+ 				})
+ 				if err != nil {
+ 					return nil, service.GraphResult{}, toolErr(err)
+ 				}
+ 				return nil, out, nil
+ 			}),
+ 	)
+ 
+ 	mcp.AddTool(s.mcp,
+ 		&mcp.Tool{
+diff --git a/internal/service/graph.go b/internal/service/graph.go
+index 43f23bb..d62e717 100644
+--- a/internal/service/graph.go
++++ b/internal/service/graph.go
+@@ -1,72 +1,77 @@
+ package service
+ 
+ import (
+ 	"context"
+ 	"fmt"
+ 	"runtime"
+ 	"time"
+ 
+ 	"github.com/jonyd/gobsidian/internal/index"
++	"github.com/jonyd/gobsidian/internal/parser"
+ 	"github.com/jonyd/gobsidian/internal/vault"
+ )
+ 
+ // GraphRequest sao os parametros de link_graph. Depth e Limit existem porque
+ // o grafo de um cofre real cresce depressa demais para caber numa resposta.
+ type GraphRequest struct {
+-	Path  string `json:"path"`
+-	Depth int    `json:"depth"`
+-	Limit int    `json:"limit"`
++	Path          string `json:"path"`
++	Direction     string `json:"direction"` // "outgoing", "incoming", "both"
++	Depth         int    `json:"depth"`
++	IncludeBroken bool   `json:"include_broken"`
++	IncludeEmbeds bool   `json:"include_embeds"`
++	Limit         int    `json:"limit"`
+ }
+ 
+ // GraphNode e uma nota no grafo de links.
+ type GraphNode struct {
+ 	Path  string `json:"path"`
+ 	Title string `json:"title,omitempty"`
+ }
+ 
+-// GraphEdge e um link resolvido, da origem para o alvo. Link externo e link
+-// quebrado nao viram aresta: nao ha nota do outro lado.
++// GraphEdge e um link resolvido, da origem para o alvo.
+ type GraphEdge struct {
+ 	Source string `json:"source"`
+ 	Target string `json:"target"`
+ 	Kind   string `json:"kind,omitempty"`
+ }
+ 
+ // GraphResult e o retorno de link_graph.
+ type GraphResult struct {
+ 	Nodes []GraphNode `json:"nodes"`
+ 	Edges []GraphEdge `json:"edges"`
+ }
+ 
+ // LinkGraph percorre o grafo a partir de uma nota, ate a profundidade pedida.
+-//
+-// Nao recebe ctx util: le so o indice em memoria, e um ctx que nenhum corpo
+-// verifica ensina o revisor a ignorar ctx onde ele importa.
+ func (s *Service) LinkGraph(_ context.Context, req GraphRequest) (GraphResult, error) {
+ 	if s.index == nil {
+ 		return GraphResult{}, fmt.Errorf("index not available")
+ 	}
+ 
+ 	depth := req.Depth
+ 	if depth <= 0 {
+ 		depth = 1
+ 	}
+ 	if depth > 3 {
+ 		depth = 3
+ 	}
+ 
+ 	limit := req.Limit
+ 	if limit <= 0 {
+ 		limit = 100
+ 	}
+ 
++	direction := req.Direction
++	if direction == "" {
++		direction = "both"
++	}
++
+ 	startPath, err := s.index.ResolvePath(req.Path)
+ 	if err != nil {
+ 		return GraphResult{}, Wrap(CodePathOutsideVault, err, "resolving root path")
+ 	}
+ 
+ 	nodesMap := make(map[vault.CanonicalPath]GraphNode)
+ 	edgesMap := make(map[string]GraphEdge)
+ 
+ 	type queueItem struct {
+ 		Path  vault.CanonicalPath
+@@ -90,37 +95,61 @@ func (s *Service) LinkGraph(_ context.Context, req GraphRequest) (GraphResult, e
+ 			nodesMap[curr.Path] = GraphNode{Path: string(curr.Path)}
+ 			continue
+ 		}
+ 
+ 		nodesMap[curr.Path] = GraphNode{Path: string(curr.Path), Title: n.Title}
+ 
+ 		if curr.Depth >= depth {
+ 			continue
+ 		}
+ 
+-		for _, link := range n.Links {
+-			if link.State == index.LinkOK && link.Resolved != "" {
+-				edgeID := string(curr.Path) + "->" + string(link.Resolved)
+-				edgesMap[edgeID] = GraphEdge{Source: string(curr.Path), Target: string(link.Resolved)}
++		if direction == "outgoing" || direction == "both" {
++			for _, link := range n.Links {
++				if link.Kind == parser.LinkEmbed && !req.IncludeEmbeds {
++					continue
++				}
++
++				if link.State == index.LinkOK || link.State == index.LinkAnchorMissing {
++					if link.Resolved != "" {
++						edgeID := string(curr.Path) + "->" + string(link.Resolved)
++						edgesMap[edgeID] = GraphEdge{Source: string(curr.Path), Target: string(link.Resolved), Kind: link.Kind.String()}
+ 
+-				if !visited[link.Resolved] && len(nodesMap)+len(queue) < limit {
+-					queue = append(queue, queueItem{Path: link.Resolved, Depth: curr.Depth + 1})
++						if !visited[link.Resolved] && len(nodesMap)+len(queue) < limit {
++							queue = append(queue, queueItem{Path: link.Resolved, Depth: curr.Depth + 1})
++						}
++					}
++				} else if link.State == index.LinkTargetMissing && req.IncludeBroken {
++					targetPath := string(link.Resolved)
++					if targetPath == "" {
++						targetPath = link.Target
++					}
++					if targetPath != "" {
++						edgeID := string(curr.Path) + "->" + targetPath
++						edgesMap[edgeID] = GraphEdge{Source: string(curr.Path), Target: targetPath, Kind: link.Kind.String()}
++						nodesMap[vault.CanonicalPath(targetPath)] = GraphNode{Path: targetPath}
++					}
+ 				}
+ 			}
+ 		}
+ 
+-		for _, bl := range s.index.Backlinks(curr.Path) {
+-			edgeID := string(bl.From) + "->" + string(curr.Path)
+-			edgesMap[edgeID] = GraphEdge{Source: string(bl.From), Target: string(curr.Path), Kind: fmt.Sprint(bl.Kind)}
++		if direction == "incoming" || direction == "both" {
++			for _, bl := range s.index.Backlinks(curr.Path) {
++				if bl.Kind == parser.LinkEmbed && !req.IncludeEmbeds {
++					continue
++				}
++
++				edgeID := string(bl.From) + "->" + string(curr.Path)
++				edgesMap[edgeID] = GraphEdge{Source: string(bl.From), Target: string(curr.Path), Kind: bl.Kind.String()}
+ 
+-			if !visited[bl.From] && len(nodesMap)+len(queue) < limit {
+-				queue = append(queue, queueItem{Path: bl.From, Depth: curr.Depth + 1})
++				if !visited[bl.From] && len(nodesMap)+len(queue) < limit {
++					queue = append(queue, queueItem{Path: bl.From, Depth: curr.Depth + 1})
++				}
+ 			}
+ 		}
+ 	}
+ 
+ 	res := GraphResult{
+ 		Nodes: make([]GraphNode, 0, len(nodesMap)),
+ 		Edges: make([]GraphEdge, 0, len(edgesMap)),
+ 	}
+ 
+ 	for _, v := range nodesMap {
+@@ -236,26 +265,29 @@ func selectFields(fm map[string]any, want []string) map[string]any {
+ 		}
+ 	}
+ 	if len(out) == 0 {
+ 		return nil
+ 	}
+ 	return out
+ }
+ 
+ // MetadataRequest sao os parametros de note_metadata.
+ type MetadataRequest struct {
+-	Path string `json:"path"`
++	Path    string   `json:"path"`
++	Include []string `json:"include,omitempty"`
+ }
+ 
+ // MetadataResult e tudo o que o indice sabe de uma nota sem ler o disco.
+ type MetadataResult struct {
+ 	Path        string               `json:"path"`
++	Title       string               `json:"title"`
++	Hash        string               `json:"hash"`
+ 	Frontmatter map[string]any       `json:"frontmatter,omitempty"`
+ 	Tags        []string             `json:"tags,omitempty"`
+ 	Aliases     []string             `json:"aliases,omitempty"`
+ 	Headings    []string             `json:"headings,omitempty"`
+ 	Blocks      []string             `json:"blocks,omitempty"`
+ 	Links       []index.ResolvedLink `json:"links,omitempty"`
+ 	Backlinks   []index.Backlink     `json:"backlinks,omitempty"`
+ }
+ 
+ // NoteMetadata devolve tudo o que o indice sabe de uma nota sem abrir o
+@@ -266,39 +298,68 @@ func (s *Service) NoteMetadata(_ context.Context, req MetadataRequest) (Metadata
+ 	}
+ 	cp, err := s.index.ResolvePath(req.Path)
+ 	if err != nil {
+ 		return MetadataResult{}, Wrap(CodePathOutsideVault, err, "resolving path")
+ 	}
+ 	n, ok := s.index.Get(cp)
+ 	if !ok {
+ 		return MetadataResult{}, Wrap(CodeNoteNotFound, nil, "note not found")
+ 	}
+ 
+-	headings := make([]string, len(n.Headings))
+-	for i, h := range n.Headings {
+-		headings[i] = h.Text
++	includeSet := make(map[string]bool)
++	if len(req.Include) == 0 {
++		includeSet["frontmatter"] = true
++		includeSet["tags"] = true
++		includeSet["headings"] = true
++		includeSet["links"] = true
++		includeSet["backlinks"] = true
++	} else {
++		for _, inc := range req.Include {
++			includeSet[inc] = true
++		}
++	}
++
++	res := MetadataResult{
++		Path:  string(n.Path),
++		Title: n.Title,
++		Hash:  fmt.Sprintf("%016x", n.Hash),
++	}
++
++	if includeSet["frontmatter"] {
++		res.Frontmatter = n.Frontmatter
++		res.Aliases = n.Aliases
++	}
++	if includeSet["tags"] {
++		res.Tags = n.Tags
+ 	}
+-	blocks := make([]string, len(n.Blocks))
+-	for i, b := range n.Blocks {
+-		blocks[i] = b.ID
++	if includeSet["headings"] {
++		headings := make([]string, len(n.Headings))
++		for i, h := range n.Headings {
++			headings[i] = h.Text
++		}
++		res.Headings = headings
++	}
++	if includeSet["blocks"] {
++		blocks := make([]string, len(n.Blocks))
++		for i, b := range n.Blocks {
++			blocks[i] = b.ID
++		}
++		res.Blocks = blocks
++	}
++	if includeSet["links"] {
++		res.Links = n.Links
++	}
++	if includeSet["backlinks"] {
++		res.Backlinks = s.index.Backlinks(cp)
+ 	}
+ 
+-	return MetadataResult{
+-		Path:        string(n.Path),
+-		Frontmatter: n.Frontmatter,
+-		Tags:        n.Tags,
+-		Aliases:     n.Aliases,
+-		Headings:    headings,
+-		Blocks:      blocks,
+-		Links:       n.Links,
+-		Backlinks:   s.index.Backlinks(cp),
+-	}, nil
++	return res, nil
+ }
+ 
+ // RuntimeStats sao os numeros do runtime do Go, para diagnosticar consumo de
+ // memoria e vazamento de goroutine contra o orcamento de RNF-07.
+ type RuntimeStats struct {
+ 	NumGoroutine int    `json:"num_goroutine"`
+ 	Alloc        uint64 `json:"alloc"`
+ 	TotalAlloc   uint64 `json:"total_alloc"`
+ 	Sys          uint64 `json:"sys"`
+ 	NumGC        uint32 `json:"num_gc"`
+diff --git a/scripts/verify.ps1 b/scripts/verify.ps1
+index a1f5569..3e14109 100644
+--- a/scripts/verify.ps1
++++ b/scripts/verify.ps1
+@@ -141,20 +141,22 @@ else {
+     Write-Output "[i] lint pulado (-SkipLint)"
+ }
+ 
+ if (-not $SkipNet) {
+     Invoke-Step "check_net (RNF-30)" { & (Join-Path $PSScriptRoot "check_net.ps1") }
+ }
+ else {
+     Write-Output "[i] check_net pulado (-SkipNet)"
+ }
+ 
++Invoke-Step "check_tool_params" { & (Join-Path $PSScriptRoot "check_tool_params.ps1") }
++
+ Pop-Location
+ 
+ Write-Output ""
+ if ($Failed.Count -gt 0) {
+     Write-Warning "[!] $($Failed.Count) etapa(s) reprovada(s):"
+     $Failed | ForEach-Object { Write-Output "    $_" }
+     exit 1
+ }
+ 
+ Write-Output "[OK] Bateria completa. Pode commitar."

@@ -87,6 +87,7 @@ Task 57: complete (commits 604e759..0b1460b, patch and append by heading, preser
 - Task 67: Ancoras quebradas no relatorio de impacto | base efc1042 | review efc1042..c155644 | review Approved; 0 Important doc-only fechados | commit c155644 ("feat(service): broken anchors in the move and delete impact report")
 - Task 68: Fechamento do M5 | base 86fca91 | review 86fca91..59cc699 | review Approved; 0 Important doc-only fechados | commit 59cc699 ("docs: close M5 and align RF-35 with the implemented contract")
 - Task 75: Subcomandos index, search, inspect | base f89f60d | review f89f60d..f221c0c | review Approved; 0 Important doc-only fechados | commit f221c0c ("feat(cmd): index, search and inspect subcommands (RF-52)")
+- Task 69: Os quatro parametros de schema ignorados | base 53c2dbb | review 53c2dbb..6dff9c8 | review Approved; 0 Important doc-only fechados | commit 6dff9c8 ("fix(mcpsrv,service): honour the four schema params the handlers dropped")
 
 === REVISAO DO M2.1 (Tasks 33-42), 2026-07-29, pelo modelo principal ===
 Nove provas de mutacao rodadas com scripts/mutate.ps1, TODAS saindo 0 (o teste
