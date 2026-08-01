@@ -149,8 +149,9 @@ pwsh -File scripts/measure.ps1 -Vault <caminho-do-cofre>
 |---|---|---|
 | **RNF-01** | Indexação a frio (≤ 3 s) | 5–8 ms (7 notas) |
 | **RNF-02** | Boot com cache válido (≤ 300 ms) | **26,96 ms** (500 notas distintas, 2026-07-29, Task 52) |
-| **RNF-04** | Latência de `vault_search` p95 (≤ 100 ms) | **atingido em todos os 8 formatos** (5–72 ms). **Frase exata otimizada na Task 61 (2026-07-30): p95 22,1 ms.** |
+| **RNF-04** | Latência de `vault_search` p95 (≤ 100 ms) | **atingido nos 8 formatos** (5–81 ms). Frase exata otimizada na Task 61: 22,1 ms. **`limit: 200` tem só ~20% de folga e estoura sob carga** — ver ressalva abaixo. |
 | **RNF-07** | RSS em repouso (≤ 60 MB) | 18,9–19,3 MB |
+| **RNF-11** | Zero notas corrompidas em 1.000 crashes injetados | **0 corrompidas / 1.000**, com **381 temporários órfãos** varridos (2026-08-01). Ver a nota abaixo: até esta data o teste não escrevia. |
 
 **Medições do M3.1 e M4 (Task 52 em 2026-07-29, Task 61 em 2026-07-30).** Em corpus sintético de 500 notas distintas (`idx.NoteCount() == 500`):
 
@@ -166,9 +167,29 @@ pwsh -File scripts/measure.ps1 -Vault <caminho-do-cofre>
   | filtro de tag | 9,8 ms | 14,9 ms | OK |
   | **frase exata** | **17,3 ms** | **22,1 ms** | **OK (otimizado na Task 61)** |
   | trecho de 1000 chars | 11,9 ms | 15,8 ms | OK |
-  | `limit: 200` (máximo do schema) | 62,8 ms | 71,9 ms | OK |
+  | `limit: 200` (máximo do schema) | 62,8 ms | 71,9 ms | OK, **folga fina** |
 
-  **RNF-04 está 100% atingido em todos os formatos.** A otimização da Task 61 introduziu o método $O(1)$ `Inverted.Positions(term, path)` sobre o mapa interno `terms[term][path]`, eliminando a busca linear $O(N)$ que percorria todas as postings do termo a cada candidato de posição. O p95 da frase exata caiu de **174,2 ms para 22,1 ms** (redução de ~87%, bem abaixo do teto de 100 ms).
+  **RNF-04 está atingido em todos os formatos, com uma ressalva medida.** A otimização da Task 61 introduziu o método $O(1)$ `Inverted.Positions(term, path)` sobre o mapa interno `terms[term][path]`, eliminando a busca linear $O(N)$ que percorria todas as postings do termo a cada candidato de posição. O p95 da frase exata caiu de **174,2 ms para 22,1 ms** (redução de ~87%, bem abaixo do teto de 100 ms).
+
+  **A ressalva: `limit: 200` tem ~20% de folga, e ela some sob carga.** Remedido em 2026-08-01 na mesma máquina: p95 de **81,4 ms** com a máquina ociosa. Com **quatro cópias** do binário de teste rodando ao mesmo tempo (12 núcleos), o p95 foi a **100,6 / 102,9 / 107,4 ms** em três das quatro — uma delas estourando o teto por 0,6%. Com **oito cópias**, as oito estouraram, entre 111 e 126 ms.
+
+  O custo é a geração de trecho, que lê do disco uma vez por resultado: com `limit: 200` são 200 leituras, e a mediana sozinha já fica em 61–76 ms. Os outros sete formatos têm 3x a 20x de folga e não são afetados.
+
+  Isso é **lacuna registrada, não alvo atingido com conforto**. Reduzir o custo — leitura de trecho concorrente ou cache — é trabalho de endurecimento (M6), não está feito. O teste `TestRNF04VaultSearchLatencyP95` repete a medição de um formato até 3 vezes antes de reprovar, para separar pico de carga de regressão de código: pico não sobrevive a três rodadas, regressão sobrevive a todas. **Repetir não cria folga; a folga medida continua sendo de ~20%.**
+
+  **O teto do RNF-04 passou a ser cobrado pelo gate.** Ele só vale sem `-race` (o detector multiplica a latência por 2 a 6), e a única etapa que rodava testes usava `-race` — de modo que o teto não era cobrado em lugar nenhum, ficando por conta de quem rodasse `go test` na mão. `verify.ps1` ganhou a etapa `go test (RNF-04, sem -race)`.
+
+**RNF-11 (crash injetado durante escrita), 2026-08-01.** `TestRNF11NoCorruptionUnder1000Crashes`, 1.000 iterações, 12 trabalhadores: **0 notas corrompidas**, **381 temporários órfãos** varridos com `-race` (280 sem), em ~20 s.
+
+O número de órfãos é o que dá sentido ao zero: ele conta as iterações que morreram **depois** de criar o temporário e **antes** do rename, que é a janela exata que a escrita atômica existe para cobrir.
+
+**Até 2026-08-01 esse número era zero, e o teste não verificava nada.** Ele matava o processo filho num ponto fixo do relógio, 0 a 39 ms contados do `cmd.Start()`. Mas o filho é o próprio binário de teste: antes de chegar em `WriteAtomic` ele paga criação de processo e init do runtime. Medido: uma escrita **não interrompida** leva mediana de **47,2 ms sem `-race` e 1,077 s com**. A janela de 39 ms cabia inteira dentro do init — as mortes caíam antes de o temporário existir, e sob `-race` (o único modo em que o gate roda) isso era 100% das 1.000 iterações. O teste relatava "0 corrompidas em 1.000 iterações" sem ter escrito um byte, e esse zero é o critério de bloqueio do M4.
+
+Corrigido sincronizando com a escrita em vez do relógio: o filho avisa em stdout imediatamente antes de `WriteAtomic`, e o pai mata de 0 a 9,95 ms **depois do aviso**. Ajustar a constante não resolveria — o init domina o relógio e muda com máquina, modo e versão do Go.
+
+**Prova de mutação (2026-08-01).** Trocando `os.CreateTemp` por `os.OpenFile(targetPath, O_TRUNC)` — isto é, escrita in-place em vez de temp+rename — o teste reprova com **7 de 1.000 iterações corrompidas**, todas truncadas a 0 bytes. Antes da correção essa mesma mutação passava verde.
+
+Quem denunciou a lacuna foi a guarda `orfaos == 0`, escrita junto com o teste e correta desde então: ela se recusa a reportar cobertura que não houve.
 
 **Medições do M5 (Tasks 63 a 67 em 2026-07-30).** `note_move` e `note_delete` validados funcionalmente com 100% de cobertura nos testes de mutação. Latências de movimentação e exclusão em lote no cofre de 5.000 notas: **não medido** (agendado para o endurecimento M6/H1).
 
