@@ -1,0 +1,219 @@
+# Review package: a98f0bbf90bdc8d4c27005a3fcff8316b4307134..HEAD
+
+## Commits
+e888e23 ci: semantic net-import check as a go vet analyzer
+
+## Files changed
+ .superpowers/sdd/task-74-report.md  | 73 ++++++++++++++++++++++++++++
+ scripts/check_net.ps1               | 96 ++++++++++++++++++++++++-------------
+ tools/netcheck/cmd/netcheck/main.go | 10 ++++
+ 3 files changed, 146 insertions(+), 33 deletions(-)
+
+## Diff
+diff --git a/.superpowers/sdd/task-74-report.md b/.superpowers/sdd/task-74-report.md
+new file mode 100644
+index 0000000..0a261af
+--- /dev/null
++++ b/.superpowers/sdd/task-74-report.md
+@@ -0,0 +1,73 @@
++# Relatório Task 74: `netcheck` como `go vet -vettool` no CI
++
++- **Status**: DONE
++- **Commit**: `ci: semantic net-import check as a go vet analyzer`
++
++## O Que Foi Implementado
++- Criado o ponto de entrada executável para o analisador em [tools/netcheck/cmd/netcheck/main.go](file:///C:/Users/jonyd/Projetos/Gobsidian/tools/netcheck/cmd/netcheck/main.go) utilizando `golang.org/x/tools/go/analysis/singlechecker`.
++- Atualizado o script [scripts/check_net.ps1](file:///C:/Users/jonyd/Projetos/Gobsidian/scripts/check_net.ps1) para compilar temporariamente o `netcheck` e executá-lo via `go vet -vettool` nos três alvos GOOS (`windows`, `linux`, `darwin`), detectando importações de rede diretas e com apelido.
++
++## Evidência de TDD
++
++### Comando do RED
++`go vet -vettool=... ./internal/... ./cmd/...` (ao injetar importação proibida em `internal/service/read.go`)
++
++- **Teste com `import _ "net/http"`**:
++```
++internal\service\read.go:7:2: pacote de rede proibido: net/http
++```
++
++- **Teste com import com apelido `import foo "net"`**:
++```
++internal\service\read.go:7:2: pacote de rede proibido: net
++```
++
++### Comando do GREEN
++`pwsh -File scripts/check_net.ps1` (com código limpo)
++```
++[OK] Nenhum pacote de internal/ ou cmd/ importa rede (verificado via netcheck vettool em windows, linux, darwin)
++```
++
++## Prova de Mutação
++O script `scripts/mutate.ps1` não se aplica a este analisador `go vet` (que é um analisador semântico de compilação, não um teste unitário Go com `-Test`). Conforme instruído no brief da tarefa, as provas de mutação são constituídas pelas reprovações injetadas manualmente registradas abaixo:
++
++### 1. Reprovação de Importação Direta (`net/http`)
++Saída real colada:
++```
++internal\service\read.go:7:2: pacote de rede proibido: net/http
++```
++
++### 2. Reprovação de Importação com Apelido (`import foo "net"`)
++Saída real colada:
++```
++internal\service\read.go:7:2: pacote de rede proibido: net
++```
++
++### 3. Não Reprovação de Imports Transitivos do SDK MCP
++O analisador inspeciona a AST dos pacotes sob `./internal/...` e `./cmd/...` sem verificar o fecho transitivo. A suíte completa e o `check_net.ps1` passaram com sucesso sem sinalizar falso positivo contra as dependências do SDK.
++
++## Provas de Verificação
++
++## Diff em `git diff go.mod go.sum`
++```
++(sem alterações em go.mod e go.sum)
++```
++
++## Bateria de Verificação
++`pwsh -File scripts/verify.ps1`: **10/10 etapas VERDES**.
++
++## Arquivos Alterados
++- `tools/netcheck/cmd/netcheck/main.go`
++- `scripts/check_net.ps1`
++- `.superpowers/sdd/task-74-report.md`
++
++## O Que Ficou de Fora
++Nada.
++
++## git status --porcelain
++```
++?? .superpowers/sdd/2026-07-25-gobsidian-v01/task-74-base.txt
++?? .superpowers/sdd/task-74-report.md
++?? tools/netcheck/cmd/
++ M scripts/check_net.ps1
++```
+diff --git a/scripts/check_net.ps1 b/scripts/check_net.ps1
+index 0e96886..655df9f 100644
+--- a/scripts/check_net.ps1
++++ b/scripts/check_net.ps1
+@@ -1,44 +1,74 @@
+ Set-StrictMode -Version Latest
+ $ErrorActionPreference = "Stop"
+ 
+-$ModulePath = go list -m 2>$null
+-if ($LASTEXITCODE -ne 0 -or -not $ModulePath) {
+-    Write-Warning "[!] 'go list -m' falhou; nao foi possivel determinar o modulo"
+-    exit 1
+-}
++$ProjectRoot = Split-Path -Parent $PSScriptRoot
++Push-Location $ProjectRoot
+ 
+-# Alvos explicitos, nao "./...": plugins de skills despejam .go de exemplo na
+-# raiz do modulo, e o `go list` inteiro falha por causa de imports que nao
+-# resolvem — a verificacao entao NAO RODA e avisa, o que e um gate que deixou
+-# de gatear. internal/ e cmd/ sao exatamente os pacotes que a regra cobre.
+-$Rows = go list -f '{{.ImportPath}}|{{join .Imports ","}}' ./internal/... ./cmd/...
+-if ($LASTEXITCODE -ne 0 -or -not $Rows) {
+-    Write-Warning "[!] 'go list ./...' falhou ou nao retornou pacotes; verificacao nao executada"
+-    exit 1
+-}
++$TempBin = Join-Path $env:TEMP "netcheck_$([guid]::NewGuid().ToString("N")).exe"
+ 
+-$Scoped = $Rows | Where-Object {
+-    $Pkg = ($_ -split "\|", 2)[0]
+-    $Pkg -eq "$ModulePath/internal" -or $Pkg -like "$ModulePath/internal/*" -or
+-    $Pkg -eq "$ModulePath/cmd" -or $Pkg -like "$ModulePath/cmd/*"
+-}
++try {
++    # 1. Compila o netcheck como vettool
++    go build -o $TempBin ./tools/netcheck/cmd/netcheck
++    if ($LASTEXITCODE -ne 0) {
++        Write-Warning "[!] Falha ao compilar tools/netcheck/cmd/netcheck"
++        exit 1
++    }
+ 
+-$Offenders = @()
++    # 2. Executa a analise semantica com go vet para os 3 alvos GOOS
++    $Alvos = @("./internal/...", "./cmd/...")
++    $OSList = @("windows", "linux", "darwin")
+ 
+-foreach ($Row in $Scoped) {
+-    $Parts = $Row -split "\|", 2
+-    $Pkg = $Parts[0]
++    foreach ($targetOS in $OSList) {
++        $env:GOOS = $targetOS
++        try {
++            $Out = go vet "-vettool=$TempBin" @Alvos 2>&1
++            if ($LASTEXITCODE -ne 0) {
++                Write-Warning "[!] netcheck reprovou em GOOS=$targetOS"
++                if ($Out) { $Out | ForEach-Object { Write-Output "     $_" } }
++                exit 1
++            }
++        }
++        finally {
++            Remove-Item Env:\GOOS -ErrorAction SilentlyContinue
++        }
++    }
+ 
+-    $Imports = @()
+-    if ($Parts.Count -gt 1 -and $Parts[1]) { $Imports = $Parts[1] -split "," }
++    # 3. Mantem a verificacao textual de retrocompatibilidade
++    $ModulePath = go list -m 2>$null
++    if ($LASTEXITCODE -eq 0 -and $ModulePath) {
++        $Rows = go list -f '{{.ImportPath}}|{{join .Imports ","}}' ./internal/... ./cmd/...
++        if ($LASTEXITCODE -eq 0 -and $Rows) {
++            $Scoped = $Rows | Where-Object {
++                $Pkg = ($_ -split "\|", 2)[0]
++                $Pkg -eq "$ModulePath/internal" -or $Pkg -like "$ModulePath/internal/*" -or
++                $Pkg -eq "$ModulePath/cmd" -or $Pkg -like "$ModulePath/cmd/*"
++            }
+ 
+-    $Net = $Imports | Where-Object { $_ -eq "net" -or $_ -like "net/*" }
+-    if ($Net) { $Offenders += "$Pkg -> $($Net -join ', ')" }
+-}
++            $Offenders = @()
++            foreach ($Row in $Scoped) {
++                $Parts = $Row -split "\|", 2
++                $Pkg = $Parts[0]
+ 
+-if ($Offenders) {
+-    Write-Warning "[!] Pacote do produto importando rede:"
+-    $Offenders | ForEach-Object { Write-Output "    $_" }
+-    exit 1
++                $Imports = @()
++                if ($Parts.Count -gt 1 -and $Parts[1]) { $Imports = $Parts[1] -split "," }
++
++                $Net = $Imports | Where-Object { $_ -eq "net" -or $_ -like "net/*" }
++                if ($Net) { $Offenders += "$Pkg -> $($Net -join ', ')" }
++            }
++
++            if ($Offenders) {
++                Write-Warning "[!] Pacote do produto importando rede:"
++                $Offenders | ForEach-Object { Write-Output "    $_" }
++                exit 1
++            }
++        }
++    }
++
++    Write-Output "[OK] Nenhum pacote de internal/ ou cmd/ importa rede (verificado via netcheck vettool em windows, linux, darwin)"
++}
++finally {
++    if (Test-Path $TempBin) {
++        Remove-Item $TempBin -Force -ErrorAction SilentlyContinue
++    }
++    Pop-Location
+ }
+-Write-Output "[OK] Nenhum pacote de internal/ ou cmd/ importa rede"
+diff --git a/tools/netcheck/cmd/netcheck/main.go b/tools/netcheck/cmd/netcheck/main.go
+new file mode 100644
+index 0000000..5fbfd34
+--- /dev/null
++++ b/tools/netcheck/cmd/netcheck/main.go
+@@ -0,0 +1,10 @@
++package main
++
++import (
++	"github.com/jonyd/gobsidian/tools/netcheck"
++	"golang.org/x/tools/go/analysis/singlechecker"
++)
++
++func main() {
++	singlechecker.Main(netcheck.Analyzer)
++}
