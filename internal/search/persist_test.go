@@ -236,15 +236,56 @@ func TestQ3PerformanceMeasurement(t *testing.T) {
 	t.Logf("  (b) Reconstruir Invertido (metadados): %v", rebuildDur)
 }
 
-func TestRNF04SearchLatencyPercentile(t *testing.T) {
+// TestBM25KernelLatency guarda o NÚCLEO do ranqueamento contra regressão
+// algorítmica. Não é a medição do RNF-04, e este teste chamava-se
+// TestRNF04SearchLatencyPercentile enquanto era o oposto disso:
+//
+//   - Media CalculateBM25 direto, deixando de fora parsing da consulta,
+//     filtros, limit/offset e a leitura de disco de cada trecho — que é a
+//     parte cara. O RNF-04 fala de `vault_search`, e `vault_search` é a
+//     pilha inteira.
+//   - Consultava `termo%d`, que existe em 5 das 500 notas. Com 5 postings o
+//     BM25 devolve antes de o relógio andar: a saída era "Mínimo: 0s,
+//     Mediana: 0s, p95: 1,02 ms" contra um teto de 100 ms — 98x de folga,
+//     mediana abaixo da resolução do relógio. Não podia falhar.
+//   - E era a única das duas asserções que o gate rodava, porque a medição
+//     de verdade fica em internal/service e é pulada sob -race, que é o
+//     único modo em que verify.ps1 roda os testes. O gate cobrava a
+//     tautologia e pulava a medição.
+//
+// A medição do RNF-04 é TestRNF04VaultSearchLatencyP95, em
+// internal/service — por formato de consulta, através de service.Search.
+// Ela agora é cobrada pelo gate na etapa "go test (medições de latência)".
+//
+// Aqui a consulta é "prescricao", que o corpus põe em TODAS as 500 notas: o
+// kernel percorre 500 postings, e o número mede alguma coisa: a mediana sai
+// de 0s para 4,1 ms.
+//
+// O teto vem da medição, não do RNF. Medido em 2026-08-01 no maquina de referencia (12
+// núcleos, Windows 11): p95 8,1 ms sem -race, 17,9 ms com. O teto é único
+// para os dois modos, então quem manda é o pior: 80 ms dá ~4,5x de folga
+// sobre o p95 sob -race, que é o modo em que o gate roda. Folga larga de
+// propósito — um teto apertado aqui vira ruído sob carga, e o defeito que
+// este teste existe para pegar é ordem de grandeza, não porcento: a
+// varredura linear que a Task 61 pagou custava 174 ms.
+func TestBM25KernelLatency(t *testing.T) {
 	const corpusSize = 500
 	const numQueries = 200
+	const teto = 80 * time.Millisecond
+
 	_, idx, inv, _ := geraCorpus(t, corpusSize)
+
+	// "prescricao" está em todas as notas de geraCorpus. Confirmado antes de
+	// medir: se o termo sumir do corpus, esta medição volta a ser sobre um
+	// dicionário dando miss, e ninguém percebe pelo verde.
+	tokens := search.Analyze("prescricao")
+	if got := len(search.CalculateBM25(tokens, inv, idx)); got != corpusSize {
+		t.Fatalf("a consulta casou %d notas de %d; com poucas postings a medição "+
+			"não mede o kernel", got, corpusSize)
+	}
 
 	durations := make([]time.Duration, numQueries)
 	for i := 0; i < numQueries; i++ {
-		termo := fmt.Sprintf("termo%d", i%100)
-		tokens := search.Analyze(termo)
 		start := time.Now()
 		_ = search.CalculateBM25(tokens, inv, idx)
 		durations[i] = time.Since(start)
@@ -258,12 +299,18 @@ func TestRNF04SearchLatencyPercentile(t *testing.T) {
 	medianDur := durations[numQueries/2]
 	p95Dur := durations[int(float64(numQueries)*0.95)]
 
-	t.Logf("RNF-04 Medição de Latência de Busca (%d consultas em %d notas):", numQueries, corpusSize)
+	t.Logf("Kernel BM25 (%d consultas de %d postings em %d notas):", numQueries, corpusSize, corpusSize)
 	t.Logf("  Mínimo:  %v", minDur)
 	t.Logf("  Mediana: %v", medianDur)
-	t.Logf("  p95:     %v", p95Dur)
+	t.Logf("  p95:     %v  (teto deste teste: %v)", p95Dur, teto)
 
-	if p95Dur > 100*time.Millisecond {
-		t.Errorf("p95 %v excede o limite de RNF-04 (100ms)", p95Dur)
+	// Mediana em zero significa que o relógio não andou, e um percentil sobre
+	// zeros não guarda nada. Vale como falha por si só.
+	if medianDur == 0 {
+		t.Errorf("mediana = 0s: a consulta é seletiva demais para medir o kernel")
+	}
+	if p95Dur > teto {
+		t.Errorf("p95 %v excede o teto de %v deste teste (regressão algorítmica no "+
+			"kernel; o RNF-04 é medido em TestRNF04VaultSearchLatencyP95)", p95Dur, teto)
 	}
 }

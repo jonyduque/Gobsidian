@@ -87,6 +87,19 @@ Invoke-Step "go build" { go build @Alvos }
 
 Invoke-Step "go test -race" { go test -race @Alvos }
 
+# O teto do RNF-04 so e cobrado SEM -race: o detector multiplica a latencia por
+# 2 a 6, e comparar esse numero com 100 ms nao diria nada. Como a etapa acima e
+# a unica que roda testes, e ela roda com -race, o teto do RNF-04 nao era
+# cobrado pelo gate em lugar nenhum — ficava por conta de quem, um dia,
+# rodasse `go test` na mao. Quem rodava na mao rodava com a maquina carregada,
+# e o resultado era ver o teto piscar fora do gate e nunca dentro.
+#
+# Sao ~7 s. O -count=1 e obrigatorio: cache de teste devolveria o verde da
+# rodada anterior, e uma medicao em cache nao mediu nada.
+Invoke-Step "go test (RNF-04, sem -race)" {
+    go test -count=1 -run "TestRNF04VaultSearchLatencyP95" ./internal/service/
+}
+
 Invoke-Step "go vet (windows)" { go vet @Alvos }
 
 if (-not $SkipCross) {
