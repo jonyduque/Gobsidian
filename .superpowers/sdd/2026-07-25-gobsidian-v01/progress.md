@@ -89,6 +89,7 @@ Task 57: complete (commits 604e759..0b1460b, patch and append by heading, preser
 - Task 75: Subcomandos index, search, inspect | base f89f60d | review f89f60d..f221c0c | review Approved; 0 Important doc-only fechados | commit f221c0c ("feat(cmd): index, search and inspect subcommands (RF-52)")
 - Task 69: Os quatro parametros de schema ignorados | base 53c2dbb | review 53c2dbb..6dff9c8 | review Approved; 0 Important doc-only fechados | commit 6dff9c8 ("fix(mcpsrv,service): honour the four schema params the handlers dropped")
 - Task 74: netcheck como analisador de go vet | base a98f0bb | review a98f0bb..e888e23 | review Approved; 0 Important doc-only fechados | commit e888e23 ("ci: semantic net-import check as a go vet analyzer")
+- Task 70: Gerador deterministico de cofre de 5.000 notas | base 4b9d9c4 | review 4b9d9c4..588192d | review Approved; 0 Important doc-only fechados | commit 588192d ("tooling: deterministic 5000-note synthetic vault generator")
 
 === REVISAO DO M2.1 (Tasks 33-42), 2026-07-29, pelo modelo principal ===
 Nove provas de mutacao rodadas com scripts/mutate.ps1, TODAS saindo 0 (o teste
