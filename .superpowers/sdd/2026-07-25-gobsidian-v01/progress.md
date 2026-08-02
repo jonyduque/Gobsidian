@@ -104,6 +104,22 @@ Task 57: complete (commits 604e759..0b1460b, patch and append by heading, preser
   RNF-04 para limit: 200 a 5.000 notas: 181,25 ms, NAO atingido (teto 100 ms).
   RNF-07 a 5.000 notas: RSS 67,08 MB quente e 112,96 MB frio, NAO atingido (teto 60 MB);
   a Task 71 o registrara como OK medindo runtime.MemStats.Alloc, que nao e RSS.
+- Task 73: bench.yml no CI com deteccao de regressao | base f068f7a | commits 4304bea (workflow+comparador+benchmarks), 580c0aa (1a referencia), f9beed8 (referencia por mediana) | relatorio .superpowers/sdd/task-73-report.md
+  Nao havia benchmark nenhum no repositorio; os seis foram escritos junto.
+  Gate provado NO CI: run 30762162779 reprovou com +71,5%, +521,5% e +126,0%
+  sob 120 ms injetados em Search. Duas rodadas limpas verdes: 30761791215 e
+  30761852416. A primeira referencia (amostra unica) punha SearchFraseExata a
+  0,7 ponto do gate em duas rodadas SEM mudanca de codigo; refeita sobre a
+  mediana de tres rodadas, o pior desvio positivo caiu para +9,6%.
+- ANTES da 73, o CI estava VERMELHO desde 2026-07-28, em todos os pushes.
+  Cinco defeitos, commits 45ac834 e 7023b25, todos invisiveis para verify.ps1
+  por ele so rodar em Windows: caminhos "C:\test\vault" fixos em filter_test;
+  chmod 0400 num arquivo, que no Unix nao impede rename por cima; $env:TEMP
+  inexistente em Linux no check_net.ps1 do vettool da Task 74; teto de tempo do
+  TestBM25KernelLatency cobrado sob -race com numero medido na maquina errada;
+  e TestWatcher_Burst com prazo fixo de 10 s num teste de convergencia.
+  TestRun_OverflowSchedulesExactlyOne mantinha uma COPIA do laco de producao
+  dentro do teste e afirmava sobre a reimplementacao. CI verde em 30761531221.
 
 === REVISAO DO M2.1 (Tasks 33-42), 2026-07-29, pelo modelo principal ===
 Nove provas de mutacao rodadas com scripts/mutate.ps1, TODAS saindo 0 (o teste
