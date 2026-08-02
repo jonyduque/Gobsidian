@@ -124,17 +124,7 @@ func (w *Watcher) Run(ctx context.Context) error {
 			if !ok {
 				return nil
 			}
-			if errors.Is(err, fsnotify.ErrEventOverflow) {
-				w.reconciliations.Add(1)
-				select {
-				case w.reconcile <- struct{}{}:
-					w.log.Warn("Overflow de fsnotify detectado, reconciliação agendada")
-				default:
-					w.log.Warn("Overflow de fsnotify detectado, reconciliação já em andamento")
-				}
-				continue
-			}
-			w.log.Error("Erro do fsnotify", "err", err)
+			w.handleFSError(err)
 		case e, ok := <-w.fsWatcher.Events:
 			if !ok {
 				return nil
@@ -175,6 +165,29 @@ func (w *Watcher) Run(ctx context.Context) error {
 			}
 		}
 	}
+}
+
+// handleFSError trata um erro vindo do fsnotify. Overflow agenda reconciliação;
+// o resto vira log.
+//
+// Existe como método, e não inline no select de Run, para que o teste de
+// overflow possa exercitar ESTE código. Antes, TestRun_OverflowSchedulesExactlyOne
+// injetava `fsnotify.ErrEventOverflow` direto em `w.fsWatcher.Errors` e mantinha
+// uma cópia deste corpo dentro do próprio teste — de modo que ele afirmava sobre
+// a reimplementação, não sobre a produção. Escrever no canal do fsnotify também
+// corria com o backend kqueue, e o detector de corrida reprovava em macOS.
+func (w *Watcher) handleFSError(err error) {
+	if errors.Is(err, fsnotify.ErrEventOverflow) {
+		w.reconciliations.Add(1)
+		select {
+		case w.reconcile <- struct{}{}:
+			w.log.Warn("Overflow de fsnotify detectado, reconciliação agendada")
+		default:
+			w.log.Warn("Overflow de fsnotify detectado, reconciliação já em andamento")
+		}
+		return
+	}
+	w.log.Error("Erro do fsnotify", "err", err)
 }
 
 // Close fecha o fsnotify e limpa handles.

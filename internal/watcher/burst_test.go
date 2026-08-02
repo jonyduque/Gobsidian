@@ -44,8 +44,17 @@ func TestWatcher_Burst(t *testing.T) {
 		_ = os.WriteFile(path, []byte(fmt.Sprintf("note %d", i)), 0644)
 	}
 
-	// wait for processing
-	for i := 0; i < 100; i++ {
+	// O que este teste mede e CONVERGENCIA — as 500 notas chegam ao indice —,
+	// nao o tempo que ela leva. O prazo era de 10 s (100 x 100 ms), e sob -race
+	// com a suite inteira rodando em paralelo ele estourou com 427 de 500: o
+	// watcher estava progredindo, so nao terminou dentro da janela. Prazo curto
+	// num teste de convergencia mede a carga da maquina.
+	//
+	// 60 s e generoso de proposito. Ele nao afrouxa nada: se a convergencia nao
+	// acontecer, o teste continua reprovando, e com o numero parcial na
+	// mensagem para distinguir "parou" de "estava devagar".
+	prazo := time.Now().Add(60 * time.Second)
+	for time.Now().Before(prazo) {
 		if idx.NoteCount() == count {
 			break
 		}

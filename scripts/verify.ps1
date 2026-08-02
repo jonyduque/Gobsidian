@@ -109,8 +109,16 @@ Invoke-Step "go test -race" { go test -race @Alvos }
 # fora em todo lugar onde o teste rodava, e o teto de 60 ms nao era cobrado por
 # ninguem. E o mesmo defeito que o commit 67016de fechou para o teto do RNF-04;
 # todo teto novo entra nesta lista no mesmo commit em que nasce.
-Invoke-Step "go test (RNF-04, sem -race)" {
-    go test -count=1 -run "TestRNF04VaultSearchLatencyP95|TestRNF04SnippetConcurrencyLimit200" ./internal/service/
+# TestBM25KernelLatency entrou nesta etapa quando ganhou a guarda !raceEnabled.
+# Ele cobrava 80 ms nos dois modos, com o teto dimensionado sobre uma medicao
+# COM -race feita nesta maquina; no runner do CI o mesmo teste mediu p95 de
+# 107,1 ms sem regressao nenhuma. Teto de tempo so vale sem o detector, e teto
+# que nao e cobrado em lugar nenhum nao e teto.
+Invoke-Step "go test (tetos de latencia, sem -race)" {
+    go test -count=1 `
+        -run "TestRNF04VaultSearchLatencyP95|TestRNF04SnippetConcurrencyLimit200" ./internal/service/
+    if ($LASTEXITCODE -ne 0) { return }
+    go test -count=1 -run "TestBM25KernelLatency" ./internal/search/
 }
 
 Invoke-Step "go vet (windows)" { go vet @Alvos }

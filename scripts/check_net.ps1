@@ -4,7 +4,11 @@ $ErrorActionPreference = "Stop"
 $ProjectRoot = Split-Path -Parent $PSScriptRoot
 Push-Location $ProjectRoot
 
-$TempBin = Join-Path $env:TEMP "netcheck_$([guid]::NewGuid().ToString("N")).exe"
+# [System.IO.Path]::GetTempPath(), nao $env:TEMP. Em Linux e macOS $env:TEMP nao
+# existe, Join-Path recebe string vazia e lanca sob Set-StrictMode -- o job
+# netcheck do CI passou a reprovar no ubuntu no commit que trouxe o vettool,
+# invisivel para verify.ps1, que so roda em Windows.
+$TempBin = Join-Path ([System.IO.Path]::GetTempPath()) "netcheck_$([guid]::NewGuid().ToString("N")).exe"
 
 try {
     # 1. Compila o netcheck como vettool

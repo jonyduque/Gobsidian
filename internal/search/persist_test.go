@@ -261,13 +261,19 @@ func TestQ3PerformanceMeasurement(t *testing.T) {
 // kernel percorre 500 postings, e o número mede alguma coisa: a mediana sai
 // de 0s para 4,1 ms.
 //
-// O teto vem da medição, não do RNF. Medido em 2026-08-01 no maquina de referencia (12
-// núcleos, Windows 11): p95 8,1 ms sem -race, 17,9 ms com. O teto é único
-// para os dois modos, então quem manda é o pior: 80 ms dá ~4,5x de folga
-// sobre o p95 sob -race, que é o modo em que o gate roda. Folga larga de
-// propósito — um teto apertado aqui vira ruído sob carga, e o defeito que
-// este teste existe para pegar é ordem de grandeza, não porcento: a
-// varredura linear que a Task 61 pagou custava 174 ms.
+// O teto vem da medição, não do RNF: 80 ms contra um p95 de 8,1 ms medido em
+// 2026-08-01 no maquina de referencia (12 núcleos, Windows 11), sem -race. Folga larga de
+// propósito — o defeito que este teste existe para pegar é ordem de grandeza,
+// não porcento: a varredura linear que a Task 61 pagou custava 174 ms.
+//
+// O teto NÃO é cobrado sob -race, e a primeira versão deste teste errou nisso.
+// Ela dimensionava 80 ms como "4,5x de folga sobre os 17,9 ms medidos com
+// -race" na máquina de desenvolvimento. No runner compartilhado do CI, com
+// -race, o mesmo teste mediu mediana de 26,6 ms e p95 de 107,1 ms e reprovou
+// sem regressão nenhuma — o número tinha vindo da máquina errada. A medição
+// continua sendo registrada nos dois modos; só o teto deixa de valer onde o
+// número não é comparável. Quem o cobra é a etapa de verify.ps1 que roda sem
+// -race.
 func TestBM25KernelLatency(t *testing.T) {
 	const corpusSize = 500
 	const numQueries = 200
@@ -309,7 +315,7 @@ func TestBM25KernelLatency(t *testing.T) {
 	if medianDur == 0 {
 		t.Errorf("mediana = 0s: a consulta é seletiva demais para medir o kernel")
 	}
-	if p95Dur > teto {
+	if !raceEnabled && p95Dur > teto {
 		t.Errorf("p95 %v excede o teto de %v deste teste (regressão algorítmica no "+
 			"kernel; o RNF-04 é medido em TestRNF04VaultSearchLatencyP95)", p95Dur, teto)
 	}

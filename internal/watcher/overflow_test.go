@@ -134,44 +134,29 @@ func TestRun_OverflowSchedulesExactlyOne(t *testing.T) {
 	}
 	defer func() { _ = w.Close() }()
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-
-	// Inicia o laço de erros sem lançar o Apply (para o canal reconcile não ser consumido por Apply)
-	go func() {
-		for {
-			select {
-			case <-ctx.Done():
-				return
-			case err, ok := <-w.fsWatcher.Errors:
-				if !ok {
-					return
-				}
-				if errors.Is(err, fsnotify.ErrEventOverflow) {
-					w.reconciliations.Add(1)
-					select {
-					case w.reconcile <- struct{}{}:
-					default:
-					}
-				}
-			}
-		}
-	}()
-
+	// Chama handleFSError, que é o corpo que Run executa. A versão anterior
+	// deste teste injetava o erro em `w.fsWatcher.Errors` e mantinha, dentro do
+	// próprio teste, uma CÓPIA do laço de tratamento — contava
+	// `reconciliations` e enfileirava em `reconcile` por conta própria. Ele
+	// afirmava sobre a reimplementação: apagar o tratamento de overflow da
+	// produção o deixava verde. Escrever no canal do fsnotify ainda corria com
+	// o backend kqueue, e o detector reprovava em macOS com DATA RACE.
+	//
+	// Apply não é lançado de propósito: é ele que consome `reconcile`, e o que
+	// este teste mede é quantos tokens ficam no canal.
 	for range 5 {
-		w.fsWatcher.Errors <- fsnotify.ErrEventOverflow
-	}
-
-	deadline := time.Now().Add(3 * time.Second)
-	for time.Now().Before(deadline) {
-		if w.reconciliations.Load() == 5 {
-			break
-		}
-		time.Sleep(10 * time.Millisecond)
+		w.handleFSError(fsnotify.ErrEventOverflow)
 	}
 
 	if count := w.reconciliations.Load(); count != 5 {
 		t.Fatalf("reconciliations counter quer 5, obteve %d", count)
+	}
+
+	// Erro que não é overflow não agenda nada. Sem esta asserção, um
+	// tratamento que reconciliasse a QUALQUER erro do fsnotify passaria.
+	w.handleFSError(errors.New("erro qualquer do fsnotify"))
+	if count := w.reconciliations.Load(); count != 5 {
+		t.Fatalf("erro comum mexeu no contador: quer 5, obteve %d", count)
 	}
 
 	select {
