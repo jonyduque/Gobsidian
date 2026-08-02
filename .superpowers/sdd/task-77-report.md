@@ -2,8 +2,11 @@
 
 **Data:** 2026-08-02
 **Base:** `3814d31`
-**Commit:** `ddca9c3` (tabela completa de RNFs e as três medições novas)
-**Tag:** `v1.0.0` criada **localmente**, apontando para `ddca9c3`. **Não
+**Commits:** `ddca9c3` (tabela completa de RNFs e as três medições novas),
+`4411789` (ledger e este relatório), e a correção deste relatório logo depois —
+os SHA-256 dos binários não podem estar no commit que os produz, então a
+conferência dos números vive um commit à frente da tag.
+**Tag:** `v1.0.0` criada **localmente**, apontando para `4411789`. **Não
 publicada** — ver "O que ficou de fora" e a seção de publicação.
 
 ---
@@ -18,7 +21,7 @@ Hoje, o que existe de verdade:
 
 | Coisa | Estado | Como conferir |
 |---|---|---|
-| Tag `v1.0.0` local | **existe**, aponta para `ddca9c3` | `git rev-parse v1.0.0` → `5691cabe919d10a1acd11d3bb13d3a5332483933` |
+| Tag `v1.0.0` local | **existe**, aponta para `4411789` | `git log -1 --oneline v1.0.0` |
 | Tag `v1.0.0` no remoto | **não existe** | não foi feito `git push origin v1.0.0` |
 | Release `v1.0.0` no GitHub | **não existe** | `gh release list` traz só `v0.1.0` |
 | Binários dos três alvos | **existem em `dist/`**, com versão embutida | SHA-256 abaixo |
@@ -118,22 +121,22 @@ Mesma leitura: todos são de briefs das Tasks 12 a 68. Filtrando por `task-69` a
 ## Binários
 
 Compilação cruzada com `CGO_ENABLED=0`, `-trimpath` e a versão embutida por
-`-ldflags`, a partir de `ddca9c3` com a tag `v1.0.0` já criada:
+`-ldflags`, a partir de `4411789` — o commit para onde a tag `v1.0.0` aponta:
 
 ```
-version=v1.0.0 commit=ddca9c3 date=2026-08-02T20:53:06-03:00
+version=v1.0.0 commit=4411789 date=2026-08-02T20:55:59-03:00
 ```
 
 | Arquivo | SHA-256 |
 |---|---|
-| `gobsidian_windows_amd64.exe` | `0d169d1a91da4fbd5c9c787974c37c46bc2546a955ae5c8c38655cf1a6ccf4f0` |
-| `gobsidian_linux_amd64` | `7024b2abb7e0d77e4ff7e00dca7922bf9d7ebaca8b3a642233d622b4d55c7e3f` |
-| `gobsidian_darwin_arm64` | `f3c5e7fdb53ec0626c22b99d076b0fce082e46da2f361dd5484e883c04053111` |
+| `gobsidian_windows_amd64.exe` | `9735e344f2085c6b07239694656be0df5897b52ab512ba37be258ef9030e82b1` |
+| `gobsidian_linux_amd64` | `3e4f4ff4ec242d776629cfeab449f2e11da535dc0ae27e8c951c6b209c985e5a` |
+| `gobsidian_darwin_arm64` | `dc9211dac0ff94084afc666ea6d893b53ea8e66d6b6b36a522dfe4dc7d111f64` |
 
 **O que foi verificado de cada um.** O de Windows **executa** nesta máquina:
 
 ```
-gobsidian v1.0.0 (ddca9c3) 2026-08-02T20:53:06-03:00
+gobsidian v1.0.0 (4411789) 2026-08-02T20:55:59-03:00
 ```
 
 Os outros dois **não foram executados** — não há Linux nem macOS aqui. O que se
@@ -200,11 +203,15 @@ existe, e é por isso que esta conferência é passo obrigatório.
 E a tag:
 
 ```
-$ git rev-parse v1.0.0
-5691cabe919d10a1acd11d3bb13d3a5332483933
 $ git log -1 --oneline v1.0.0
-ddca9c3 docs(operacao): the complete RNF table, measured or explicitly not measured
+4411789 docs(ledger): close M6 with tasks 69-77, and record that v1.0.0 is prepared but not published
 ```
+
+A tag foi criada primeiro em `ddca9c3` e movida para `4411789` depois do commit
+de ledger, para que quem baixar a tag receba também o relatório desta tarefa. Os
+binários foram **recompilados** na mudança: o carimbo de commit dentro do binário
+tem de bater com o commit da tag, senão o `gobsidian version` de um artefato de
+release aponta para outro lugar.
 
 ---
 

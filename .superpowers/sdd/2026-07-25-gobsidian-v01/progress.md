@@ -150,7 +150,7 @@ Task 57: complete (commits 604e759..0b1460b, patch and append by heading, preser
   com 100x o motivo do seu mecanismo e zero orfaos; check_tool_params limpo.
   audit_reports (40) e check_briefs (65) saem 1, e nenhum achado e das Tasks
   69-77 — todos vem de relatorios e briefs das Tasks 1 a 68.
-  Tag v1.0.0 criada LOCALMENTE em ddca9c3 (5691cabe919d10a1acd11d3bb13d3a5332483933).
+  Tag v1.0.0 criada LOCALMENTE em 4411789, o commit deste ledger.
   NAO publicada: nem a tag no remoto, nem release no GitHub. Binarios dos tres
   alvos em dist/, com versao embutida e SHA-256 no relatorio; so o de Windows
   foi executado. README NAO foi tocado — segue falando de v0.1, que e a unica
