@@ -1,0 +1,14 @@
+{
+  "runner": "ubuntu-latest (GitHub-hosted, 2 vCPU), go 1.25, GOMAXPROCS=2",
+  "commit": "4304bea",
+  "tolerancia_pct": 20,
+  "unidade": "ns/op",
+  "benchmarks": {
+    "BenchmarkIndexBuild": 244692285.0,
+    "BenchmarkInvertedLoad": 89720000.0,
+    "BenchmarkSearchTermoAmplo": 118947918.0,
+    "BenchmarkSearchDoisTermos": 20896127.0,
+    "BenchmarkSearchFraseExata": 65631449.0,
+    "BenchmarkSearchLimit200": 375080084.0
+  }
+}
