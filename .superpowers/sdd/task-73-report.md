@@ -20,6 +20,45 @@ referência), `f9beed8` (referência refeita sobre mediana de três rodadas).
 - `docs/bench-baseline.json` — a referência, com runner, commit e nota de como
   foi obtida.
 
+## Evidência de TDD
+
+O ciclo aqui não é sobre um teste Go: o entregável é um gate, e o que faz um
+gate existir é ele reprovar quando deve.
+
+### RED
+
+Antes de haver referência, o comparador foi rodado contra a saída real dos
+benchmarks e **reprovou** por não ter contra o que comparar — que é o estado
+correto de um gate sem referência, e não um verde de conveniência:
+
+```
+[i] 6 benchmark(s) medido(s) em bench.txt.
+WARNING: [!] referencia ausente: docs/bench-baseline.json
+    BenchmarkIndexBuild                  244,692,285 ns/op
+    BenchmarkInvertedLoad                 89,720,000 ns/op
+    BenchmarkSearchTermoAmplo            118,947,918 ns/op
+    BenchmarkSearchDoisTermos             20,896,127 ns/op
+    BenchmarkSearchFraseExata             65,631,449 ns/op
+    BenchmarkSearchLimit200              375,080,084 ns/op
+    Para adotar, rode o mesmo comando com:
+      -UpdateBaseline -Runner '<maquina>' -Commit '<sha>'
+```
+
+Run `30761531229` no CI, conclusão `failure`, com a etapa `comparar com a
+referencia commitada` vermelha e as duas anteriores (`gerar cofre sintetico`,
+`rodar benchmarks`) verdes. Esta é também a evidência de que uma saída não-zero
+do comparador derruba o build.
+
+### GREEN
+
+Adotada a referência, o mesmo workflow, sem mudança de código, passou:
+
+```
+[OK] nenhum benchmark regrediu acima de 20%.
+```
+
+Runs `30761791215` e `30761852416`, ambas `success`.
+
 ## As duas decisões fechadas, e onde elas aparecem no código
 
 **A referência é arquivo versionado, não a execução anterior.** Está em
@@ -111,8 +150,9 @@ um gate que alguém desliga. A causa era a amostra, não a tolerância: a primei
 rodada mediu `FraseExata` em 65,6 ms e as duas seguintes em 78,3 e 78,0 ms.
 
 A referência passou a ser a **mediana de três rodadas**. Contra ela, o pior
-desvio positivo entre os seis benchmarks caiu para **+9,6%**, cerca de metade do
-gate. `bench_compare.ps1` ganhou `-Nota`, e o JSON registra como o número foi
+desvio positivo entre os seis benchmarks é **+9,6%** (`SearchTermoAmplo`,
+130.371.924 contra mediana de 118.947.918), contra um gate de 20%.
+`bench_compare.ps1` ganhou `-Nota`, e o JSON registra como o número foi
 obtido — "mediana de três" e "uma amostra" se comportam de forma diferente num
 runner compartilhado, e a diferença não é visível nos números.
 
@@ -143,7 +183,9 @@ runner compartilhado, e a diferença não é visível nos números.
 - Benchmark que pula (cofre ausente) não emite linha `ns/op`, e o comparador
   trata ausência como reprovação.
 
-## Bateria
+## Verificação
+
+Bateria local:
 
 ```
 [OK] Bateria completa. Pode commitar.
@@ -151,7 +193,18 @@ VERIFY_EXIT=0
 ```
 
 CI completo verde em `30761531221`: `fmt`, `lint`, `lint-windows`, `netcheck`,
-`orphans`, e `test` nos três sistemas.
+`orphans`, e `test` nos três sistemas — o primeiro verde desde 2026-07-28.
+
+Verificações exigidas pelo brief, uma a uma:
+
+| Exigência | Estado | Onde |
+|---|---|---|
+| Gate dispara sob lentidão injetada | Feito | run 30762162779, `failure`, +71,5% / +521,5% / +126,0% |
+| Gate não dispara à toa, duas rodadas | Feito | runs 30761791215 e 30761852416, `success` |
+| `golangci-lint` fixado em v2.12.2 | Conferido | `ci.yml`, jobs `lint` e `lint-windows`, não tocados |
+| Comparação por benchmark, não agregada | Feito | uma linha e um delta por benchmark |
+| Melhora acima de 20% avisa e não reprova | Feito | mesma run 30762162779: `IndexBuild` −39,1% avisou |
+| Referência versionada, não a rodada anterior | Feito | `docs/bench-baseline.json`, só muda com `-UpdateBaseline` |
 
 ## O que ficou de fora, e um achado fora do escopo
 
