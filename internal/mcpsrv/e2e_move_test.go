@@ -131,6 +131,20 @@ func chamaTool(ctx context.Context, t *testing.T, session *mcp.ClientSession, no
 	}
 }
 
+// prazoConvergencia e quanto se espera o watcher propagar a movimentacao ate o
+// indice e o indice invertido.
+//
+// O que este teste mede e que a mudanca CHEGA, nao em quanto tempo. Com 10 s
+// ele reprovou no runner macOS do CI ("vault_search devolveu 0 resultados") e
+// passou na rodada anterior — o backend kqueue e mais lento que o de Windows e
+// o runner e compartilhado. Prazo curto num teste de convergencia mede a carga
+// da maquina.
+//
+// 60 s nao afrouxa nada: se a mudanca nao chegar, o teste continua reprovando,
+// e a mensagem traz o que o indice tinha para separar "nao chegou" de "chegou
+// errado".
+const prazoConvergencia = 60 * time.Second
+
 // esperaIndice repete fn ate ela devolver nil ou o prazo acabar, e devolve o
 // ultimo motivo. O watcher e assincrono: sem espera o teste mediria a corrida
 // entre a chamada da tool e o evento, e passaria ou falharia por tempo.
@@ -213,7 +227,7 @@ func TestE2E_NoteMoveIsReflectedBySearchAndGraph(t *testing.T) {
 
 	// AQUI e a emenda que nao tinha teste: o watcher precisa correlacionar o
 	// rename e mover a entrada no indice. Nenhuma tool de escrita faz isso.
-	if err := esperaIndice(t, 10*time.Second, func() error {
+	if err := esperaIndice(t, prazoConvergencia, func() error {
 		var depois struct {
 			Results []struct {
 				Path string `json:"path"`
@@ -233,7 +247,7 @@ func TestE2E_NoteMoveIsReflectedBySearchAndGraph(t *testing.T) {
 	}
 
 	// E o grafo: aponta.md tem de aparecer como vizinho do caminho NOVO.
-	if err := esperaIndice(t, 10*time.Second, func() error {
+	if err := esperaIndice(t, prazoConvergencia, func() error {
 		var grafo struct {
 			Nodes []struct {
 				Path string `json:"path"`
