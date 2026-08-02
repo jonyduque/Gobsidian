@@ -1,7 +1,8 @@
 param(
     [int]$Cycles = 100,
     [string]$VaultPath,
-    [int]$PidTimeoutMs = 5000,
+    # 0 = escolhe pelo cenario. Ver o bloco logo apos os parametros.
+    [int]$PidTimeoutMs = 0,
     # 8s > o guarda-chuva de 6s de lifecycle.Shutdown. Esperar menos que o
     # orcamento que o proprio codigo se da conta encerramento lento como
     # orfao. Se este numero mudar, o de la mudou primeiro.
@@ -34,6 +35,16 @@ param(
 # O motivo que o cenario TEM de produzir. Ciclo que encerra pelo motivo errado
 # nao testou o mecanismo que o cenario nomeia — encerrou por outra coisa e deu
 # verde.
+# O cenario stdin-eof lanca DOIS processos ate o servidor (harness -> host ->
+# servidor); parent-death e signal lancam TRES, e cada nivel e um pwsh, que
+# custa cerca de um segundo para subir. Num runner de 2 vCPU o poll de 5 s
+# estourou em 9 de 100 ciclos do parent-death — sem defeito nenhum no
+# mecanismo, que acertou o motivo nos 91 restantes e nao deixou orfao. Um
+# valor explicito na linha de comando continua vencendo.
+if ($PidTimeoutMs -le 0) {
+    $PidTimeoutMs = if ($Scenario -eq "stdin-eof") { 5000 } else { 20000 }
+}
+
 $ReasonEsperado = switch ($Scenario) {
     "stdin-eof" { "stdin-eof" }
     "parent-death" { "parent-gone" }
