@@ -111,6 +111,23 @@ jobs:
       - name: compilar
         shell: pwsh
         run: ./scripts/build.ps1
-      - name: 100 ciclos de encerramento abrupto
+      # Um cenario por MECANISMO. Ate 2026-08-02 so existia o primeiro, e as
+      # duas ultimas rodadas deram 100/100 em "stdin-eof": a vigilia do pai e o
+      # tratamento de sinal nunca tinham sido exercitados ponta a ponta, e a
+      # vigilia do pai ja falhou aqui deixando 5 de 5 orfaos. Cada cenario
+      # desconecta os outros dois mecanismos e o script reprova se o "reason="
+      # registrado nao for o do mecanismo que o cenario nomeia.
+      - name: 100 ciclos - stdin fecha (EOF)
         shell: pwsh
-        run: ./scripts/test_orphans.ps1 -Cycles 100
+        run: ./scripts/test_orphans.ps1 -Cycles 100 -Scenario stdin-eof
+      - name: 100 ciclos - pai morre com stdin aberto
+        shell: pwsh
+        run: ./scripts/test_orphans.ps1 -Cycles 100 -Scenario parent-death
+      # O cenario signal depende de CONIN$, o buffer de entrada do console. Se
+      # o runner rodar sem console, orphan_signal_host.ps1 sai com mensagem
+      # explicita em vez de medir outra coisa. Foi acrescentado aqui para o CI
+      # responder se ele roda neste ambiente — a resposta esta em
+      # .superpowers/sdd/task-76-report.md.
+      - name: 100 ciclos - sinal, com stdin aberto e pai vivo
+        shell: pwsh
+        run: ./scripts/test_orphans.ps1 -Cycles 100 -Scenario signal

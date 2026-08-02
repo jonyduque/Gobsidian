@@ -1,7 +1,18 @@
 param(
     [Parameter(Mandatory = $true)][string]$BinaryPath,
     [Parameter(Mandatory = $true)][string]$VaultPath,
-    [Parameter(Mandatory = $true)][string]$PidFile
+    [Parameter(Mandatory = $true)][string]$PidFile,
+
+    # Cenario parent-death: em vez de criar o proprio pipe de stdin, PASSA
+    # ADIANTE o stdin que este processo recebeu do keeper. O filho herda o
+    # handle, e a ponta de escrita fica com o keeper — que sobrevive a morte
+    # deste processo. Sem isso, matar este host fecharia o pipe e o servidor
+    # encerraria por stdin-eof antes de a vigilia do pai ter chance.
+    #
+    # Tambem redireciona stderr para arquivo: sem o RedirectStandardError que
+    # o harness aplica no cenario stdin-eof, o log do filho nao chegaria a
+    # lugar nenhum, e o gate confere o "reason=" no log.
+    [switch]$InheritStdin
 )
 
 Set-StrictMode -Version Latest
@@ -27,11 +38,19 @@ $psi.ArgumentList.Add($VaultPath)
 $psi.ArgumentList.Add("--log-level")
 $psi.ArgumentList.Add("debug")
 $psi.UseShellExecute = $false
-$psi.RedirectStandardInput = $true
-# StandardOutput/Error ficam herdados deste processo. O script externo lanca
-# este host com -RedirectStandardError apontando para um arquivo de log por
-# ciclo; o filho, ao herdar o handle, escreve seu log de debug (incluindo
-# "reason=...") no mesmo arquivo.
+# No cenario parent-death NAO se redireciona stdin: o filho herda o stdin deste
+# processo, que e a ponta de leitura do pipe do keeper. Ver o cabecalho de
+# orphan_keeper.ps1.
+$psi.RedirectStandardInput = -not $InheritStdin
+
+# StandardOutput/Error ficam SEMPRE herdados. Nos dois cenarios quem aponta o
+# stderr para o arquivo de log por ciclo e o processo mais externo que
+# sobrevive ao ciclo — o harness, no stdin-eof; o keeper, no parent-death — e
+# o handle desce por heranca ate o servidor.
+#
+# Bombear o stderr aqui seria pior: um pipe criado por ESTE processo morre com
+# ele, e e depois da morte deste processo que o servidor escreve justamente a
+# linha "reason=" que o gate confere.
 
 $proc = [System.Diagnostics.Process]::Start($psi)
 

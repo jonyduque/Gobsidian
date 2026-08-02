@@ -5,8 +5,40 @@ param(
     # 8s > o guarda-chuva de 6s de lifecycle.Shutdown. Esperar menos que o
     # orcamento que o proprio codigo se da conta encerramento lento como
     # orfao. Se este numero mudar, o de la mudou primeiro.
-    [int]$SettleMs = 8000
+    [int]$SettleMs = 8000,
+
+    # Qual MECANISMO de encerramento o ciclo exercita.
+    #
+    #   stdin-eof     o host segura a ponta de escrita do pipe; mata-lo fecha
+    #                 o pipe e o servidor ve EOF.
+    #   parent-death  keeper -> host -> servidor, com o stdin herdado do
+    #                 keeper. Matar o host mata o PAI do servidor sem fechar o
+    #                 stdin, entao so a vigilia do pai pode encerra-lo.
+    #
+    # Ate 2026-08-02 so existia o primeiro, e as duas ultimas rodadas deram
+    # 100/100 em "stdin-eof". A vigilia do pai nunca tinha sido exercitada
+    # ponta a ponta — e ela ja falhou aqui, deixando 5 de 5 orfaos por comparar
+    # (pid, creation time) num sistema em que os dois seguem consultaveis
+    # depois da morte do processo.
+    #
+    # Teste de fallback que deixa o caminho principal ligado mede o caminho
+    # principal. Por isso o cenario parent-death DESCONECTA o EOF, e o gate
+    # abaixo reprova se o "reason=" nao for o do mecanismo que o cenario nomeia.
+    #   signal        nada morre e nada fecha: o host fica vivo e o stdin do
+    #                 servidor e um console herdado. So o CTRL_BREAK pode
+    #                 encerra-lo.
+    [ValidateSet("stdin-eof", "parent-death", "signal")]
+    [string]$Scenario = "stdin-eof"
 )
+
+# O motivo que o cenario TEM de produzir. Ciclo que encerra pelo motivo errado
+# nao testou o mecanismo que o cenario nomeia — encerrou por outra coisa e deu
+# verde.
+$ReasonEsperado = switch ($Scenario) {
+    "stdin-eof" { "stdin-eof" }
+    "parent-death" { "parent-gone" }
+    "signal" { "signal" }
+}
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
@@ -36,6 +68,9 @@ function Get-ChildGobsidianPids {
 $ProjectRoot = Split-Path -Parent $PSScriptRoot
 $BinaryPath = Join-Path $ProjectRoot "bin\gobsidian.exe"
 $HostScript = Join-Path $PSScriptRoot "orphan_host.ps1"
+$KeeperScript = Join-Path $PSScriptRoot "orphan_keeper.ps1"
+$SignalHostScript = Join-Path $PSScriptRoot "orphan_signal_host.ps1"
+$SignalSendScript = Join-Path $PSScriptRoot "orphan_signal_send.ps1"
 
 if (-not (Test-Path $BinaryPath)) {
     Write-Warning "[!] Binario nao encontrado: $BinaryPath"
@@ -43,6 +78,10 @@ if (-not (Test-Path $BinaryPath)) {
 }
 if (-not (Test-Path $HostScript)) {
     Write-Warning "[!] Script do host nao encontrado: $HostScript"
+    exit 1
+}
+if ($Scenario -eq "parent-death" -and -not (Test-Path $KeeperScript)) {
+    Write-Warning "[!] Script do keeper nao encontrado: $KeeperScript"
     exit 1
 }
 
@@ -59,6 +98,7 @@ Write-Output "[i] logs e PIDs em $WorkDir"
 $Survivors = 0
 $LaunchFailures = 0
 $KillFailures = 0
+$WrongReasonCycles = 0
 # Cada elemento e { Id; StartTime }, nao so o PID cru: o Windows reatribui
 # PIDs, e uma rodada de 100 ciclos ao longo de minutos da tempo de sobra pra
 # isso acontecer. StartTime junto do PID identifica o processo especifico
@@ -76,11 +116,37 @@ for ($i = 1; $i -le $Cycles; $i++) {
     # ponta de escrita do pipe — exatamente o que Claude Desktop faz. Matar
     # ESTE processo (o host), nao o filho, e o que exercita os mecanismos de
     # encerramento do filho.
-    $HostProc = Start-Process -FilePath "pwsh.exe" `
-        -ArgumentList "-NoProfile", "-NonInteractive", "-File", $HostScript, `
-                      "-BinaryPath", $BinaryPath, "-VaultPath", $VaultPath, "-PidFile", $PidFile `
-        -PassThru -WindowStyle Hidden `
-        -RedirectStandardError $LogFile
+    # No cenario parent-death o processo lancado aqui e o KEEPER, e quem tem de
+    # morrer no meio do ciclo e o HOST que ele cria. $VictimPid guarda quem
+    # matar; $HostProc guarda quem limpar no fim.
+    if ($Scenario -eq "parent-death") {
+        $HostPidFile = Join-Path $WorkDir "cycle_$i.hostpid"
+        $HostProc = Start-Process -FilePath "pwsh.exe" `
+            -ArgumentList "-NoProfile", "-NonInteractive", "-File", $KeeperScript, `
+                          "-HostScript", $HostScript, "-BinaryPath", $BinaryPath, `
+                          "-VaultPath", $VaultPath, "-PidFile", $PidFile, "-HostPidFile", $HostPidFile `
+            -PassThru -WindowStyle Hidden `
+            -RedirectStandardError $LogFile
+    }
+    elseif ($Scenario -eq "signal") {
+        $HostPidFile = $null
+        # -NoNewWindow, e nao -WindowStyle Hidden: o host precisa COMPARTILHAR o
+        # console deste harness, senao o servidor herda um console ao qual o
+        # processo sinalizador nao consegue se ligar.
+        $HostProc = Start-Process -FilePath "pwsh.exe" `
+            -ArgumentList "-NoProfile", "-NonInteractive", "-File", $SignalHostScript, `
+                          "-BinaryPath", $BinaryPath, "-VaultPath", $VaultPath, "-PidFile", $PidFile `
+            -PassThru -NoNewWindow `
+            -RedirectStandardError $LogFile
+    }
+    else {
+        $HostPidFile = $null
+        $HostProc = Start-Process -FilePath "pwsh.exe" `
+            -ArgumentList "-NoProfile", "-NonInteractive", "-File", $HostScript, `
+                          "-BinaryPath", $BinaryPath, "-VaultPath", $VaultPath, "-PidFile", $PidFile `
+            -PassThru -WindowStyle Hidden `
+            -RedirectStandardError $LogFile
+    }
 
     if (-not $HostProc) {
         $LaunchFailures++
@@ -136,14 +202,52 @@ for ($i = 1; $i -le $Cycles; $i++) {
     $LaunchedPids += [PSCustomObject]@{ Id = $ServerPid; StartTime = $ServerAlive.StartTime }
     $MeasuredCycleIndices += $i
 
-    # Mata o host, NAO o filho, e sem /T. E a morte do host que deve fechar
-    # o pipe e disparar o EOF (ou, na falta desse mecanismo, a vigilia do
-    # processo pai). Matar a arvore inteira provaria so que taskkill sabe
-    # matar processos, nao que o lifecycle do filho funciona.
-    taskkill /F /PID $HostProc.Id 2>$null | Out-Null
-    if ($LASTEXITCODE -ne 0) {
-        $KillFailures++
-        Write-Warning "[!] Ciclo ${i}: taskkill falhou ao matar o host PID $($HostProc.Id) (exit $LASTEXITCODE)"
+    # Mata o PAI do servidor, NAO o servidor, e sem /T. Matar a arvore inteira
+    # provaria so que o taskkill sabe matar processos, nao que o lifecycle do
+    # filho funciona.
+    #
+    # No stdin-eof o pai e o host, que o harness lancou. No parent-death o
+    # harness lancou o keeper, e o pai do servidor e o host que o keeper criou:
+    # matar o keeper aqui fecharia a ponta de escrita do pipe e o ciclo voltaria
+    # a encerrar por stdin-eof — que e exatamente o mecanismo que este cenario
+    # existe para desconectar.
+    $VictimPid = $HostProc.Id
+    if ($Scenario -eq "parent-death") {
+        $VictimPid = $null
+        $HostDeadline = [DateTime]::UtcNow.AddMilliseconds($PidTimeoutMs)
+        while ([DateTime]::UtcNow -lt $HostDeadline) {
+            if (Test-Path $HostPidFile) {
+                $HostContent = Get-Content -Path $HostPidFile -Raw -ErrorAction SilentlyContinue
+                if ($HostContent -and $HostContent.Trim() -match '^\d+$') {
+                    $VictimPid = [int]$HostContent.Trim()
+                    break
+                }
+            }
+            Start-Sleep -Milliseconds 50
+        }
+        if (-not $VictimPid) {
+            $KillFailures++
+            Write-Warning "[!] Ciclo ${i}: PID do host intermediario nao apareceu em ${PidTimeoutMs}ms"
+            Stop-Process -Id $HostProc.Id -Force -ErrorAction SilentlyContinue
+            continue
+        }
+    }
+
+    if ($Scenario -eq "signal") {
+        # Nada e morto aqui. O host FICA VIVO — se ele morresse, a vigilia do
+        # pai dispararia e o ciclo mediria o mecanismo errado.
+        & pwsh.exe -NoProfile -NonInteractive -File $SignalSendScript -TargetPid $ServerPid
+        if ($LASTEXITCODE -ne 0) {
+            $KillFailures++
+            Write-Warning "[!] Ciclo ${i}: envio de CTRL_BREAK ao PID $ServerPid falhou (exit $LASTEXITCODE)"
+        }
+    }
+    else {
+        taskkill /F /PID $VictimPid 2>$null | Out-Null
+        if ($LASTEXITCODE -ne 0) {
+            $KillFailures++
+            Write-Warning "[!] Ciclo ${i}: taskkill falhou ao matar o pai PID $VictimPid (exit $LASTEXITCODE)"
+        }
     }
 
     Start-Sleep -Milliseconds $SettleMs
@@ -159,6 +263,13 @@ for ($i = 1; $i -le $Cycles; $i++) {
         $Survivors++
         Write-Warning "[!] Ciclo ${i}: PID $ServerPid sobreviveu"
         Stop-Process -Id $ServerPid -Force -ErrorAction SilentlyContinue
+    }
+
+    # No parent-death o keeper continua vivo de proposito ate aqui: e ele que
+    # segura a ponta de escrita do stdin. Deixa-lo para tras vazaria um pwsh
+    # por ciclo.
+    if ($Scenario -eq "parent-death" -or $Scenario -eq "signal") {
+        Stop-Process -Id $HostProc.Id -Force -ErrorAction SilentlyContinue
     }
 
     if ($i % 10 -eq 0) { Write-Output "[i] $i/$Cycles" }
@@ -220,6 +331,14 @@ foreach ($Idx in $MeasuredCycleIndices) {
     if ($Found.Count -gt 0) {
         $CyclesWithReason++
         $Reasons += $Found
+        # Um ciclo que encerra pelo motivo ERRADO nao exercitou o mecanismo que
+        # o cenario nomeia. Sem esta conferencia, bastava o parent-death cair em
+        # stdin-eof — que e como a lacuna sobreviveu a todos os marcos: o
+        # harness contava "encerrou" e nunca "encerrou por qual mecanismo".
+        if ($Found[0] -ne $ReasonEsperado) {
+            $WrongReasonCycles++
+            Write-Warning "[!] Ciclo ${Idx}: reason=$($Found[0]), esperado '$ReasonEsperado' no cenario '$Scenario'"
+        }
     }
 
     # O guarda-chuva de limite rigido (lifecycle.Shutdown, hardLimit) registra
@@ -254,9 +373,13 @@ if ($HardLimitCycles -gt 0) {
 if ($MeasuredCycles -eq 0) {
     Write-Warning "[!] FALHA: nenhum ciclo mediu nada - todos os $Cycles ciclo(s) falharam no lancamento"
 }
+if ($WrongReasonCycles -gt 0) {
+    Write-Warning "[!] FALHA: $WrongReasonCycles de $MeasuredCycles ciclo(s) encerraram por um motivo diferente de '$ReasonEsperado' - o cenario '$Scenario' nao exercitou o mecanismo que nomeia"
+}
 
 $Failed = ($Survivors -gt 0) -or ($LaunchFailures -gt 0) -or ($KillFailures -gt 0) `
-    -or ($ReasonlessCycles -gt 0) -or ($HardLimitCycles -gt 0) -or ($MeasuredCycles -eq 0)
+    -or ($ReasonlessCycles -gt 0) -or ($HardLimitCycles -gt 0) -or ($MeasuredCycles -eq 0) `
+    -or ($WrongReasonCycles -gt 0)
 
 if ($Failed) {
     Write-Output "[i] work dir preservado para inspecao: $WorkDir"
