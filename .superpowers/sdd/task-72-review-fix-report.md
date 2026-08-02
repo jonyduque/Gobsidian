@@ -99,6 +99,22 @@ depois da própria tarefa que o relatório descrevia.
 
 ---
 
+## Evidência de TDD
+
+### RED
+
+Antes de tocar em `search.go`, a sonda de cancelamento (seção 1) e as três
+mutações abaixo estabeleceram o vermelho: `Search` devolvia página parcial com
+`err == nil`; `TestRNF04SnippetParity` sobrevivia à inversão dos 200 resultados;
+e o comando de mutação colado no relatório da Task 72, rodado de novo, saía
+`MUTATE_EXIT=1` — o oposto do que o relatório afirmava.
+
+### GREEN
+
+Depois da correção, os três testes passam, e as três provas de mutação saem
+`MUTATE_EXIT=0` — cada uma reprovando quando a regra que ela nomeia é removida.
+A bateria fecha em `VERIFY_EXIT=0`, 10 de 10 etapas.
+
 ## O que a correção fez
 
 ### `internal/service/search.go`
