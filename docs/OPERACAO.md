@@ -193,14 +193,30 @@ Quem denunciou a lacuna foi a guarda `orfaos == 0`, escrita junto com o teste e 
 
 **Medições do M5 (Tasks 63 a 67 em 2026-07-30).** `note_move` e `note_delete` validados funcionalmente com 100% de cobertura nos testes de mutação. Latências de movimentação e exclusão em lote no cofre de 5.000 notas: **não medido** (agendado para o endurecimento M6/H1).
 
-### O que falta (Atualizado na Task 70)
+### Medições no cofre sintético de 5.000 notas (2026-08-01)
 
-O gerador determinístico de cofre sintético de 5.000 notas (50 MB) foi implementado na Task 70 através de `scripts/gen_vault.ps1`.
-A semente padrão 42 gera deterministicamente:
-- **Notas:** 5.000 notas Markdown
-- **Anexos:** 50 anexos (`.png`, `.pdf`)
-- **Tamanho:** 1,27 MB (1.329.475 bytes)
-- **Links totais:** 10.101
-- **Links quebrados:** 1.518
+Executado contra o cofre sintético gerado deterministicamente (`scripts/gen_vault.ps1 -Notes 5000 -Seed 42`: 5.000 notas, 50 anexos, 1.27 MB, 10.101 links, 1.518 quebrados).
 
-As medições de escala de 5.000 notas dos requisitos RNF-01, RNF-02, RNF-04 e RNF-07 sobre este cofre sintético são executadas na Task 71.
+| ID | Métrica (Alvo) | Medição Mínima | Mediana (5 rodadas) | Medição Máxima | Status RNF |
+|---|---|---|---|---|---|
+| **RNF-01** | Indexação a frio (≤ 3 s) | 500,55 ms | **517,88 ms** | 538,40 ms | **OK (6x abaixo do limite)** |
+| **RNF-02** | Boot com cache válido (≤ 300 ms) | 89,60 ms | **104,37 ms** | 129,05 ms | **OK (3x abaixo do limite)** |
+| **RNF-07** | Memória em repouso (≤ 60 MB) | - | **Alloc: 29,12 MB** (Sys: 120,55 MB) | - | **OK no Heap Alloc** |
+
+#### RNF-04: Latência de `vault_search` p95 a 5.000 notas (por formato, 30 consultas cada)
+
+| Formato | Mediana | p95 Medido | Status RNF-04 (Alvo ≤ 100 ms) |
+|---|---|---|---|
+| `termo amplo, limit default` | 99,45 ms | **143,20 ms** | Estouro (acima do alvo por 43 ms) |
+| `dois termos` | 22,93 ms | **37,83 ms** | **OK** |
+| `termo seletivo` | 16,55 ms | **20,25 ms** | **OK** |
+| `filtro de pasta` | 88,81 ms | **114,67 ms** | Estouro (acima do alvo por 14 ms) |
+| `filtro de tag` | 88,77 ms | **111,24 ms** | Estouro (acima do alvo por 11 ms) |
+| `frase exata` | 52,46 ms | **70,81 ms** | **OK** |
+| `trecho maximo` | 28,22 ms | **40,33 ms** | **OK** |
+| `limit maximo do schema (200)` | 375,75 ms | **414,09 ms** | Estouro de teto (200 leituras de disco) |
+
+**Análise dos números:**
+- RNF-01 e RNF-02 foram validados com folga substancial na escala de 5.000 notas.
+- RNF-07 mantém o Heap Alloc em 29,12 MB (metade do teto de 60 MB).
+- RNF-04 em 5.000 notas evidencia que a geração de trechos em consultas amplas/limit máximo lê arquivos sequencialmente do disco, excedendo o teto de 100 ms onde há muitos candidatos. Otimização de I/O concorrente de trechos permanece como oportunidade de melhoria futura.
