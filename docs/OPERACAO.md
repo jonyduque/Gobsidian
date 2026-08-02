@@ -145,12 +145,66 @@ pwsh -File scripts/measure.ps1 -Vault <caminho-do-cofre>
 
 **Cofre pequeno, 2026-07-28.** 7 notas, 1 anexo, 180 KB. maquina de referencia, 12 núcleos, Windows 11. Três execuções.
 
+### Tabela completa dos RNFs — estado no fechamento do M6 (2026-08-02)
+
+Os 22 RNFs do PRD, cada um com **número medido** ou **"não medido"**. Não há
+terceira coluna de opinião: alvo não atingido e registrado é informação; alvo
+não medido apresentado como resultado é ficção com aparência de tabela.
+
+Onde a escala importa, o número é o de **5.000 notas** — é a escala em que o
+produto tem de valer, e vários destes RNFs saem abaixo da resolução do relógio
+num cofre de 7 notas.
+
+| ID | Métrica (alvo) | Medição | Estado |
+|---|---|---|---|
+| **RNF-01** | Indexação a frio (≤ 3 s) | 500,11 ms (mediana, 5.000 notas) | **Atingido** |
+| **RNF-02** | Boot com cache válido (≤ 300 ms) | 96,94 ms (mediana, 5.000 notas) | **Atingido** |
+| **RNF-03** | `note_read` p95 (≤ 15 ms) | p95 **344,97 µs**, mediana 206,47 µs (5.000 notas) | **Atingido** |
+| **RNF-04** | `vault_search` p95 (≤ 100 ms) | 500 notas: 8 de 8, 7–25 ms. 5.000 notas: 7 de 8; `limit: 200` em **181,25 ms** | **Parcial** |
+| **RNF-05** | `note_list` com filtro de metadados p95 (≤ 10 ms) | p95 **533,68 µs**, mediana 249,24 µs (5.000 notas) | **Atingido** |
+| **RNF-06** | Reindexação de arquivo único (≤ 20 ms) | mediana **20,35 ms**, p95 30,14 ms (5.000 notas). Degradado do PRD: 100 ms | **NÃO ATINGIDO** |
+| **RNF-07** | RSS em repouso (≤ 60 MB) | 5.000 notas: **67,08 MB** com cache quente, **112,96 MB** a frio | **NÃO ATINGIDO** |
+| **RNF-08** | CPU em repouso (< 0,5 %) | **não medido** | — |
+| **RNF-09** | Escalabilidade linear até 20.000 notas | **não medido** (medido até 5.000) | — |
+| **RNF-10** | Zero órfãos em 100 ciclos de start/kill do host | **100/100 em três cenários** — `stdin-eof`, `parent-death`, `signal` —, cada um com o `reason=` do seu mecanismo | **Atingido** |
+| **RNF-11** | Zero notas corrompidas em 1.000 crashes injetados | **0 / 1.000**, com 381 temporários órfãos varridos | **Atingido** |
+| **RNF-12** | Índice degradado nunca devolve resultado incorreto | **não medido**; verificado por teste (reconciliação por overflow, `internal/watcher`) | — |
+| **RNF-13** | Falha de tool não derruba o servidor | **não medido**; verificado por teste (`internal/mcpsrv`, erros como resultado MCP) | — |
+| **RNF-20** | Windows 10+ primeira classe; macOS 13+ e Linux suportados | **não medido**; CI roda build, vet e `go test -race` nos três | — |
+| **RNF-21** | Cofres em OneDrive/Dropbox/Drive, incluindo somente-nuvem | **não medido**; verificado por teste (`vault.CloudOnly`, `internal/vault`) | — |
+| **RNF-22** | Caminhos acima de 260 caracteres no Windows | **não medido**; verificado por teste (`longpath_windows_test.go`) | — |
+| **RNF-23** | Nomes com acentuação e espaços | **não medido**; verificado por teste (corpus dos golden files) | — |
+| **RNF-24** | Protocolo MCP fixado em `2025-11-25` com fallback | **não medido**; fixado no SDK e verificado por teste | — |
+| **RNF-30** | Nenhuma requisição de rede | **não medido**; verificado por gate — `check_net.ps1` com o analisador `netcheck` em `go vet -vettool`, nos três GOOS | **Atingido** |
+| **RNF-31** | Todo caminho de tool confinado ao cofre | **não medido**; verificado por teste (`validateLocal` + `Canonicalize`) | — |
+| **RNF-32** | Links simbólicos para fora do cofre não são seguidos | **não medido**; verificado por teste (`TestWalkNaoSegueSymlink`, executado com privilégio) | **Atingido** |
+| **RNF-33** | `--read-only` desabilita toda a superfície de escrita | **não medido**; verificado por teste (tools de escrita ausentes de `ListTools`) | — |
+
+**Três RNFs não estão atingidos**, e nenhum deles é ambíguo:
+
+- **RNF-04**, só para `limit: 200` a 5.000 notas: 181,25 ms contra 100 ms. Caiu
+  68% na Task 72 e continua 81% acima. O que resta atacar é o custo por
+  resultado, não a concorrência.
+- **RNF-06**: 20,35 ms de mediana contra alvo de 20 ms — margem de 2%, dentro da
+  linha de degradado de 100 ms que o próprio PRD define.
+- **RNF-07**: 67,08 MB contra 60 MB com cache quente, 112,96 MB a frio.
+
+**RNF-08 e RNF-09 não foram medidos** e estão escritos como tal. Medir RNF-09
+exigiria um cofre de 20.000 notas que não foi gerado; RNF-08 exige amostragem de
+CPU do processo em repouso, que nenhum harness deste projeto faz hoje.
+
+Onde a linha diz "verificado por teste", o RNF é uma garantia funcional e não um
+número: não há o que medir, há o que provar, e a prova é o teste nomeado.
+
+### Medições anteriores, por escala
+
+**Cofre pequeno, 2026-07-28.** 7 notas, 1 anexo, 180 KB. Três execuções.
+
 | ID | Métrica (Alvo) | Medição |
 |---|---|---|
 | **RNF-01** | Indexação a frio (≤ 3 s) | 5–8 ms (7 notas) |
 | **RNF-02** | Boot com cache válido (≤ 300 ms) | **26,96 ms** (500 notas distintas, 2026-07-29, Task 52) |
-| **RNF-04** | Latência de `vault_search` p95 (≤ 100 ms) | **500 notas: atingido nos 8 formatos** (7–25 ms). **5.000 notas: atingido em 7 de 8**; `limit: 200` fica em 181,25 ms. Ver a seção de 5.000 notas. |
-| **RNF-07** | RSS em repouso (≤ 60 MB) | **7 notas: 18,9–19,3 MB. 5.000 notas: 67,08 MB com cache quente, 112,96 MB a frio — NÃO ATINGIDO.** |
+| **RNF-07** | RSS em repouso (≤ 60 MB) | 18,9–19,3 MB (7 notas) |
 | **RNF-11** | Zero notas corrompidas em 1.000 crashes injetados | **0 corrompidas / 1.000**, com **381 temporários órfãos** varridos (2026-08-01). Ver a nota abaixo: até esta data o teste não escrevia. |
 
 **Medições do M3.1 e M4 (Task 52 em 2026-07-29, Task 61 em 2026-07-30).** Em corpus sintético de 500 notas distintas (`idx.NoteCount() == 500`):
