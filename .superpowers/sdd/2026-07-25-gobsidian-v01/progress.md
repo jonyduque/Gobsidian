@@ -138,6 +138,29 @@ Task 57: complete (commits 604e759..0b1460b, patch and append by heading, preser
   Fora do escopo, corrigido junto: TestE2E_NoteMoveIsReflectedBySearchAndGraph
   tinha prazo fixo de 10 s e piscava no runner macOS; e teste de convergencia,
   passou para 60 s.
+- Task 77: Fechamento do M6 e v1.0.0 | base 3814d31 | commit ddca9c3 | relatorio .superpowers/sdd/task-77-report.md
+  Tabela de RNFs de docs/OPERACAO.md passou de 5 dos 22 para os 22, cada um com
+  numero medido ou "nao medido". RNF-03 (p95 344,97 us) e RNF-05 (p95 533,68 us)
+  medidos pela primeira vez e ATINGIDOS; RNF-06 medido em 20,35 ms de mediana
+  contra alvo de 20 ms, NAO ATINGIDO. RNF-08 e RNF-09 nao medidos.
+  TRES RNFs nao atingidos, todos medidos: RNF-04 (181,25 ms para limit: 200 a
+  5.000 notas contra 100 ms), RNF-06 e RNF-07 (67,08 MB quente, 112,96 MB frio,
+  contra 60 MB).
+  Portao: verify.ps1 10/10; test_orphans 100 ciclos nos TRES cenarios, cada um
+  com 100x o motivo do seu mecanismo e zero orfaos; check_tool_params limpo.
+  audit_reports (40) e check_briefs (65) saem 1, e nenhum achado e das Tasks
+  69-77 — todos vem de relatorios e briefs das Tasks 1 a 68.
+  Tag v1.0.0 criada LOCALMENTE em ddca9c3 (5691cabe919d10a1acd11d3bb13d3a5332483933).
+  NAO publicada: nem a tag no remoto, nem release no GitHub. Binarios dos tres
+  alvos em dist/, com versao embutida e SHA-256 no relatorio; so o de Windows
+  foi executado. README NAO foi tocado — segue falando de v0.1, que e a unica
+  afirmacao verdadeira hoje. A sequencia de publicacao esta no relatorio.
+
+=== M6 FECHADO (Tasks 69-77), 2026-08-02 ===
+As seis tarefas delegadas ao modelo barato voltaram com cinco corretas e a 72
+reprovada na revisao (ver a entrada dela acima). Alem disso, a revisao encontrou
+o CI VERMELHO desde 2026-07-28 em todos os pushes, com cinco defeitos que
+verify.ps1 nao podia ver por rodar so em Windows. CI verde de novo em 30761531221.
 
 === REVISAO DO M2.1 (Tasks 33-42), 2026-07-29, pelo modelo principal ===
 Nove provas de mutacao rodadas com scripts/mutate.ps1, TODAS saindo 0 (o teste
