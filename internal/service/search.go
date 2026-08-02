@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/jonyd/gobsidian/internal/index"
@@ -129,33 +130,79 @@ func (s *Service) Search(ctx context.Context, opts SearchOptions) (SearchResult,
 	}
 
 	pagedHits := filteredHits[opts.Offset:end]
-	results := make([]SearchHit, 0, len(pagedHits))
+	results := make([]SearchHit, len(pagedHits))
 
-	for _, hit := range pagedHits {
-		note, ok := s.index.Get(vault.CanonicalPath(hit.Path))
-		if !ok {
-			continue
+	workers := 16
+	if len(pagedHits) < workers {
+		workers = len(pagedHits)
+	}
+
+	if workers <= 1 {
+		for i, hit := range pagedHits {
+			note, ok := s.index.Get(vault.CanonicalPath(hit.Path))
+			if !ok {
+				continue
+			}
+			snip, _ := search.GenerateSnippet(ctx, s.vault, s.inverted, idxImpl, hit.Path, rawTerms, opts.SnippetChars)
+			var matchedHeadings []string
+			if snip.MatchedHeading != "" {
+				matchedHeadings = append(matchedHeadings, snip.MatchedHeading)
+			}
+			results[i] = SearchHit{
+				Path:            string(note.Path),
+				Title:           note.Title,
+				Score:           hit.Score,
+				Snippet:         snip.Text,
+				MatchedHeadings: matchedHeadings,
+				Modified:        note.ModTime.UTC().Format(time.RFC3339),
+			}
 		}
+	} else {
+		sem := make(chan struct{}, workers)
+		var wg sync.WaitGroup
 
-		snip, _ := search.GenerateSnippet(ctx, s.vault, s.inverted, idxImpl, hit.Path, rawTerms, opts.SnippetChars)
+		for i, hit := range pagedHits {
+			note, ok := s.index.Get(vault.CanonicalPath(hit.Path))
+			if !ok {
+				continue
+			}
+			wg.Add(1)
+			go func(idx int, h search.Result, n *index.Note) {
+				defer wg.Done()
+				select {
+				case sem <- struct{}{}:
+					defer func() { <-sem }()
+				case <-ctx.Done():
+					return
+				}
 
-		var matchedHeadings []string
-		if snip.MatchedHeading != "" {
-			matchedHeadings = append(matchedHeadings, snip.MatchedHeading)
+				snip, _ := search.GenerateSnippet(ctx, s.vault, s.inverted, idxImpl, h.Path, rawTerms, opts.SnippetChars)
+				var matchedHeadings []string
+				if snip.MatchedHeading != "" {
+					matchedHeadings = append(matchedHeadings, snip.MatchedHeading)
+				}
+				results[idx] = SearchHit{
+					Path:            string(n.Path),
+					Title:           n.Title,
+					Score:           h.Score,
+					Snippet:         snip.Text,
+					MatchedHeadings: matchedHeadings,
+					Modified:        n.ModTime.UTC().Format(time.RFC3339),
+				}
+			}(i, hit, note)
 		}
+		wg.Wait()
+	}
 
-		results = append(results, SearchHit{
-			Path:            string(note.Path),
-			Title:           note.Title,
-			Score:           hit.Score,
-			Snippet:         snip.Text,
-			MatchedHeadings: matchedHeadings,
-			Modified:        note.ModTime.UTC().Format(time.RFC3339),
-		})
+	finalResults := make([]SearchHit, 0, len(results))
+	for _, res := range results {
+		if res.Path != "" {
+			finalResults = append(finalResults, res)
+		}
 	}
 
 	return SearchResult{
-		Results:   results,
+		Results:   finalResults,
 		Total:     total,
 		Truncated: truncated,
 	}, nil

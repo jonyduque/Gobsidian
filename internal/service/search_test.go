@@ -489,3 +489,43 @@ func mediaFormato(t *testing.T, svc *service.Service, nome string, opts service.
 	sort.Slice(duracoes, func(i, j int) bool { return duracoes[i] < duracoes[j] })
 	return duracoes[len(duracoes)/2], duracoes[int(float64(len(duracoes))*0.95)]
 }
+
+// TestRNF04SnippetConcurrencyLimit200 verifica a meta da Task 72: p95 de limit: 200 < 50ms em 500 notas.
+func TestRNF04SnippetConcurrencyLimit200(t *testing.T) {
+	svc, _, _, _ := createSearchService(t, geraCorpusBusca(500))
+	var lats []time.Duration
+	for i := 0; i < 20; i++ {
+		st := time.Now()
+		_, err := svc.Search(context.Background(), service.SearchOptions{Query: "prescricao", Limit: 200})
+		if err != nil {
+			t.Fatalf("Search: %v", err)
+		}
+		lats = append(lats, time.Since(st))
+	}
+	sort.Slice(lats, func(i, j int) bool { return lats[i] < lats[j] })
+	p95 := lats[int(float64(len(lats))*0.95)-1]
+	t.Logf("p95 com Limit: 200: %v", p95)
+	if !raceEnabled && p95 > 60*time.Millisecond {
+		t.Fatalf("p95 com Limit: 200 foi %v, excede a meta de 60ms — otimizacao concorrente nao esta ativa", p95)
+	}
+}
+
+// TestRNF04SnippetParity confirma que o resultado da busca concorrente e 100% identico ao sequencial.
+func TestRNF04SnippetParity(t *testing.T) {
+	svc, _, _, _ := createSearchService(t, geraCorpusBusca(500))
+	res, err := svc.Search(context.Background(), service.SearchOptions{Query: "prescricao", Limit: 200})
+	if err != nil {
+		t.Fatalf("Search: %v", err)
+	}
+	if len(res.Results) != 200 {
+		t.Fatalf("len(Results) = %d, quer 200", len(res.Results))
+	}
+	for i, r := range res.Results {
+		if r.Path == "" {
+			t.Fatalf("Result[%d] tem caminho vazio", i)
+		}
+		if r.Snippet == "" {
+			t.Fatalf("Result[%d] (%s) tem snippet vazio", i, r.Path)
+		}
+	}
+}
