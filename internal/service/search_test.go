@@ -2,9 +2,11 @@ package service_test
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 	"testing"
@@ -490,42 +492,138 @@ func mediaFormato(t *testing.T, svc *service.Service, nome string, opts service.
 	return duracoes[len(duracoes)/2], duracoes[int(float64(len(duracoes))*0.95)]
 }
 
-// TestRNF04SnippetConcurrencyLimit200 verifica a meta da Task 72: p95 de limit: 200 < 50ms em 500 notas.
+// TestRNF04SnippetConcurrencyLimit200 cobra a meta da Task 72: p95 de
+// `limit: 200` abaixo de 60 ms em 500 notas, que é o teto sob o qual a
+// otimização de recorte concorrente está ativa. Sequencial, o mesmo caso mede
+// 82–113 ms.
+//
+// Usa mediaFormato e o mesmo laço de repetição de TestRNF04VaultSearchLatencyP95,
+// e pelo mesmo motivo: solo, a medição varia de 30 a 56 ms, e uma asserção de
+// tiro único a 60 ms reprova por carga transitória. Repetir NÃO cria folga —
+// carga passageira não sobrevive a três rodadas, regressão de código sobrevive
+// a todas. Afrouxar o teto apagaria o sinal que ele existe para dar.
 func TestRNF04SnippetConcurrencyLimit200(t *testing.T) {
+	const teto = 60 * time.Millisecond
 	svc, _, _, _ := createSearchService(t, geraCorpusBusca(500))
-	var lats []time.Duration
-	for i := 0; i < 20; i++ {
-		st := time.Now()
-		_, err := svc.Search(context.Background(), service.SearchOptions{Query: "prescricao", Limit: 200})
-		if err != nil {
-			t.Fatalf("Search: %v", err)
-		}
-		lats = append(lats, time.Since(st))
+	opts := service.SearchOptions{Query: "prescricao", Limit: 200}
+
+	rodadas := maxRodadas
+	if raceEnabled {
+		rodadas = 1
 	}
-	sort.Slice(lats, func(i, j int) bool { return lats[i] < lats[j] })
-	p95 := lats[int(float64(len(lats))*0.95)-1]
-	t.Logf("p95 com Limit: 200: %v", p95)
-	if !raceEnabled && p95 > 60*time.Millisecond {
-		t.Fatalf("p95 com Limit: 200 foi %v, excede a meta de 60ms — otimizacao concorrente nao esta ativa", p95)
+
+	var p95 time.Duration
+	coube := false
+	for rodada := 1; rodada <= rodadas; rodada++ {
+		var mediana time.Duration
+		mediana, p95 = mediaFormato(t, svc, "limit: 200", opts, 30)
+		t.Logf("  limit: 200 concorrente   mediana %-12v p95 %-12v teto %v", mediana, p95, teto)
+		if raceEnabled || p95 <= teto {
+			coube = true
+			break
+		}
+		if rodada < rodadas {
+			t.Logf("  limit: 200 concorrente   rodada %d/%d estourou (%v > %v); repetindo",
+				rodada, rodadas, p95, teto)
+		}
+	}
+	if !coube {
+		t.Errorf("p95 de limit: 200 = %v excede o teto de %v em %d rodadas seguidas — "+
+			"carga transitoria nao sobrevive a %d rodadas, entao o recorte concorrente "+
+			"nao esta ativo", p95, teto, rodadas, rodadas)
 	}
 }
 
-// TestRNF04SnippetParity confirma que o resultado da busca concorrente e 100% identico ao sequencial.
+// TestRNF04SnippetParity compara o resultado do caminho CONCORRENTE, campo a
+// campo, com um oráculo produzido pelo caminho SEQUENCIAL.
+//
+// O oráculo é `Limit: 1, Offset: i`: uma página de um resultado só tem
+// len(pagedHits) == 1, e `min(1, maxSnippetWorkers)` cai no ramo sequencial. É
+// o mesmo ranking, o mesmo corpus e a mesma função de montagem, produzidos sem
+// nenhuma goroutine — então qualquer diferença é da concorrência.
+//
+// A versão anterior deste teste afirmava "200 resultados, path e snippet não
+// vazios". Invertendo a ordem dos 200 resultados (`results[len-1-idx]`) ela
+// passava: um teste chamado Parity que não comparava nada com nada.
 func TestRNF04SnippetParity(t *testing.T) {
 	svc, _, _, _ := createSearchService(t, geraCorpusBusca(500))
-	res, err := svc.Search(context.Background(), service.SearchOptions{Query: "prescricao", Limit: 200})
+	ctx := context.Background()
+
+	concorrente, err := svc.Search(ctx, service.SearchOptions{Query: "prescricao", Limit: 200})
 	if err != nil {
-		t.Fatalf("Search: %v", err)
+		t.Fatalf("Search concorrente: %v", err)
 	}
-	if len(res.Results) != 200 {
-		t.Fatalf("len(Results) = %d, quer 200", len(res.Results))
+	if len(concorrente.Results) != 200 {
+		t.Fatalf("len(Results) = %d, quer 200", len(concorrente.Results))
 	}
-	for i, r := range res.Results {
-		if r.Path == "" {
-			t.Fatalf("Result[%d] tem caminho vazio", i)
+
+	for i, got := range concorrente.Results {
+		pagina, err := svc.Search(ctx, service.SearchOptions{Query: "prescricao", Limit: 1, Offset: i})
+		if err != nil {
+			t.Fatalf("Search sequencial no offset %d: %v", i, err)
 		}
-		if r.Snippet == "" {
-			t.Fatalf("Result[%d] (%s) tem snippet vazio", i, r.Path)
+		if len(pagina.Results) != 1 {
+			t.Fatalf("offset %d: oráculo devolveu %d resultados, quer 1", i, len(pagina.Results))
+		}
+		quer := pagina.Results[0]
+
+		if got.Path != quer.Path {
+			t.Fatalf("posição %d: Path concorrente = %q, sequencial = %q", i, got.Path, quer.Path)
+		}
+		if got.Title != quer.Title {
+			t.Fatalf("posição %d (%s): Title concorrente = %q, sequencial = %q", i, got.Path, got.Title, quer.Title)
+		}
+		if got.Score != quer.Score {
+			t.Fatalf("posição %d (%s): Score concorrente = %v, sequencial = %v", i, got.Path, got.Score, quer.Score)
+		}
+		if got.Snippet != quer.Snippet {
+			t.Fatalf("posição %d (%s): Snippet concorrente = %q, sequencial = %q", i, got.Path, got.Snippet, quer.Snippet)
+		}
+		if got.Modified != quer.Modified {
+			t.Fatalf("posição %d (%s): Modified concorrente = %q, sequencial = %q", i, got.Path, got.Modified, quer.Modified)
+		}
+		if !slices.Equal(got.MatchedHeadings, quer.MatchedHeadings) {
+			t.Fatalf("posição %d (%s): MatchedHeadings concorrente = %v, sequencial = %v",
+				i, got.Path, got.MatchedHeadings, quer.MatchedHeadings)
+		}
+	}
+}
+
+// TestSearchCtxCanceladoNaoDevolvePaginaParcial fixa que cancelamento vira erro,
+// e nunca uma página incompleta apresentada como sucesso.
+//
+// O defeito que este teste nomeia: a goroutine que perdia o `select` para
+// ctx.Done() voltava sem escrever seu slot, e o filtro final descartava o slot
+// vazio. Com o mesmo corpus e a mesma consulta, `Search` devolvia entre 24 e 99
+// dos 200 resultados, com err == nil e Total == 500 — contagem diferente a cada
+// chamada, e nada no retorno dizia que a página estava truncada por
+// cancelamento.
+func TestSearchCtxCanceladoNaoDevolvePaginaParcial(t *testing.T) {
+	svc, _, _, _ := createSearchService(t, geraCorpusBusca(500))
+
+	completo, err := svc.Search(context.Background(), service.SearchOptions{Query: "prescricao", Limit: 200})
+	if err != nil {
+		t.Fatalf("Search de referência: %v", err)
+	}
+	if len(completo.Results) != 200 {
+		t.Fatalf("referência devolveu %d resultados, quer 200", len(completo.Results))
+	}
+
+	for i := range 5 {
+		ctx, cancel := context.WithCancel(context.Background())
+		cancel()
+
+		res, err := svc.Search(ctx, service.SearchOptions{Query: "prescricao", Limit: 200})
+		if err == nil {
+			t.Fatalf("rodada %d: ctx cancelado devolveu err == nil com %d de 200 resultados; "+
+				"página parcial não pode sair como sucesso", i, len(res.Results))
+		}
+		if !errors.Is(err, context.Canceled) {
+			t.Fatalf("rodada %d: err = %v, quer context.Canceled", i, err)
+		}
+		if len(res.Results) != 0 {
+			t.Fatalf("rodada %d: erro veio junto com %d resultados; o chamador não pode "+
+				"receber dados e erro ao mesmo tempo", i, len(res.Results))
 		}
 	}
 }

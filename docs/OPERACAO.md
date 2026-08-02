@@ -149,8 +149,8 @@ pwsh -File scripts/measure.ps1 -Vault <caminho-do-cofre>
 |---|---|---|
 | **RNF-01** | Indexação a frio (≤ 3 s) | 5–8 ms (7 notas) |
 | **RNF-02** | Boot com cache válido (≤ 300 ms) | **26,96 ms** (500 notas distintas, 2026-07-29, Task 52) |
-| **RNF-04** | Latência de `vault_search` p95 (≤ 100 ms) | **atingido nos 8 formatos** (5–81 ms). Frase exata otimizada na Task 61: 22,1 ms. **`limit: 200` tem só ~20% de folga e estoura sob carga** — ver ressalva abaixo. |
-| **RNF-07** | RSS em repouso (≤ 60 MB) | 18,9–19,3 MB |
+| **RNF-04** | Latência de `vault_search` p95 (≤ 100 ms) | **500 notas: atingido nos 8 formatos** (7–25 ms). **5.000 notas: atingido em 7 de 8**; `limit: 200` fica em 181,25 ms. Ver a seção de 5.000 notas. |
+| **RNF-07** | RSS em repouso (≤ 60 MB) | **7 notas: 18,9–19,3 MB. 5.000 notas: 67,08 MB com cache quente, 112,96 MB a frio — NÃO ATINGIDO.** |
 | **RNF-11** | Zero notas corrompidas em 1.000 crashes injetados | **0 corrompidas / 1.000**, com **381 temporários órfãos** varridos (2026-08-01). Ver a nota abaixo: até esta data o teste não escrevia. |
 
 **Medições do M3.1 e M4 (Task 52 em 2026-07-29, Task 61 em 2026-07-30).** Em corpus sintético de 500 notas distintas (`idx.NoteCount() == 500`):
@@ -197,26 +197,74 @@ Quem denunciou a lacuna foi a guarda `orfaos == 0`, escrita junto com o teste e 
 
 Executado contra o cofre sintético gerado deterministicamente (`scripts/gen_vault.ps1 -Notes 5000 -Seed 42`: 5.000 notas, 50 anexos, 1.27 MB, 10.101 links, 1.518 quebrados).
 
-| ID | Métrica (Alvo) | Medição Mínima | Mediana (5 rodadas) | Medição Máxima | Status RNF |
+Todos os números abaixo são de **2026-08-01, depois da revisão da Task 72**, com
+`maxSnippetWorkers = 8`, em maquina de referencia (12 núcleos, Windows 11). A medição de
+latência roda **sem `-race`**: o detector multiplica o tempo por 2 a 6 e o número
+deixa de ser comparável com o teto.
+
+| ID | Métrica (Alvo) | Mínima | Mediana (5 rodadas) | Máxima | Status RNF |
 |---|---|---|---|---|---|
-| **RNF-01** | Indexação a frio (≤ 3 s) | 500,55 ms | **517,88 ms** | 538,40 ms | **OK (6x abaixo do limite)** |
-| **RNF-02** | Boot com cache válido (≤ 300 ms) | 89,60 ms | **104,37 ms** | 129,05 ms | **OK (3x abaixo do limite)** |
-| **RNF-07** | Memória em repouso (≤ 60 MB) | - | **Alloc: 29,12 MB** (Sys: 120,55 MB) | - | **OK no Heap Alloc** |
+| **RNF-01** | Indexação a frio (≤ 3 s) | 486,53 ms | **500,11 ms** | 529,20 ms | **Atingido** (6x abaixo do teto) |
+| **RNF-02** | Boot com cache válido (≤ 300 ms) | 77,29 ms | **96,94 ms** | 106,27 ms | **Atingido** (3x abaixo do teto) |
+| **RNF-07** | RSS em repouso (≤ 60 MB) | 66,33 MB | **67,08 MB** (cache quente) | 112,96 MB (frio) | **NÃO ATINGIDO** |
 
-#### RNF-04: Latência de `vault_search` p95 a 5.000 notas (por formato, 30 consultas cada)
+**RNF-07 não é atingido a 5.000 notas, e a versão anterior desta tabela dizia o
+contrário por medir a grandeza errada.** Ela registrava `Alloc: 29,12 MB` de
+`runtime.MemStats` e marcava "OK no Heap Alloc". RNF-07 é **RSS** — o working set
+do processo —, que inclui o runtime do Go, os stacks das goroutines, o binário
+mapeado e os spans já devolvidos pelo alocador mas ainda residentes. `Alloc` é
+uma fração disso. Medido no processo real (`gobsidian serve` contra o cofre de
+5.000, `Process.WorkingSet64`, cinco amostras a 500 ms depois de 8 s de repouso):
 
-| Formato | Mediana | p95 Medido | Status RNF-04 (Alvo ≤ 100 ms) |
-|---|---|---|---|
-| `termo amplo, limit default` | 99,45 ms | **143,20 ms** | Estouro (acima do alvo por 43 ms) |
-| `dois termos` | 22,93 ms | **37,83 ms** | **OK** |
-| `termo seletivo` | 16,55 ms | **20,25 ms** | **OK** |
-| `filtro de pasta` | 88,81 ms | **114,67 ms** | Estouro (acima do alvo por 14 ms) |
-| `filtro de tag` | 88,77 ms | **111,24 ms** | Estouro (acima do alvo por 11 ms) |
-| `frase exata` | 52,46 ms | **70,81 ms** | **OK** |
-| `trecho maximo` | 28,22 ms | **40,33 ms** | **OK** |
-| `limit maximo do schema (200)` | 375,75 ms | **414,09 ms** | Estouro de teto (200 leituras de disco) |
+| Regime | RSS observado | Alloc / Sys do Go |
+|---|---|---|
+| Cache quente | 66,33 / 67,08 / 67,44 MB | Alloc 29,17 MB, Sys 132,83 MB |
+| Cache frio (índice do zero) | 107,58 / 108,90 / 112,96 MB | — |
 
-**Análise dos números:**
-- RNF-01 e RNF-02 foram validados com folga substancial na escala de 5.000 notas.
-- RNF-07 mantém o Heap Alloc em 29,12 MB (metade do teto de 60 MB).
-- RNF-04 em 5.000 notas evidencia que a geração de trechos em consultas amplas/limit máximo lê arquivos sequencialmente do disco, excedendo o teto de 100 ms onde há muitos candidatos. Otimização de I/O concorrente de trechos permanece como oportunidade de melhoria futura.
+O teto são 60 MB. O melhor caso está **12% acima**, e a subida a frio, **80%
+acima**. O instrumento foi conferido contra um cofre de 100 notas, onde deu
+20,97 MB — coerente com os 18,9–19,3 MB históricos do cofre de 7 notas, o que
+descarta erro de escala na medição. **Fechar RNF-07 a 5.000 notas é trabalho em
+aberto**, não uma linha verde.
+
+#### RNF-04: latência de `vault_search` p95 a 5.000 notas (30 consultas por formato)
+
+A coluna "antes" é o caminho sequencial, isto é, o estado anterior à Task 72,
+medido no mesmo cofre e na mesma máquina com `maxSnippetWorkers = 1`.
+
+| Formato | p95 antes | Mediana depois | **p95 depois** | Status (alvo ≤ 100 ms) |
+|---|---|---|---|---|
+| `termo amplo, limit default` | 140,48 ms | 71,66 ms | **94,54 ms** | **Atingido** |
+| `dois termos` | — | 17,05 ms | **20,60 ms** | **Atingido** |
+| `termo seletivo` | — | 10,87 ms | **16,40 ms** | **Atingido** |
+| `filtro de pasta` | — | 75,41 ms | **92,40 ms** | **Atingido** |
+| `filtro de tag` | — | 76,66 ms | **92,55 ms** | **Atingido** |
+| `frase exata` | — | 53,15 ms | **64,90 ms** | **Atingido** |
+| `trecho maximo` | — | 21,66 ms | **30,98 ms** | **Atingido** |
+| `limit maximo do schema (200)` | 561,81 ms | 164,23 ms | **181,25 ms** | **NÃO ATINGIDO** (81% acima) |
+
+**Sete formatos de oito passaram a caber no teto; `limit: 200` não.** Ele caiu de
+561,81 ms para 181,25 ms — uma redução de 68% —, e continua a 81% acima dos
+100 ms. Registrar 181 ms é a resposta certa; chamar de vitória de 68% e parar
+seria descrever o delta e omitir o requisito.
+
+#### RNF-04 a 500 notas, e o que a carga de quatro cópias passou a medir
+
+No corpus de 500 notas do gate, ociosa, os oito formatos ficam entre 7,3 e
+25,5 ms de p95, e `limit: 200` sai de 81,40 ms (sequencial) para **25,48 ms** —
+a meta de 50 ms da Task 72 está atingida com o dobro de folga.
+
+Sob **quatro cópias simultâneas do binário de teste**, `limit: 200` mediu, em
+cinco rodadas de quatro, entre **73,0 e 136,3 ms**. O sequencial, no mesmo
+harness, media 79,8–90,8 ms. Lido como está, o número diz que a otimização
+piorou o caso sob carga — mas **o harness deixou de medir o que media**: quatro
+cópias com pool de 8 põem 32 leitores em 12 núcleos, e um servidor só nunca faz
+isso. Quando o código era sequencial, quatro cópias eram quatro leitores e o
+harness era um proxy honesto de "máquina ocupada"; hoje ele é proxy de "quatro
+vezes a nossa própria concorrência".
+
+Quem escolheu `maxSnippetWorkers = 8` foi a coluna de processo único, medida em
+`internal/service/search.go`: 16 trabalhadores são piores que 8 nas duas escalas,
+e a 500 notas não são melhores que 4. **Fica registrado como lacuna** que não há,
+hoje, um harness de carga que estresse a máquina sem multiplicar o pool do
+servidor.

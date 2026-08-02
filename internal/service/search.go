@@ -11,6 +11,36 @@ import (
 	"github.com/jonyd/gobsidian/internal/vault"
 )
 
+// maxSnippetWorkers limita quantos trechos são recortados do disco ao mesmo
+// tempo. O recorte é I/O: com `limit: 200` são 200 leituras, e em série elas
+// dominavam a latência.
+//
+// O valor 8 é medido, não escolhido por gosto. Varredura em maquina de referencia (12 núcleos,
+// Windows 11), p95 de `limit: 200`:
+//
+//	workers   500 notas   500 notas,        5.000 notas
+//	          ociosa      4 cópias          ociosa
+//	      1   69,2 ms      79,8 – 90,8 ms   561,8 ms
+//	      4   35,9 ms      82,7 – 105,4 ms  226,8 ms
+//	      8   30,7 ms      85,0 – 136,3 ms  177,2 ms
+//	     16   35,2 ms     100,1 – 138,1 ms  217,7 ms
+//
+// Três coisas que a varredura mostra e que a intuição erra:
+//
+//  1. Mais trabalhadores não é monotonicamente melhor. 16 é PIOR que 8 nas duas
+//     escalas — 12 núcleos não absorvem 16 leitores.
+//  2. O ganho ocioso a 500 notas satura cedo: 16 não é mais rápido que 4.
+//  3. Sob quatro cópias do binário de teste, QUALQUER pool fica pior que o
+//     sequencial (80–91 ms). Mas quatro cópias multiplicam o pool por quatro, e
+//     um servidor só nunca faz isso: depois desta otimização o harness de quatro
+//     cópias deixou de ser proxy de "máquina ocupada" e virou proxy de "quatro
+//     vezes a nossa própria concorrência". Quem escolhe o valor é a coluna de
+//     processo único.
+//
+// A primeira versão desta otimização usava 16 e mediu só o caso ocioso a 500
+// notas — o único regime em que a escolha não faz diferença.
+const maxSnippetWorkers = 8
+
 // SearchOptions representa os parâmetros de consulta e filtragem da tool vault_search.
 type SearchOptions struct {
 	Query          string
@@ -130,79 +160,84 @@ func (s *Service) Search(ctx context.Context, opts SearchOptions) (SearchResult,
 	}
 
 	pagedHits := filteredHits[opts.Offset:end]
-	results := make([]SearchHit, len(pagedHits))
 
-	workers := 16
-	if len(pagedHits) < workers {
-		workers = len(pagedHits)
+	// Um slot por hit, preenchido pelo índice: a ordem do resultado é a ordem
+	// do ranking, e não a ordem em que as goroutines terminaram. `ok` diz se o
+	// slot foi preenchido; usar Path == "" como sentinela confundiria "nota
+	// sumiu do índice" com "goroutine não rodou".
+	slots := make([]struct {
+		hit SearchHit
+		ok  bool
+	}, len(pagedHits))
+
+	// montaSlot é o ÚNICO lugar que constrói um SearchHit. O caminho sequencial
+	// e o concorrente chamam a mesma função: dois corpos iguais divergem, e a
+	// divergência aparece no caminho menos usado.
+	montaSlot := func(i int, h search.Result) {
+		// A nota pode ter saído do índice entre o filtro e aqui — o watcher roda
+		// em paralelo. Slot não preenchido é descartado no final.
+		note, ok := s.index.Get(vault.CanonicalPath(h.Path))
+		if !ok {
+			return
+		}
+		snip, _ := search.GenerateSnippet(ctx, s.vault, s.inverted, idxImpl, h.Path, rawTerms, opts.SnippetChars)
+		var matchedHeadings []string
+		if snip.MatchedHeading != "" {
+			matchedHeadings = append(matchedHeadings, snip.MatchedHeading)
+		}
+		slots[i].hit = SearchHit{
+			Path:            string(note.Path),
+			Title:           note.Title,
+			Score:           h.Score,
+			Snippet:         snip.Text,
+			MatchedHeadings: matchedHeadings,
+			Modified:        note.ModTime.UTC().Format(time.RFC3339),
+		}
+		slots[i].ok = true
 	}
 
-	if workers <= 1 {
+	if workers := min(len(pagedHits), maxSnippetWorkers); workers <= 1 {
 		for i, hit := range pagedHits {
-			note, ok := s.index.Get(vault.CanonicalPath(hit.Path))
-			if !ok {
-				continue
-			}
-			snip, _ := search.GenerateSnippet(ctx, s.vault, s.inverted, idxImpl, hit.Path, rawTerms, opts.SnippetChars)
-			var matchedHeadings []string
-			if snip.MatchedHeading != "" {
-				matchedHeadings = append(matchedHeadings, snip.MatchedHeading)
-			}
-			results[i] = SearchHit{
-				Path:            string(note.Path),
-				Title:           note.Title,
-				Score:           hit.Score,
-				Snippet:         snip.Text,
-				MatchedHeadings: matchedHeadings,
-				Modified:        note.ModTime.UTC().Format(time.RFC3339),
-			}
+			montaSlot(i, hit)
 		}
 	} else {
 		sem := make(chan struct{}, workers)
 		var wg sync.WaitGroup
-
 		for i, hit := range pagedHits {
-			note, ok := s.index.Get(vault.CanonicalPath(hit.Path))
-			if !ok {
-				continue
-			}
 			wg.Add(1)
-			go func(idx int, h search.Result, n *index.Note) {
+			go func(i int, h search.Result) {
 				defer wg.Done()
-				select {
-				case sem <- struct{}{}:
-					defer func() { <-sem }()
-				case <-ctx.Done():
+				sem <- struct{}{}
+				defer func() { <-sem }()
+				// Cancelamento não pula a escrita em silêncio: quem decide o que
+				// fazer com a página incompleta é o retorno de erro lá embaixo.
+				// Aqui só evitamos pagar I/O por uma resposta que ninguém quer.
+				if ctx.Err() != nil {
 					return
 				}
-
-				snip, _ := search.GenerateSnippet(ctx, s.vault, s.inverted, idxImpl, h.Path, rawTerms, opts.SnippetChars)
-				var matchedHeadings []string
-				if snip.MatchedHeading != "" {
-					matchedHeadings = append(matchedHeadings, snip.MatchedHeading)
-				}
-				results[idx] = SearchHit{
-					Path:            string(n.Path),
-					Title:           n.Title,
-					Score:           h.Score,
-					Snippet:         snip.Text,
-					MatchedHeadings: matchedHeadings,
-					Modified:        n.ModTime.UTC().Format(time.RFC3339),
-				}
-			}(i, hit, note)
+				montaSlot(i, h)
+			}(i, hit)
 		}
 		wg.Wait()
 	}
 
-	finalResults := make([]SearchHit, 0, len(results))
-	for _, res := range results {
-		if res.Path != "" {
-			finalResults = append(finalResults, res)
+	// Página parcial NÃO pode sair como sucesso. Antes desta verificação, um ctx
+	// cancelado devolvia entre 24 e 99 dos 200 resultados com err == nil e
+	// Total intacto — o cliente não tinha como distinguir isso de uma busca que
+	// achou pouco, e a contagem variava entre chamadas idênticas.
+	if err := ctx.Err(); err != nil {
+		return SearchResult{}, err
+	}
+
+	results := make([]SearchHit, 0, len(slots))
+	for _, sl := range slots {
+		if sl.ok {
+			results = append(results, sl.hit)
 		}
 	}
 
 	return SearchResult{
-		Results:   finalResults,
+		Results:   results,
 		Total:     total,
 		Truncated: truncated,
 	}, nil

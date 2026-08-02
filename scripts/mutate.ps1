@@ -67,7 +67,15 @@ param(
     [Parameter()]
     [string]$Package = './...',
 
-    # Roda sem -race. Use so quando a mutacao provoca deadlock conhecido.
+    # Roda sem -race. Dois casos legitimos:
+    #
+    #   1. A mutacao provoca deadlock conhecido.
+    #   2. O teste cobra um TETO DE TEMPO. Esses testes guardam a assercao atras
+    #      de `!raceEnabled`, porque o detector multiplica a latencia por 2 a 6 e
+    #      o numero deixa de ser comparavel. Sob -race a assercao e compilada
+    #      fora, e o teste NAO CONSEGUE reprovar — a mutacao volta "[!] o teste
+    #      PASSOU" com a regra intacta. Rodar esse caso com -race ja produziu, na
+    #      Task 72, um relatorio com saida de FALHA que -race torna impossivel.
     [switch]$NoRace
 )
 

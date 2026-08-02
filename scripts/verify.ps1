@@ -78,10 +78,16 @@ function Invoke-Step {
 # Restringir nao afrouxa o gate: internal/ e cmd/ sao o modulo inteiro que nos
 # escrevemos, e o codigo que vazar para fora deles nao teria onde ser
 # importado. Se um dia a raiz voltar a ter .go nosso, acrescente-o aqui.
-$Alvos = @("./internal/...", "./cmd/...")
+#
+# tools/ entrou depois da Task 74. Ate ela, tools/netcheck era um analisador que
+# ninguem chamava; a partir dela, check_net.ps1 o compila e o roda como vettool,
+# e o gate do RNF-30 passou a depender dele. Fora de $Alvos, o analisador de que
+# o gate depende era o unico codigo Go do repositorio que o gate nao compilava,
+# nao vetava, nao lintava e cujo teste nunca rodava.
+$Alvos = @("./internal/...", "./cmd/...", "./tools/...")
 
 # gofmt nao entende padrao de pacote, so caminho de diretorio.
-$DirsFmt = @("internal", "cmd", "scripts") | Where-Object { Test-Path $_ }
+$DirsFmt = @("internal", "cmd", "scripts", "tools") | Where-Object { Test-Path $_ }
 
 Invoke-Step "go build" { go build @Alvos }
 
@@ -94,10 +100,17 @@ Invoke-Step "go test -race" { go test -race @Alvos }
 # rodasse `go test` na mao. Quem rodava na mao rodava com a maquina carregada,
 # e o resultado era ver o teto piscar fora do gate e nunca dentro.
 #
-# Sao ~7 s. O -count=1 e obrigatorio: cache de teste devolveria o verde da
+# Sao ~15 s. O -count=1 e obrigatorio: cache de teste devolveria o verde da
 # rodada anterior, e uma medicao em cache nao mediu nada.
+#
+# TestRNF04SnippetConcurrencyLimit200 entrou aqui depois da revisao da Task 72.
+# Ele nasceu com a mesma guarda `!raceEnabled` dos demais testes de tempo, mas
+# rodava SO na etapa 2, que usa -race — de modo que a assercao era compilada
+# fora em todo lugar onde o teste rodava, e o teto de 60 ms nao era cobrado por
+# ninguem. E o mesmo defeito que o commit 67016de fechou para o teto do RNF-04;
+# todo teto novo entra nesta lista no mesmo commit em que nasce.
 Invoke-Step "go test (RNF-04, sem -race)" {
-    go test -count=1 -run "TestRNF04VaultSearchLatencyP95" ./internal/service/
+    go test -count=1 -run "TestRNF04VaultSearchLatencyP95|TestRNF04SnippetConcurrencyLimit200" ./internal/service/
 }
 
 Invoke-Step "go vet (windows)" { go vet @Alvos }
