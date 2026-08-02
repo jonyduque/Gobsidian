@@ -44,20 +44,22 @@ func createMoveService(t *testing.T, files map[string]string) (*service.Service,
 }
 
 func TestNoteMovePartialFailureReportsWhatWasApplied(t *testing.T) {
+	// b.md fica numa subpasta de proposito. Em Unix o que impede a escrita e a
+	// permissao do DIRETORIO, e travar a raiz inteira travaria tambem a.md —
+	// que precisa ser reescrita com sucesso para o cenario ser "falha PARCIAL"
+	// e nao "falha total". As chaves sao ordenadas em write.go:528, entao
+	// "a.md" e reescrita antes de "sub/b.md".
 	files := map[string]string{
-		"alvo.md": "# Alvo\nConteudo",
-		"a.md":    "Link para [[alvo]]",
-		"b.md":    "Link para [[alvo]]",
+		"alvo.md":  "# Alvo\nConteudo",
+		"a.md":     "Link para [[alvo]]",
+		"sub/b.md": "Link para [[alvo]]",
 	}
 
 	svc, _, _, root := createMoveService(t, files)
 
-	// Torna b.md somente leitura no Windows / Unix
-	pathB := filepath.Join(root, "b.md")
-	if err := os.Chmod(pathB, 0400); err != nil {
-		t.Fatalf("Chmod b.md: %v", err)
-	}
-	defer func() { _ = os.Chmod(pathB, 0644) }()
+	// A regra de qual objeto travar muda com a plataforma; ver
+	// inescrivel_windows_test.go e inescrivel_unix_test.go.
+	tornaInescrivel(t, filepath.Join(root, "sub"), "b.md")
 
 	res, err := svc.MoveNote(context.Background(), service.MoveNoteRequest{
 		From:          "alvo.md",
