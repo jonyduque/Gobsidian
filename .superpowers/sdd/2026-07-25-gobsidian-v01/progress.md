@@ -120,6 +120,24 @@ Task 57: complete (commits 604e759..0b1460b, patch and append by heading, preser
   e TestWatcher_Burst com prazo fixo de 10 s num teste de convergencia.
   TestRun_OverflowSchedulesExactlyOne mantinha uma COPIA do laco de producao
   dentro do teste e afirmava sobre a reimplementacao. CI verde em 30761531221.
+- Task 76: As duas lacunas de teste que atravessaram todos os marcos | base 341b124 | commits 343cef6, ce5dddc, 595d9a2 | relatorio .superpowers/sdd/task-76-report.md
+  O harness de orfaos tinha UM cenario e o EOF vencia sempre (100/100 nas duas
+  rodadas anteriores). Agora sao tres, um por mecanismo, cada um desconectando os
+  outros dois: stdin-eof, parent-death (keeper segura o stdin, o host morre) e
+  signal (nada morre; stdin e CONIN$, servidor em CREATE_NEW_PROCESS_GROUP).
+  O harness reprova se o reason= nao for o do mecanismo que o cenario nomeia.
+  Provas por remocao: sem parent-watch, parent-death deixa 3/3 orfaos; sem
+  watchSignals, signal deixa 3/3 sem reason= (o processo morre pelo handler padrao
+  do SO, que e o falso-verde que o gate bloqueia). Com parent-watch removido, o
+  cenario ANTIGO continuava verde — a medida exata da lacuna.
+  100 ciclos por cenario, local e no CI: 100x o motivo certo, zero orfaos. O job
+  orphans subiu de 15m11s para 49m8s.
+  RNF-32: teste explicito de symlink, provado por mutacao (vault.New(root) ->
+  vault.New(base) faz as duas asserçoes dispararem) e com o ramo de skip provado
+  por injecao de ERROR_PRIVILEGE_NOT_HELD.
+  Fora do escopo, corrigido junto: TestE2E_NoteMoveIsReflectedBySearchAndGraph
+  tinha prazo fixo de 10 s e piscava no runner macOS; e teste de convergencia,
+  passou para 60 s.
 
 === REVISAO DO M2.1 (Tasks 33-42), 2026-07-29, pelo modelo principal ===
 Nove provas de mutacao rodadas com scripts/mutate.ps1, TODAS saindo 0 (o teste
