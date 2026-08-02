@@ -1,0 +1,53 @@
+name: bench
+
+on:
+  push:
+  pull_request:
+  # A referencia e adotada por commit deliberado. workflow_dispatch existe para
+  # produzir os numeros de uma maquina nova antes de commita-los: o job imprime
+  # o que mediu e o passo de comparacao falha dizendo o comando exato.
+  workflow_dispatch:
+
+jobs:
+  bench:
+    # UM runner so, de proposito. A referencia em docs/bench-baseline.json traz
+    # o nome da maquina que a produziu, e comparar numero de ubuntu com numero
+    # de windows nao mede regressao — mede a diferenca entre os dois runners.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.25'
+
+      # Semente fixa. Sem cofre deterministico nao ha contra o que comparar: o
+      # corpus mudaria a cada rodada e o delta mediria o corpus, nao o codigo.
+      - name: gerar cofre sintetico de 5.000 notas
+        shell: pwsh
+        run: ./scripts/gen_vault.ps1 -Notes 5000 -Seed 42 -Out "${{ runner.temp }}/vault_bench"
+
+      - name: rodar benchmarks
+        env:
+          GOBSIDIAN_BENCH_VAULT: ${{ runner.temp }}/vault_bench
+        # -run '^$' porque `go test -bench` roda os testes junto por padrao, e
+        # os testes deste pacote levam minutos. -benchtime 5x fixa o numero de
+        # iteracoes: o padrao e por tempo, e numero de iteracoes variavel entre
+        # rodadas e mais uma fonte de ruido num runner compartilhado.
+        run: |
+          go test -run '^$' -bench . -benchtime 5x ./internal/service/ | tee bench.txt
+          # tee nao propaga a falha do go test; PIPESTATUS propaga.
+          exit ${PIPESTATUS[0]}
+
+      - name: comparar com a referencia commitada
+        shell: pwsh
+        run: ./scripts/bench_compare.ps1 -BenchOutput bench.txt
+
+      # Sobe a saida bruta mesmo quando o passo acima reprova: sem ela, quem
+      # investiga a regressao so tem o percentual.
+      - name: guardar a saida bruta
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: bench-output
+          path: bench.txt
+          if-no-files-found: warn
