@@ -57,7 +57,15 @@ param(
 
     [string]$Runner = "",
 
-    [string]$Commit = ""
+    [string]$Commit = "",
+
+    # Texto livre gravado na referencia. Existe para dizer COMO os numeros
+    # foram obtidos -- uma amostra so, ou a mediana de varias. Numa maquina
+    # compartilhada a diferenca decide se o gate pisca: a primeira referencia
+    # deste projeto veio de uma rodada unica em que a busca por frase saiu
+    # rapida, e as duas rodadas limpas seguintes ficaram a menos de um ponto
+    # percentual de reprovar sem mudanca nenhuma no codigo.
+    [string]$Nota = ""
 )
 
 Set-StrictMode -Version Latest
@@ -98,6 +106,7 @@ try {
         $Novo = [ordered]@{
             runner         = $Runner
             commit         = $Commit
+            nota           = $Nota
             tolerancia_pct = $TolerancePct
             unidade        = "ns/op"
             benchmarks     = $Medidos

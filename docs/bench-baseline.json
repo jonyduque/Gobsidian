@@ -1,14 +1,15 @@
 {
   "runner": "ubuntu-latest (GitHub-hosted, 2 vCPU), go 1.25, GOMAXPROCS=2",
-  "commit": "4304bea",
+  "commit": "580c0aa",
+  "nota": "mediana de 3 rodadas limpas do bench.yml (30761531229, 30761611392, 30761677179). Amostra unica nao serve neste runner: com ela, SearchFraseExata ficou a 0,7 ponto do gate em duas rodadas sem mudanca de codigo.",
   "tolerancia_pct": 20,
   "unidade": "ns/op",
   "benchmarks": {
     "BenchmarkIndexBuild": 244692285.0,
     "BenchmarkInvertedLoad": 89720000.0,
     "BenchmarkSearchTermoAmplo": 118947918.0,
-    "BenchmarkSearchDoisTermos": 20896127.0,
-    "BenchmarkSearchFraseExata": 65631449.0,
-    "BenchmarkSearchLimit200": 375080084.0
+    "BenchmarkSearchDoisTermos": 21850238.0,
+    "BenchmarkSearchFraseExata": 78001305.0,
+    "BenchmarkSearchLimit200": 373350430.0
   }
 }
