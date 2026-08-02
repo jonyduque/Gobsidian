@@ -92,6 +92,18 @@ Task 57: complete (commits 604e759..0b1460b, patch and append by heading, preser
 - Task 70: Gerador deterministico de cofre de 5.000 notas | base 4b9d9c4 | review 4b9d9c4..588192d | review Approved; 0 Important doc-only fechados | commit 588192d ("tooling: deterministic 5000-note synthetic vault generator")
 - Task 71: RNF-01, RNF-02, RNF-04 e RNF-07 medidos a 5.000 | base 1b28b38 | review 1b28b38..9ce10f1 | review Approved; 0 Important doc-only fechados | commit 9ce10f1 ("docs(operacao): measure RNF-01, RNF-02, RNF-04 and RNF-07 at 5000 notes")
 - Task 72: A folga fina do RNF-04 em limit: 200 | base 366ca27 | review 366ca27..6c301f2 | review Approved; 0 Important doc-only fechados | commit 6c301f2 ("perf(search): cut snippet I/O cost for large result limits")
+- Task 72 REABERTA e corrigida pelo modelo principal | base 6c301f2 | commit 51972fb ("fix(service): a cancelled search must not return a partial page as success") | relatorio .superpowers/sdd/task-72-review-fix-report.md
+  A revisao do lote M6 reprovou a 72. Cinco defeitos, cada um reproduzido: ctx cancelado
+  devolvia 24 a 99 de 200 resultados com err == nil (regressao, o caminho sequencial
+  anterior devolvia os 200); a prova de mutacao colada no relatorio da 72 e impossivel,
+  porque mutate.ps1 roda com -race e a assercao vive atras de !raceEnabled — rodada de
+  novo, ela sai MUTATE_EXIT=1; o teto de 60 ms nao era cobrado por etapa nenhuma;
+  TestRNF04SnippetParity sobrevivia a inversao da ordem dos 200 resultados; e
+  docs/OPERACAO.md nao foi atualizado, contra exigencia em negrito do plano.
+  maxSnippetWorkers passou de 16 para 8 por varredura medida. tools/ entrou em $Alvos.
+  RNF-04 para limit: 200 a 5.000 notas: 181,25 ms, NAO atingido (teto 100 ms).
+  RNF-07 a 5.000 notas: RSS 67,08 MB quente e 112,96 MB frio, NAO atingido (teto 60 MB);
+  a Task 71 o registrara como OK medindo runtime.MemStats.Alloc, que nao e RSS.
 
 === REVISAO DO M2.1 (Tasks 33-42), 2026-07-29, pelo modelo principal ===
 Nove provas de mutacao rodadas com scripts/mutate.ps1, TODAS saindo 0 (o teste
