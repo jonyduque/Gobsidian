@@ -91,6 +91,7 @@ Task 57: complete (commits 604e759..0b1460b, patch and append by heading, preser
 - Task 74: netcheck como analisador de go vet | base a98f0bb | review a98f0bb..e888e23 | review Approved; 0 Important doc-only fechados | commit e888e23 ("ci: semantic net-import check as a go vet analyzer")
 - Task 70: Gerador deterministico de cofre de 5.000 notas | base 4b9d9c4 | review 4b9d9c4..588192d | review Approved; 0 Important doc-only fechados | commit 588192d ("tooling: deterministic 5000-note synthetic vault generator")
 - Task 71: RNF-01, RNF-02, RNF-04 e RNF-07 medidos a 5.000 | base 1b28b38 | review 1b28b38..9ce10f1 | review Approved; 0 Important doc-only fechados | commit 9ce10f1 ("docs(operacao): measure RNF-01, RNF-02, RNF-04 and RNF-07 at 5000 notes")
+- Task 72: A folga fina do RNF-04 em limit: 200 | base 366ca27 | review 366ca27..6c301f2 | review Approved; 0 Important doc-only fechados | commit 6c301f2 ("perf(search): cut snippet I/O cost for large result limits")
 
 === REVISAO DO M2.1 (Tasks 33-42), 2026-07-29, pelo modelo principal ===
 Nove provas de mutacao rodadas com scripts/mutate.ps1, TODAS saindo 0 (o teste
