@@ -31,6 +31,11 @@ const (
 	CodeCloudOnlyFile    Code = "CLOUD_ONLY_FILE"
 	CodePathTooLong      Code = "PATH_TOO_LONG"
 	CodeReadOnlyMode     Code = "READ_ONLY_MODE"
+	// CodeIndexBuilding: o indice invertido ainda nao cobre o cofre inteiro.
+	// E um erro, e nao uma lista vazia, porque "ainda nao sei" e "nao achei
+	// nada" pedem acoes diferentes de quem chama: uma manda tentar de novo,
+	// a outra manda mudar a consulta.
+	CodeIndexBuilding    Code = "INDEX_BUILDING"
 	CodeVaultUnavailable Code = "VAULT_UNAVAILABLE"
 	CodeInternal         Code = "INTERNAL"
 )

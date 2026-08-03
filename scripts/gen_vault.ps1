@@ -16,7 +16,15 @@ param(
 
     [int]$Notes = 5000,
 
-    [int]$Seed = 42
+    [int]$Seed = 42,
+
+    # Tamanho aproximado do CORPO de cada nota, em KB.
+    #
+    # O padrao gera notas de ~250 bytes, o que da 1,27 MB em 5.000 notas. Um
+    # cofre real de estudo tem 109 MB em 3.148 notas -- 35 KB por nota. O custo
+    # do indice invertido e proporcional aos BYTES tokenizados, nao a contagem
+    # de notas, entao medir o boot com notas minusculas responde outra pergunta.
+    [int]$BodyKB = 0
 )
 
 Set-StrictMode -Version Latest
@@ -127,6 +135,18 @@ foreach ($info in $FileInfos) {
     if ($rand.NextDouble() -lt 0.1) {
         $assetIdx = $rand.Next($AssetInfos.Count)
         $body += "Anexo: ![[anexo_$($assetIdx + 1).png]]`n"
+    }
+
+    if ($BodyKB -gt 0) {
+        # Enche com frases do mesmo pool, para o texto continuar parecido com
+        # prosa e o analisador ter o que fazer. Repetir uma frase so produziria
+        # um dicionario de termos irrealmente pequeno.
+        $alvoBytes = $BodyKB * 1024
+        $sb = New-Object System.Text.StringBuilder
+        while ($sb.Length -lt $alvoBytes) {
+            [void]$sb.AppendLine($Snippets[$rand.Next($Snippets.Count)])
+        }
+        $body += "`n" + $sb.ToString()
     }
 
     $contentStr = $fm + "`n" + $body

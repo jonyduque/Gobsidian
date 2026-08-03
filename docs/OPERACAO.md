@@ -107,10 +107,21 @@ gobsidian serve --vault "C:\Seu\Cofre" --log-level debug 2> "gobsidian.log"
 As mensagens vêm em `chave=valor`. A primeira que importa é a do boot, emitida assim que o índice fica pronto:
 
 ```
-time=2026-07-28T16:11:37.316-03:00 level=INFO msg="servidor pronto" vault="C:\Cofre" read_only=false notes=7 assets=1 index_ms=10
+time=2026-08-03T12:41:29.427-03:00 level=INFO msg="servidor pronto" vault="C:\Cofre" read_only=false notes=3153 assets=0 index_ms=1119 search_ready=false
 ```
 
-`index_ms` é a duração da construção do índice — **é o número que RNF-01 nomeia**. Ele recorta só a indexação: não inclui o boot do runtime do Go, a leitura da configuração nem o handshake do MCP. Cronometrar o processo por fora mede as quatro coisas juntas e responde outra pergunta.
+`index_ms` é a duração da construção do índice de **metadados** — é o número que RNF-01 nomeia. Ele recorta só essa etapa: não inclui o boot do runtime do Go, a leitura da configuração nem o handshake do MCP.
+
+`search_ready` diz se a busca já funciona. Quando `false`, o índice invertido está sendo construído em segundo plano e duas outras linhas aparecem:
+
+```
+level=INFO msg="construindo indice de busca em segundo plano" notas=3153
+level=INFO msg="indice de busca pronto" notas=3153 reaproveitadas_do_cache=399 duracao_ms=206267
+```
+
+Enquanto isso, `vault_search` responde `INDEX_BUILDING`; as outras onze tools funcionam normalmente.
+
+**Até 2026-08-03 este log enganava.** `index_ms` aparecia ao lado de "servidor pronto" e parecia ser o tempo de boot, mas o servidor só anunciava as tools depois de tokenizar o cofre inteiro — 219 s a mais num cofre de 109 MB. Quem lesse `index_ms=1275` concluiria que o boot levou 1,3 s.
 
 A do encerramento diz qual dos três mecanismos disparou:
 
@@ -157,8 +168,8 @@ num cofre de 7 notas.
 
 | ID | Métrica (alvo) | Medição | Estado |
 |---|---|---|---|
-| **RNF-01** | Indexação a frio (≤ 3 s) | 500,11 ms (mediana, 5.000 notas) | **Atingido** |
-| **RNF-02** | Boot com cache válido (≤ 300 ms) | 96,94 ms (mediana, 5.000 notas) | **Atingido** |
+| **RNF-01** | Indexação a frio (≤ 3 s) | 500,11 ms no cofre sintético; **1,1 s** num cofre real de 109 MB | **Atingido** |
+| **RNF-02** | Boot com cache válido (≤ 300 ms) | 96,94 ms no cofre sintético; **~7 s** num cofre real de 109 MB | **NÃO ATINGIDO** |
 | **RNF-03** | `note_read` p95 (≤ 15 ms) | p95 **344,97 µs**, mediana 206,47 µs (5.000 notas) | **Atingido** |
 | **RNF-04** | `vault_search` p95 (≤ 100 ms) | 500 notas: 8 de 8, 7–25 ms. 5.000 notas: 7 de 8; `limit: 200` em **181,25 ms** | **Parcial** |
 | **RNF-05** | `note_list` com filtro de metadados p95 (≤ 10 ms) | p95 **533,68 µs**, mediana 249,24 µs (5.000 notas) | **Atingido** |
@@ -180,7 +191,45 @@ num cofre de 7 notas.
 | **RNF-32** | Links simbólicos para fora do cofre não são seguidos | **não medido**; verificado por teste (`TestWalkNaoSegueSymlink`, executado com privilégio) | **Atingido** |
 | **RNF-33** | `--read-only` desabilita toda a superfície de escrita | **não medido**; verificado por teste (tools de escrita ausentes de `ListTools`) | — |
 
-**Três RNFs não estão atingidos**, e nenhum deles é ambíguo:
+### O que RNF-01 e RNF-02 medem, e o que eles NÃO mediam
+
+**Os dois mediam sub-etapas do boot e foram apresentados como se medissem o
+boot.** A correção é de 2026-08-03 e veio de um relato de uso, não de um teste:
+o Claude Code recusava a conexão com `connection timed out after 30000ms`.
+
+`index_ms`, que é o número do RNF-01, cobre **só o índice de metadados**. O boot
+completo também tokenizava o cofre inteiro para o índice invertido, e num cofre
+real de 109 MB isso levava **219 s** — o servidor só anunciava as tools depois.
+O log dizia "servidor pronto" carimbando `index_ms=1275` ao lado, o que fazia o
+número parecer o tempo de boot.
+
+Pior: o host desiste em 30 s e mata o processo **antes** de o cache ser gravado,
+então a tentativa seguinte recomeçava do zero. Toda tentativa falhava pelo mesmo
+motivo, indefinidamente.
+
+O RNF-02 tinha o mesmo vício em escala menor: os 96,94 ms medem
+`LoadInvertedCache` isolado, e o boot com cache quente no cofre real levava
+**8,6 s** contra um teto de 300 ms.
+
+**Medições no cofre real de 109 MB / 3.153 notas, 2026-08-03:**
+
+| Momento | Antes | Depois |
+|---|---|---|
+| Servidor anuncia as tools (cache frio) | **220 s** | **2,18 s** |
+| Busca fica utilizável (cache frio) | 220 s | 206 s, em segundo plano |
+| Servidor anuncia as tools (cache quente) | 8,6 s | ~7 s |
+
+A construção do índice invertido passou a rodar em segundo plano
+(`cmd/gobsidian/serve.go`). Enquanto ela corre, `vault_search` devolve
+`INDEX_BUILDING` em vez de uma lista curta — "ainda não sei" e "não achei nada"
+pedem ações diferentes de quem chama. As outras onze tools funcionam desde o
+primeiro segundo, porque dependem só do índice de metadados.
+
+**RNF-02 segue não atingido**, e agora está escrito assim: ~7 s contra 300 ms. O
+teto foi escrito para um cofre de referência de 50 MB; o cofre real tem 109 MB e
+um cache de 472 MB para ler do disco.
+
+**Quatro RNFs não estão atingidos**, e nenhum deles é ambíguo:
 
 - **RNF-04**, só para `limit: 200` a 5.000 notas: 181,25 ms contra 100 ms. Caiu
   68% na Task 72 e continua 81% acima. O que resta atacar é o custo por

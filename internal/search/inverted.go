@@ -6,6 +6,7 @@ import (
 	"os"
 	"sort"
 	"sync"
+	"sync/atomic"
 
 	"github.com/jonyd/gobsidian/internal/vault"
 )
@@ -28,15 +29,42 @@ type Inverted struct {
 	mu         sync.RWMutex
 	terms      map[string]map[string][]TokenPosition // termo -> (path -> posList)
 	docLengths map[string]int                        // path -> contagem total de tokens na nota
+
+	// building diz que o índice NÃO cobre o cofre inteiro ainda.
+	//
+	// Existe porque o servidor passou a construí-lo em segundo plano: num cofre
+	// de 109 MB a tokenização levava 220 s, e o host desiste do handshake MCP
+	// em 30 s. Enquanto ele está incompleto, uma busca acharia menos notas do
+	// que existem — e devolver isso como resultado faz "ainda não sei" chegar
+	// ao outro lado com a mesma cara de "não achei nada".
+	//
+	// atomic.Bool, e não protegido por ix.mu, de propósito: quem lê é o caminho
+	// de busca, que já pega RLock para o resto; empilhar a leitura desta flag
+	// dentro do mesmo lock daria a impressão de que ela é parte do estado
+	// consistente do índice, e ela não é — é um estado de ciclo de vida.
+	building atomic.Bool
 }
 
-// NewInverted inicializa e devolve um novo índice invertido.
+// NewInverted inicializa e devolve um novo índice invertido, PRONTO.
+//
+// Pronto por padrão porque a maioria dos chamadores — testes, watcher,
+// reconstrução incremental — monta o índice inteiro antes de servir qualquer
+// consulta. Quem constrói em segundo plano chama MarkBuilding logo em seguida.
 func NewInverted() *Inverted {
 	return &Inverted{
 		terms:      make(map[string]map[string][]TokenPosition),
 		docLengths: make(map[string]int),
 	}
 }
+
+// MarkBuilding declara que o índice está incompleto.
+func (ix *Inverted) MarkBuilding() { ix.building.Store(true) }
+
+// MarkReady declara que o índice cobre o cofre inteiro.
+func (ix *Inverted) MarkReady() { ix.building.Store(false) }
+
+// Building diz se o índice ainda está sendo construído.
+func (ix *Inverted) Building() bool { return ix.building.Load() }
 
 // Add insere ou substitui as ocorrências dos tokens para o caminho especificado.
 func (ix *Inverted) Add(path string, tokens []Token) {

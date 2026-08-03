@@ -73,6 +73,17 @@ type SearchResult struct {
 
 // Search executa a busca full-text com ranking BM25 e filtros de metadados.
 func (s *Service) Search(ctx context.Context, opts SearchOptions) (SearchResult, error) {
+	// O índice invertido pode estar sendo construído em segundo plano: o
+	// servidor anuncia as tools assim que o índice de METADADOS fica pronto, o
+	// que leva ~1 s, e não espera a tokenização do cofre, que num cofre de
+	// 109 MB leva minutos. Buscar com ele pela metade acharia menos notas do
+	// que existem, e essa resposta parcial chegaria como uma lista curta e
+	// legítima.
+	if s.inverted != nil && s.inverted.Building() {
+		return SearchResult{}, Errorf(CodeIndexBuilding,
+			"o indice de busca ainda esta sendo construido; tente de novo em alguns segundos")
+	}
+
 	if opts.Limit <= 0 {
 		opts.Limit = 20
 	}
