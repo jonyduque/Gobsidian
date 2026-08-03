@@ -32,6 +32,40 @@ antes da release existir seria repetir a falha nomeada no brief.
 
 ---
 
+## Evidência de TDD e prova de mutação
+
+**Esta tarefa não tem prova de mutação, por construção**: o entregável é o portão
+e o release, não uma regra nova. O brief diz isso explicitamente, e o que a
+substitui é a saída real de cada comando, colada abaixo.
+
+O único código novo aqui é `TestRNF03_RNF05_RNF06`, e ele teve ciclo:
+
+### RED
+
+A primeira execução reprovou em dois pontos, e os dois eram defeitos reais da
+medição, não do produto:
+
+```
+RNF-03 note_read                     mediana 0s        p95 648.7µs
+RNF-03 note_read: mediana = 0s, a medição não mediu nada
+RNF-05 note_list (filtro de tag)     mediana 0s        p95 2.0271ms
+RNF-05 note_list (filtro de tag): mediana = 0s, a medição não mediu nada
+RNF-06 index.Replace (arquivo unico) mediana 18.5213ms p95 29.1249ms  teto 20ms
+RNF-06 index.Replace (arquivo unico): p95 = 29.1249ms excede o teto de 20ms
+--- FAIL: TestRNF03_RNF05_RNF06
+```
+
+### GREEN
+
+Com a medição por lote e a separação entre alvo do RNF e linha de degradado do
+PRD:
+
+```
+--- PASS: TestRNF03_RNF05_RNF06 (2.36s)
+```
+
+---
+
 ## Portão de release — saída real de cada comando
 
 ### `pwsh -File scripts/verify.ps1`
@@ -177,9 +211,10 @@ RNF-09 (linearidade até 20.000 notas).
 ```
 
 A primeira tentativa de medir RNF-03 e RNF-05 devolveu **mediana 0s**: as duas
-operações custam centenas de microssegundos e o relógio do Windows anda de
-~0,5 ms em ~0,5 ms. A guarda de mediana zerada acusou. A correção foi cronometrar
-um lote e dividir — não afrouxar a guarda.
+operações custam centenas de microssegundos, abaixo do passo do relógio do
+Windows. A guarda de mediana zerada acusou. A correção foi cronometrar um lote de
+50 leituras (RNF-03) ou 20 listagens (RNF-05) e dividir — não afrouxar a
+guarda.
 
 ---
 
