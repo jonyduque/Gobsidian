@@ -1,7 +1,7 @@
 # Relatório da Task 31: Correlação de rename por xxhash
 
 - **Status**: DONE
-- **Commit**: `8daa35a` (Com correlação de rename em passagem única e zero-read de anexos/cloud-only da Task 33)
+- **Commit**: `ab65c53` (Com correlação de rename em passagem única e zero-read de anexos/cloud-only da Task 33)
 
 ---
 

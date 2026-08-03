@@ -163,7 +163,7 @@ absence that belongs to a future table-extension task, not this one.
   `TestBlockIDTrailingSpaces`, `TestBlockIDCharset`,
   `TestBlockIDCaretAtLineStart`, `TestBlockIDInlineCodeSpan`).
 
-Commit: `7fb623f feat(parser): block id extraction with block-level offsets`.
+Commit: `565dcb4 feat(parser): block id extraction with block-level offsets`.
 
 ## Self-review
 
@@ -200,7 +200,7 @@ Commit: `7fb623f feat(parser): block id extraction with block-level offsets`.
 
 ## Fix pass — combined 15/16/17 review
 
-Starting commit `9116b0c`. Scope: `ext_blockid.go`, `ext_blockid_test.go`,
+Starting commit `cdc8777`. Scope: `ext_blockid.go`, `ext_blockid_test.go`,
 `ext_tag.go`, `ext_tag_test.go`, `ext_inline_field.go`,
 `ext_inline_field_test.go`, `types.go` (`Block.Start` doc comment only).
 

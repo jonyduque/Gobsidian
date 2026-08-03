@@ -17,7 +17,7 @@ O ledger é o que a próxima sessão tem no lugar do contexto desta. Ele está c
 **4. `.superpowers/sdd/task-32-report.md`** — tem cinco provas de mutação legítimas com saída real colada, e **só** isso: sem o que foi implementado, sem RED/GREEN, sem tabela de verificações, sem arquivos alterados, sem preocupações. Complete as seções que faltam.
 
 **5. O ledger**, em `.superpowers/sdd/2026-07-25-gobsidian-v01/progress.md`:
-- A Task 31 está registrada como commit `14210ee`. Esse objeto **não existe** — `git cat-file -t 14210ee` devolve `fatal: Not a valid object name`. O commit real é `d5d1bf0`. Corrija.
+- A Task 31 está registrada como commit `14210ee`. Esse objeto **não existe** — `git cat-file -t 14210ee` devolve `fatal: Not a valid object name`. O commit real é `bce5fa1`. Corrija.
 - As Tasks 27–32 estão marcadas `review Approved` sem que exista pacote de revisão para 27, 28, 30, 31 ou 32. Marque-as como revisadas em 2026-07-28 com o resultado real, e registre as Tasks 33–42 conforme forem fechando.
 - Acrescente à seção de lacunas carregadas: **reconciliação por overflow não existe em darwin/BSD**, porque o backend kqueue do `fsnotify` v1.10.1 nunca emite `ErrEventOverflow`.
 

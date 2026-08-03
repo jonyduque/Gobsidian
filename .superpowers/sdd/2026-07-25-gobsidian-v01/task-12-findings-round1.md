@@ -12,7 +12,7 @@ revive exatamente. Quatro dos seis carregam informação que o nome não dá.
 O que reprovou é força de cobertura — e é a entrega desta task, porque o parser
 é a folha em cima da qual todo o resto de M1 é construído.
 
-**O plano já foi corrigido** (commit `a1ec366`): os dois testes defeituosos
+**O plano já foi corrigido** (commit `c77760f`): os dois testes defeituosos
 nasceram no código verbatim dele, não na sua transcrição. Transcreva de lá.
 
 ---

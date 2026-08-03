@@ -45,7 +45,7 @@ Esta tarefa é de fechamento do marco e documentação; não houve código novo 
 
 ### 2. `pwsh -File scripts/build.ps1`
 ```
-[...] Compilando m4-writer-13-g86fca91-dirty (86fca91)
+[...] Compilando m4-writer-13-g86fca91-dirty (f64adbd)
 [OK] C:\Users\jonyd\Projetos\Gobsidian\bin\gobsidian.exe (8.1 MB)
 ```
 
@@ -79,11 +79,11 @@ ok  	github.com/jonyd/gobsidian/internal/writer	42.449s
 
 ### 5. Conferência de SHAs no Ledger (`git cat-file -t`)
 ```
-bfca216: commit (Task 63)
-6be0fdc: commit (Task 64)
-88376f1: commit (Task 65)
-6db0c50: commit (Task 66)
-c155644: commit (Task 67)
+ccf1a4c: commit (Task 63)
+99d32d1: commit (Task 64)
+02264d8: commit (Task 65)
+5a4f519: commit (Task 66)
+262589b: commit (Task 67)
 ```
 
 ## Diff de RF-35 no PRD

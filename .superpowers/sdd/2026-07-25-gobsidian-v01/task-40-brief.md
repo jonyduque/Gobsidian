@@ -22,7 +22,7 @@ e o comentário logo acima diz *"Usamos Is"*, o que é falso. Troque por `errors
 
 **4. `internal/watcher/watcher_test.go:66`** — `err != context.Canceled` vira `!errors.Is(err, context.Canceled)`.
 
-**5. Apague `scratch_fsnotify.go` da raiz do repositório.** Entrou em `0bce29f`. É `package main` no diretório do módulo — além de ser sonda de medição já respondida em `docs/WINDOWS.md:156`, disputa o `main` do módulo. O resultado da medição fica no relatório e no doc; o script não fica.
+**5. Apague `scratch_fsnotify.go` da raiz do repositório.** Entrou em `952b43b`. É `package main` no diretório do módulo — além de ser sonda de medição já respondida em `docs/WINDOWS.md:156`, disputa o `main` do módulo. O resultado da medição fica no relatório e no doc; o script não fica.
 
 **6. Apague os comentários de deliberação:**
 - `internal/watcher/watcher.go:44` — `// root can be fetched directly or via getter.`

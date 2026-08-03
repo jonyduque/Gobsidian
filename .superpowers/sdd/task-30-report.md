@@ -1,7 +1,7 @@
 # Relatório de Execução - Task 30: Recuperação de `ErrEventOverflow` por reconciliação
 
 - **Status**: DONE
-- **Commit**: `f35edd4` (Com testes de reconciliação determinísticos atualizados na Task 34)
+- **Commit**: `5afbcce` (Com testes de reconciliação determinísticos atualizados na Task 34)
 
 ---
 

@@ -4,7 +4,7 @@
 
 DONE
 
-Commit: `5bc655b` — feat(parser): note types, frontmatter split with body offset, anchor slugs
+Commit: `3a74f68` — feat(parser): note types, frontmatter split with body offset, anchor slugs
 
 ## Files created
 
@@ -312,7 +312,7 @@ changed and the new mutation proofs.
 # Round 1 fixes
 
 Review findings: `.superpowers/sdd/2026-07-25-gobsidian-v01/task-12-findings-round1.md`
-Corrected plan commit transcribed from: `a1ec366`
+Corrected plan commit transcribed from: `c77760f`
 
 Spec passed; task quality did not, on the deliverable itself: test coverage
 force in `internal/parser`. Three items, all confined to
@@ -329,7 +329,7 @@ assertion there hides a bug that always returns zero. The `frontmatter
 vazio` case (`---\n---\n# Corpo\n`) has a non-zero correct offset (8) and
 was not checked at all.
 
-Fix (transcribed from plan commit `a1ec366`): removed the `!= 0` guard,
+Fix (transcribed from plan commit `c77760f`): removed the `!= 0` guard,
 declared `wantOffset` explicitly on all five subtests (0, 0, 0, 8, and the
 existing 17), and asserted unconditionally.
 
@@ -387,7 +387,7 @@ Mutation 7 claimed to cover but did not: that mutation (`yaml.Unmarshal(nil,
 together — it never isolated the date/type-preservation guarantee from the
 rest.
 
-Fix (transcribed from plan commit `a1ec366`): added `"time"` to the test's
+Fix (transcribed from plan commit `c77760f`): added `"time"` to the test's
 imports and a new assertion `got["data"].(time.Time)` formatted back to
 `"2026-07-25"`.
 

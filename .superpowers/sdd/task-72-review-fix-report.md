@@ -66,7 +66,7 @@ para deadlock; a ferramenta certa existia e não foi usada.
 
 `verify.ps1` etapa 2 roda `-race` (asserção compilada fora). Etapa 3 roda sem
 `-race`, mas com `-run "TestRNF04VaultSearchLatencyP95"` — o teste novo não
-estava na lista. É o mesmo defeito que o commit `67016de` fechou dois dias antes,
+estava na lista. É o mesmo defeito que o commit `a08a660` fechou dois dias antes,
 reintroduzido na mesma semana.
 
 ### 4. `TestRNF04SnippetParity` não comparava nada
@@ -92,7 +92,7 @@ não existe.
 ### 5. `docs/OPERACAO.md` não foi atualizado
 
 O plano manda, em negrito: *"remeça TAMBÉM no cofre de 5.000 e registre os dois
-números em `docs/OPERACAO.md`"*. O commit `6c301f2` tocou três arquivos, nenhum
+números em `docs/OPERACAO.md`"*. O commit `6cdc79e` tocou três arquivos, nenhum
 deles doc. O documento seguia dizendo `414,09 ms` e *"otimização de I/O
 concorrente de trechos permanece como oportunidade de melhoria futura"* — falso
 depois da própria tarefa que o relatório descrevia.

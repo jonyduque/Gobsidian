@@ -397,7 +397,7 @@ func TestExtractHeadingsCRLF(t *testing.T) {
 	...
 ```
 
-**This should be flagged to the plan owner**: the plan's own snippet (commit `4cc8da2`) has this
+**This should be flagged to the plan owner**: the plan's own snippet (commit `9d01b09`) has this
 inconsistency, and separately its `ExtractHeadings` Step-3 code block has a leftover unbalanced brace from
 an incomplete edit (the `if !inFence {` wrapper's closing `}` was left in place after the opening line was
 deleted) — a second sign that section wasn't recompiled/tested after editing.

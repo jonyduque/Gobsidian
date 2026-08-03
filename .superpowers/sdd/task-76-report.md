@@ -1,8 +1,8 @@
 # Relatório Task 76: as duas lacunas de teste que atravessaram todos os marcos
 
 **Data:** 2026-08-02
-**Base:** `341b124`
-**Commits:** `343cef6` (cenários, teste de symlink, CI), `ce5dddc` (timeout do
+**Base:** `458b03f`
+**Commits:** `12ad94f` (cenários, teste de symlink, CI), `23ecc2e` (timeout do
 harness por profundidade de cadeia).
 
 ---
@@ -159,7 +159,7 @@ harness é que estava apertado. `parent-death` e `signal` põem três processos
 entre o harness e o servidor em vez de dois, cada nível é um `pwsh` a mais para
 subir, e um runner de 2 vCPU não cabe nisso em 5 s. O
 padrão passou a ser 5 s para `stdin-eof` e 20 s para as cadeias mais fundas
-(`ce5dddc`); um `-PidTimeoutMs` explícito continua vencendo.
+(`23ecc2e`); um `-PidTimeoutMs` explícito continua vencendo.
 
 ---
 

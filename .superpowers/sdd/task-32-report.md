@@ -1,7 +1,7 @@
 # Relatório de Execução - Task 32: Exposição de métricas do watcher no `vault_stats`
 
 - **Status**: DONE
-- **Commit**: `b5b2a9f` (Com métricas desdobradas e adaptadas nas Tasks 32 e 37)
+- **Commit**: `083fdeb` (Com métricas desdobradas e adaptadas nas Tasks 32 e 37)
 
 ---
 

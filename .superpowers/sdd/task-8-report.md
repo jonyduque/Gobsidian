@@ -112,7 +112,7 @@ Nenhuma. Todo o código de `eol.go`, `longpath_windows.go`, `longpath_other.go`,
 
 ## Fix pass — review findings
 
-Commit base: `9a9ba21`. Scope: `internal/vault/vault.go`, `internal/vault/walk.go`, `internal/vault/eol.go`, new `internal/vault/longpath_windows_test.go` + `internal/vault/longpath_other_test.go`, `internal/vault/walk_test.go`. `path.go`, `path_windows.go`, `path_other.go`, `path_test.go` (Task 7) untouched.
+Commit base: `1b7ece9`. Scope: `internal/vault/vault.go`, `internal/vault/walk.go`, `internal/vault/eol.go`, new `internal/vault/longpath_windows_test.go` + `internal/vault/longpath_other_test.go`, `internal/vault/walk_test.go`. `path.go`, `path_windows.go`, `path_other.go`, `path_test.go` (Task 7) untouched.
 
 ### Finding 1 — missing vault reports as empty vault
 
@@ -218,7 +218,7 @@ No stray files, no leftover temp directories (all zzverify*_test.go scratch file
 
 ## Fix pass 2 — inert fixtures and regression tests
 
-Commit base: `39fff94`. Scope: `internal/vault/vault.go`, `internal/vault/walk.go`, `internal/vault/walk_test.go`, new `internal/vault/skip_internal_test.go` + `internal/vault/walk_windows_test.go`. `internal/vault/eol.go` untouched (Finding 5's `DetectEOL` transcription gap turned out to already match disk — the lone-CR paragraph existed in code, just not in the plan). `path.go`, `path_windows.go`, `path_other.go`, `path_test.go` (Task 7) untouched.
+Commit base: `3c3beb0`. Scope: `internal/vault/vault.go`, `internal/vault/walk.go`, `internal/vault/walk_test.go`, new `internal/vault/skip_internal_test.go` + `internal/vault/walk_windows_test.go`. `internal/vault/eol.go` untouched (Finding 5's `DetectEOL` transcription gap turned out to already match disk — the lone-CR paragraph existed in code, just not in the plan). `path.go`, `path_windows.go`, `path_other.go`, `path_test.go` (Task 7) untouched.
 
 ### Finding 1 — inert exclusion fixtures
 

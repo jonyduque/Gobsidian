@@ -1,7 +1,7 @@
 # Task 14 report: goldmark extension for wikilinks and embeds
 
-Commit: `6a6b315` — `feat(parser): goldmark inline parser for wikilinks and embeds`
-Base: `c80fc01` (Task 13 complete)
+Commit: `fba436e` — `feat(parser): goldmark inline parser for wikilinks and embeds`
+Base: `44512a7` (Task 13 complete)
 
 ## What was implemented
 
@@ -193,7 +193,7 @@ treating the extra bracket as literal leading text).
 
 ## Fix pass — review findings
 
-Base: `dcac49b`. A reviewer confirmed the twelve-context suppression argument
+Base: `f37fd30`. A reviewer confirmed the twelve-context suppression argument
 and the positive-context/offset/`splitWikilink`/concurrency claims as sound
 (no changes made there) and found five real defects plus three minor items.
 This section documents the fixes, transcribed from the plan's Task 14 section

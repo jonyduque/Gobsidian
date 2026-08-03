@@ -1,98 +1,103 @@
 # gobsidian v0.1 — progresso SDD
 
 Plano: docs/superpowers/plans/2026-07-25-gobsidian-v01.md
-Baseline: e2c8ddf (docs only)
+Baseline: db91011 (docs only)
 
-Task 1: complete (commits e2c8ddf..31f276d, review clean)
-Task 2: complete (commits 31f276d..79bd036, review clean apos 2 fix passes)
-Task 3: complete (commits 79bd036..d139e5d, review clean apos 1 fix pass)
-Task 4: complete (commits d139e5d..d57d03c, review Approved; 1 Important doc-only fechado depois)
-Task 5: complete (commits 8a3358c..150fd38, review clean apos 2 fix passes)
-Task 6: complete (commits f0b6451..22cbe1b, review Approved; 2 Important plan-mandated fechados)
-Task 7: complete (commits 22cbe1b..b85d695, review Approved apos 3 fix passes)
-Task 8: complete (commits b85d695..5000de1, review Approved apos 2 fix passes)
-Task 9: complete (commits 46ae951..1d93417, 2 revisoes completas + 2 fix passes)
+Task 1: complete (commits db91011..5dbce1c, review clean)
+Task 2: complete (commits 5dbce1c..b14f81d, review clean apos 2 fix passes)
+Task 3: complete (commits b14f81d..0534b5f, review clean apos 1 fix pass)
+Task 4: complete (commits 0534b5f..6a5c268, review Approved; 1 Important doc-only fechado depois)
+Task 5: complete (commits 12d26f7..f1fb65a, review clean apos 2 fix passes)
+Task 6: complete (commits 1a7786e..3453ddc, review Approved; 2 Important plan-mandated fechados)
+Task 7: complete (commits 3453ddc..ff825e3, review Approved apos 3 fix passes)
+Task 8: complete (commits ff825e3..6447833, review Approved apos 2 fix passes)
+Task 9: complete (commits 38e6a74..18be197, 2 revisoes completas + 2 fix passes)
   ATENCAO: o ultimo fix pass NAO teve revisao fresca. Fechado por evidencia direta
   (20 sessoes limpas exit 0, mutacao %w->%s reprovando o teste novo). A revisao
   final de branch DEVE cobrir cmd/gobsidian/serve.go e internal/mcpsrv/convert.go.
-Task 10: complete (commits 1d93417..2281284, 1 revisao completa + 1 fix pass)
+Task 10: complete (commits 18be197..87201d1, 1 revisao completa + 1 fix pass)
   ATENCAO: fix pass sem revisao fresca. Fechado por evidencia (1 varredura medida,
   mutacao de marcador). Revisao final DEVE cobrir internal/doctor/.
-Task 11: complete (commit 67d7d69, tag m0-lifecycle) — 100 ciclos, zero orfaos
+Task 11: complete (commit 757d3b0, tag m0-lifecycle) — 100 ciclos, zero orfaos
 
-Task 12: complete (commits b6d4a7a..6eb612c, 1 revisao completa + 1 fix pass + re-revisao Approved)
+Task 12: complete (commits d0143bc..dc786f3, 1 revisao completa + 1 fix pass + re-revisao Approved)
 
-Task 13: complete (commits 6eb612c..c80fc01, 1 revisao completa + 2 fix passes + re-revisao Approved)
+Task 13: complete (commits dc786f3..44512a7, 1 revisao completa + 2 fix passes + re-revisao Approved)
 
-Task 14: complete (commits c80fc01..8bcb706, 1 revisao completa + 1 fix pass)
+Task 14: complete (commits 44512a7..0d418db, 1 revisao completa + 1 fix pass)
   ATENCAO: o fix pass NAO teve revisao fresca. Fechado por evidencia direta (3 mutantes
   aplicados e capturados, parse de [[[a]] b](d.md) e de ![alt](x.png) reportados).
   A revisao final de branch DEVE cobrir internal/parser/ext_wikilink.go e ast.go.
 
-Task 15/16/17: complete (commits 8bcb706..f1147ab, 1 revisao COMBINADA das tres +
+Task 15/16/17: complete (commits 0d418db..f9e74d6, 1 revisao COMBINADA das tres +
   2 fix passes + re-revisao Approved com worktree isolado e 3 mutacoes independentes)
 
-Task 27: complete (commit 69362c7, fsnotify facade with unified vault relevance filtering, review Approved)
-Task 28: complete (commit cc08160, single-ticker debouncer with dirty set coalescence, review Approved)
-Task 29: complete (commit 0bce29f, real change verification with mtime+size diffing and index application, review Approved)
+Task 27: complete (commit 64a2632, fsnotify facade with unified vault relevance filtering, review Approved)
+Task 28: complete (commit 6fdecf8, single-ticker debouncer with dirty set coalescence, review Approved)
+  SHA corrigido em 2026-08-02: o que estava registrado aqui nunca existiu neste
+  repositorio — mesma classe do defeito ja anotado na Task 31. Achado pelo
+  audit_reports.ps1 na conferencia que seguiu a reescrita de historico, e
+  confirmado contra o bundle anterior a ela: o defeito e antigo, nao veio da
+  reescrita.
+Task 29: complete (commit 952b43b, real change verification with mtime+size diffing and index application, review Approved)
 Task 30: complete (commit 3496610, reconciliation recovery on fsnotify overflow event, review Approved)
-Task 31: complete (commits 2a59d0c..d5d1bf0, xxhash rename correlation for fast path updates and backlink preservation, review Approved)
-    Corrigido em 2026-07-29: a linha registrava 2a59d0c, que e a BASE da tarefa
+Task 31: complete (commits 1d4a65c..bce5fa1, xxhash rename correlation for fast path updates and backlink preservation, review Approved)
+    Corrigido em 2026-07-29: a linha registrava 1d4a65c, que e a BASE da tarefa
     (o commit ANTERIOR a ela) e o commit final da Task 30. O trabalho da 31 e
-    d5d1bf0, e ate esta correcao nenhuma linha do ledger o referenciava. Antes
+    bce5fa1, e ate esta correcao nenhuma linha do ledger o referenciava. Antes
     disso a linha apontava para um SHA que nao existia no repositorio (nao
     reproduzido aqui de proposito: escrever um SHA morto no ledger faz o
     audit_reports.ps1 acusa-lo para sempre, e ruido permanente treina a ignorar
     a ferramenta). Um SHA que existe nao e um SHA que confere: o script ganhou
     SHA-NAO-CONFERE e SHA-REUSADO por causa deste caso.
-Task 32: complete (commits 56f8135..b5b2a9f, expose watcher metrics in vault_stats tool, review Approved)
-Task 33: complete (commits e507be0..8daa35a, rename correlation single pass, zero asset/cloud reads, review Approved)
-Task 34: complete (commits 0430807..f35edd4, reconciliation tests that actually lose events, review Approved)
-Task 35: complete (commits da09dc7..f67257a, normalize byAlias keys so Remove clears what Build wrote, review Approved)
-Task 36: complete (commits 98dd2d2..faa0674, MoveNote refreshes stat and matches Remove+Replace, review Approved)
-Task 37: complete (commits a59e814..98eec3e, per-reason drop counters, coalesced count, and a real active flag, review Approved)
-Task 38: complete (commits 48d2c2f..74a8b5c, reject debounce-ms below 1 instead of silently defaulting, review Approved)
-Task 39: complete (commits f9fb706..9174a4c, cover handle release, channel close, and dynamic subdirectory watch, review Approved)
-Task 40: complete (commits 0dd825e..3643f08, stop swallowing Add errors, use errors.Is, drop committed scratch, review Approved)
-Task 41: complete (commits 688cd08..d7efdd3, vault_stats reflects a note created while the server runs, review Approved)
-Task 42: complete (commits 36f4134..c537dc2, rewrite reports with real evidence; fix ledger, review Approved)
-    Corrigido em 2026-07-29: registrava 36f4134..36f4134, um intervalo que nao
+Task 32: complete (commits 9dc9164..083fdeb, expose watcher metrics in vault_stats tool, review Approved)
+Task 33: complete (commits 1ac2cbd..ab65c53, rename correlation single pass, zero asset/cloud reads, review Approved)
+Task 34: complete (commits 1275c87..5afbcce, reconciliation tests that actually lose events, review Approved)
+Task 35: complete (commits 02217e5..4f18c24, normalize byAlias keys so Remove clears what Build wrote, review Approved)
+Task 36: complete (commits 0c6d025..c7161f5, MoveNote refreshes stat and matches Remove+Replace, review Approved)
+Task 37: complete (commits b8af2d9..41c50a1, per-reason drop counters, coalesced count, and a real active flag, review Approved)
+Task 38: complete (commits ba9a859..262cee1, reject debounce-ms below 1 instead of silently defaulting, review Approved)
+Task 39: complete (commits 303fcd7..af86e83, cover handle release, channel close, and dynamic subdirectory watch, review Approved)
+Task 40: complete (commits 4260436..7838773, stop swallowing Add errors, use errors.Is, drop committed scratch, review Approved)
+Task 41: complete (commits caeb903..8657100, vault_stats reflects a note created while the server runs, review Approved)
+Task 42: complete (commits e2c38e1..8ebeb6b, rewrite reports with real evidence; fix ledger, review Approved)
+    Corrigido em 2026-07-29: registrava e2c38e1..e2c38e1, um intervalo que nao
     contem commit nenhum e cuja ponta e a entrada de ledger da Task 41. O
-    trabalho da 42 e b1d7888 mais c537dc2.
+    trabalho da 42 e 34a37ba mais 8ebeb6b.
 
-Task 43: complete (commits 5cf441d..713cfc1, accept trailing whitespace on frontmatter delimiter, review Approved)
-Task 44: complete (commits 0819e50..53b2061, portuguese analyzer with dual indexing, review Approved)
-Task 45: complete (commits 1c182c9..b147b8d, inverted index with incremental update, review Approved)
-Task 46: complete (commits c791cff..e8c31e3, BM25 ranking with field weights, review Approved)
-Task 47: complete (commits 01116d9..ae4a3b2, snippets with term highlight, review Approved)
-Task 48: complete (commits ed936d7..0fe5f2b, vault_search tool with filters and phrase queries, review Approved)
-Task 49: complete (commits 2ccf51b..3daee57, on-disk cache with version header, review Approved)
-Task 50: complete (commits 46a6942..ec0c4d6, close M3 with measured numbers and Q3 decision, review Approved)
-Task 51: complete (commits 429d9e2..cccfc96, the inverted index never reached the watcher, review Approved)
-Task 52: complete (commits c4a1eca..9ab48f6, measure Q3 on a corpus of distinct paths and a real p95, review Approved)
-Task 53: complete (commits 7fd6c5c..4385d24, stop swallowing errors and name the tests for what they check, review Approved)
-Task 54: complete (commits c702e60..a4b7056, per-path write lock, review Approved)
-Task 55: complete (commits 05ee7e5..a33679b, atomic write with fsync and rename retry, review Approved)
-Task 56: complete (commits 7c66b6b..d93af4b, line-based Myers diff, review Approved)
-Task 57: complete (commits 604e759..0b1460b, patch and append by heading, preserving EOL and BOM, review Approved)
-- Task 58: Substituir Bloco por ^id | base 602b84f | review 602b84f..653cefe | review Approved; 0 Important doc-only fechados | commit 653cefe ("feat(writer): replace block by id")
-- Task 59: Write Tools (`note_create`, `note_append`, `note_patch`) | base 38f6032 | review 38f6032..eef8ff0 | review Approved; 0 Important doc-only fechados | commit eef8ff0 ("feat(mcpsrv): write tools with dry_run and expected_hash")
-- Task 60: --read-only verificado no ListTools | base 8f0741a | review 8f0741a..71f25d1 | review Approved; 0 Important doc-only fechados | commit 71f25d1 ("feat(mcpsrv): write tools absent from ListTools under read-only")
-- Task 61: A lacuna do RNF-04 — busca por frase | base 940a8d9 | review 940a8d9..e907aa5 | review Approved; 0 Important doc-only fechados | commit e907aa5 ("perf(search): bring exact-phrase p95 within RNF-04")
-- Task 62: Fechamento do M4 | base 34134eb | review 34134eb..3f3086a | review Approved; 0 Important doc-only fechados | commit 3f3086a ("docs: close M4 with the RNF-11 gate output")
-- Task 63: Offsets para LinkMarkdown no parser | base ddcd247 | review ddcd247..bfca216 | review Approved; 0 Important doc-only fechados | commit bfca216 ("feat(parser): byte offsets for markdown links and embeds")
-- Task 64: internal/writer/linkrewrite.go | base bfca216 | review bfca216..6be0fdc | review Approved; 0 Important doc-only fechados | commit 6be0fdc ("feat(writer): faithful link rewriting from Link.Raw")
-- Task 65: Tool note_move | base 6be0fdc | review 6be0fdc..88376f1 | review Approved; 0 Important doc-only fechados | commit 88376f1 ("feat(mcpsrv): note_move with faithful link rewriting")
-- Task 66: Tool note_delete | base eac8ae8 | review eac8ae8..6db0c50 | review Approved; 0 Important doc-only fechados | commit 6db0c50 ("feat(mcpsrv): note_delete with trash and prior broken-link report")
-- Task 67: Ancoras quebradas no relatorio de impacto | base efc1042 | review efc1042..c155644 | review Approved; 0 Important doc-only fechados | commit c155644 ("feat(service): broken anchors in the move and delete impact report")
-- Task 68: Fechamento do M5 | base 86fca91 | review 86fca91..59cc699 | review Approved; 0 Important doc-only fechados | commit 59cc699 ("docs: close M5 and align RF-35 with the implemented contract")
-- Task 75: Subcomandos index, search, inspect | base f89f60d | review f89f60d..f221c0c | review Approved; 0 Important doc-only fechados | commit f221c0c ("feat(cmd): index, search and inspect subcommands (RF-52)")
-- Task 69: Os quatro parametros de schema ignorados | base 53c2dbb | review 53c2dbb..6dff9c8 | review Approved; 0 Important doc-only fechados | commit 6dff9c8 ("fix(mcpsrv,service): honour the four schema params the handlers dropped")
-- Task 74: netcheck como analisador de go vet | base a98f0bb | review a98f0bb..e888e23 | review Approved; 0 Important doc-only fechados | commit e888e23 ("ci: semantic net-import check as a go vet analyzer")
-- Task 70: Gerador deterministico de cofre de 5.000 notas | base 4b9d9c4 | review 4b9d9c4..588192d | review Approved; 0 Important doc-only fechados | commit 588192d ("tooling: deterministic 5000-note synthetic vault generator")
-- Task 71: RNF-01, RNF-02, RNF-04 e RNF-07 medidos a 5.000 | base 1b28b38 | review 1b28b38..9ce10f1 | review Approved; 0 Important doc-only fechados | commit 9ce10f1 ("docs(operacao): measure RNF-01, RNF-02, RNF-04 and RNF-07 at 5000 notes")
-- Task 72: A folga fina do RNF-04 em limit: 200 | base 366ca27 | review 366ca27..6c301f2 | review Approved; 0 Important doc-only fechados | commit 6c301f2 ("perf(search): cut snippet I/O cost for large result limits")
-- Task 72 REABERTA e corrigida pelo modelo principal | base 6c301f2 | commit 51972fb ("fix(service): a cancelled search must not return a partial page as success") | relatorio .superpowers/sdd/task-72-review-fix-report.md
+Task 43: complete (commits 5e834d8..a503d08, accept trailing whitespace on frontmatter delimiter, review Approved)
+Task 44: complete (commits a931cb1..5e0988b, portuguese analyzer with dual indexing, review Approved)
+Task 45: complete (commits 6efe9a0..e89e7f0, inverted index with incremental update, review Approved)
+Task 46: complete (commits aa15982..b8dfb50, BM25 ranking with field weights, review Approved)
+Task 47: complete (commits 229dfb9..c861ce1, snippets with term highlight, review Approved)
+Task 48: complete (commits 71e9e05..5990011, vault_search tool with filters and phrase queries, review Approved)
+Task 49: complete (commits 8faf689..0982e1e, on-disk cache with version header, review Approved)
+Task 50: complete (commits ed1863d..efb10bc, close M3 with measured numbers and Q3 decision, review Approved)
+Task 51: complete (commits 566e2c7..f66ec20, the inverted index never reached the watcher, review Approved)
+Task 52: complete (commits 5a5f3ea..e9b1b85, measure Q3 on a corpus of distinct paths and a real p95, review Approved)
+Task 53: complete (commits 79b39e1..43aa303, stop swallowing errors and name the tests for what they check, review Approved)
+Task 54: complete (commits 5188726..e7825b3, per-path write lock, review Approved)
+Task 55: complete (commits c135ee0..458a778, atomic write with fsync and rename retry, review Approved)
+Task 56: complete (commits ebc647f..53ad63c, line-based Myers diff, review Approved)
+Task 57: complete (commits 8a40a92..5d0f7c8, patch and append by heading, preserving EOL and BOM, review Approved)
+- Task 58: Substituir Bloco por ^id | base 4341348 | review 4341348..6b1441d | review Approved; 0 Important doc-only fechados | commit 6b1441d ("feat(writer): replace block by id")
+- Task 59: Write Tools (`note_create`, `note_append`, `note_patch`) | base 38e844f | review 38e844f..71e3653 | review Approved; 0 Important doc-only fechados | commit 71e3653 ("feat(mcpsrv): write tools with dry_run and expected_hash")
+- Task 60: --read-only verificado no ListTools | base a57cd3d | review a57cd3d..7f8e0da | review Approved; 0 Important doc-only fechados | commit 7f8e0da ("feat(mcpsrv): write tools absent from ListTools under read-only")
+- Task 61: A lacuna do RNF-04 — busca por frase | base 7aedd83 | review 7aedd83..1e0dfad | review Approved; 0 Important doc-only fechados | commit 1e0dfad ("perf(search): bring exact-phrase p95 within RNF-04")
+- Task 62: Fechamento do M4 | base 5b824dc | review 5b824dc..c58f87b | review Approved; 0 Important doc-only fechados | commit c58f87b ("docs: close M4 with the RNF-11 gate output")
+- Task 63: Offsets para LinkMarkdown no parser | base 5617075 | review 5617075..ccf1a4c | review Approved; 0 Important doc-only fechados | commit ccf1a4c ("feat(parser): byte offsets for markdown links and embeds")
+- Task 64: internal/writer/linkrewrite.go | base ccf1a4c | review ccf1a4c..99d32d1 | review Approved; 0 Important doc-only fechados | commit 99d32d1 ("feat(writer): faithful link rewriting from Link.Raw")
+- Task 65: Tool note_move | base 99d32d1 | review 99d32d1..02264d8 | review Approved; 0 Important doc-only fechados | commit 02264d8 ("feat(mcpsrv): note_move with faithful link rewriting")
+- Task 66: Tool note_delete | base c50f8f3 | review c50f8f3..5a4f519 | review Approved; 0 Important doc-only fechados | commit 5a4f519 ("feat(mcpsrv): note_delete with trash and prior broken-link report")
+- Task 67: Ancoras quebradas no relatorio de impacto | base d8cf22a | review d8cf22a..262589b | review Approved; 0 Important doc-only fechados | commit 262589b ("feat(service): broken anchors in the move and delete impact report")
+- Task 68: Fechamento do M5 | base f64adbd | review f64adbd..c06ec08 | review Approved; 0 Important doc-only fechados | commit c06ec08 ("docs: close M5 and align RF-35 with the implemented contract")
+- Task 75: Subcomandos index, search, inspect | base f0ca554 | review f0ca554..ac91156 | review Approved; 0 Important doc-only fechados | commit ac91156 ("feat(cmd): index, search and inspect subcommands (RF-52)")
+- Task 69: Os quatro parametros de schema ignorados | base 62d3fef | review 62d3fef..d15fddf | review Approved; 0 Important doc-only fechados | commit d15fddf ("fix(mcpsrv,service): honour the four schema params the handlers dropped")
+- Task 74: netcheck como analisador de go vet | base 8c87aa9 | review 8c87aa9..daab822 | review Approved; 0 Important doc-only fechados | commit daab822 ("ci: semantic net-import check as a go vet analyzer")
+- Task 70: Gerador deterministico de cofre de 5.000 notas | base 9aa2495 | review 9aa2495..c0cfd9a | review Approved; 0 Important doc-only fechados | commit c0cfd9a ("tooling: deterministic 5000-note synthetic vault generator")
+- Task 71: RNF-01, RNF-02, RNF-04 e RNF-07 medidos a 5.000 | base e23c1a5 | review e23c1a5..2da8b90 | review Approved; 0 Important doc-only fechados | commit 2da8b90 ("docs(operacao): measure RNF-01, RNF-02, RNF-04 and RNF-07 at 5000 notes")
+- Task 72: A folga fina do RNF-04 em limit: 200 | base 7f90d87 | review 7f90d87..6cdc79e | review Approved; 0 Important doc-only fechados | commit 6cdc79e ("perf(search): cut snippet I/O cost for large result limits")
+- Task 72 REABERTA e corrigida pelo modelo principal | base 6cdc79e | commit 22836a6 ("fix(service): a cancelled search must not return a partial page as success") | relatorio .superpowers/sdd/task-72-review-fix-report.md
   A revisao do lote M6 reprovou a 72. Cinco defeitos, cada um reproduzido: ctx cancelado
   devolvia 24 a 99 de 200 resultados com err == nil (regressao, o caminho sequencial
   anterior devolvia os 200); a prova de mutacao colada no relatorio da 72 e impossivel,
@@ -104,7 +109,7 @@ Task 57: complete (commits 604e759..0b1460b, patch and append by heading, preser
   RNF-04 para limit: 200 a 5.000 notas: 181,25 ms, NAO atingido (teto 100 ms).
   RNF-07 a 5.000 notas: RSS 67,08 MB quente e 112,96 MB frio, NAO atingido (teto 60 MB);
   a Task 71 o registrara como OK medindo runtime.MemStats.Alloc, que nao e RSS.
-- Task 73: bench.yml no CI com deteccao de regressao | base f068f7a | commits 4304bea (workflow+comparador+benchmarks), 580c0aa (1a referencia), f9beed8 (referencia por mediana) | relatorio .superpowers/sdd/task-73-report.md
+- Task 73: bench.yml no CI com deteccao de regressao | base 8679a70 | commits 718995f (workflow+comparador+benchmarks), 74c4ecd (1a referencia), be2d2b6 (referencia por mediana) | relatorio .superpowers/sdd/task-73-report.md
   Nao havia benchmark nenhum no repositorio; os seis foram escritos junto.
   Gate provado NO CI: run 30762162779 reprovou com +71,5%, +521,5% e +126,0%
   sob 120 ms injetados em Search. Duas rodadas limpas verdes: 30761791215 e
@@ -112,7 +117,7 @@ Task 57: complete (commits 604e759..0b1460b, patch and append by heading, preser
   0,7 ponto do gate em duas rodadas SEM mudanca de codigo; refeita sobre a
   mediana de tres rodadas, o pior desvio positivo caiu para +9,6%.
 - ANTES da 73, o CI estava VERMELHO desde 2026-07-28, em todos os pushes.
-  Cinco defeitos, commits 45ac834 e 7023b25, todos invisiveis para verify.ps1
+  Cinco defeitos, commits c6a0baa e 0a8ba36, todos invisiveis para verify.ps1
   por ele so rodar em Windows: caminhos "C:\test\vault" fixos em filter_test;
   chmod 0400 num arquivo, que no Unix nao impede rename por cima; $env:TEMP
   inexistente em Linux no check_net.ps1 do vettool da Task 74; teto de tempo do
@@ -120,7 +125,7 @@ Task 57: complete (commits 604e759..0b1460b, patch and append by heading, preser
   e TestWatcher_Burst com prazo fixo de 10 s num teste de convergencia.
   TestRun_OverflowSchedulesExactlyOne mantinha uma COPIA do laco de producao
   dentro do teste e afirmava sobre a reimplementacao. CI verde em 30761531221.
-- Task 76: As duas lacunas de teste que atravessaram todos os marcos | base 341b124 | commits 343cef6, ce5dddc, 595d9a2 | relatorio .superpowers/sdd/task-76-report.md
+- Task 76: As duas lacunas de teste que atravessaram todos os marcos | base 458b03f | commits 12ad94f, 23ecc2e, 38a0cca | relatorio .superpowers/sdd/task-76-report.md
   O harness de orfaos tinha UM cenario e o EOF vencia sempre (100/100 nas duas
   rodadas anteriores). Agora sao tres, um por mecanismo, cada um desconectando os
   outros dois: stdin-eof, parent-death (keeper segura o stdin, o host morre) e
@@ -138,7 +143,7 @@ Task 57: complete (commits 604e759..0b1460b, patch and append by heading, preser
   Fora do escopo, corrigido junto: TestE2E_NoteMoveIsReflectedBySearchAndGraph
   tinha prazo fixo de 10 s e piscava no runner macOS; e teste de convergencia,
   passou para 60 s.
-- Task 77: Fechamento do M6 e v1.0.0 | base 3814d31 | commit ddca9c3 | relatorio .superpowers/sdd/task-77-report.md
+- Task 77: Fechamento do M6 e v1.0.0 | base 98b61a0 | commit fbd74ed | relatorio .superpowers/sdd/task-77-report.md
   Tabela de RNFs de docs/OPERACAO.md passou de 5 dos 22 para os 22, cada um com
   numero medido ou "nao medido". RNF-03 (p95 344,97 us) e RNF-05 (p95 533,68 us)
   medidos pela primeira vez e ATINGIDOS; RNF-06 medido em 20,35 ms de mediana
@@ -150,7 +155,7 @@ Task 57: complete (commits 604e759..0b1460b, patch and append by heading, preser
   com 100x o motivo do seu mecanismo e zero orfaos; check_tool_params limpo.
   audit_reports (40) e check_briefs (65) saem 1, e nenhum achado e das Tasks
   69-77 — todos vem de relatorios e briefs das Tasks 1 a 68.
-  Tag v1.0.0 criada LOCALMENTE em 4411789, o commit deste ledger.
+  Tag v1.0.0 criada LOCALMENTE em ac4c2cf, o commit deste ledger.
   NAO publicada: nem a tag no remoto, nem release no GitHub. Binarios dos tres
   alvos em dist/, com versao embutida e SHA-256 no relatorio; so o de Windows
   foi executado. README NAO foi tocado — segue falando de v0.1, que e a unica
@@ -197,20 +202,20 @@ so existe na maquina de quem instalou nao reduz o erro de mais ninguem.
 
 - **Lacuna conhecida**: Reconciliação por overflow não existe em darwin/BSD, porque o backend kqueue do fsnotify v1.10.1 nunca emite `ErrEventOverflow` (ARCHITECTURE §5.3).
 
-Task 18: complete (commit 6c5a241) — revisao feita pelo modelo principal, Aprovada.
+Task 18: complete (commit 9547be3) — revisao feita pelo modelo principal, Aprovada.
   48 pares sem orfao, todos codeblocks vazios com .md contendo a sintaxe de verdade,
   harness provado por adulteracao de golden, bytes de CRLF/BOM sobreviveram.
   1 Important roteado para a Task 19: a costura vault.StripBOM -> Parse nao e testada
   por ninguem, e o golden edge/bom.md fixa um estado de FALHA como contrato.
 
-Task 19-26: complete (commits fbc192f..66ea24a, 11 commits). Revisadas depois:
+Task 19-26: complete (commits 37fe3e1..3155eec, 11 commits). Revisadas depois:
     os 6 Important da revisao do M1 foram fechados e a paridade contra o dump
     real do metadataCache do Obsidian foi verificada. A linha antiga dizia "SEM
     NENHUMA REVISAO" e ficou aqui depois de deixar de ser verdade, contradizendo
     o cabecalho de M1 completa quatro linhas acima. Corrigido em 2026-07-29.
   Revisao feita pelo modelo principal em 2026-07-28, depois do fato. Achados:
 
-  CRITICAL corrigidos (commit 1619a37):
+  CRITICAL corrigidos (commit 069f125):
   - offset de BOM nunca somado de volta: toda leitura de secao em nota com BOM saia
     deslocada 3 bytes. Provado: com BOM devolvia "o
 
@@ -222,11 +227,11 @@ CONTEUDO-ESPERAD".
     que existia vazio, entao nao pulava; o laco iterava mapa vazio. Reportava a metrica
     do PRD 7 como atingida. Agora checa CONTEUDO e pula.
 
-  IMPORTANT corrigidos em doc (commit 77b88d4):
+  IMPORTANT corrigidos em doc (commit 51c4a82):
   - OPERACAO.md 5 trazia medicoes fabricadas ("ex: 408ms", "tende a ficar ~30-45 MB").
   - README declarava "v0.1 publicada" sem tag, sem gate de orfaos, sem medicao.
 
-  IMPORTANT abertos, registrados no plano (commit 191f980):
+  IMPORTANT abertos, registrados no plano (commit 3633507):
   - Task 21: reprocessLinksLocked sustenta a corretude de Remove e NENHUM teste o cobre.
     Sem ele, remover nota deixa links afirmando State=ok para arquivo inexistente.
     assertInvariant nao pega: estado obsoleto e internamente COERENTE.
@@ -278,7 +283,7 @@ CORRECOES DA REVISAO, todas com prova de mutacao:
 - heading_level e AMBIGUOUS_HEADING cobertos
 - note_list projeta (ListItem) e honra fields; antes devolvia *index.Note inteiro
 
-BRIEFS AUTOCONTIDOS (commit dc6bbea): as Tasks 19-26 do plano ganharam bloco proprio de
+BRIEFS AUTOCONTIDOS (commit cc8dfc3): as Tasks 19-26 do plano ganharam bloco proprio de
 contexto — onde encaixa, decisoes fechadas que a vinculam, armadilhas ja pagas que se
 aplicam, verificacoes alem dos passos, regras de execucao e contrato de relatorio.
 O brief extraido pelo task-brief agora basta para executar: NAO e mais preciso injetar
@@ -367,7 +372,7 @@ Plano: docs/superpowers/plans/2026-07-26-m0-review-fixes.md, tasks R1-R4.
 Workspace com o detalhe: .superpowers/sdd/2026-07-26-m0-review-fixes/
 
 As tres tasks que haviam fechado sem revisao fresca (9, 10 e 11) foram revisadas.
-Achados: 3 Important, 7 Minor. Todos os Important fechados. Commits e74e375..44672fd.
+Achados: 3 Important, 7 Minor. Todos os Important fechados. Commits b930976..4ff5c2d.
 
 Defeitos reais que a revisao tardia pegou, e que os gates existentes NAO pegavam:
 - doctor saia 0 com cofre inacessivel. scanVault fundia cancelamento de contexto
@@ -392,7 +397,7 @@ plano e diffar contra o disco), nao por leitura.
 DIVIDA ABERTA, NAO CAUSADA POR ESTE TRABALHO — MERECE TASK PROPRIA:
 golangci-lint reporta 39 issues, identico em GOOS=linux e GOOS=windows
 (revive 32, errcheck 5, errorlint 1, contextcheck 1). Verificado no commit de
-bootstrap 1de565c: ja falhava la. O job `lint` do CI esta VERMELHO DESDE O BOOTSTRAP,
+bootstrap 8f951e5: ja falhava la. O job `lint` do CI esta VERMELHO DESDE O BOOTSTRAP,
 e o job `lint-windows` novo ficara vermelho pelas mesmas 39.
 Uma delas e excecao DOCUMENTADA no CLAUDE.md e precisa de nolint/exclusao, nao de
 mudanca de codigo:
@@ -402,9 +407,9 @@ mudanca de codigo:
 LACUNA DE M6 CONFIRMADA E INALTERADA: stdin-eof venceu 100/100 nas duas rodadas do gate,
 entao a vigilia do pai e os sinais seguem sem verificacao ponta a ponta.
 
-=== DIVIDA DO LINT: PAGA (2026-07-27, commit b6d4a7a) ===
+=== DIVIDA DO LINT: PAGA (2026-07-27, commit d0143bc) ===
 golangci-lint: 0 issues em GOOS=linux, darwin e windows. Eram 39, identicas nos
-tres alvos, vermelhas desde o commit de bootstrap 1de565c.
+tres alvos, vermelhas desde o commit de bootstrap 8f951e5.
 
 A DECISAO que o usuario tomou (nao era conserto, era escolha de desenho):
   cmd/gobsidian/serve.go:133 — contextcheck em lifecycle.Shutdown
@@ -555,7 +560,7 @@ Remote: https://github.com/jonyduque/Gobsidian.git (adicionado 2026-07-27)
 
 ## LICAO DE PROCESSO, terceira ocorrencia da MESMA classe
 
-Commits de ressincronizacao ate agora: 44672fd, a1ec366, 2b4967f.
+Commits de ressincronizacao ate agora: 4ff5c2d, c77760f, f357448.
 Corrigir o plano ANTES de despachar o fixer e necessario mas NAO SUFICIENTE:
 o fix loop muda o codigo depois disso, e o plano fica para tras de novo.
 A conferencia tem que acontecer TAMBEM no fim de cada task, e MECANICAMENTE —
@@ -578,12 +583,12 @@ o plano tem 68 blocos go e varios comecam igual.
    Local eu tinha v2.12.2. A verificacao local NAO representava o CI, e eu
    afirmei "lint zerado nos tres alvos" com base nela. Verdade local, conclusao
    errada sobre o pipeline.
-   CORRIGIDO em 50529ef: action v8 com `version: v2.12.2` FIXA. Fixar e o ponto:
+   CORRIGIDO em 2dcc4f0: action v8 com `version: v2.12.2` FIXA. Fixar e o ponto:
    com a versao flutuando, os dois lados resolvem binarios diferentes e o
    verde local para de dizer qualquer coisa. Registrado tambem no CLAUDE.md.
    Depois do fix: lint e lint-windows verdes.
 
-Commits de ressincronizacao plano<->codigo ate agora: 44672fd, a1ec366, 2b4967f,
+Commits de ressincronizacao plano<->codigo ate agora: 4ff5c2d, c77760f, f357448,
 e o do job orphans. Quatro, todas da mesma classe.
 
 ## 2026-07-28 — FECHAMENTO DO M1, e o defeito que quase saiu com ele
@@ -622,7 +627,7 @@ descreviam a forma quebrada — e o AD-08 usa `Civil/PONTO 03.md` como exemplo,
 que e justamente um caso que estoura. A especificacao estava errada, o codigo
 foi fiel a ela, e a revisao leu os dois e concordou.
 
-Corrigido em 9a03781. Plano ganhou CORRECAO OBRIGATORIA na Task 24.
+Corrigido em 827d96f. Plano ganhou CORRECAO OBRIGATORIA na Task 24.
 `parser.percentDecode` foi EXPORTADA como `parser.PercentDecode` para o mcpsrv
 reusar em vez de manter segunda copia das regras de escape invalido.
 Prova de mutacao: tirar a terceira barra faz o teste novo estourar por panic.
@@ -634,7 +639,7 @@ TotalNotes, TotalBytes, TotalLinks, TotalAliases, TotalTags, LoadTimeMs,
 CloudOnlyFiles. Zero de sete existem. §5 mandava rodar
 `gobsidian index --vault --stats`, subcomando inexistente.
 Mesma classe do `Collisions: 0`, pelo lado da documentacao.
-Corrigido em 55966ce, conferido campo a campo contra `service.StatsResult`.
+Corrigido em 95c4308, conferido campo a campo contra `service.StatsResult`.
 
 ### Medicao (escala pequena, POR DECISAO do usuario)
 
@@ -676,7 +681,7 @@ afirma que fsnotify no Windows e recursivo por diretorio observado. NAO
 verificado contra a v1.10.1 fixada. A Task 27 manda MEDIR e corrigir o doc se
 estiver errado — se nao for recursivo, o escopo dela cresce bastante.
 
-=== M2 FECHADO em 2026-07-29, tag m2-watcher (a26b8e1) ===
+=== M2 FECHADO em 2026-07-29, tag m2-watcher (1fba32b) ===
 Gate de orfaos 100/100 com mecanismo confirmado, golangci-lint zerado, sete
 etapas do verify.ps1 verdes. Tags do projeto: m0-lifecycle (M0), v0.1.0 (M1),
 m2-watcher (M2).
@@ -964,7 +969,7 @@ Mutacao, possivel pela primeira vez: trocando `os.CreateTemp` por
 corrompidas**, truncadas a 0 bytes — `[OK] VERIFICADA`. A mesma mutacao passava
 verde antes.
 
-**Commits:** `de3272e`, `4fbec09`, `67016de`, `847bde1`. Bateria `verify.ps1`
+**Commits:** `9d7f9dd`, `efee542`, `a08a660`, `9dc6f00`. Bateria `verify.ps1`
 verde nas nove etapas depois do ultimo.
 
 **M6 ainda NAO preparado.** Antes de escrever tarefa, a Fase 2 pendente: o
@@ -974,14 +979,14 @@ revisao e merece instrumento, nao mais uma linha em `AGENTS.md`.
 ## M6 preparado para delegacao — 2026-08-01
 
 Tasks 69 a 77 escritas autocontidas em `docs/superpowers/plans/2026-07-25-gobsidian-v01.md`,
-commit `2069311`. Briefs gerados e conferidos por `check_briefs.ps1`: as nove
+commit `4463092`. Briefs gerados e conferidos por `check_briefs.ps1`: as nove
 carregam Verificacoes, Regras de execucao, Contrato de relatorio, clausula de
 mutacao e linha de Files, e as nove passam do piso relativo de tamanho.
 
 **Fase 2 do preparo (melhoria de harness) rendeu instrumento novo.** O padrao
 "parametro de schema que o codigo ignora" tinha aparecido CINCO vezes e sempre
 fora pego por pessoa lendo codigo. `scripts/check_tool_params.ps1` (commit
-`9b7c871`) o mecaniza: todo campo de struct `*Input` em `internal/mcpsrv` tem
+`fa65e5f`) o mecaniza: todo campo de struct `*Input` em `internal/mcpsrv` tem
 de ter o identificador Go aparecendo alem da propria declaracao. Nenhum gate
 pegava porque nenhum podia — o campo E usado, pelo decodificador de JSON, o que
 satisfaz todo analisador de uso.

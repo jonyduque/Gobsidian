@@ -41,7 +41,7 @@ O Marco M4 (Escrita) implementou com sucesso a superfície de escrita do `gobsid
 
 ### 2. `pwsh -File scripts/build.ps1`
 ```
-[...] Compilando m3-search-27-g34134eb (34134eb)
+[...] Compilando m3-search-27-g34134eb (5b824dc)
 [OK] C:\Users\jonyd\Projetos\Gobsidian\bin\gobsidian.exe (8.03 MB)
 ```
 
@@ -71,7 +71,7 @@ ok  	github.com/jonyd/gobsidian/internal/writer	33.044s
 ```
 
 ## Tag `m3-search`
-Conforme item 6 das verificações do brief: a tag `m3-search` no repositório aponta para o commit `ec0c4d6` (anterior ao M3.1). Mover ou recriar essa tag fica registrado como decisão pendente para solicitação pelo usuário.
+Conforme item 6 das verificações do brief: a tag `m3-search` no repositório aponta para o commit `efb10bc` (anterior ao M3.1). Mover ou recriar essa tag fica registrado como decisão pendente para solicitação pelo usuário.
 
 ## Tag de Release M4
 A tag `m4-writer` será criada sobre o commit de fechamento desta tarefa.

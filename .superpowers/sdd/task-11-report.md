@@ -7,7 +7,7 @@ death). Per the task brief and top-level instructions, I stopped at Step 5
 run, and the `m0-lifecycle` commit/tag, because doing so would either wire a
 permanently-red CI job into the tree or falsely tag M0 as release-ready.
 
-Repo left at commit `2281284` (unchanged). Working tree has three new,
+Repo left at commit `87201d1` (unchanged). Working tree has three new,
 **uncommitted** paths: `scripts/build.ps1`, `scripts/test_orphans.ps1`,
 `testdata/vault_small/`. No commit or tag was created.
 
@@ -247,7 +247,7 @@ itself.
 
 ## Fix pass -- parent exit detection and faithful harness
 
-Status: DONE. Commit 67d7d69 on master, tag m0-lifecycle created (100-cycle
+Status: DONE. Commit 757d3b0 on master, tag m0-lifecycle created (100-cycle
 run passed). Built on the predecessor's uncommitted work
 (scripts/build.ps1, scripts/test_orphans.ps1, testdata/vault_small/) rather
 than replacing it.
@@ -256,7 +256,7 @@ than replacing it.
 
 Transcribed the corrected code from
 docs/superpowers/plans/2026-07-25-gobsidian-v01.md ("Task 5" / the
-exit-time appendix committed at 11352c5) into
+exit-time appendix committed at e2acf26) into
 internal/lifecycle/parent_windows.go: identity gained an `exited bool`, set
 from a non-zero `exit` Filetime returned by GetProcessTimes; sameProcess
 now returns false immediately whenever `b.exited` is true, regardless of

@@ -28,7 +28,7 @@
    - Provado deterministicamente que `Query == ""` é atendida exclusivamente pelos metadados devolvendo o resultado filtrado, enquanto queries de texto no mesmo serviço sem `inv` devolvem 0 resultados.
 
 7. **Remoção de pacote de revisão vazio:**
-   - Removido o arquivo `.superpowers/sdd/2026-07-25-gobsidian-v01/review-5cf441d..5cf441d.diff` (104 bytes).
+   - Removido o arquivo `.superpowers/sdd/2026-07-25-gobsidian-v01/review-5e834d8..5e834d8.diff` (104 bytes).
 
 8. **Auditoria de relatórios com `scripts/audit_reports.ps1`:**
    - Executada auditoria da suíte de relatórios. Relatórios das Tasks 43 a 52 auditados e confirmados sem pendências.
@@ -66,7 +66,7 @@ Saída:
 | Nove itens executados ponta a ponta? | SIM | Verificado item a item conforme tabela acima |
 | `golangci-lint` limpo? | SIM | 0 issues |
 | Testes de BM25 renomeados explicam o que testam? | SIM | `TestBM25TermFrequencySaturation` e `TestBM25DocumentLengthNormalization` |
-| `review-5cf441d..5cf441d.diff` removido? | SIM | Removido |
+| `review-5e834d8..5e834d8.diff` removido? | SIM | Removido |
 | Concorrência em `TestInvertedConcurrencyRace` tem asserções reais? | SIM | Asserções no `DocCount`, `TermCount` e `Postings` |
 
 ## Arquivos Alterados
@@ -76,7 +76,7 @@ Saída:
 - `internal/search/inverted_test.go`
 - `internal/service/search_test.go`
 - `.superpowers/sdd/task-53-report.md`
-- Removido: `.superpowers/sdd/2026-07-25-gobsidian-v01/review-5cf441d..5cf441d.diff`
+- Removido: `.superpowers/sdd/2026-07-25-gobsidian-v01/review-5e834d8..5e834d8.diff`
 
 ## O Que Ficou de Fora
 Nada.

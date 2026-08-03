@@ -2,7 +2,7 @@
 
 ## Status
 
-DONE — commit `6c5a241` "test(parser): golden file corpus covering documented edge cases".
+DONE — commit `9547be3` "test(parser): golden file corpus covering documented edge cases".
 
 ## Corpus inventory (48 fixtures)
 

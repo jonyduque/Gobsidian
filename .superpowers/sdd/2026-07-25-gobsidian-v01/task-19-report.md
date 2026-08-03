@@ -2,7 +2,7 @@
 
 ### Escopo
 
-Dois defeitos apontados pela auditoria de 2026-07-28, em código já mesclado (base `ec7efa0`):
+Dois defeitos apontados pela auditoria de 2026-07-28, em código já mesclado (base `75b41ca`):
 
 1. **Defeito 1 — offset de BOM nunca somado.** `vault.StripBOM` remove os 3 bytes do
    marcador, `parser.Parse` mede offsets sobre o corpo já sem BOM, mas nada somava esses

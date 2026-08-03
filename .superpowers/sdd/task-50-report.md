@@ -54,7 +54,7 @@ golangci-lint has version 2.12.2 built with go1.26.4 from (unknown, modified: ?,
 
 ### 4. `pwsh -File scripts/build.ps1`
 ```
-[...] Compilando m2-watcher-15-g46a6942 (46a6942)
+[...] Compilando m2-watcher-15-g46a6942 (ed1863d)
 [OK] C:\Users\jonyd\Projetos\Gobsidian\bin\gobsidian.exe (7.8 MB)
 ```
 
@@ -81,14 +81,14 @@ golangci-lint has version 2.12.2 built with go1.26.4 from (unknown, modified: ?,
 ## Tabela de tarefas do M3 no Ledger (`progress.md`)
 | Task | Intervalo de Commits | Descrição | Status no Ledger |
 |---|---|---|---|
-| Task 43 | `5cf441d..713cfc1` | parser closing delimiter trailing whitespace | Complete |
-| Task 44 | `0819e50..53b2061` | portuguese analyzer with dual indexing | Complete |
-| Task 45 | `1c182c9..b147b8d` | inverted index with incremental update | Complete |
-| Task 46 | `c791cff..e8c31e3` | BM25 ranking with field weights | Complete |
-| Task 47 | `01116d9..ae4a3b2` | snippets with term highlight | Complete |
-| Task 48 | `ed936d7..0fe5f2b` | vault_search tool with filters and phrase queries | Complete |
-| Task 49 | `2ccf51b..3daee57` | on-disk cache with version header | Complete |
-| Task 50 | `46a6942..<commit>` | close M3 with measured numbers and Q3 decision | Complete |
+| Task 43 | `5e834d8..a503d08` | parser closing delimiter trailing whitespace | Complete |
+| Task 44 | `a931cb1..5e0988b` | portuguese analyzer with dual indexing | Complete |
+| Task 45 | `6efe9a0..e89e7f0` | inverted index with incremental update | Complete |
+| Task 46 | `aa15982..b8dfb50` | BM25 ranking with field weights | Complete |
+| Task 47 | `229dfb9..c861ce1` | snippets with term highlight | Complete |
+| Task 48 | `71e9e05..5990011` | vault_search tool with filters and phrase queries | Complete |
+| Task 49 | `8faf689..0982e1e` | on-disk cache with version header | Complete |
+| Task 50 | `ed1863d..<commit>` | close M3 with measured numbers and Q3 decision | Complete |
 
 ## Arquivos Alterados
 - `docs/ARCHITECTURE.md`

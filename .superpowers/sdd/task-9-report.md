@@ -347,7 +347,7 @@ Nothing has been committed yet.
 
 ## Fix pass — review findings
 
-Base commit `460c6de`. All four numbered findings and all five minor
+Base commit `7f997d6`. All four numbered findings and all five minor
 findings addressed. `internal/vault`, `internal/lifecycle`, `internal/config`
 untouched. `go mod tidy` not run.
 
@@ -555,7 +555,7 @@ files, no stray scratch files:
 
 ## Fix pass 2 — exit code and error wrapping
 
-Base commit `6983450`. Second review round, two Important and three Minor
+Base commit `a86cba9`. Second review round, two Important and three Minor
 findings. `internal/vault`, `internal/lifecycle`, `internal/config`
 untouched. `go mod tidy` not run.
 
@@ -670,7 +670,7 @@ of panicking.
 
 Transcribed the corrected `mirrorReader` from
 `docs/superpowers/plans/2026-07-25-gobsidian-v01.md` (Task 9, the commit
-`6983450` amendment) into `cmd/gobsidian/serve.go`: added a `broken bool`
+`a86cba9` amendment) into `cmd/gobsidian/serve.go`: added a `broken bool`
 field, set once when a write to the mirror pipe fails, after which the
 mirror is skipped on subsequent reads and only the real read result
 (`n, err` from `src.Read`) is returned. `dst.CloseWithError(err)` on a

@@ -85,7 +85,7 @@ None. The brief's code compiled and ran as written, byte-for-byte.
 
 ## Commit
 
-`930eaa1` — `feat(lifecycle): cancel root context on stdin EOF`
+`e968556` — `feat(lifecycle): cancel root context on stdin EOF`
 5 files changed, 184 insertions(+)
 
 ## Fix pass — stdin goroutine not waited on
@@ -193,5 +193,5 @@ Only the three intended files touched — no stray files.
 
 ### Commit
 
-`7882017` — `fix(lifecycle): don't wait on the unkillable stdin goroutine`
+`079388c` — `fix(lifecycle): don't wait on the unkillable stdin goroutine`
 3 files changed, 57 insertions(+), 4 deletions(-)

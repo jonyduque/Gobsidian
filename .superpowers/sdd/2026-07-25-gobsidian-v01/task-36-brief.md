@@ -4,7 +4,7 @@ Decisão fechada: `MoveNote` fica. Esta tarefa é o que a torna aceitável.
 
 #### Onde isto encaixa
 
-`MoveNote` foi acrescentada em `d5d1bf0`, fora do contrato declarado da Task 31, e o `Apply` aplica o rename correlacionado **só** por ela — sem `Remove` do caminho antigo nem `Replace` do novo (`internal/watcher/apply.go:34-44`). Ela não é otimização sobre um caminho correto: ela **é** o caminho. Manter isso exige a revisão que a entrega pulou.
+`MoveNote` foi acrescentada em `bce5fa1`, fora do contrato declarado da Task 31, e o `Apply` aplica o rename correlacionado **só** por ela — sem `Remove` do caminho antigo nem `Replace` do novo (`internal/watcher/apply.go:34-44`). Ela não é otimização sobre um caminho correto: ela **é** o caminho. Manter isso exige a revisão que a entrega pulou.
 
 Depende da Task 35 (a chave de `byAlias` precisa estar normalizada antes) e da Task 33 (a correlação precisa estar correta antes de testar o que ela alimenta).
 

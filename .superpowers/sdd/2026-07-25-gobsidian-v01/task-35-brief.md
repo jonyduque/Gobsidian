@@ -8,7 +8,7 @@ Critical do índice, ativado pelo watcher. Corrige link que resolve para nota de
 
 #### A evidência medida do defeito
 
-Sonda executada contra o commit `d5d1bf0`:
+Sonda executada contra o commit `bce5fa1`:
 
 ```
 after Build:            b.md link resolved="a.md" state=ok

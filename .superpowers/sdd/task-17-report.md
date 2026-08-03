@@ -158,7 +158,7 @@ Both files are the only ones touched, per scope.
 ## Fix pass 2 — line-level plain fields
 
 `fix(parser): stop inline fields eating links, scope block ids to the last
-line, widen tag prefixes` (`61484c6`) made the plain form's value
+line, widen tag prefixes` (`7021734`) made the plain form's value
 non-consuming — the right call, since it put wikilinks, embeds and Markdown
 links back in `note.Links` for `fonte:: [[STJ]]` / `capa:: ![[img.png]]` /
 `fonte:: [STJ](stj.md)`. But offering that value span back to the inline

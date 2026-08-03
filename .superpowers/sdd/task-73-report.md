@@ -1,9 +1,9 @@
 # Relatório Task 73: `bench.yml` no CI com detecção de regressão
 
 **Data:** 2026-08-02
-**Base:** `f068f7a`
-**Commits:** `4304bea` (workflow, comparador, benchmarks), `580c0aa` (primeira
-referência), `f9beed8` (referência refeita sobre mediana de três rodadas).
+**Base:** `8679a70`
+**Commits:** `718995f` (workflow, comparador, benchmarks), `74c4ecd` (primeira
+referência), `be2d2b6` (referência refeita sobre mediana de três rodadas).
 
 ---
 
@@ -211,8 +211,8 @@ Verificações exigidas pelo brief, uma a uma:
 **Fora do escopo, corrigido antes porque bloqueava esta tarefa:** o CI estava
 **vermelho desde 2026-07-28**, em todos os pushes. Um gate novo num CI vermelho
 é um gate que ninguém lê, e a exigência "confirme verde nas duas" não seria
-distinguível do vermelho existente. Foram cinco defeitos, em `45ac834` e
-`7023b25`, todos invisíveis para `verify.ps1` por ele rodar só em Windows. Estão
+distinguível do vermelho existente. Foram cinco defeitos, em `c6a0baa` e
+`0a8ba36`, todos invisíveis para `verify.ps1` por ele rodar só em Windows. Estão
 detalhados nas mensagens dos dois commits; o mais grave é que
 `TestRun_OverflowSchedulesExactlyOne` carregava uma **cópia do corpo de
 tratamento de overflow dentro do próprio teste** e afirmava sobre a

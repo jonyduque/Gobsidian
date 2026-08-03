@@ -66,7 +66,7 @@ All ran cleanly, matching the brief's "sem erros; netcheck passa; nenhum outro p
 - `LICENSE` (new)
 - `.gitignore` (modified — merged brief's entries)
 
-Commit: `1de565c` — `chore: bootstrap module, CI, and network-import analyzer`
+Commit: `8f951e5` — `chore: bootstrap module, CI, and network-import analyzer`
 
 ## The deviation: go.mod's `go` directive
 

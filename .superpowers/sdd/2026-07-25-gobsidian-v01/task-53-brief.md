@@ -36,7 +36,7 @@ headings 2.0 -> 1.5  [!!] SEM COBERTURA
 
 **6. `internal/service/search_test.go:264` — verificação mais fraca que a pedida.** `TestVaultSearchEmptyQueryMetadataOnly` afirma `Score == 0.0` como prova de que o índice de texto não foi tocado. O plano pedia *"prove contando"*. Acrescente um contador de consultas ao índice invertido, ou uma asserção que só o caminho de metadados pode satisfazer.
 
-**7. Apague `.superpowers/sdd/2026-07-25-gobsidian-v01/review-5cf441d..5cf441d.diff`** — 104 bytes, pacote de revisão de intervalo vazio, gerado antes de a tarefa ter commit.
+**7. Apague `.superpowers/sdd/2026-07-25-gobsidian-v01/review-5e834d8..5e834d8.diff`** — 104 bytes, pacote de revisão de intervalo vazio, gerado antes de a tarefa ter commit.
 
 **8. Rode `pwsh -File scripts/audit_reports.ps1`** e resolva o que sobrar nos relatórios 43–50.
 

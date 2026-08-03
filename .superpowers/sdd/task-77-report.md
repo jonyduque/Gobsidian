@@ -1,12 +1,12 @@
 # Relatório Task 77: fechamento do M6 e preparação da v1.0.0
 
 **Data:** 2026-08-02
-**Base:** `3814d31`
-**Commits:** `ddca9c3` (tabela completa de RNFs e as três medições novas),
-`4411789` (ledger e este relatório), e a correção deste relatório logo depois —
+**Base:** `98b61a0`
+**Commits:** `fbd74ed` (tabela completa de RNFs e as três medições novas),
+`ac4c2cf` (ledger e este relatório), e a correção deste relatório logo depois —
 os SHA-256 dos binários não podem estar no commit que os produz, então a
 conferência dos números vive um commit à frente da tag.
-**Tag:** `v1.0.0` criada **localmente**, apontando para `4411789`. **Não
+**Tag:** `v1.0.0` criada **localmente**, apontando para `ac4c2cf`. **Não
 publicada** — ver "O que ficou de fora" e a seção de publicação.
 
 ---
@@ -21,7 +21,7 @@ Hoje, o que existe de verdade:
 
 | Coisa | Estado | Como conferir |
 |---|---|---|
-| Tag `v1.0.0` local | **existe**, aponta para `4411789` | `git log -1 --oneline v1.0.0` |
+| Tag `v1.0.0` local | **existe**, aponta para `ac4c2cf` | `git log -1 --oneline v1.0.0` |
 | Tag `v1.0.0` no remoto | **não existe** | não foi feito `git push origin v1.0.0` |
 | Release `v1.0.0` no GitHub | **não existe** | `gh release list` traz só `v0.1.0` |
 | Binários dos três alvos | **existem em `dist/`**, com versão embutida | SHA-256 abaixo |
@@ -155,10 +155,10 @@ Mesma leitura: todos são de briefs das Tasks 12 a 68. Filtrando por `task-69` a
 ## Binários
 
 Compilação cruzada com `CGO_ENABLED=0`, `-trimpath` e a versão embutida por
-`-ldflags`, a partir de `4411789` — o commit para onde a tag `v1.0.0` aponta:
+`-ldflags`, a partir de `ac4c2cf` — o commit para onde a tag `v1.0.0` aponta:
 
 ```
-version=v1.0.0 commit=4411789 date=2026-08-02T20:55:59-03:00
+version=v1.0.0 commit=ac4c2cf date=2026-08-02T20:55:59-03:00
 ```
 
 | Arquivo | SHA-256 |
@@ -170,7 +170,7 @@ version=v1.0.0 commit=4411789 date=2026-08-02T20:55:59-03:00
 **O que foi verificado de cada um.** O de Windows **executa** nesta máquina:
 
 ```
-gobsidian v1.0.0 (4411789) 2026-08-02T20:55:59-03:00
+gobsidian v1.0.0 (ac4c2cf) 2026-08-02T20:55:59-03:00
 ```
 
 Os outros dois **não foram executados** — não há Linux nem macOS aqui. O que se
@@ -223,13 +223,13 @@ guarda.
 `git cat-file -t` em cada um dos 19 SHAs registrados nas Tasks 69 a 77:
 
 ```
-f221c0c   commit      45ac834   commit      f9beed8   commit
-6dff9c8   commit      7023b25   commit      2e87204   commit
-e888e23   commit      4304bea   commit      343cef6   commit
-588192d   commit      580c0aa   commit      ce5dddc   commit
-9ce10f1   commit      595d9a2   commit      6b5b9be   commit
-6c301f2   commit      ddca9c3   commit
-51972fb   commit      f068f7a   commit
+ac91156   commit      c6a0baa   commit      be2d2b6   commit
+d15fddf   commit      0a8ba36   commit      3a04e3f   commit
+daab822   commit      718995f   commit      12ad94f   commit
+c0cfd9a   commit      74c4ecd   commit      23ecc2e   commit
+2da8b90   commit      38a0cca   commit      74ecabb   commit
+6cdc79e   commit      fbd74ed   commit
+22836a6   commit      8679a70   commit
 ```
 
 Nenhum aponta para o vazio. A Task 31 foi registrada em `14210ee`, que não
@@ -239,10 +239,10 @@ E a tag:
 
 ```
 $ git log -1 --oneline v1.0.0
-4411789 docs(ledger): close M6 with tasks 69-77, and record that v1.0.0 is prepared but not published
+ac4c2cf docs(ledger): close M6 with tasks 69-77, and record that v1.0.0 is prepared but not published
 ```
 
-A tag foi criada primeiro em `ddca9c3` e movida para `4411789` depois do commit
+A tag foi criada primeiro em `fbd74ed` e movida para `ac4c2cf` depois do commit
 de ledger, para que quem baixar a tag receba também o relatório desta tarefa. Os
 binários foram **recompilados** na mudança: o carimbo de commit dentro do binário
 tem de bater com o commit da tag, senão o `gobsidian version` de um artefato de

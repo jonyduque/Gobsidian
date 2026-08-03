@@ -102,7 +102,7 @@ None. The brief's `path.go` and `path_test.go` compiled and passed verbatim.
 
 ## Fix pass — security findings
 
-Follow-up pass fixing nine review findings (device names writable, drive-letter leak through `path.Clean`, multiple canonical identities via trailing dot/space, Linux-hostile tests, untested `abs`, uncollapsed sentinels, uncovered `Canonicalize` rejections, and two overclaiming doc comments). Code and tests transcribed verbatim from `docs/superpowers/plans/2026-07-25-gobsidian-v01.md`, section "Task 7: Caminho canônico e confinamento" (commit `3f6606b`). No mechanical corrections were needed — the plan's code compiled and passed as written.
+Follow-up pass fixing nine review findings (device names writable, drive-letter leak through `path.Clean`, multiple canonical identities via trailing dot/space, Linux-hostile tests, untested `abs`, uncollapsed sentinels, uncovered `Canonicalize` rejections, and two overclaiming doc comments). Code and tests transcribed verbatim from `docs/superpowers/plans/2026-07-25-gobsidian-v01.md`, section "Task 7: Caminho canônico e confinamento" (commit `46ed931`). No mechanical corrections were needed — the plan's code compiled and passed as written.
 
 **Changes to `internal/vault/path.go`:**
 - Added `ErrInvalidPath` sentinel (fourth sentinel; doc comment explains why the four stay distinct — each maps to a different MCP error code).
@@ -234,7 +234,7 @@ Only one file changed, no stray files.
 ### 4. `git show --stat HEAD`
 
 ```
-commit 3f63611dc98f4ff62327845664faed34b8230208
+commit 285edcdd7aea1d0690d6021a1347d6fa475c6c2b
 Author: jonyduque <jonyduque@hotmail.com>
 Date:   Sun Jul 26 10:07:12 2026 -0300
 
@@ -265,7 +265,7 @@ Exactly one file changed (6 insertions, 3 deletions for the comment replacement)
 
 Third hardening pass fixed three regressions a reviewer confirmed by transcribing the standard library's Unix code paths and simulating a Linux run: (1) the unconditional trailing-dot/space rejection made legitimate Linux/macOS notes (`Notas `, `Arquivo.`) unreachable through `Resolve`, since the rule's entire justification is Windows-specific; (2) `validateLocal` guaranteeing a local, joined path made `ErrOutsideVault` unreachable from `Resolve` — traversal attempts surfaced as `caminho absoluto nao aceito` instead; (3) three tests (`drive apos ponto inicial`, `absoluto com drive`, and all of `TestCanonicalizeRejectsStandalone`) had no `windowsOnly` guard and would fail under `GOOS=linux`/`GOOS=darwin`, since `filepath.IsLocal`'s colon/device-name rejection lives only in the Windows implementation.
 
-Code and tests transcribed verbatim from `docs/superpowers/plans/2026-07-25-gobsidian-v01.md`, section "Task 7: Caminho canônico e confinamento" (as updated by commit `f06751f`, which corrected the plan doc itself but had not yet been applied to the actual `internal/vault` code — this pass applied it). No mechanical corrections were needed; the plan's code compiled and passed as written.
+Code and tests transcribed verbatim from `docs/superpowers/plans/2026-07-25-gobsidian-v01.md`, section "Task 7: Caminho canônico e confinamento" (as updated by commit `ebef15d`, which corrected the plan doc itself but had not yet been applied to the actual `internal/vault` code — this pass applied it). No mechanical corrections were needed; the plan's code compiled and passed as written.
 
 **Changes:**
 - `internal/vault/path.go`: rewrote `validateLocal` so check order determines the sentinel — NUL byte -> `ErrInvalidPath`; a `..` surviving `path.Clean` -> `ErrOutsideVault`; a rooted path, including the `C:algo` form `filepath.VolumeName` catches -> `ErrAbsolutePath`; anything else non-local (device names via `filepath.IsLocal`) -> `ErrInvalidPath`; then delegates to the new `validatePlatformPath`. Removed the inline trailing-dot/space loop from `validateLocal`.
@@ -344,7 +344,7 @@ All three match their expected sentinel via `errors.Is`.
 ### 7. Commit
 
 ```
-b85d695 fix(vault): gate windows-only path rules behind build tags
+ff825e3 fix(vault): gate windows-only path rules behind build tags
  4 files changed, 104 insertions(+), 51 deletions(-)
  create mode 100644 internal/vault/path_other.go
  create mode 100644 internal/vault/path_windows.go

@@ -121,7 +121,7 @@ None identified. The implementation:
 
 ## Fix pass — review findings
 
-Base commit: `1027d19`. Files touched: `internal/config/config.go`, `internal/config/config_test.go` (only these two; `defaults.go` needed no new constants). No new files created.
+Base commit: `e8028fa`. Files touched: `internal/config/config.go`, `internal/config/config_test.go` (only these two; `defaults.go` needed no new constants). No new files created.
 
 ### Finding 1 — `--read-only=false` couldn't override env
 
@@ -358,4 +358,4 @@ Output:
 ```
 Only the intended file modified.
 
-**Commit:** `8ef6376` — `test(config): fix cache directory guard to validate outside-vault requirement`
+**Commit:** `d124dda` — `test(config): fix cache directory guard to validate outside-vault requirement`

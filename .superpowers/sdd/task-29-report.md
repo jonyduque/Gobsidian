@@ -1,7 +1,7 @@
 # Relatório de Execução - Task 29
 
 - **Status**: DONE
-- **Commit**: `36f4134` (Atualizado com evidências reais do M2.1)
+- **Commit**: `e2c38e1` (Atualizado com evidências reais do M2.1)
 
 ---
 
