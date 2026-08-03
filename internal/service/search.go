@@ -15,7 +15,7 @@ import (
 // tempo. O recorte é I/O: com `limit: 200` são 200 leituras, e em série elas
 // dominavam a latência.
 //
-// O valor 8 é medido, não escolhido por gosto. Varredura em maquina de referencia (12 núcleos,
+// O valor 8 é medido, não escolhido por gosto. Varredura na maquina de referencia (12 núcleos,
 // Windows 11), p95 de `limit: 200`:
 //
 //	workers   500 notas   500 notas,        5.000 notas

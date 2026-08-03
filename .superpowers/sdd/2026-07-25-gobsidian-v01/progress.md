@@ -641,7 +641,7 @@ Corrigido em 55966ce, conferido campo a campo contra `service.StatsResult`.
 `scripts/measure.ps1` criado. Le `index_ms` do log de boot — campo novo — e
 amostra WorkingSet64; reporta o MAIOR RSS, nao o ultimo.
 
-Cofre de 7 notas, 3 execucoes, maquina de referencia/12 nucleos:
+Cofre de 7 notas, 3 execucoes, maquina de referencia de 12 nucleos:
   RNF-01 indexacao a frio : 5-8 ms      (alvo <= 3000)
   RNF-07 RSS em repouso   : 18,9-19,3 MB (alvo <= 60)
 

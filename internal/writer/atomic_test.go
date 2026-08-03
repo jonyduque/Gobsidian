@@ -48,7 +48,7 @@ func TestMain(m *testing.M) {
 // anterior matava num ponto fixo do relogio — 0 a 39 ms contados do
 // cmd.Start() — e o filho e o proprio binario de teste: antes de chegar em
 // WriteAtomic ele paga criacao de processo, init do runtime de Go e init do
-// framework de teste. Medido em 2026-08-01 no maquina de referencia (12 nucleos, Windows
+// framework de teste. Medido em 2026-08-01 na maquina de referencia (12 nucleos, Windows
 // 11), uma escrita NAO interrompida, do Start ao Wait:
 //
 //	sem -race:  min 43,3 ms   mediana 47,2 ms

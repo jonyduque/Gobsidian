@@ -446,7 +446,7 @@ func TestRNF04VaultSearchLatencyP95(t *testing.T) {
 //
 // Existe porque este teste era instavel do jeito errado: reprovava por carga
 // da maquina, num numero que nao mudou. Reproduzido em 2026-08-01 rodando
-// quatro copias do binario de teste ao mesmo tempo no maquina de referencia (12 nucleos) —
+// quatro copias do binario de teste ao mesmo tempo na maquina de referencia (12 nucleos) —
 // o formato `limit: 200` deu p95 de 100,6 / 102,9 / 107,4 ms contra o teto de
 // 100 ms em tres das quatro copias. Ocioso, o mesmo formato mede 81 ms. Um
 // deles estourou por 0,6%: cara ou coroa, nao medicao.

@@ -252,7 +252,7 @@ Quem denunciou a lacuna foi a guarda `orfaos == 0`, escrita junto com o teste e 
 Executado contra o cofre sintético gerado deterministicamente (`scripts/gen_vault.ps1 -Notes 5000 -Seed 42`: 5.000 notas, 50 anexos, 1.27 MB, 10.101 links, 1.518 quebrados).
 
 Todos os números abaixo são de **2026-08-01, depois da revisão da Task 72**, com
-`maxSnippetWorkers = 8`, em maquina de referencia (12 núcleos, Windows 11). A medição de
+`maxSnippetWorkers = 8`, na maquina de referencia (12 núcleos, Windows 11). A medição de
 latência roda **sem `-race`**: o detector multiplica o tempo por 2 a 6 e o número
 deixa de ser comparável com o teto.
 

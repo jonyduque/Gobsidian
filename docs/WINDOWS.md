@@ -31,7 +31,7 @@ Uma chamada que precise do conteúdo e encontre um placeholder inacessível falh
 **Diagnóstico.**
 
 ```powershell
-$VaultPath = "C:\Users\jonyd\OneDrive - Minha Organizacao\Meu Cofre\Meu Cofre"
+$VaultPath = "C:\Users\voce\OneDrive\Meu Cofre"
 
 $Files = Get-ChildItem -Path $VaultPath -Filter "*.md" -Recurse -File
 $CloudOnly = $Files | Where-Object { $_.Attributes -band [System.IO.FileAttributes]::Offline }
@@ -84,7 +84,7 @@ O limite histórico de 260 caracteres (`MAX_PATH`) ainda se aplica por padrão. 
 **Contagem para o cofre de referência:**
 
 ```
-C:\Users\jonyd\OneDrive - Minha Organizacao\Meu Cofre\Meu Cofre\
+C:\Users\voce\OneDrive\Meu Cofre\
 = 88 caracteres
 
 Restam 172 para subpastas e nome de arquivo.
@@ -312,7 +312,7 @@ $ErrorActionPreference = "Stop"
 
 $ConfigPath = Join-Path $env:APPDATA "Claude\claude_desktop_config.json"
 $BinaryPath = Join-Path $env:USERPROFILE "go\bin\gobsidian.exe"
-$VaultPath = "C:\Users\jonyd\OneDrive - Minha Organizacao\Meu Cofre\Meu Cofre"
+$VaultPath = "C:\Users\voce\OneDrive\Meu Cofre"
 
 if (-not (Test-Path $BinaryPath)) {
     Write-Warning "[!] Binario nao encontrado: $BinaryPath"

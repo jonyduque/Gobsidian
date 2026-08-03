@@ -262,7 +262,7 @@ func TestQ3PerformanceMeasurement(t *testing.T) {
 // de 0s para 4,1 ms.
 //
 // O teto vem da medição, não do RNF: 80 ms contra um p95 de 8,1 ms medido em
-// 2026-08-01 no maquina de referencia (12 núcleos, Windows 11), sem -race. Folga larga de
+// 2026-08-01 na maquina de referencia (12 núcleos, Windows 11), sem -race. Folga larga de
 // propósito — o defeito que este teste existe para pegar é ordem de grandeza,
 // não porcento: a varredura linear que a Task 61 pagou custava 174 ms.
 //
