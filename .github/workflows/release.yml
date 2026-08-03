@@ -28,7 +28,12 @@ jobs:
         run: |
           VERSION=${GITHUB_REF#refs/tags/}
           COMMIT=$(git rev-parse --short HEAD)
-          BUILD_DATE=$(date -u +"%Y-%M-%DThh:mm:ssZ")
+          # %Y-%m-%dT%H:%M:%SZ, e nao %Y-%M-%DThh:mm:ssZ. No date(1), %M e
+          # MINUTO e %D e a data no formato americano mm/dd/yy; hh, mm e ss
+          # minusculos nao sao especificadores e saem literais. A forma errada
+          # esteve aqui desde o inicio e carimbou "2026-58-08/03/26Thh:mm:ssZ"
+          # dentro dos binarios da v0.1.0 e da v1.0.0.
+          BUILD_DATE=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
           echo "version=${VERSION}" >> $GITHUB_OUTPUT
           echo "commit=${COMMIT}" >> $GITHUB_OUTPUT
           echo "build_date=${BUILD_DATE}" >> $GITHUB_OUTPUT
@@ -39,15 +44,28 @@ jobs:
           LDFLAGS: "-s -w -X main.version=${{ steps.vars.outputs.version }} -X main.commit=${{ steps.vars.outputs.commit }} -X main.buildDate=${{ steps.vars.outputs.build_date }}"
         run: |
           mkdir -p bin
-          GOOS=windows GOARCH=amd64 go build -ldflags="${LDFLAGS}" -o bin/gobsidian-windows-amd64.exe ./cmd/gobsidian
-          GOOS=darwin GOARCH=arm64 go build -ldflags="${LDFLAGS}" -o bin/gobsidian-darwin-arm64 ./cmd/gobsidian
-          GOOS=linux GOARCH=amd64 go build -ldflags="${LDFLAGS}" -o bin/gobsidian-linux-amd64 ./cmd/gobsidian
+          # -trimpath tira o caminho do runner dos simbolos: sem ele, o binario
+          # publicado carrega /home/runner/work/... embutido.
+          GOOS=windows GOARCH=amd64 go build -trimpath -ldflags="${LDFLAGS}" -o bin/gobsidian-windows-amd64.exe ./cmd/gobsidian
+          GOOS=darwin GOARCH=arm64 go build -trimpath -ldflags="${LDFLAGS}" -o bin/gobsidian-darwin-arm64 ./cmd/gobsidian
+          GOOS=linux GOARCH=amd64 go build -trimpath -ldflags="${LDFLAGS}" -o bin/gobsidian-linux-amd64 ./cmd/gobsidian
+
+      # Sem este arquivo o instalador ABORTA, e com razao: um binario sem soma
+      # publicada nao pode ser verificado. As releases anteriores nao o traziam.
+      # Os nomes sao gravados sem diretorio para que a soma seja conferivel do
+      # lado de quem baixa, que nao tem bin/.
+      - name: Generate SHA256SUMS.txt
+        run: |
+          cd bin
+          sha256sum gobsidian-* > SHA256SUMS.txt
+          cat SHA256SUMS.txt
 
       - name: Create Release
-        uses: softprops/action-gh-release@v1
+        uses: softprops/action-gh-release@v2
         with:
           files: |
             bin/gobsidian-windows-amd64.exe
             bin/gobsidian-darwin-arm64
             bin/gobsidian-linux-amd64
+            bin/SHA256SUMS.txt
           generate_release_notes: true
