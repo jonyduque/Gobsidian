@@ -66,7 +66,8 @@ $ProgressPreference = "SilentlyContinue"   # sem isto, Invoke-WebRequest fica or
 
 $Repo = "jonyduque/Gobsidian"
 $ExeName = "gobsidian.exe"
-$AssetName = "gobsidian_windows_amd64.exe"
+# A v0.1.0 nomeou com hifen; a v1.0.0 com sublinhado. Aceita-se as duas.
+$AssetNames = @("gobsidian_windows_amd64.exe", "gobsidian-windows-amd64.exe")
 $ServerKey = "gobsidian"
 
 # Saida em ASCII puro. Console PowerShell em CP-850 renderiza o resto como lixo,
@@ -144,22 +145,37 @@ catch {
 }
 Write-Ok "Versao: $Version"
 
-# Baixa um asset da release pelo NOME. Com token, resolve o id e usa o endpoint
-# da API — a URL publica de /releases/download nao aceita o cabecalho de
-# autorizacao e continuaria em 404 num repositorio privado.
+# Baixa um asset da release resolvendo o ID pela LISTA de assets, sempre — nunca
+# montando a URL de /releases/download a mao.
+#
+# Dois motivos, os dois medidos. Primeiro: num repositorio privado a URL publica
+# nao aceita o cabecalho de autorizacao e ficaria em 404. Segundo, e pior: quando
+# o nome nao existe, o GitHub REDIRECIONA para uma pagina HTML que responde 200,
+# e o Invoke-WebRequest grava esse HTML no arquivo de destino com toda a
+# aparencia de sucesso. A v0.1.0 deste projeto nomeia os binarios com HIFEN e a
+# v1.0.0 com SUBLINHADO; pedir o nome errado escrevia uma pagina do GitHub por
+# cima do que deveria ser um executavel.
+#
+# $Alternativas existe por causa dessa mesma divergencia de nomenclatura entre
+# releases: aceita-se o que a release realmente publicou.
 function Get-ReleaseAsset {
-    param([string]$Nome, [string]$Destino)
-    if ($Token) {
-        $asset = $Release.assets | Where-Object { $_.name -eq $Nome } | Select-Object -First 1
-        if (-not $asset) { throw "a release $Version nao traz o arquivo $Nome" }
-        $h = $Headers.Clone()
-        $h["Accept"] = "application/octet-stream"
-        Invoke-WebRequest -Uri $asset.url -Headers $h -OutFile $Destino -UseBasicParsing
+    param([string[]]$Alternativas, [string]$Destino)
+
+    $asset = $null
+    foreach ($n in $Alternativas) {
+        $asset = $Release.assets | Where-Object { $_.name -eq $n } | Select-Object -First 1
+        if ($asset) { break }
     }
-    else {
-        Invoke-WebRequest -Uri "https://github.com/$Repo/releases/download/$Version/$Nome" `
-            -OutFile $Destino -UseBasicParsing
+    if (-not $asset) {
+        $tem = ($Release.assets | ForEach-Object { $_.name }) -join ", "
+        throw ("a release $Version nao traz nenhum de: $($Alternativas -join ', '). " +
+               "Ela publica: $(if ($tem) { $tem } else { '(nenhum asset)' })")
     }
+
+    $h = $Headers.Clone()
+    $h["Accept"] = "application/octet-stream"
+    Invoke-WebRequest -Uri $asset.url -Headers $h -OutFile $Destino -UseBasicParsing
+    return $asset.name
 }
 
 # ----------------------------------------------------------------------------
@@ -170,9 +186,20 @@ $Tmp = Join-Path ([IO.Path]::GetTempPath()) ("gobsidian_install_" + [guid]::NewG
 New-Item -ItemType Directory -Path $Tmp | Out-Null
 
 try {
-    $TmpExe = Join-Path $Tmp $AssetName
-    Write-Step "Baixando $AssetName"
-    Get-ReleaseAsset -Nome $AssetName -Destino $TmpExe
+    $TmpExe = Join-Path $Tmp "gobsidian.exe"
+    Write-Step "Baixando o binario de Windows"
+    try {
+        $AssetName = Get-ReleaseAsset -Alternativas $AssetNames -Destino $TmpExe
+    }
+    catch {
+        # Sem isto, um asset ausente sai como excecao crua do PowerShell, com
+        # stack trace e sublinhado de codigo — o oposto do que serve a quem so
+        # queria instalar.
+        Write-Err "Nao foi possivel baixar o binario."
+        Write-Info $_.Exception.Message
+        return
+    }
+    Write-Ok "Baixado: $AssetName"
 
     # A conferencia de hash nao e opcional. Um instalador que baixa um
     # executavel e o poe no PATH sem verificar o que baixou e um buraco de
@@ -180,7 +207,7 @@ try {
     Write-Step "Conferindo SHA-256 contra SHA256SUMS.txt"
     $TmpSums = Join-Path $Tmp "SHA256SUMS.txt"
     try {
-        Get-ReleaseAsset -Nome "SHA256SUMS.txt" -Destino $TmpSums
+        $null = Get-ReleaseAsset -Alternativas @("SHA256SUMS.txt") -Destino $TmpSums
         $Sums = Get-Content -Path $TmpSums -Raw
     }
     catch {
