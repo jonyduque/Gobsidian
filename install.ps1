@@ -455,8 +455,8 @@ $Candidatos = @(
             # "unknown option '--vault'". Dentro de um array splatado o "--"
             # atravessa intacto.
             $cli = @("mcp", "add", $ServerKey, "--scope", "user", "--", $exe) + $a
-            & claude @cli 2>&1 | Out-Null
-            if ($LASTEXITCODE -ne 0) { throw "claude mcp add saiu $LASTEXITCODE" }
+            $saida = & claude @cli 2>&1
+            if ($LASTEXITCODE -ne 0) { throw "claude mcp add saiu $LASTEXITCODE`: $($saida -join ' ')" }
             "Registrado no escopo de usuario."
         }
     }
@@ -468,8 +468,8 @@ $Candidatos = @(
             param($exe, $a)
             # O gemini nao usa "--", entao nao sofre do problema do claude.
             $cli = @("mcp", "add", $ServerKey, $exe) + $a + @("--scope", "user")
-            & gemini @cli 2>&1 | Out-Null
-            if ($LASTEXITCODE -ne 0) { throw "gemini mcp add saiu $LASTEXITCODE" }
+            $saida = & gemini @cli 2>&1
+            if ($LASTEXITCODE -ne 0) { throw "gemini mcp add saiu $LASTEXITCODE`: $($saida -join ' ')" }
             "Registrado no escopo de usuario."
         }
     }
@@ -504,8 +504,8 @@ $Candidatos = @(
             # esta instalado na maquina onde o instalador foi desenvolvido —,
             # entao a falha aqui e reportada por host e nao derruba os demais.
             $cli = @("mcp", "add", $ServerKey, "--", $exe) + $a
-            & codex @cli 2>&1 | Out-Null
-            if ($LASTEXITCODE -ne 0) { throw "codex mcp add saiu $LASTEXITCODE" }
+            $saida = & codex @cli 2>&1
+            if ($LASTEXITCODE -ne 0) { throw "codex mcp add saiu $LASTEXITCODE`: $($saida -join ' ')" }
             "Registrado em ~/.codex/config.toml."
         }
     }
@@ -516,8 +516,8 @@ $Candidatos = @(
         Configura = {
             param($exe, $a)
             $def = @{ name = $ServerKey; command = $exe; args = $a } | ConvertTo-Json -Compress
-            & code --add-mcp $def 2>&1 | Out-Null
-            if ($LASTEXITCODE -ne 0) { throw "code --add-mcp saiu $LASTEXITCODE" }
+            $saida = & code --add-mcp $def 2>&1
+            if ($LASTEXITCODE -ne 0) { throw "code --add-mcp saiu $LASTEXITCODE`: $($saida -join ' ')" }
             "Registrado na configuracao de usuario do VS Code."
         }
     }
