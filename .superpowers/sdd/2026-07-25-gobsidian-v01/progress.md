@@ -161,6 +161,23 @@ Task 57: complete (commits 8a40a92..5d0f7c8, patch and append by heading, preser
   foi executado. README NAO foi tocado — segue falando de v0.1, que e a unica
   afirmacao verdadeira hoje. A sequencia de publicacao esta no relatorio.
 
+=== v1.0.1 PUBLICADA, 2026-08-03 ===
+Tag em a875c57, release com quatro assets. Corrige o boot que impedia
+conexao em cofres grandes.
+Um segundo defeito foi achado ANTES do release, testando o encerramento no
+meio da construcao: o encerramento levava ate 10 s, contra os 8 s que o
+harness de orfaos usa para declarar orfao. runServe faz wg.Wait() DEPOIS de
+lifecycle.Shutdown, entao a gravacao do cache parcial ficava fora de todo
+orcamento. A primeira tentativa de conserto envolveu a gravacao num
+WithTimeout e estava errada: SaveInvertedCache confere o context so na
+ENTRADA (persist.go:51), entao o teto limitava COMECAR e nao terminar --
+orcamento decorativo. O encerramento passou a sair sem gravar, registrando
+quanto trabalho descarta; a gravacao periodica caiu de 2 min para 60 s por
+ser a unica rede. Encerramento medido: 0,28 / 0,11 / 0,14 s.
+Gate de release verde: verify 10/10 e os tres cenarios de orfaos 100x cada.
+Instalador conferido de ponta a ponta: detectou a v1.0.0, atualizou para a
+v1.0.1 com SHA-256 conferindo.
+
 === BOOT ASSINCRONO, 2026-08-03 (commit 94a7469) ===
 Relato de uso: Claude Code recusava a conexao com timeout de 30 s no cofre
 real de 109 MB / 3.153 notas. O boot tokenizava o cofre inteiro ANTES de
