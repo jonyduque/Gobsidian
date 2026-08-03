@@ -1,0 +1,20 @@
+{
+  "name": "gobsidian-installer",
+  "version": "1.0.0",
+  "description": "Instala o gobsidian e o registra nos hosts de IA presentes na maquina (Windows, macOS, Linux).",
+  "type": "module",
+  "license": "MIT",
+  "engines": {
+    "node": ">=18"
+  },
+  "bin": {
+    "gobsidian-installer": "./install.js"
+  },
+  "files": [
+    "install.js"
+  ],
+  "dependencies": {
+    "chalk": "^5.3.0",
+    "consola": "^3.2.3"
+  }
+}
