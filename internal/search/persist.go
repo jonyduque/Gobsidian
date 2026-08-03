@@ -2,16 +2,20 @@ package search
 
 import (
 	"context"
-	"encoding/gob"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 )
 
 // Constantes de versionamento de cache (Task 49).
 const (
-	CacheFormatVersion   = 1
+	// Formato 4: codec binario proprio, tabela de caminhos, posicoes em varint
+	// com delta, totais adiantados para dimensionar a arena e docLengths
+	// gravado em vez de derivado. Ver persist_codec.go para o layout e os
+	// numeros que motivaram cada peca.
+	CacheFormatVersion   = 4
 	CacheParserVersion   = 1
 	CacheAnalyzerVersion = 1
 )
@@ -26,9 +30,21 @@ var (
 	ErrCacheCorrupted = errors.New("cache file corrupted")
 )
 
-// NewEncoderForTest expõe um gob.Encoder para suíte de testes de mutação.
-func NewEncoderForTest(w interface{ Write([]byte) (int, error) }) *gob.Encoder {
-	return gob.NewEncoder(w)
+// WriteCacheForTest escreve um cache no formato corrente, com o cabecalho que
+// o teste mandar.
+//
+// Substituiu NewEncoderForTest, que devolvia um gob.Encoder. Depois da troca de
+// formato, um arquivo gob deixa de ter a assinatura "GBS2" e e recusado logo na
+// primeira leitura — entao o teste de "versao de analisador divergente"
+// passaria sem nunca chegar a comparar versao nenhuma. Teste que passa pelo
+// motivo errado e pior que teste ausente.
+func WriteCacheForTest(
+	w io.Writer,
+	h CacheHeader,
+	termos map[string]map[string][]TokenPosition,
+	docLengths map[string]int,
+) error {
+	return escreveCache(w, h, termos, docLengths)
 }
 
 // CacheHeader guarda as versões e metadados de integridade do cache.
@@ -38,12 +54,6 @@ type CacheHeader struct {
 	AnalyzerVersion int
 	VaultPath       string
 	NoteCount       int
-}
-
-// InvertedCacheData é a estrutura serializada do índice invertido.
-type InvertedCacheData struct {
-	Header CacheHeader
-	Terms  map[string]map[string][]TokenPosition
 }
 
 // SaveInvertedCache salva o índice invertido em disco atomicamente.
@@ -67,10 +77,7 @@ func SaveInvertedCache(ctx context.Context, cacheDir string, vaultPath string, i
 		NoteCount:       inv.DocCount(),
 	}
 
-	data := InvertedCacheData{
-		Header: header,
-		Terms:  inv.ExportTermsForCache(),
-	}
+	termos, docLengths := inv.ExportForCache()
 
 	tmpFile, err := os.CreateTemp(cacheDir, ".gobsidian-tmp-cache-*.gob")
 	if err != nil {
@@ -78,11 +85,10 @@ func SaveInvertedCache(ctx context.Context, cacheDir string, vaultPath string, i
 	}
 	tmpPath := tmpFile.Name()
 
-	enc := gob.NewEncoder(tmpFile)
-	if err := enc.Encode(data); err != nil {
+	if err := escreveCache(tmpFile, header, termos, docLengths); err != nil {
 		_ = tmpFile.Close()
 		_ = os.Remove(tmpPath)
-		return fmt.Errorf("codificando gob de cache: %w", err)
+		return fmt.Errorf("codificando cache: %w", err)
 	}
 
 	if err := tmpFile.Close(); err != nil {
@@ -109,26 +115,29 @@ func LoadInvertedCache(ctx context.Context, cacheDir string, vaultPath string) (
 	}
 
 	finalPath := filepath.Join(cacheDir, "inverted_cache.gob")
-	f, err := os.Open(finalPath)
+	// os.ReadFile e nao os.Open: o decodificador trabalha sobre a fatia inteira
+	// (ver leitor em persist_codec.go), e ReadFile dimensiona o buffer pelo
+	// tamanho declarado no stat, numa alocacao so.
+	dados, err := os.ReadFile(finalPath)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
 			return nil, nil, ErrCacheNotFound
 		}
-		return nil, nil, fmt.Errorf("abrindo cache %q: %w", finalPath, err)
+		return nil, nil, fmt.Errorf("lendo cache %q: %w", finalPath, err)
 	}
-	defer func() { _ = f.Close() }()
 
-	var data InvertedCacheData
-	dec := gob.NewDecoder(f)
-	if err := dec.Decode(&data); err != nil {
+	h, termos, docLengths, err := leCache(dados)
+	if err != nil {
+		if errors.Is(err, ErrCacheVersionMismatch) {
+			return nil, nil, err
+		}
 		return nil, nil, ErrCacheCorrupted
 	}
 
-	h := data.Header
 	if h.FormatVersion != CacheFormatVersion || h.ParserVersion != CacheParserVersion || h.AnalyzerVersion != CacheAnalyzerVersion || (vaultPath != "" && h.VaultPath != vaultPath) {
 		return nil, &h, ErrCacheVersionMismatch
 	}
 
-	inv := NewInvertedFromCache(data.Terms)
+	inv := NewInvertedFromCache(termos, docLengths)
 	return inv, &h, nil
 }

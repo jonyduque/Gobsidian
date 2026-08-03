@@ -2,6 +2,7 @@ package search_test
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sync"
 	"testing"
@@ -140,5 +141,63 @@ func TestInvertedRemoveAndRecreateNoResidue(t *testing.T) {
 	}
 	if !ix.HasTerm("termo3") {
 		t.Errorf("termo3 da nova nota nao foi indexado")
+	}
+}
+
+func TestAdotarDeMoveConteudo(t *testing.T) {
+	origem := search.NewInverted()
+	origem.Add("a.md", search.Analyze("prescricao intercorrente"))
+
+	destino := search.NewInverted()
+	if err := destino.AdotarDe(origem); err != nil {
+		t.Fatalf("AdotarDe: %v", err)
+	}
+
+	if got := destino.DocCount(); got != 1 {
+		t.Errorf("destino.DocCount() = %d, quer 1", got)
+	}
+	if !destino.HasTerm("prescricao") {
+		t.Error("destino nao ficou com o termo adotado")
+	}
+	// A origem fica vazia e USAVEL: mapa nil aqui viraria panic num caminho
+	// que so acontece por engano, que e justamente quando ninguem quer um
+	// panic.
+	if got := origem.DocCount(); got != 0 {
+		t.Errorf("origem.DocCount() = %d, quer 0", got)
+	}
+	origem.Add("b.md", search.Analyze("outra"))
+	if got := origem.DocCount(); got != 1 {
+		t.Errorf("origem inutilizavel apos a adocao: DocCount() = %d", got)
+	}
+}
+
+// TestAdotarDeRecusaIndiceComConteudo guarda a perda silenciosa que a adocao
+// tardia do cache introduz.
+//
+// O cache passou a ser carregado fora do caminho de boot, entao o watcher e o
+// servico ja tem o ponteiro do indice quando o conteudo chega. Se um Add tiver
+// chegado antes, aplicar o cache por cima apagaria a edicao — e o sintoma seria
+// uma nota editada durante o boot sumir da busca ate o proximo reinicio, sem
+// erro nenhum. A ordem em runServe impede isso hoje; este teste garante que uma
+// mudanca de ordem falhe alto em vez de perder dado.
+func TestAdotarDeRecusaIndiceComConteudo(t *testing.T) {
+	origem := search.NewInverted()
+	origem.Add("do-cache.md", search.Analyze("prescricao"))
+
+	destino := search.NewInverted()
+	destino.Add("editada-durante-o-boot.md", search.Analyze("intercorrente"))
+
+	err := destino.AdotarDe(origem)
+	if !errors.Is(err, search.ErrIndiceNaoVazio) {
+		t.Fatalf("AdotarDe = %v, quer ErrIndiceNaoVazio", err)
+	}
+	if !destino.HasTerm("intercorrente") {
+		t.Error("a escrita anterior foi apagada pela adocao recusada")
+	}
+	if destino.HasTerm("prescricao") {
+		t.Error("a adocao recusada aplicou conteudo mesmo assim")
+	}
+	if origem.DocCount() != 1 {
+		t.Error("a adocao recusada esvaziou a origem")
 	}
 }

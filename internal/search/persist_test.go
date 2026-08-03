@@ -62,25 +62,27 @@ func TestCacheAnalyzerVersionMismatchDiscardsCache(t *testing.T) {
 		t.Fatalf("ReadFile: %v", err)
 	}
 
-	badData := search.InvertedCacheData{
-		Header: search.CacheHeader{
-			FormatVersion:   search.CacheFormatVersion,
-			ParserVersion:   search.CacheParserVersion,
-			AnalyzerVersion: 999, // Versão mutada
-			VaultPath:       vaultPath,
-			NoteCount:       1,
-		},
-		Terms: inv.ExportTermsForCache(),
+	badHeader := search.CacheHeader{
+		FormatVersion:   search.CacheFormatVersion,
+		ParserVersion:   search.CacheParserVersion,
+		AnalyzerVersion: 999, // Versão mutada
+		VaultPath:       vaultPath,
+		NoteCount:       1,
 	}
+
+	termos, docLengths := inv.ExportForCache()
 
 	f, err := os.Create(cachePath)
 	if err != nil {
 		t.Fatalf("Create: %v", err)
 	}
-	enc := search.NewEncoderForTest(f)
-	if err := enc.Encode(badData); err != nil {
+	// Escrito no formato CORRENTE de propósito: o arquivo precisa passar da
+	// mágica e do cabeçalho para que a comparação de analyzer_version chegue a
+	// acontecer. Com um arquivo de formato antigo, a recusa viria da assinatura
+	// e o teste passaria sem exercitar a regra que ele diz cobrir.
+	if err := search.WriteCacheForTest(f, badHeader, termos, docLengths); err != nil {
 		_ = f.Close()
-		t.Fatalf("Encode: %v", err)
+		t.Fatalf("WriteCacheForTest: %v", err)
 	}
 	_ = f.Close()
 
@@ -318,5 +320,62 @@ func TestBM25KernelLatency(t *testing.T) {
 	if !raceEnabled && p95Dur > teto {
 		t.Errorf("p95 %v excede o teto de %v deste teste (regressão algorítmica no "+
 			"kernel; o RNF-04 é medido em TestRNF04VaultSearchLatencyP95)", p95Dur, teto)
+	}
+}
+
+// TestIndiceRecarregadoEIdenticoAoConstruido guarda dois defeitos que estavam
+// juntos no mesmo lugar e nao apareciam em teste nenhum.
+//
+//  1. DocLength divergia. Ele era DERIVADO na leitura, somando o numero de
+//     posicoes de cada termo — e um token cuja forma reduzida difere da raiz
+//     entra em DUAS postings. Um documento de 5 tokens que todos reduzem media
+//     5 recem-construido e 10 recarregado do cache. DocLength e o divisor da
+//     normalizacao por tamanho do BM25: o mesmo cofre ranqueava diferente
+//     conforme o servidor tivesse acabado de indexar ou de ler o cache.
+//
+//  2. Nota sem token nenhum sumia. Ela nao entrava em docLengths, entao nao
+//     contava em DocCount, entao o cabecalho do cache declarava menos notas do
+//     que o indice de metadados via — e o boot achava o cache incompleto TODA
+//     vez, reconstruindo e regravando o cache inteiro a cada partida.
+//
+// O teste compara os dois indices campo a campo em vez de conferir um valor
+// esperado escrito a mao: assim ele continua valendo quando o analisador mudar.
+func TestIndiceRecarregadoEIdenticoAoConstruido(t *testing.T) {
+	cacheDir := t.TempDir()
+	vaultPath := t.TempDir()
+	ctx := context.Background()
+
+	// "prescricoes" e "intercorrentes" reduzem; "md" nao. A mistura importa:
+	// um corpus onde nada reduz passaria mesmo com o bug.
+	fresco := search.NewInverted()
+	fresco.Add("a.md", search.Analyze("prescricoes intercorrentes execucoes recursos"))
+	fresco.Add("b.md", search.Analyze("civil"))
+	fresco.Add("vazia.md", search.Analyze(""))
+
+	if err := search.SaveInvertedCache(ctx, cacheDir, vaultPath, fresco); err != nil {
+		t.Fatalf("SaveInvertedCache: %v", err)
+	}
+	lido, hdr, err := search.LoadInvertedCache(ctx, cacheDir, vaultPath)
+	if err != nil {
+		t.Fatalf("LoadInvertedCache: %v", err)
+	}
+
+	if lido.DocCount() != fresco.DocCount() {
+		t.Errorf("DocCount recarregado = %d, construido = %d", lido.DocCount(), fresco.DocCount())
+	}
+	if hdr.NoteCount != fresco.DocCount() {
+		t.Errorf("hdr.NoteCount = %d, quer %d — o boot compara isto com o indice de metadados",
+			hdr.NoteCount, fresco.DocCount())
+	}
+	for _, path := range []string{"a.md", "b.md", "vazia.md"} {
+		if !lido.HasDoc(path) {
+			t.Errorf("%s sumiu do cache", path)
+		}
+		if got, want := lido.DocLength(path), fresco.DocLength(path); got != want {
+			t.Errorf("DocLength(%s) recarregado = %d, construido = %d", path, got, want)
+		}
+	}
+	if lido.TermCount() != fresco.TermCount() {
+		t.Errorf("TermCount recarregado = %d, construido = %d", lido.TermCount(), fresco.TermCount())
 	}
 }

@@ -2,6 +2,7 @@ package search
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"sort"
@@ -73,11 +74,17 @@ func (ix *Inverted) Add(path string, tokens []Token) {
 
 	ix.removeLocked(path)
 
+	// Nota sem token nenhum entra em docLengths com zero, e nao fica de fora.
+	//
+	// Ficando de fora ela nunca contava como coberta: o cabecalho do cache
+	// gravava DocCount, o boot comparava com a contagem do indice de metadados,
+	// e um cofre com qualquer nota vazia dava "cache parcial" em TODO boot —
+	// medido no cofre de referencia, 4 notas vazias em 3.152 custavam uma
+	// reconstrucao e uma regravacao do cache inteiro a cada partida.
+	ix.docLengths[path] = len(tokens)
 	if len(tokens) == 0 {
 		return
 	}
-
-	ix.docLengths[path] = len(tokens)
 
 	for _, tok := range tokens {
 		pos := TokenPosition{Start: tok.Start, End: tok.End}
@@ -192,6 +199,19 @@ func (ix *Inverted) DocCount() int {
 	return len(ix.docLengths)
 }
 
+// HasDoc diz se a nota está no índice, INCLUSIVE quando ela não tem token
+// nenhum.
+//
+// Existe separada de DocLength porque `DocLength(p) > 0` responde outra
+// pergunta: uma nota vazia devolve 0 e seria lida de novo a cada retomada,
+// para sempre, sem nunca passar a contar como coberta.
+func (ix *Inverted) HasDoc(path string) bool {
+	ix.mu.RLock()
+	defer ix.mu.RUnlock()
+	_, ok := ix.docLengths[path]
+	return ok
+}
+
 // DocLength devolve o número total de tokens de uma nota indexada.
 func (ix *Inverted) DocLength(path string) int {
 	ix.mu.RLock()
@@ -223,10 +243,20 @@ func (ix *Inverted) Update(ctx context.Context, v *vault.Vault, path vault.Canon
 	return nil
 }
 
-// ExportTermsForCache faz uma cópia thread-safe dos termos do índice invertido para persistência.
-func (ix *Inverted) ExportTermsForCache() map[string]map[string][]TokenPosition {
+// ExportForCache faz uma cópia thread-safe do que vai para o disco.
+//
+// Devolve os dois mapas de uma vez, sob o MESMO RLock. Buscá-los em duas
+// chamadas deixaria uma janela em que o watcher indexa uma nota entre elas, e o
+// cache sairia com uma nota nas postings e ausente em docLengths — o bastante
+// para o boot seguinte declarar o cache incompleto e reconstruir tudo.
+func (ix *Inverted) ExportForCache() (map[string]map[string][]TokenPosition, map[string]int) {
 	ix.mu.RLock()
 	defer ix.mu.RUnlock()
+
+	comp := make(map[string]int, len(ix.docLengths))
+	for path, n := range ix.docLengths {
+		comp[path] = n
+	}
 
 	out := make(map[string]map[string][]TokenPosition, len(ix.terms))
 	for term, docMap := range ix.terms {
@@ -238,23 +268,79 @@ func (ix *Inverted) ExportTermsForCache() map[string]map[string][]TokenPosition 
 		}
 		out[term] = dCopy
 	}
-	return out
+	return out, comp
 }
 
-// NewInvertedFromCache reconstrói um índice invertido a partir de termos serializados.
-func NewInvertedFromCache(terms map[string]map[string][]TokenPosition) *Inverted {
+// ErrIndiceNaoVazio recusa a adoção de um cache sobre um índice que já recebeu
+// escritas. Ver AdotarDe.
+var ErrIndiceNaoVazio = errors.New("indice invertido nao esta vazio")
+
+// AdotarDe move o conteúdo de `outro` para dentro deste índice, sem copiar.
+//
+// Existe para que o cache possa ser carregado FORA do caminho de boot. O
+// watcher e o serviço recebem o ponteiro do índice antes de o cache estar lido;
+// trocar o ponteiro depois não é opção, então o conteúdo é que entra no índice
+// que eles já têm.
+//
+// Quem chama precisa garantir duas coisas:
+//
+//   - `outro` não pode estar acessível a mais ninguém. Ele é esvaziado.
+//   - nada pode ter escrito neste índice desde que ele foi criado.
+//
+// A segunda condição é a perigosa, e por isso ela NÃO fica só no comentário: a
+// adoção substitui o conteúdo, então um Add que tenha chegado antes dela seria
+// perdido sem deixar rastro, e o sintoma seria uma nota editada durante o boot
+// sumir da busca até o próximo reinício — um dado errado servido com confiança,
+// que é o modo de falha mais caro desta área. Índice não vazio devolve
+// ErrIndiceNaoVazio e nada é tocado; cabe a quem chama construir do zero, que é
+// lento e correto.
+func (ix *Inverted) AdotarDe(outro *Inverted) error {
+	if outro == nil {
+		return nil
+	}
+	ix.mu.Lock()
+	defer ix.mu.Unlock()
+	outro.mu.Lock()
+	defer outro.mu.Unlock()
+
+	if len(ix.terms) > 0 || len(ix.docLengths) > 0 {
+		return fmt.Errorf("%w: %d termos e %d documentos ja no indice",
+			ErrIndiceNaoVazio, len(ix.terms), len(ix.docLengths))
+	}
+
+	ix.terms = outro.terms
+	ix.docLengths = outro.docLengths
+
+	// `outro` fica vazio e utilizável, e não com mapas nil: um índice zerado por
+	// engano deve responder "sem resultados", não entrar em pânico.
+	outro.terms = make(map[string]map[string][]TokenPosition)
+	outro.docLengths = make(map[string]int)
+
+	return nil
+}
+
+// NewInvertedFromCache reconstrói um índice invertido a partir de termos
+// serializados e dos comprimentos por documento.
+//
+// `docLengths` vem pronto de quem decodificou. Antes esta função o recalculava
+// varrendo os termos inteiros — 3 milhões de postings espalhadas pelo heap,
+// medidas em 0,71 s no cofre de referência, gastos só para somar um número que
+// o decodificador já tinha em mãos ao ler cada posting. Nada aqui pode
+// depender dessa varredura de novo.
+//
+// `docLengths` nil é aceito e vira mapa vazio: cofre sem nota nenhuma é estado
+// legítimo, e distinguir isso de cache ausente é responsabilidade de
+// LoadInvertedCache, não desta função.
+func NewInvertedFromCache(terms map[string]map[string][]TokenPosition, docLengths map[string]int) *Inverted {
 	inv := NewInverted()
 	inv.mu.Lock()
 	defer inv.mu.Unlock()
 
-	docLengths := make(map[string]int)
 	if terms != nil {
 		inv.terms = terms
-		for _, docMap := range terms {
-			for path, posList := range docMap {
-				docLengths[path] += len(posList)
-			}
-		}
+	}
+	if docLengths == nil {
+		docLengths = make(map[string]int)
 	}
 	inv.docLengths = docLengths
 	return inv

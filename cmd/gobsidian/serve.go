@@ -85,10 +85,12 @@ func shutdownExitCode(err error) int {
 // e uma de 200 KB custam ordens de grandeza diferentes, e um contador de notas
 // da garantias diferentes em cofres diferentes.
 //
-// A gravacao NAO e incremental por dentro — cada uma serializa o cache inteiro,
-// que chega a 472 MB no cofre de referencia. Gravar a cada 250 notas custou
-// +39% no tempo total de construcao (303 s contra 219 s). Por tempo, o custo
-// nao aparece na medicao.
+// A gravacao NAO e incremental por dentro — cada uma serializa o cache inteiro.
+// Gravar a cada 250 notas custou +39% no tempo total de construcao (303 s
+// contra 219 s), medido quando o cache do cofre de referencia tinha 472 MB no
+// formato gob. Com o formato binario ele passou a 66 MB, entao esse custo so
+// pode ter caido — mas nao foi medido de novo, e o intervalo de 60 s nao foi
+// reajustado por causa disso.
 //
 // 60 s porque esta gravacao e a UNICA rede: o encerramento nao grava parcial
 // (ver o caminho de cancelamento em buildInvertedIndex), entao o que se perde e
@@ -120,6 +122,62 @@ func invertedCacheState(hdr *search.CacheHeader, err error, noteCount int) (pron
 	return false, true
 }
 
+// prepararIndiceDeBusca carrega o cache e completa o que faltar.
+//
+// Roda em segundo plano, fora do caminho de boot. Devolve com inv pronto ou com
+// o contexto cancelado; em nenhum outro caso o indice fica marcado em
+// construcao para sempre.
+//
+// Precisa rodar ANTES de o watcher comecar a consumir eventos: a adocao do
+// cache substitui o conteudo de inv. Ver search.Inverted.AdotarDe.
+func prepararIndiceDeBusca(
+	ctx context.Context,
+	v *vault.Vault,
+	idx *index.Index,
+	inv *search.Inverted,
+	cfg config.Config,
+	log *slog.Logger,
+) {
+	inicio := time.Now()
+	doCache, hdr, err := search.LoadInvertedCache(ctx, cfg.CacheDir, cfg.VaultPath)
+	pronta, retomar := invertedCacheState(hdr, err, idx.NoteCount())
+
+	// adotado separa "o cache nao servia" de "o cache servia mas nao pode ser
+	// aplicado". O segundo caso so acontece se alguem escreveu no indice antes
+	// desta funcao, o que a ordem em runServe impede — e se a ordem mudar, o
+	// recuo e construir do zero, nunca aplicar por cima.
+	adotado := func() bool {
+		if err := inv.AdotarDe(doCache); err != nil {
+			log.Warn("cache de busca nao aplicado; construindo do zero", "err", err)
+			return false
+		}
+		return true
+	}
+
+	switch {
+	case pronta && adotado():
+		inv.MarkReady()
+		log.Info("indice de busca pronto",
+			"origem", "cache",
+			"notas", idx.NoteCount(),
+			"duracao_ms", time.Since(inicio).Milliseconds())
+		return
+	case retomar && adotado():
+		log.Info("cache de busca parcial encontrado; retomando",
+			"no_cache", hdr.NoteCount, "no_cofre", idx.NoteCount(),
+			"carga_ms", time.Since(inicio).Milliseconds())
+	default:
+		// Cache ausente, de versao incompativel ou corrompido. Os tres levam ao
+		// mesmo lugar — construir do zero — e a distincao entre eles ja saiu no
+		// log de LoadInvertedCache.
+		if err != nil && !errors.Is(err, search.ErrCacheNotFound) {
+			log.Warn("cache de busca descartado", "err", err)
+		}
+	}
+
+	buildInvertedIndex(ctx, v, idx, inv, cfg, log)
+}
+
 // buildInvertedIndex tokeniza o cofre para dentro de inv e o marca pronto.
 //
 // Roda em segundo plano: ver o comentario no ponto de chamada. Marca pronto
@@ -147,10 +205,12 @@ func buildInvertedIndex(
 	jaCobertas := 0
 	ultimoSalvo := time.Now()
 	for _, p := range caminhos {
-		// Retomada: o que o cache parcial ja trouxe nao e relido. DocLength > 0
-		// e a pergunta "esta nota esta no indice?" — uma nota vazia daria 0 e
-		// seria relida, que custa uma leitura e nao muda o resultado.
-		if inv.DocLength(string(p)) > 0 {
+		// Retomada: o que o cache parcial ja trouxe nao e relido.
+		//
+		// HasDoc e nao DocLength > 0: uma nota vazia tem tamanho zero e estar
+		// no indice, e a versao antiga a relia a cada retomada sem nunca
+		// passar a conta-la como coberta.
+		if inv.HasDoc(string(p)) {
 			jaCobertas++
 			feitas++
 			continue
@@ -159,8 +219,10 @@ func buildInvertedIndex(
 			// Sai sem gravar, de proposito.
 			//
 			// SaveInvertedCache confere o context so na ENTRADA: uma vez comecada,
-			// a gravacao de um cache de 472 MB nao e interrompivel, e mediu ate
-			// 10 s num encerramento real. runServe faz wg.Wait() DEPOIS de
+			// a gravacao nao e interrompivel, e mediu ate 10 s num encerramento
+			// real quando o cache tinha 472 MB no formato gob. Hoje ele tem
+			// 66 MB; o raciocinio nao depende do numero, so de a gravacao nao
+			// ser interrompivel. runServe faz wg.Wait() DEPOIS de
 			// lifecycle.Shutdown, entao essa espera nao passa por orcamento
 			// nenhum — e o harness de orfaos conta como orfao o que nao morre em
 			// 8 s. Um WithTimeout aqui impediria COMECAR, nunca terminar: seria
@@ -193,6 +255,7 @@ func buildInvertedIndex(
 	salvar(false)
 	inv.MarkReady()
 	log.Info("indice de busca pronto",
+		"origem", "construcao",
 		"notas", feitas,
 		"reaproveitadas_do_cache", jaCobertas,
 		"duracao_ms", time.Since(inicio).Milliseconds())
@@ -240,40 +303,28 @@ func runServe(parent context.Context, cfg config.Config) error {
 		log.Warn("temporarios de escritas interrompidas removidos", "count", removidos)
 	}
 
-	// O indice invertido NAO bloqueia o anuncio das tools.
+	// Nem a construcao NEM o carregamento do cache bloqueiam o anuncio das
+	// tools.
 	//
-	// Ele custa proporcionalmente aos BYTES do cofre, nao a contagem de notas:
-	// num cofre real de 109 MB a tokenizacao levou 219 s, contra 1,3 s do
+	// A construcao custa proporcionalmente aos BYTES do cofre, nao a contagem de
+	// notas: num cofre real de 109 MB a tokenizacao levou 219 s, contra 1,3 s do
 	// indice de metadados. O host desiste do handshake MCP em 30 s e mata o
 	// processo — antes de SaveInvertedCache rodar, entao a tentativa seguinte
-	// recomecava do zero. Toda tentativa falhava pelo mesmo motivo, para
-	// sempre, e nada no log dizia isso: "servidor pronto" so aparecia depois.
+	// recomecava do zero. Toda tentativa falhava pelo mesmo motivo, para sempre,
+	// e nada no log dizia isso: "servidor pronto" so aparecia depois.
 	//
-	// Com cache valido nada disso acontece e o indice ja vem pronto.
-	// Um cache PARCIAL nao pode passar por completo.
+	// O carregamento do cache saiu do caminho de boot pelo mesmo raciocinio,
+	// aplicado a uma escala menor: medido em 1,83 s no cofre de referencia,
+	// contra 1,3 s do indice de metadados. Nao e o suficiente para estourar o
+	// handshake, mas era mais da metade do tempo ate o servidor responder, gasto
+	// numa estrutura que nenhuma tool precisa para ser anunciada.
 	//
-	// LoadInvertedCache confere versao de formato, de parser, de analisador e o
-	// caminho do cofre — nao confere COBERTURA. Como a construcao agora grava
-	// parciais (ver buildInvertedIndex), aceitar o que veio do disco sem olhar
-	// a contagem faria a busca servir um indice incompleto como se fosse
-	// completo: menos notas do que existem, entregues como resposta legitima.
-	//
-	// O cabecalho ja carrega NoteCount desde sempre, e ele e inv.DocCount() no
-	// momento da gravacao. Comparar com o indice de metadados, que acabou de
-	// varrer o cofre, e o que separa "pronto" de "retomar daqui".
-	inv, hdr, invErr := search.LoadInvertedCache(ctx, cfg.CacheDir, cfg.VaultPath)
-	buscaPronta, retomar := invertedCacheState(hdr, invErr, idx.NoteCount())
-	switch {
-	case buscaPronta:
-		// nada a fazer: o cache cobre o cofre inteiro
-	case retomar:
-		log.Info("cache de busca parcial encontrado; retomando",
-			"no_cache", hdr.NoteCount, "no_cofre", idx.NoteCount())
-		inv.MarkBuilding()
-	default:
-		inv = search.NewInverted()
-		inv.MarkBuilding()
-	}
+	// O indice entregue aqui esta VAZIO e marcado como em construcao. Quem
+	// consulta a busca nesse intervalo recebe INDEX_BUILDING, e nao zero
+	// resultados: cofre sem a palavra e indice ainda sem a palavra nao podem
+	// produzir a mesma resposta.
+	inv := search.NewInverted()
+	inv.MarkBuilding()
 
 	// watcher.New ANTES da construcao, e w.Run depois dela.
 	//
@@ -302,22 +353,31 @@ func runServe(parent context.Context, cfg config.Config) error {
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		if !buscaPronta {
-			buildInvertedIndex(ctx, v, idx, inv, cfg, log)
-		}
+		// prepararIndiceDeBusca ANTES de w.Run, e nao em paralelo com ele.
+		//
+		// A adocao do cache SUBSTITUI o conteudo do indice (ver
+		// search.Inverted.AdotarDe). Um evento do watcher aplicado antes dela
+		// seria descartado sem deixar rastro, e o sintoma seria uma nota editada
+		// durante o boot sumir da busca ate o proximo reinicio. Os eventos desse
+		// intervalo nao se perdem: watcher.New ja registrou os watches, entao
+		// eles ficam enfileirados no fsnotify e w.Run os consome em seguida.
+		prepararIndiceDeBusca(ctx, v, idx, inv, cfg, log)
 		_ = w.Run(ctx)
 	}()
 
 	// index_ms cobre SO o indice de metadados, e e o que RNF-01 nomeia.
-	// search_ready diz se a busca ja funciona; quando falso, o tempo ate ela
-	// ficar pronta aparece depois, em "indice de busca pronto".
+	//
+	// search_ready some daqui de proposito. Com o cache carregado em segundo
+	// plano, a busca NUNCA esta pronta neste ponto, e um campo que so pode
+	// valer false nao informa nada — informa errado, porque parece medir algo.
+	// Quando a busca fica pronta, "indice de busca pronto" diz quando e por que
+	// caminho.
 	log.Info("servidor pronto",
 		"vault", cfg.VaultPath,
 		"read_only", cfg.ReadOnly,
 		"notes", idx.NoteCount(),
 		"assets", idx.AssetCount(),
-		"index_ms", indexMS,
-		"search_ready", buscaPronta)
+		"index_ms", indexMS)
 
 	serveErr := make(chan error, 1)
 	go func() { serveErr <- srv.Serve(ctx, teed, os.Stdout) }()

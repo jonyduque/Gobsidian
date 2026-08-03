@@ -169,7 +169,7 @@ num cofre de 7 notas.
 | ID | Métrica (alvo) | Medição | Estado |
 |---|---|---|---|
 | **RNF-01** | Indexação a frio (≤ 3 s) | 500,11 ms no cofre sintético; **1,1 s** num cofre real de 109 MB | **Atingido** |
-| **RNF-02** | Boot com cache válido (≤ 300 ms) | 96,94 ms no cofre sintético; **~7 s** num cofre real de 109 MB | **NÃO ATINGIDO** |
+| **RNF-02** | Boot com cache válido (≤ 300 ms) | 96,94 ms no cofre sintético; **1,02–1,13 s** num cofre real de 109 MB (2026-08-03) | **NÃO ATINGIDO** |
 | **RNF-03** | `note_read` p95 (≤ 15 ms) | p95 **344,97 µs**, mediana 206,47 µs (5.000 notas) | **Atingido** |
 | **RNF-04** | `vault_search` p95 (≤ 100 ms) | 500 notas: 8 de 8, 7–25 ms. 5.000 notas: 7 de 8; `limit: 200` em **181,25 ms** | **Parcial** |
 | **RNF-05** | `note_list` com filtro de metadados p95 (≤ 10 ms) | p95 **533,68 µs**, mediana 249,24 µs (5.000 notas) | **Atingido** |
@@ -225,9 +225,86 @@ A construção do índice invertido passou a rodar em segundo plano
 pedem ações diferentes de quem chama. As outras onze tools funcionam desde o
 primeiro segundo, porque dependem só do índice de metadados.
 
-**RNF-02 segue não atingido**, e agora está escrito assim: ~7 s contra 300 ms. O
-teto foi escrito para um cofre de referência de 50 MB; o cofre real tem 109 MB e
-um cache de 472 MB para ler do disco.
+**RNF-02 seguia não atingido a ~7 s contra 300 ms**, num cofre real de 109 MB
+cujo cache tinha 472 MB para ler do disco. Ver a seção seguinte, que registra
+onde ele está depois do trabalho de 2026-08-03 sobre o formato do cache.
+
+### Formato do cache de busca e boot com cache quente (2026-08-03)
+
+O formato do cache era `gob` sobre `map[string]map[string][]TokenPosition`, e o
+carregamento dele era 86% do boot com cache quente. Ele foi substituído por um
+codec binário próprio (`internal/search/persist_codec.go`), e o carregamento
+saiu do caminho de boot.
+
+Todos os números abaixo são medidos, no mesmo cofre real e na mesma máquina.
+O antes vem de decodificar o arquivo `gob` de 505.643.791 bytes que estava em
+disco; o depois, de `BenchmarkLoadInvertedCacheReal` sobre o arquivo novo gerado
+do mesmo cofre.
+
+| Medida | Formato `gob` | Formato binário | Fator |
+|---|---|---|---|
+| Tamanho do arquivo | 505.643.791 B (482,2 MB) | 70.084.435 B (66,8 MB) | 7,2× menor |
+| Carregamento | 5,59 s | **1,59 s** ± 9% (n=6) | 3,5× |
+| Bytes alocados | 3,69 GB | **737,2 MiB** (n=6) | 5,0× |
+| Alocações | 13.035.004 | **643.413** (n=6) | 20,3× |
+
+Cofre de referência: 3.152 notas, 109 MB, 126.342 termos, 3.020.792 postings,
+18.229.295 posições.
+
+O que cada peça do formato paga:
+
+- **tabela de caminhos** — o caminho da nota era repetido em cada posting.
+  286,3 MB dos 471,6 MB eram a mesma string escrita 2,96 milhões de vezes.
+- **posições em varint sobre delta** — 16 bytes fixos por posição viraram 2 a 4.
+- **codec manual** — o perfil do `gob` era 63,9% de `decodeStruct` cumulativo,
+  gasto em reflexão.
+- **arena contígua** — as 2,96 milhões de fatias de posição viraram subfatias de
+  um bloco só, dimensionado por totais gravados no próprio arquivo.
+- **decodificação sobre `[]byte`** — `bufio` + `binary.ReadUvarint` custavam uma
+  chamada de interface por byte de varint: 30% do tempo restante. Medido em
+  −17,77% (p=0,002, n=6).
+
+**Boot com cache quente, medido em três partidas:**
+
+| Momento | Antes | Depois |
+|---|---|---|
+| Servidor anuncia as tools | ~7 s | **1,02–1,13 s** |
+| Busca fica utilizável | ~7 s | 1,58–1,66 s |
+
+O carregamento do cache saiu do caminho de boot pelo mesmo raciocínio que já
+havia tirado a construção. Enquanto ele corre, `vault_search` devolve
+`INDEX_BUILDING`.
+
+**RNF-02 segue não atingido: ~1,05 s contra 300 ms.** Está 6,7× mais perto do
+que estava, e o que sobra é dominado pela construção de mapas Go — 142 mil mapas
+internos e 3 milhões de entradas —, não mais por serialização. `search_ready`
+saiu do log de "servidor pronto": com o cache carregado em segundo plano ele só
+poderia valer `false`, e um campo que só pode ter um valor não informa nada.
+
+**GOGC não foi alterado.** `GOGC=off` sobre o carregamento mediu
+`~ (p=0,093, n=6)` — sem diferença significativa. Custaria RSS num requisito
+(RNF-07) que já está estourado, em troca de nada mensurável.
+
+#### Dois defeitos que este trabalho expôs
+
+Nenhum dos dois era hipotético; os dois estavam em produção e nenhum teste os
+via.
+
+**`DocLength` divergia entre índice construído e índice recarregado.** Ele era
+derivado na leitura, somando o número de posições de cada termo — e um token
+cuja forma reduzida difere da raiz entra em duas postings. Medido: um documento
+de 5 tokens que todos reduzem dava `DocLength` 5 recém-construído e **10**
+recarregado do cache. `DocLength` é o divisor da normalização por tamanho do
+BM25, então o mesmo cofre ranqueava diferente conforme o servidor tivesse
+acabado de indexar ou de ler o cache. `docLengths` passou a ser gravado no
+arquivo.
+
+**Nota sem token nenhum nunca contava como coberta.** Ela não entrava em
+`docLengths`, logo não entrava em `DocCount`, logo o cabeçalho do cache
+declarava menos notas do que o índice de metadados enxergava — e o boot
+concluía "cache parcial" em **toda** partida. No cofre de referência, 4 notas
+vazias em 3.152 custavam uma reconstrução e a regravação do cache inteiro a cada
+partida, medidas em 3,3 a 3,9 s por boot.
 
 **Quatro RNFs não estão atingidos**, e nenhum deles é ambíguo:
 
