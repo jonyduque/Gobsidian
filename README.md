@@ -1,201 +1,253 @@
+<div align="center">
+
 # gobsidian
 
-> Servidor MCP de alta performance para cofres locais do Obsidian, escrito em Go.
+**Servidor MCP para cofres locais do Obsidian. Um binário Go, sem runtime, sem processo órfão.**
 
-`gobsidian` expõe um cofre (*vault*) local do Obsidian a clientes MCP — Claude Desktop, Claude Code, VS Code, qualquer host compatível — através de um binário único, sem runtime externo, sem processos órfãos e com índice em memória construído no boot.
+[![Go](https://img.shields.io/badge/Go-1.25%2B-00ADD8?logo=go&logoColor=white)](https://go.dev)
+[![MCP](https://img.shields.io/badge/MCP-2025--11--25-6E56CF)](https://modelcontextprotocol.io)
+[![Plataformas](https://img.shields.io/badge/plataformas-Windows%20%7C%20Linux%20%7C%20macOS-informational)](#compatibilidade)
+[![Licença](https://img.shields.io/badge/licen%C3%A7a-MIT-green)](LICENSE)
 
-O projeto nasceu de três frustrações concretas com os servidores MCP de Obsidian existentes:
+[Visão geral](#visão-geral) •
+[Instalação](#instalação) •
+[Configuração](#configuração-no-host-mcp) •
+[Ferramentas](#ferramentas-mcp) •
+[CLI](#linha-de-comando) •
+[Desempenho](#desempenho) •
+[Documentação](#documentação)
 
-1. **Processos zumbi.** Servidores em Node deixam `node.exe` pendurados quando o host MCP é fechado abruptamente.
-2. **Lentidão em cofres grandes.** Reindexação completa a cada evento de arquivo, ou pior, *polling*.
-3. **Parsing incompleto.** Wikilinks, embeds, block-ids, propriedades e campos inline do Dataview não são Markdown padrão, e parsers genéricos quebram em casos de borda.
-
-`gobsidian` ataca os três diretamente. Ver [`docs/PRD.md`](docs/PRD.md) para o racional completo.
+</div>
 
 ---
 
-## Estado
+## Visão geral
 
-**v0.1 publicada**, etiquetada `v0.1.0`. Os portões de release rodaram: suíte com `-race` verde nos três alvos, `go vet` cruzado, ausência de rede verificada, e 100 ciclos de encerramento abrupto com **zero processos órfãos**.
+`gobsidian` expõe um cofre local do Obsidian a qualquer host MCP — Claude Desktop, Claude Code, VS Code — através de um executável único que fala JSON-RPC sobre stdio.
 
-A paridade com o *metadata cache* do Obsidian — a métrica de sucesso funcional do PRD §7 — foi verificada contra um dump real do aplicativo, e não contra a nossa leitura da documentação dele. Uma divergência deliberada ficou registrada: resolvemos link por *alias*, o Obsidian não.
+O projeto nasceu de três problemas concretos dos servidores MCP de Obsidian existentes:
 
-Capacidades implementadas:
-- Ciclo de vida completo (sem processos órfãos).
-- Parser completo, cobrindo wikilinks, embeds, block-ids, tags e aliases.
-- Índice em memória por deslocamento de byte — ler uma seção de 2 KB numa nota de 500 KB custa 2 KB.
-- 5 tools de leitura (`note_read`, `note_list`, `note_metadata`, `link_graph`, `tag_list`), mais `vault_stats`, e as notas publicadas como resources.
-
-Limitações atuais, e são reais:
-- **Somente leitura.** Nenhuma tool escreve no cofre.
-- **Sem *watcher*.** Se o cofre mudar no disco, é preciso **reiniciar o host MCP** para reindexar. Não há aviso de que o índice envelheceu; é o M2 que resolve isso.
-- **Sem busca *full-text*.** `note_list` filtra por metadados, não por conteúdo.
-- **O orçamento de desempenho não está validado.** As medições existentes são de um cofre de 7 notas e estabelecem o piso de ~19 MB de RSS, não o alvo de 5.000 notas. Ver [`docs/OPERACAO.md`](docs/OPERACAO.md) §5.
-
-Ver [`docs/PRD.md`](docs/PRD.md) §9 para os próximos passos (M2 a M6).
-
-Protocolo MCP alvo: `2025-11-25`.
-
-| Documento | Conteúdo |
+| Problema | O que `gobsidian` faz |
 |---|---|
-| [`docs/PRD.md`](docs/PRD.md) | Problema, objetivos, requisitos funcionais e não-funcionais, métricas, riscos, marcos |
-| [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) | Camadas, fluxos, modelo de dados, concorrência, ciclo de vida, decisões arquiteturais |
-| [`docs/ESTRUTURA.md`](docs/ESTRUTURA.md) | Árvore de diretórios, responsabilidade de cada pacote, convenções de código |
-| [`docs/TOOLS.md`](docs/TOOLS.md) | Superfície MCP: contrato de cada *tool*, schemas de entrada e saída, erros |
-| [`docs/WINDOWS.md`](docs/WINDOWS.md) | Particularidades de Windows: OneDrive, MAX_PATH, casing, fsnotify, build e registro |
+| Processos zumbi depois que o host fecha | Três mecanismos independentes de encerramento, verificados em 100 ciclos de morte abrupta cada |
+| Reindexação total a cada evento de arquivo | Watcher incremental com coalescência, e índice por deslocamento de byte |
+| Parsers genéricos que quebram em wikilink, embed e block-id | Parser próprio, congelado por 48 arquivos golden e conferido contra um dump real do `metadataCache` do Obsidian |
 
----
+### Funcionalidades
 
-## Princípios de projeto
+- **Leitura por offset.** O índice guarda o deslocamento de byte de cada heading e bloco. Ler uma seção de 2 KB numa nota de 500 KB custa 2 KB de I/O, não 500 KB.
+- **Busca full-text com BM25**, pesos por campo (título 3x, headings 2x, corpo 1x), busca por frase exata e filtros combináveis de pasta, tag, frontmatter e data.
+- **Analisador para português**: normalização de acentos, *case folding* e indexação dupla — a forma crua e a reduzida na mesma posting list, para que o recall venha do stem e a precisão venha do termo original.
+- **Escrita atômica e cirúrgica.** `note_append` e `note_patch` operam por heading ou por block-id: inserção delta em posição conhecida, não reescrita do arquivo inteiro. Toda escrita passa por temporário + rename, para que o Obsidian aberto ao lado nunca veja um arquivo pela metade.
+- **`note_move` reescreve os links.** Alias, âncora e forma original preservados; falha parcial reporta exatamente o que foi aplicado.
+- **Watcher incremental** com debounce, conjunto sujo e reconciliação por varredura quando o `fsnotify` estoura.
+- **Modo `--read-only`** que remove as tools de escrita de `ListTools` — ausentes, não apenas rejeitadas.
+- **Zero rede.** Nenhum pacote sob `internal/` ou `cmd/` importa `net`, e isso é cobrado no CI por um analisador de `go vet` nos três sistemas.
 
-**Um binário, zero dependências de runtime.** Sem Node, sem Python, sem .NET. `gobsidian.exe` e nada mais. Isso elimina de saída toda a classe de falhas de ambiente.
-
-**O cofre é a fonte da verdade, nunca o índice.** Toda escrita vai ao disco de forma atômica e completa. O índice é derivado e descartável — se corromper, reconstrói em segundos. `gobsidian` jamais mantém estado que só exista em memória.
-
-**Nunca decidir conteúdo pelo usuário.** As *tools* de escrita preenchem estrutura (seções, blocos, frontmatter) e reescrevem links quando arquivos se movem. Não reformatam, não "melhoram", não normalizam texto que o usuário escreveu.
-
-**Coexistência pacífica com o Obsidian aberto.** Escritas atômicas via arquivo temporário + rename, para que o Obsidian veja sempre um arquivo completo e válido, nunca um estado intermediário.
-
-**Encerrar quando o pai encerrar.** Detecção de EOF em stdin, sinais do SO e vigilância do PID pai. Três mecanismos independentes, porque o problema do processo órfão é o mais irritante de todos.
+> [!NOTE]
+> O cofre é a fonte da verdade; o índice é derivado e descartável. Se corromper, reconstrói em segundos. `gobsidian` nunca mantém estado que exista só em memória.
 
 ---
 
 ## Instalação
 
-### A partir do código-fonte
+### Binário pré-compilado
 
-Requer Go 1.25+.
+Baixe o executável do seu sistema em *Releases* e coloque em qualquer diretório do `PATH`. Não há instalador, não há serviço, não há registro no sistema.
+
+| Sistema | Arquivo |
+|---|---|
+| Windows x86-64 | `gobsidian_windows_amd64.exe` |
+| Linux x86-64 | `gobsidian_linux_amd64` |
+| macOS Apple Silicon | `gobsidian_darwin_arm64` |
+
+Confira o download contra o `SHA256SUMS.txt` publicado junto:
 
 ```powershell
+Get-FileHash .\gobsidian_windows_amd64.exe -Algorithm SHA256
+```
+
+### A partir do código-fonte
+
+Requer **Go 1.25 ou superior** — o piso vem do SDK oficial de MCP, não é preferência.
+
+```bash
 go install github.com/jonyd/gobsidian/cmd/gobsidian@latest
 ```
 
-O binário vai para `$env:GOPATH\bin\gobsidian.exe` (por padrão, `$env:USERPROFILE\go\bin\gobsidian.exe`). Confirme:
+Confirme:
 
-```powershell
-$GobsidianPath = Join-Path $env:USERPROFILE "go\bin\gobsidian.exe"
-if (Test-Path $GobsidianPath) { & $GobsidianPath version } else { Write-Warning "[!] Binario nao encontrado" }
+```bash
+gobsidian version
 ```
-
-### Binário pré-compilado
-
-Baixe de *Releases* e coloque em qualquer diretório do `PATH`. Não há instalador, não há registro no sistema, não há serviço.
 
 ---
 
-## Configuração no Claude Desktop
+## Configuração no host MCP
 
-Edite `claude_desktop_config.json` (em `$env:APPDATA\Claude\`):
+Aponte o host para o binário e para a raiz do cofre.
+
+**Claude Desktop** — `%APPDATA%\Claude\claude_desktop_config.json` no Windows, `~/Library/Application Support/Claude/claude_desktop_config.json` no macOS:
 
 ```json
 {
   "mcpServers": {
     "gobsidian": {
-      "command": "C:\\Users\\jonyd\\go\\bin\\gobsidian.exe",
-      "args": [
-        "serve",
-        "--vault",
-        "C:\\Users\\jonyd\\OneDrive - Minha Organizacao\\Meu Cofre\\Meu Cofre"
-      ]
+      "command": "C:\\Users\\voce\\go\\bin\\gobsidian.exe",
+      "args": ["serve", "--vault", "C:\\Users\\voce\\Documentos\\Meu Cofre"]
     }
   }
 }
 ```
 
-Notas importantes sobre esse JSON:
+> [!IMPORTANT]
+> Três erros respondem pela maioria das falhas de configuração no Windows:
+>
+> 1. **Barra invertida simples.** JSON exige escape: `\\` em cada separador.
+> 2. **Aspas a mais em volta de caminho com espaço.** Cada elemento de `args` já é uma string; aspas internas viram parte do caminho, e o servidor recebe algo que não existe.
+> 3. **Caminho relativo para o binário.** O host não herda necessariamente o `PATH` do seu shell. Use caminho absoluto.
 
-- **Barras invertidas duplicadas.** JSON exige escape. `\\` em cada separador.
-- **Caminhos com espaços não precisam de aspas extras** quando passados como elemento separado do array `args`. Aspas adicionais dentro da string são um erro comum e fazem o servidor receber um caminho inválido.
-- **Use caminho absoluto para o binário.** O host MCP não herda necessariamente o `PATH` do seu shell.
+### Opções de `serve`
 
-Para editar o arquivo com segurança em PowerShell:
+| Flag | Efeito |
+|---|---|
+| `--vault <caminho>` | Raiz do cofre. Obrigatória. |
+| `--read-only` | Remove toda a superfície de escrita. |
+| `--cache-dir <caminho>` | Diretório do cache de índice. Padrão: derivado de um hash do caminho do cofre, sempre **fora** do cofre. |
+| `--debounce-ms <n>` | Janela de coalescência de eventos do watcher. |
+| `--log-level <nível>` | `debug`, `info`, `warn` ou `error`. |
 
-```powershell
-$ConfigPath = Join-Path $env:APPDATA "Claude\claude_desktop_config.json"
-$Config = Get-Content $ConfigPath -Raw | ConvertFrom-Json
-$Config | ConvertTo-Json -Depth 10 | Out-File $ConfigPath -Encoding UTF8
-```
-
----
-
-## Uso via linha de comando
-
-`gobsidian` também funciona fora do MCP, o que é essencial para diagnóstico.
-
-```powershell
-# Servir via stdio (modo usado pelo host MCP)
-gobsidian serve --vault "C:\caminho\do\cofre"
-
-# Indexar e sair, imprimindo estatisticas
-gobsidian index --vault "C:\caminho\do\cofre" --stats
-
-# Diagnostico do ambiente: permissoes, OneDrive, MAX_PATH, casing
-gobsidian doctor --vault "C:\caminho\do\cofre"
-
-# Busca direta, sem MCP
-gobsidian search --vault "C:\caminho\do\cofre" --query "usucapiao extraordinaria" --limit 10
-
-# Inspecionar o parse de uma nota
-gobsidian inspect --vault "C:\caminho\do\cofre" --note "Civil/PONTO 03.md" --json
-```
-
-`gobsidian doctor` é o primeiro comando a rodar quando algo não funciona. Ele verifica o que costuma quebrar antes de qualquer outra coisa — cofre inexistente, permissões, arquivos OneDrive somente-nuvem, caminhos acima de 260 caracteres, colisões de casing entre pastas.
+> [!TIP]
+> Comece com `--read-only` até confiar na configuração. Você mantém busca, leitura e grafo de links, sem nenhuma tool capaz de tocar no disco.
 
 ---
 
-## Superfície MCP (resumo)
+## Ferramentas MCP
 
-Contratos completos em [`docs/TOOLS.md`](docs/TOOLS.md).
+Contratos completos, schemas e códigos de erro em [`docs/TOOLS.md`](docs/TOOLS.md).
 
 ### Leitura
 
-| Tool | Função |
+| Tool | O que faz |
 |---|---|
-| `vault_search` | Busca full-text com filtros por pasta, tag e frontmatter |
-| `note_read` | Lê nota inteira, ou uma seção por heading, ou um bloco por id |
-| `note_list` | Lista notas por glob, pasta, tag ou consulta de frontmatter |
-| `note_metadata` | Frontmatter, tags, links de saída, backlinks, headings, blocos |
-| `link_graph` | Vizinhança de links de uma nota, com profundidade configurável |
-| `tag_list` | Todas as tags do cofre com contagem |
-| `vault_stats` | Contagem de notas, órfãs, links quebrados, tamanho do índice |
+| `vault_search` | Busca full-text com ranking BM25, frase exata e filtros de pasta, tag, frontmatter e data |
+| `note_read` | Nota inteira, uma seção por heading, ou um bloco por `^id` |
+| `note_list` | Lista por glob, pasta, tag ou consulta de frontmatter |
+| `note_metadata` | Frontmatter, tags, links de saída, backlinks, headings e blocos |
+| `link_graph` | Vizinhança de links, com direção e profundidade configuráveis |
+| `tag_list` | Todas as tags do cofre, com contagem |
+| `vault_stats` | Notas, órfãs, links quebrados, âncoras quebradas e contadores do watcher |
 
 ### Escrita
 
-| Tool | Função |
+| Tool | O que faz |
 |---|---|
-| `note_create` | Cria nota, com frontmatter opcional, falhando se já existir |
-| `note_append` | Anexa ao fim da nota ou ao fim de uma seção específica |
-| `note_patch` | Substitui o conteúdo sob um heading ou de um bloco identificado |
+| `note_create` | Cria a nota, com frontmatter opcional, falhando se já existir |
+| `note_append` | Anexa ao fim da nota ou ao fim de uma seção |
+| `note_patch` | Substitui o conteúdo sob um heading ou de um bloco |
 | `note_move` | Move ou renomeia, reescrevendo todos os wikilinks que apontam para a nota |
-| `note_delete` | Remove nota, opcionalmente relatando links que ficarão quebrados |
+| `note_delete` | Remove, com relatório prévio dos links que vão quebrar |
 
-`note_append` e `note_patch` operando por heading são deliberadamente o centro de gravidade da API de escrita. Inserção delta em posição conhecida é mais segura, mais barata e mais revisável do que reescrever o arquivo inteiro.
+Todas as tools de escrita aceitam `dry_run` e `expected_hash`.
 
 ### Resources
 
-Notas são expostas também como *resources* MCP sob o esquema `gobsidian://`, permitindo que o host as anexe ao contexto sem chamada de tool. O esquema é próprio de propósito: `obsidian://` já pertence ao aplicativo Obsidian e é registrado no sistema operacional.
+As notas são publicadas como resources MCP sob `gobsidian:///<caminho>`, com escape percent, para que o host as anexe ao contexto sem chamada de tool.
+
+> [!NOTE]
+> O esquema é próprio de propósito: `obsidian://` pertence ao aplicativo Obsidian e é registrado no sistema operacional. As **três** barras também são deliberadas — em RFC 3986, o que vem depois de `//` é a autoridade, e com duas barras `Civil/PONTO 03.md` faria `Civil` virar nome de host.
 
 ---
 
-## Orçamento de performance
+## Linha de comando
 
-Metas medidas em cofre de referência: 5.000 notas, 50 MB, SSD NVMe, Windows 11.
+`gobsidian` funciona fora do MCP, o que é o que torna o diagnóstico possível.
 
-| Métrica | Alvo |
+```bash
+# Servir via stdio (é o que o host MCP executa)
+gobsidian serve --vault "/caminho/do/cofre"
+
+# Diagnosticar o ambiente antes de qualquer outra coisa
+gobsidian doctor --vault "/caminho/do/cofre"
+
+# Indexar e sair, com um resumo do cofre
+gobsidian index --vault "/caminho/do/cofre" --json
+
+# Buscar direto, sem host MCP
+gobsidian search "usucapiao extraordinaria" --vault "/caminho/do/cofre" --limit 10
+
+# Ver como uma nota foi interpretada
+gobsidian inspect "Civil/PONTO 03.md" --vault "/caminho/do/cofre" --json
+```
+
+> [!TIP]
+> `gobsidian doctor` é o primeiro comando a rodar quando algo não funciona. Ele verifica o que costuma quebrar antes de tudo: cofre inacessível, permissões, arquivos OneDrive somente-nuvem, caminhos acima de 260 caracteres e colisões de caixa entre pastas.
+
+`doctor` e `version` escrevem em **stdout** de propósito, porque são comandos de CLI. Em `serve`, stdout pertence inteiro ao JSON-RPC e todo log vai para stderr.
+
+---
+
+## Compatibilidade
+
+| Item | Estado |
 |---|---|
-| Indexação a frio | ≤ 3 s |
-| Boot com índice em cache | ≤ 300 ms |
-| `note_read` (p95) | ≤ 15 ms |
-| `vault_search` full-text (p95) | ≤ 100 ms |
-| Reindexação de um arquivo alterado | ≤ 20 ms |
-| RSS em repouso | ≤ 60 MB |
-| CPU em repouso | < 0,5 % |
-| Processos órfãos após término do host | 0 |
-
-A última linha é requisito de bloqueio de release, não meta de esforço.
+| Windows 10+ | Plataforma de primeira classe |
+| Linux (kernel 5.x+) e macOS 13+ | Suportados; o CI roda build, `vet` e `go test -race` nos três |
+| Protocolo MCP | `2025-11-25`. A negociação para versões anteriores (`2025-06-18`, `2025-03-26`, `2024-11-05`) é do SDK oficial, fixado em `v1.5.0` |
+| Cofres em OneDrive, Dropbox e Google Drive | Suportados, incluindo arquivos somente-nuvem, que nunca são abertos para não disparar download |
+| Caminhos acima de 260 caracteres no Windows | Suportados |
 
 ---
 
-## Licença
+## Desempenho
 
-MIT.
+Medido em cofre sintético determinístico de **5.000 notas** (`scripts/gen_vault.ps1 -Notes 5000 -Seed 42`), em maquina de referencia, 12 núcleos, Windows 11, sem `-race`.
+
+| Requisito | Alvo | Medido | Estado |
+|---|---|---|---|
+| Indexação a frio | ≤ 3 s | **500 ms** | Atingido |
+| Boot com cache válido | ≤ 300 ms | **97 ms** | Atingido |
+| `note_read` p95 | ≤ 15 ms | **345 µs** | Atingido |
+| `note_list` com filtro p95 | ≤ 10 ms | **534 µs** | Atingido |
+| `vault_search` p95 | ≤ 100 ms | 7 de 8 formatos | Parcial |
+| Reindexação de arquivo único | ≤ 20 ms | 20,35 ms | Não atingido |
+| RSS em repouso | ≤ 60 MB | 67 MB | Não atingido |
+| Processos órfãos após morte do host | 0 | **0 em 300 ciclos** | Atingido |
+
+> [!WARNING]
+> **Três requisitos não estão atingidos, e estão medidos.** `vault_search` com `limit: 200` custa 181 ms a 5.000 notas contra um teto de 100 ms; a reindexação de arquivo único passa 2% do alvo; e o RSS fica em 67 MB com cache quente e 113 MB depois de uma indexação a frio. CPU em repouso e linearidade até 20.000 notas **não foram medidos**.
+>
+> A tabela dos 22 requisitos não-funcionais, cada um com número medido ou a palavra "não medido", está em [`docs/OPERACAO.md`](docs/OPERACAO.md).
+
+O CI compara seis benchmarks contra uma referência versionada em `docs/bench-baseline.json` e **reprova o build** em regressão acima de 20%.
+
+---
+
+## Desenvolvimento
+
+```bash
+pwsh -File scripts/verify.ps1                        # bateria inteira, para no primeiro erro
+pwsh -File scripts/build.ps1                         # binário com versão embutida
+pwsh -File scripts/test_orphans.ps1 -Cycles 100 -Scenario parent-death
+golangci-lint run ./internal/... ./cmd/... ./tools/...
+```
+
+`verify.ps1` roda build, `go test -race`, os tetos de latência sem `-race`, `go vet` nos três alvos, `gofmt`, `golangci-lint`, a checagem de rede e a de parâmetros de schema. Existe porque uma lista solta de comandos convida a rodar três dos cinco.
+
+> [!IMPORTANT]
+> `golangci-lint` precisa ser **v2.12.2**. O `go.mod` declara `go 1.25.0`, e um binário compilado com Go mais antigo recusa o config antes de analisar uma linha — um zero local não diz nada sobre o CI. Confira com `golangci-lint version`.
+
+O gate de órfãos tem três cenários, um por mecanismo de encerramento, e **cada um desconecta os outros dois**: `stdin-eof`, `parent-death` (o pai morre com o stdin aberto) e `signal`. O harness reprova se o motivo registrado não for o do mecanismo que o cenário nomeia — cenário que encerra pelo motivo errado não testou o que promete.
+
+---
+
+## Documentação
+
+| Documento | Conteúdo |
+|---|---|
+| [`docs/PRD.md`](docs/PRD.md) | Problema, requisitos funcionais e não-funcionais, decisões fechadas, riscos, marcos |
+| [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) | Camadas, fluxos, modelo de dados, concorrência, ciclo de vida |
+| [`docs/ESTRUTURA.md`](docs/ESTRUTURA.md) | Árvore de diretórios, responsabilidade de cada pacote, convenções |
+| [`docs/TOOLS.md`](docs/TOOLS.md) | Contrato de cada tool: schemas de entrada e saída, códigos de erro |
+| [`docs/WINDOWS.md`](docs/WINDOWS.md) | OneDrive, MAX_PATH, caixa de caminhos, fsnotify, registro no Claude Desktop |
+| [`docs/OPERACAO.md`](docs/OPERACAO.md) | Medições, tabela completa de RNFs, diagnóstico e limites conhecidos |
