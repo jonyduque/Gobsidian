@@ -447,7 +447,15 @@ $Candidatos = @(
             param($exe, $a)
             # O proprio CLI escreve a config dele. Melhor do que eu adivinhar o
             # formato e o arquivo, que mudam entre versoes.
-            & claude mcp add $ServerKey --scope user -- $exe @a 2>&1 | Out-Null
+            #
+            # A lista inteira vai como ARRAY splatado, e nao escrita na linha de
+            # comando. O PowerShell trata "--" como fim-de-parametros e o REMOVE
+            # quando ele aparece literalmente, entao `claude mcp add nome -- exe
+            # serve --vault X` chegava ao claude sem o separador e falhava com
+            # "unknown option '--vault'". Dentro de um array splatado o "--"
+            # atravessa intacto.
+            $cli = @("mcp", "add", $ServerKey, "--scope", "user", "--", $exe) + $a
+            & claude @cli 2>&1 | Out-Null
             if ($LASTEXITCODE -ne 0) { throw "claude mcp add saiu $LASTEXITCODE" }
             "Registrado no escopo de usuario."
         }
@@ -458,7 +466,9 @@ $Candidatos = @(
         Detecta  = { Test-Exe "gemini" }
         Configura = {
             param($exe, $a)
-            & gemini mcp add $ServerKey $exe @a --scope user 2>&1 | Out-Null
+            # O gemini nao usa "--", entao nao sofre do problema do claude.
+            $cli = @("mcp", "add", $ServerKey, $exe) + $a + @("--scope", "user")
+            & gemini @cli 2>&1 | Out-Null
             if ($LASTEXITCODE -ne 0) { throw "gemini mcp add saiu $LASTEXITCODE" }
             "Registrado no escopo de usuario."
         }
@@ -489,7 +499,12 @@ $Candidatos = @(
         Detecta  = { Test-Exe "codex" }
         Configura = {
             param($exe, $a)
-            & codex mcp add $ServerKey -- $exe @a 2>&1 | Out-Null
+            # Mesmo cuidado do claude com o "--": array splatado, nunca
+            # literal. Nao foi possivel verificar este caminho — o codex nao
+            # esta instalado na maquina onde o instalador foi desenvolvido —,
+            # entao a falha aqui e reportada por host e nao derruba os demais.
+            $cli = @("mcp", "add", $ServerKey, "--", $exe) + $a
+            & codex @cli 2>&1 | Out-Null
             if ($LASTEXITCODE -ne 0) { throw "codex mcp add saiu $LASTEXITCODE" }
             "Registrado em ~/.codex/config.toml."
         }
