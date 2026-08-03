@@ -161,6 +161,27 @@ Task 57: complete (commits 8a40a92..5d0f7c8, patch and append by heading, preser
   foi executado. README NAO foi tocado — segue falando de v0.1, que e a unica
   afirmacao verdadeira hoje. A sequencia de publicacao esta no relatorio.
 
+=== BOOT ASSINCRONO, 2026-08-03 (commit 94a7469) ===
+Relato de uso: Claude Code recusava a conexao com timeout de 30 s no cofre
+real de 109 MB / 3.153 notas. O boot tokenizava o cofre inteiro ANTES de
+anunciar as tools: 1,3 s de indice de metadados e 219 s de indice invertido.
+O host matava o processo antes de SaveInvertedCache, entao a tentativa
+seguinte recomecava do zero -- impasse permanente, e nada no log dizia isso.
+Medido no cofre real, cache frio: anuncio das tools de 220 s para 2,18 s;
+busca utilizavel 206 s depois, em segundo plano. vault_search devolve
+INDEX_BUILDING enquanto isso, e nao uma lista curta.
+Um defeito foi introduzido e pego ANTES do commit: gravar caches parciais
+somado a LoadInvertedCache nao conferir COBERTURA fazia um cache parcial
+voltar do disco como completo, e a busca serviria um indice incompleto em
+silencio. invertedCacheState compara NoteCount do cabecalho com o indice de
+metadados: aceita, retoma ou reconstroi. Tres provas de mutacao verdes.
+DOIS RNFs estavam documentados como atingidos medindo SUB-ETAPAS: RNF-01
+(index_ms cobre so os metadados) e RNF-02 (96,94 ms sao LoadInvertedCache
+isolado; o boot quente real levava 8,6 s contra teto de 300 ms). RNF-02
+passou a constar como NAO ATINGIDO em docs/OPERACAO.md e no README.
+gen_vault.ps1 ganhou -BodyKB: o cofre sintetico tinha 1,27 MB em 5.000 notas
+e o real tem 109 MB em 3.148 -- o custo e por BYTES tokenizados.
+
 === v1.0.0 PUBLICADA, 2026-08-03 ===
 Repositorio tornado PUBLICO. Release v1.0.0 publicada em 9220aba, com quatro
 assets (tres binarios e SHA256SUMS.txt). Instalador de uma linha em install.ps1,
