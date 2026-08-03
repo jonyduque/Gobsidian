@@ -328,26 +328,55 @@ function Get-ObsidianVaults {
 
 if (-not $Vault) {
     $Encontrados = @(Get-ObsidianVaults)
-    if ($Encontrados.Count -eq 1 -and -not (Test-Interactive)) {
-        $Vault = $Encontrados[0]
-    }
-    elseif ($Encontrados.Count -gt 0 -and (Test-Interactive)) {
-        Write-Host ""
-        Write-Host "  Cofres que o Obsidian conhece:" -ForegroundColor Cyan
-        for ($i = 0; $i -lt $Encontrados.Count; $i++) {
-            Write-Host ("   [{0}] {1}" -f ($i + 1), $Encontrados[$i])
-        }
-        Write-Host "   [o] outro caminho"
-        Write-Host ""
-        $r = Read-Host "  Qual cofre"
-        if ($r -match '^\d+$' -and [int]$r -ge 1 -and [int]$r -le $Encontrados.Count) {
-            $Vault = $Encontrados[[int]$r - 1]
-        }
-    }
-}
 
-if (-not $Vault -and (Test-Interactive)) {
-    $Vault = (Read-Host "  Caminho do cofre Obsidian").Trim('"', ' ')
+    if (-not (Test-Interactive)) {
+        if ($Encontrados.Count -eq 1) { $Vault = $Encontrados[0] }
+    }
+    else {
+        # UM prompt so, que aceita numero do menu OU caminho, e que REPETE
+        # quando a resposta nao serve.
+        #
+        # A versao anterior tinha dois prompts em sequencia: o do menu e, se ele
+        # nao devolvesse um numero valido, um pedindo o caminho. Numa execucao
+        # real via `iex`, o primeiro Read-Host voltou vazio e o "1" que o usuario
+        # digitou caiu no SEGUNDO — que o tratou como caminho e reprovou com
+        # "Cofre nao encontrado: 1". Dois prompts diferentes, o de baixo colhendo
+        # o que era do de cima, e o erro apontando para o lugar errado.
+        for ($tentativa = 1; $tentativa -le 3 -and -not $Vault; $tentativa++) {
+            Write-Host ""
+            if ($Encontrados.Count -gt 0) {
+                Write-Host "  Cofres que o Obsidian conhece:" -ForegroundColor Cyan
+                for ($i = 0; $i -lt $Encontrados.Count; $i++) {
+                    Write-Host ("   [{0}] {1}" -f ($i + 1), $Encontrados[$i])
+                }
+                Write-Host ""
+                Write-Host "  Digite o NUMERO de um deles, ou cole o caminho de outro cofre." -ForegroundColor DarkGray
+            }
+            else {
+                Write-Host "  Nenhum cofre registrado pelo Obsidian foi encontrado." -ForegroundColor DarkGray
+                Write-Host "  Cole o caminho do cofre." -ForegroundColor DarkGray
+            }
+
+            $r = (Read-Host "  Cofre").Trim().Trim('"').Trim()
+
+            if (-not $r) {
+                Write-Warn "Resposta vazia."
+                continue
+            }
+            if ($r -match '^\d+$' -and [int]$r -ge 1 -and [int]$r -le $Encontrados.Count) {
+                $Vault = $Encontrados[[int]$r - 1]
+            }
+            elseif ($r -match '^\d+$') {
+                Write-Warn "Nao ha opcao $r. O menu vai de 1 a $($Encontrados.Count)."
+            }
+            elseif (Test-Path -Path $r -PathType Container) {
+                $Vault = $r
+            }
+            else {
+                Write-Warn "Nao existe um diretorio em: $r"
+            }
+        }
+    }
 }
 
 if (-not $Vault) {
