@@ -161,6 +161,22 @@ Task 57: complete (commits 8a40a92..5d0f7c8, patch and append by heading, preser
   foi executado. README NAO foi tocado — segue falando de v0.1, que e a unica
   afirmacao verdadeira hoje. A sequencia de publicacao esta no relatorio.
 
+=== v1.0.0 PUBLICADA, 2026-08-03 ===
+Repositorio tornado PUBLICO. Release v1.0.0 publicada em 9220aba, com quatro
+assets (tres binarios e SHA256SUMS.txt). Instalador de uma linha em install.ps1,
+provado ponta a ponta contra a release real: baixa, confere SHA-256, instala,
+detecta seis hosts e registra em Claude Desktop, Claude Code e Gemini CLI, com o
+servidor conferido CONECTADO. Idempotente em duas rodadas seguidas.
+Relatorio em .superpowers/sdd/task-77-release-report.md.
+Quatro defeitos so apareceram com release de verdade: o workflow nunca publicava
+SHA256SUMS.txt; a data de build usava %M/%D e carimbava lixo desde a v0.1.0; o
+PowerShell come o separador -- quando escrito literalmente; e `claude mcp add`
+recusa nome existente, o que quebrava a segunda rodada.
+Antes de publicar, o historico foi reescrito para tirar dados pessoais: 289
+commits, 374 SHAs remapeados em 86 arquivos pelo commit-map, nenhum ambiguo.
+Backup em bundle antes, conferido. A conferencia achou que a Task 28 estava
+registrada num SHA que nunca existiu — defeito anterior a reescrita, corrigido.
+
 === M6 FECHADO (Tasks 69-77), 2026-08-02 ===
 As seis tarefas delegadas ao modelo barato voltaram com cinco corretas e a 72
 reprovada na revisao (ver a entrada dela acima). Alem disso, a revisao encontrou

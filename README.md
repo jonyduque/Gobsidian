@@ -104,18 +104,22 @@ iex (irm https://raw.githubusercontent.com/jonyduque/Gobsidian/master/install.ps
 
 ### 📥 Binário pré-compilado
 
-Baixe o executável do seu sistema em *Releases* e coloque em qualquer diretório do `PATH`. Não há instalador, não há serviço, não há registro no sistema.
+Baixe o executável do seu sistema em [Releases](https://github.com/jonyduque/Gobsidian/releases) e coloque em qualquer diretório do `PATH`. Não há serviço, não há registro no sistema, não há nada para desinstalar além do arquivo.
 
 | Sistema | Arquivo |
 |---|---|
-| 🪟 Windows x86-64 | `gobsidian_windows_amd64.exe` |
-| 🐧 Linux x86-64 | `gobsidian_linux_amd64` |
-| 🍎 macOS Apple Silicon | `gobsidian_darwin_arm64` |
+| 🪟 Windows x86-64 | `gobsidian-windows-amd64.exe` |
+| 🐧 Linux x86-64 | `gobsidian-linux-amd64` |
+| 🍎 macOS Apple Silicon | `gobsidian-darwin-arm64` |
 
 Confira o download contra o `SHA256SUMS.txt` publicado junto:
 
 ```powershell
-Get-FileHash .\gobsidian_windows_amd64.exe -Algorithm SHA256
+(Get-FileHash .\gobsidian-windows-amd64.exe -Algorithm SHA256).Hash
+```
+
+```bash
+sha256sum -c SHA256SUMS.txt --ignore-missing
 ```
 
 ### 🔨 A partir do código-fonte

@@ -11,7 +11,13 @@ publicada** — ver "O que ficou de fora" e a seção de publicação.
 
 ---
 
-## Estado da release: PREPARADA, NÃO PUBLICADA
+## Estado da release: PUBLICADA em 2026-08-03
+
+Publicada depois, por decisão de quem pediu. A seção abaixo descreve o estado no
+fechamento da tarefa, quando ela ainda não existia; o que a publicação mudou está
+em `.superpowers/sdd/task-77-release-report.md`.
+
+## Estado no fechamento da tarefa: PREPARADA, NÃO PUBLICADA
 
 Isto é dito primeiro porque a armadilha que esta tarefa existe para não repetir é
 exatamente afirmar estado não verificado. O README já declarou "v0.1 publicada"
