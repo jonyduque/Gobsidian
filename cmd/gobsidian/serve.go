@@ -87,12 +87,13 @@ func shutdownExitCode(err error) int {
 //
 // A gravacao NAO e incremental por dentro — cada uma serializa o cache inteiro,
 // que chega a 472 MB no cofre de referencia. Gravar a cada 250 notas custou
-// +39% no tempo total de construcao (303 s contra 219 s), e comprou pouco: o
-// encerramento LIMPO ja grava o parcial pelo caminho de cancelamento abaixo, e
-// com a construcao em segundo plano o host nao mata mais o processo por
-// timeout. O que sobra e a morte abrupta, e para ela 2 minutos de perda maxima
-// e barganha melhor que 39% em toda construcao.
-const invertedSaveInterval = 2 * time.Minute
+// +39% no tempo total de construcao (303 s contra 219 s). Por tempo, o custo
+// nao aparece na medicao.
+//
+// 60 s porque esta gravacao e a UNICA rede: o encerramento nao grava parcial
+// (ver o caminho de cancelamento em buildInvertedIndex), entao o que se perde e
+// o trabalho desde a ultima passagem por aqui.
+const invertedSaveInterval = 60 * time.Second
 
 // invertedCacheState decide o que fazer com o que veio do disco.
 //
@@ -154,17 +155,23 @@ func buildInvertedIndex(
 			feitas++
 			continue
 		}
-		// Cancelamento durante a construcao e encerramento normal, e e o caso
-		// que mais importa: grava o parcial com o context JA cancelado, usando
-		// WithoutCancel, senao o proprio salvamento nasceria expirado e a
-		// proxima subida recomecaria do zero — que era o impasse original.
 		if ctx.Err() != nil {
-			log.Warn("construcao do indice de busca interrompida", "feitas", feitas, "de", len(caminhos))
-			if err := search.SaveInvertedCache(
-				context.WithoutCancel(ctx), cfg.CacheDir, cfg.VaultPath, inv,
-			); err != nil {
-				log.Warn("falha ao salvar cache invertido parcial no encerramento", "err", err)
-			}
+			// Sai sem gravar, de proposito.
+			//
+			// SaveInvertedCache confere o context so na ENTRADA: uma vez comecada,
+			// a gravacao de um cache de 472 MB nao e interrompivel, e mediu ate
+			// 10 s num encerramento real. runServe faz wg.Wait() DEPOIS de
+			// lifecycle.Shutdown, entao essa espera nao passa por orcamento
+			// nenhum — e o harness de orfaos conta como orfao o que nao morre em
+			// 8 s. Um WithTimeout aqui impediria COMECAR, nunca terminar: seria
+			// um orcamento decorativo.
+			//
+			// O que limita a perda e a gravacao periodica acima. Perder ate um
+			// intervalo de trabalho e barato; furar o requisito de bloqueio de
+			// release nao e.
+			log.Warn("construcao do indice de busca interrompida",
+				"feitas", feitas, "de", len(caminhos),
+				"perdido_desde_ultima_gravacao_ms", time.Since(ultimoSalvo).Milliseconds())
 			return
 		}
 		data, err := v.ReadAll(ctx, p)
