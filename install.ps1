@@ -454,6 +454,11 @@ $Candidatos = @(
             # serve --vault X` chegava ao claude sem o separador e falhava com
             # "unknown option '--vault'". Dentro de um array splatado o "--"
             # atravessa intacto.
+            # `claude mcp add` RECUSA um nome que ja existe, e o caminho de
+            # JSON deste mesmo instalador atualiza no lugar. Sem esta remocao,
+            # rodar o instalador duas vezes falhava so neste host, com
+            # "MCP server gobsidian already exists in user config".
+            & claude mcp remove $ServerKey --scope user 2>&1 | Out-Null
             $cli = @("mcp", "add", $ServerKey, "--scope", "user", "--", $exe) + $a
             $saida = & claude @cli 2>&1
             if ($LASTEXITCODE -ne 0) { throw "claude mcp add saiu $LASTEXITCODE`: $($saida -join ' ')" }
@@ -467,6 +472,9 @@ $Candidatos = @(
         Configura = {
             param($exe, $a)
             # O gemini nao usa "--", entao nao sofre do problema do claude.
+            # Mesma idempotencia do claude. O remove do gemini assume escopo
+            # de projeto por padrao, entao o --scope tem de ser explicito.
+            & gemini mcp remove $ServerKey --scope user 2>&1 | Out-Null
             $cli = @("mcp", "add", $ServerKey, $exe) + $a + @("--scope", "user")
             $saida = & gemini @cli 2>&1
             if ($LASTEXITCODE -ne 0) { throw "gemini mcp add saiu $LASTEXITCODE`: $($saida -join ' ')" }
@@ -503,6 +511,7 @@ $Candidatos = @(
             # literal. Nao foi possivel verificar este caminho — o codex nao
             # esta instalado na maquina onde o instalador foi desenvolvido —,
             # entao a falha aqui e reportada por host e nao derruba os demais.
+            & codex mcp remove $ServerKey 2>&1 | Out-Null
             $cli = @("mcp", "add", $ServerKey, "--", $exe) + $a
             $saida = & codex @cli 2>&1
             if ($LASTEXITCODE -ne 0) { throw "codex mcp add saiu $LASTEXITCODE`: $($saida -join ' ')" }
