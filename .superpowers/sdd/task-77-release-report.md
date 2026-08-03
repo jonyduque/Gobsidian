@@ -19,6 +19,50 @@ do instalador), e os do instalador entre `a98e2e3` e `29c8f58`.
 
 ---
 
+## Evidência de TDD e prova de mutação
+
+**Não há prova de mutação aqui, por construção**: o entregável é uma publicação e
+um instalador, não uma regra de código com teste Go. `scripts/mutate.ps1` roda
+teste Go com `-Test` e `-Package`, e nada disto é teste Go. O que a substitui é a
+saída real de cada rodada, colada.
+
+O ciclo existiu, e o vermelho foi encontrado rodando o instalador de verdade, não
+imaginado:
+
+### RED
+
+Quatro falhas reais, cada uma numa rodada contra a release publicada:
+
+```
+[!] SHA256SUMS.txt nao foi encontrado nesta release. Instalacao abortada.
+[!] Claude Code (CLI): claude mcp add saiu 1
+    (claude dizia: unknown option '--vault')
+[!] Claude Code (CLI): claude mcp add saiu 1: MCP server gobsidian already exists in user config
+gobsidian v1.0.0 (6c092b4) 2026-58-08/03/26Thh:mm:ssZ
+```
+
+A terceira linha só pôde ser lida porque a segunda motivou parar de descartar a
+saída dos CLIs — até então a falha aparecia como um código de saída nu.
+
+### GREEN
+
+Depois das quatro correções, contra a release real e sem fixar versão:
+
+```
+[OK] SHA-256 confere (2d785e15407c0a6f...)
+[i] gobsidian v1.0.0 (9220aba) 2026-08-03T12:14:14Z
+   ok        Claude Desktop, Claude Code (CLI), Gemini CLI
+```
+
+E duas rodadas seguidas, para a idempotência:
+
+```
+=== rodada 1 ===    ok        Claude Desktop, Claude Code (CLI), Gemini CLI
+=== rodada 2 ===    ok        Claude Desktop, Claude Code (CLI), Gemini CLI
+```
+
+---
+
 ## Quatro defeitos que só apareceram com uma release de verdade
 
 Nenhum deles era visível antes de existir algo publicado para consumir.
