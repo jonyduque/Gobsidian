@@ -107,16 +107,22 @@ gobsidian serve --vault "C:\Seu\Cofre" --log-level debug 2> "gobsidian.log"
 As mensagens vêm em `chave=valor`. A primeira que importa é a do boot, emitida assim que o índice fica pronto:
 
 ```
-time=2026-08-03T12:41:29.427-03:00 level=INFO msg="servidor pronto" vault="C:\Cofre" read_only=false notes=3153 assets=0 index_ms=1119 search_ready=false
+time=2026-08-04T12:41:29.427-03:00 level=INFO msg="servidor pronto" vault="C:\Cofre" read_only=false notes=3149 assets=0 index_ms=905
 ```
 
 `index_ms` é a duração da construção do índice de **metadados** — é o número que RNF-01 nomeia. Ele recorta só essa etapa: não inclui o boot do runtime do Go, a leitura da configuração nem o handshake do MCP.
 
-`search_ready` diz se a busca já funciona. Quando `false`, o índice invertido está sendo construído em segundo plano e duas outras linhas aparecem:
+**`search_ready` saiu desta linha em 2026-08-03.** Desde que o cache passou a ser carregado em segundo plano, a busca nunca está pronta neste ponto — o campo só poderia valer `false`, e um campo que só pode ter um valor não informa nada; informa errado, porque parece medir algo. Quando a busca fica pronta, uma segunda linha diz quando e por qual caminho:
 
 ```
-level=INFO msg="construindo indice de busca em segundo plano" notas=3153
-level=INFO msg="indice de busca pronto" notas=3153 reaproveitadas_do_cache=399 duracao_ms=206267
+level=INFO msg="indice de busca pronto" origem=cache notas=3149 duracao_ms=842
+```
+
+`origem=cache` é o caminho normal: o cache cobria o cofre inteiro. `origem=construcao` significa que o cofre foi tokenizado, e aí duas outras linhas aparecem antes:
+
+```
+level=INFO msg="construindo indice de busca em segundo plano" notas=3149
+level=INFO msg="indice de busca pronto" origem=construcao notas=3149 reaproveitadas_do_cache=399 duracao_ms=206267
 ```
 
 Enquanto isso, `vault_search` responde `INDEX_BUILDING`; as outras onze tools funcionam normalmente.
@@ -210,6 +216,17 @@ motivo, indefinidamente.
 O RNF-02 tinha o mesmo vício em escala menor: os 96,94 ms medem
 `LoadInvertedCache` isolado, e o boot com cache quente no cofre real levava
 **8,6 s** contra um teto de 300 ms.
+
+> [!IMPORTANT]
+> **As tabelas desta seção e das seguintes são por ETAPA, em ordem cronológica.**
+> Foram quatro mudanças no mesmo dia, cada uma medida contra a anterior, e o
+> "depois" de uma é o "antes" da próxima. Nenhum número intermediário descreve o
+> estado atual.
+>
+> **Estado corrente, medido em cinco partidas:** servidor anuncia as tools em
+> **832–1183 ms**, busca utilizável em **603–821 ms** depois disso, RSS em
+> repouso de **381 MB**. Está na tabela do fim de *Estrutura em memória: base
+> achatada e delta*.
 
 **Medições no cofre real de 109 MB / 3.153 notas, 2026-08-03:**
 

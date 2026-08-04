@@ -59,23 +59,25 @@ gobsidian/
 │   │   ├── alias.go              mapa alias → caminhos, do frontmatter
 │   │   ├── assets.go             registro de anexos (nome, tamanho, mtime)
 │   │   ├── anchors.go            validação de âncora de heading e de bloco
-│   │   ├── query.go              consultas por metadados (tag, pasta, frontmatter)
-│   │   ├── cache.go              serialização e carga do índice em disco
-│   │   └── reconcile.go          varredura de reconciliação pós-overflow
+│   │   └── query.go              consultas por metadados (tag, pasta, frontmatter)
 │   │
 │   ├── search/
-│   │   ├── search.go             fachada de busca
 │   │   ├── analyzer.go           tokenização, case folding, diacríticos, stemming
-│   │   ├── inverted.go           dicionário de termos e listas de postagem
+│   │   ├── inverted.go           índice em duas camadas: base imutável + delta
+│   │   ├── soa.go                base imutável em arrays achatados, com busca binária
 │   │   ├── bm25.go               ranking
 │   │   ├── snippet.go            extração de trecho com destaque
-│   │   └── persist.go            serialização do índice de busca
+│   │   ├── persist.go            carga e gravação atômica do cache
+│   │   └── persist_codec.go      codec binário do cache (formato 5)
 │   │
 │   ├── watcher/
 │   │   ├── watcher.go            fachada; encapsula fsnotify
 │   │   ├── debounce.go           janela de debounce e coalescência
 │   │   ├── filter.go             filtro de relevância de evento
-│   │   └── overflow.go           tratamento de ErrEventOverflow
+│   │   ├── apply.go              aplica lotes e reconciliação nos dois índices
+│   │   ├── rename.go             correlação de rename por hash de conteúdo
+│   │   ├── counters.go           contadores publicados em vault_stats
+│   │   └── overflow.go           varredura de reconciliação pós-overflow
 │   │
 │   ├── writer/
 │   │   ├── writer.go             fachada de escrita

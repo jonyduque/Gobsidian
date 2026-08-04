@@ -395,6 +395,9 @@ A listagem de resources é paginada e serve o índice em memória. Em cofres gra
 | `HEADING_NOT_FOUND` | Heading inexistente | A mensagem lista os headings disponíveis |
 | `AMBIGUOUS_HEADING` | Mesmo texto em mais de um lugar | Passar `heading_level` |
 | `BLOCK_NOT_FOUND` | Identificador de bloco inexistente | Verificar com `note_metadata` |
+| `AMBIGUOUS_BLOCK` | Mesmo identificador de bloco em mais de um lugar | Usar o caminho exato listado na mensagem |
+| `FOLDER_NOT_FOUND` | Diretório de destino inexistente | Só ocorre com `create_folders: false` em `note_create` e `note_move`; o padrão é `true` e cria os intermediários |
+| `INDEX_BUILDING` | O índice de busca ainda não cobre o cofre inteiro | Repetir em alguns segundos. **Só `vault_search` devolve isto**; as outras onze tools funcionam desde o primeiro segundo |
 | `HASH_MISMATCH` | Nota mudou desde a leitura | Reler e repetir |
 | `FILE_LOCKED` | Arquivo bloqueado após esgotar retries | Fechar a nota no Obsidian e repetir |
 | `CLOUD_ONLY_FILE` | Arquivo não hidratado pelo OneDrive | Abrir uma vez no Explorer, ou desmarcar "somente online" |
