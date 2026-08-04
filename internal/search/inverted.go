@@ -25,11 +25,59 @@ type Posting struct {
 	Frequency int             // Frequência do termo na nota
 }
 
-// Inverted é um índice invertido thread-safe com suporte a atualizações incrementais.
+// Inverted é um índice invertido thread-safe com suporte a atualizações
+// incrementais, em duas camadas.
+//
+// # Por que duas camadas
+//
+// O que vem do cache é grande e não muda: 126.342 termos e 3 milhões de
+// postings no cofre de referência. O que muda é minúsculo: as notas que o
+// usuário editou desde a partida. Guardar as duas coisas na mesma estrutura
+// obrigava a estrutura grande a ser mutável, e mutável significava um mapa por
+// termo — o que custava 35% do tempo de carga e a maior parte da memória.
+//
+//	base   arrays achatados, IMUTÁVEIS, vindos do cache (ver soa.go)
+//	delta  mapas, pequenos, com o que mudou desde a carga
+//
+// Toda leitura consulta as duas e o delta ganha. Toda escrita vai só para o
+// delta, e marca o caminho como substituído no base (`sombra`).
+//
+// Quando o índice é construído do zero — sem cache, ou cache incompleto — base
+// é nil e o delta é o índice inteiro. Esse caminho é exatamente o de antes, o
+// que importa porque é o caminho que a construção em segundo plano usa.
+//
+// # O que a sombra garante
+//
+// Um caminho em `sombra` está OBSOLETO no base. Nenhuma leitura pode devolver
+// posting, posição ou comprimento do base para ele — se devolvesse, uma nota
+// editada apareceria na busca com o conteúdo que tinha na partida, que é o tipo
+// de erro que ninguém percebe até confiar nele.
 type Inverted struct {
-	mu         sync.RWMutex
-	terms      map[string]map[string][]TokenPosition // termo -> (path -> posList)
-	docLengths map[string]int                        // path -> contagem total de tokens na nota
+	mu sync.RWMutex
+
+	// base é a metade imutável. nil quando o índice foi construído do zero.
+	base *baseSoA
+
+	// sombra guarda os caminhos do base já substituídos ou removidos. Só é
+	// mantida quando base != nil; sem base não há o que sombrear.
+	sombra map[string]bool
+
+	// sombraNoBase conta quantas entradas de `sombra` existem no base. É o que
+	// permite DocCount em O(1) — sem ele seria uma varredura por chamada, e
+	// DocCount é chamado uma vez por consulta pelo BM25.
+	sombraNoBase int
+
+	// postsVivasPorTermo[t] é quantas postings do termo t do base ainda não
+	// foram sombreadas. termosVivosBase conta quantos ainda têm alguma.
+	//
+	// Existem para TermCount continuar exato. A versão em mapa apagava o termo
+	// quando ele ficava sem documento, e `len(ix.terms)` respondia sozinho;
+	// aqui o base não pode ser alterado, então a contagem é mantida à parte.
+	postsVivasPorTermo []int32
+	termosVivosBase    int
+
+	terms      map[string]map[string][]TokenPosition // delta: termo -> (path -> posList)
+	docLengths map[string]int                        // delta: path -> total de tokens
 
 	// building diz que o índice NÃO cobre o cofre inteiro ainda.
 	//
@@ -72,6 +120,7 @@ func (ix *Inverted) Add(path string, tokens []Token) {
 	ix.mu.Lock()
 	defer ix.mu.Unlock()
 
+	ix.sombrearLocked(path)
 	ix.removeLocked(path)
 
 	// Nota sem token nenhum entra em docLengths com zero, e nao fica de fora.
@@ -112,9 +161,40 @@ func (ix *Inverted) addTermPositionLocked(term, path string, pos TokenPosition) 
 func (ix *Inverted) Remove(path string) {
 	ix.mu.Lock()
 	defer ix.mu.Unlock()
+	ix.sombrearLocked(path)
 	ix.removeLocked(path)
 }
 
+// sombrearLocked declara que o base está obsoleto para este caminho.
+//
+// O custo desta função é o motivo de o base carregar um índice direto
+// (documento -> termos). Na representação em mapa, o equivalente varria os
+// 126.342 termos a CADA arquivo mudado, só para apagar o caminho de cada um.
+// Aqui percorre os termos daquela nota — algumas centenas.
+func (ix *Inverted) sombrearLocked(path string) {
+	if ix.base == nil {
+		return
+	}
+	if ix.sombra[path] {
+		return
+	}
+	id, ok := ix.base.idPorCaminho[path]
+	if !ok {
+		// Caminho que não existe no base. Não há o que sombrear, e registrá-lo
+		// faria sombraNoBase contar o que não está lá.
+		return
+	}
+	ix.sombra[path] = true
+	ix.sombraNoBase++
+	for _, t := range ix.base.termosDoDoc(id) {
+		ix.postsVivasPorTermo[t]--
+		if ix.postsVivasPorTermo[t] == 0 {
+			ix.termosVivosBase--
+		}
+	}
+}
+
+// removeLocked apaga o caminho do DELTA. O base é tratado por sombrearLocked.
 func (ix *Inverted) removeLocked(path string) {
 	delete(ix.docLengths, path)
 	for term, docs := range ix.terms {
@@ -125,6 +205,11 @@ func (ix *Inverted) removeLocked(path string) {
 	}
 }
 
+// obsoletoNoBaseLocked diz se o base deve ser ignorado para este caminho.
+func (ix *Inverted) obsoletoNoBaseLocked(path string) bool {
+	return ix.base == nil || ix.sombra[path]
+}
+
 // Postings devolve as ocorrências de um termo (normalizado) no índice.
 // Os resultados são ordenados deterministicamente por caminho de nota.
 func (ix *Inverted) Postings(term string) []Posting {
@@ -133,13 +218,42 @@ func (ix *Inverted) Postings(term string) []Posting {
 	ix.mu.RLock()
 	defer ix.mu.RUnlock()
 
-	docs, ok := ix.terms[norm]
-	if !ok {
-		return nil
+	doDelta := ix.terms[norm]
+
+	var doBase []Posting
+	if ix.base != nil {
+		if t, ok := ix.base.buscaTermo(norm); ok {
+			ini, fim := ix.base.termIni[t], ix.base.termIni[t+1]
+			doBase = make([]Posting, 0, fim-ini)
+			for j := ini; j < fim; j++ {
+				path := ix.base.caminhos[ix.base.postPath[j]]
+				if ix.sombra[path] {
+					continue
+				}
+				pos := ix.base.posicoesDaPosting(j)
+				doBase = append(doBase, Posting{
+					Path:      path,
+					Positions: pos,
+					Frequency: len(pos),
+				})
+			}
+		}
 	}
 
-	result := make([]Posting, 0, len(docs))
-	for path, posList := range docs {
+	if len(doDelta) == 0 {
+		// As postings do base já saem ordenadas por caminho, porque o pathID é
+		// a posição no vetor ordenado de caminhos e o arquivo grava as postings
+		// de cada termo por pathID crescente (conferido em validaOrdem). Sem o
+		// delta não há o que reordenar, e este é o caso comum: consulta num
+		// índice recém-carregado, sem edição nenhuma desde a partida.
+		return doBase
+	}
+
+	result := doBase
+	if result == nil {
+		result = make([]Posting, 0, len(doDelta))
+	}
+	for path, posList := range doDelta {
 		result = append(result, Posting{
 			Path:      path,
 			Positions: posList,
@@ -161,16 +275,31 @@ func (ix *Inverted) Positions(term, path string) []TokenPosition {
 	ix.mu.RLock()
 	defer ix.mu.RUnlock()
 
-	docs, ok := ix.terms[norm]
+	if posList := ix.terms[norm][path]; len(posList) > 0 {
+		res := make([]TokenPosition, len(posList))
+		copy(res, posList)
+		return res
+	}
+	// O delta não tem. Se o caminho foi tocado desde a carga, o base está
+	// obsoleto para ele e responder dali devolveria a versão da partida.
+	if ix.obsoletoNoBaseLocked(path) {
+		return nil
+	}
+	t, ok := ix.base.buscaTermo(norm)
 	if !ok {
 		return nil
 	}
-	posList := docs[path]
-	if len(posList) == 0 {
+	id, ok := ix.base.idPorCaminho[path]
+	if !ok {
 		return nil
 	}
-	res := make([]TokenPosition, len(posList))
-	copy(res, posList)
+	j, ok := ix.base.buscaPosting(t, id)
+	if !ok {
+		return nil
+	}
+	pos := ix.base.posicoesDaPosting(j)
+	res := make([]TokenPosition, len(pos))
+	copy(res, pos)
 	return res
 }
 
@@ -181,22 +310,49 @@ func (ix *Inverted) HasTerm(term string) bool {
 	ix.mu.RLock()
 	defer ix.mu.RUnlock()
 
-	docs, ok := ix.terms[norm]
-	return ok && len(docs) > 0
+	if docs := ix.terms[norm]; len(docs) > 0 {
+		return true
+	}
+	if ix.base == nil {
+		return false
+	}
+	t, ok := ix.base.buscaTermo(norm)
+	return ok && ix.postsVivasPorTermo[t] > 0
 }
 
 // TermCount devolve a quantidade de termos ativos no dicionário.
+//
+// Percorre o delta e não o base: o base contribui com um contador mantido em
+// sombrearLocked, e o delta tem os termos de algumas notas. O laço existe para
+// não contar duas vezes um termo que está vivo nos dois lados.
 func (ix *Inverted) TermCount() int {
 	ix.mu.RLock()
 	defer ix.mu.RUnlock()
-	return len(ix.terms)
+
+	if ix.base == nil {
+		return len(ix.terms)
+	}
+	n := ix.termosVivosBase
+	for termo := range ix.terms {
+		if t, ok := ix.base.buscaTermo(termo); ok && ix.postsVivasPorTermo[t] > 0 {
+			continue
+		}
+		n++
+	}
+	return n
 }
 
 // DocCount devolve o número de notas indexadas.
+//
+// Um caminho sombreado sai do base e, se foi reindexado, volta pelo delta —
+// contado uma vez. Se foi removido, não volta.
 func (ix *Inverted) DocCount() int {
 	ix.mu.RLock()
 	defer ix.mu.RUnlock()
-	return len(ix.docLengths)
+	if ix.base == nil {
+		return len(ix.docLengths)
+	}
+	return len(ix.base.caminhos) - ix.sombraNoBase + len(ix.docLengths)
 }
 
 // HasDoc diz se a nota está no índice, INCLUSIVE quando ela não tem token
@@ -208,7 +364,13 @@ func (ix *Inverted) DocCount() int {
 func (ix *Inverted) HasDoc(path string) bool {
 	ix.mu.RLock()
 	defer ix.mu.RUnlock()
-	_, ok := ix.docLengths[path]
+	if _, ok := ix.docLengths[path]; ok {
+		return true
+	}
+	if ix.obsoletoNoBaseLocked(path) {
+		return false
+	}
+	_, ok := ix.base.idPorCaminho[path]
 	return ok
 }
 
@@ -216,7 +378,17 @@ func (ix *Inverted) HasDoc(path string) bool {
 func (ix *Inverted) DocLength(path string) int {
 	ix.mu.RLock()
 	defer ix.mu.RUnlock()
-	return ix.docLengths[path]
+	if n, ok := ix.docLengths[path]; ok {
+		return n
+	}
+	if ix.obsoletoNoBaseLocked(path) {
+		return 0
+	}
+	id, ok := ix.base.idPorCaminho[path]
+	if !ok {
+		return 0
+	}
+	return int(ix.base.docLen[id])
 }
 
 // Update lê uma nota do vault, remove BOM, analisa os tokens e atualiza o índice invertido.
@@ -253,20 +425,69 @@ func (ix *Inverted) ExportForCache() (map[string]map[string][]TokenPosition, map
 	ix.mu.RLock()
 	defer ix.mu.RUnlock()
 
-	comp := make(map[string]int, len(ix.docLengths))
+	// O base entra primeiro e o delta sobrescreve, que é a mesma precedência
+	// das leituras. Materializar mapas aqui é caro, e é deliberado: esta função
+	// só roda em SaveInvertedCache, que por sua vez só roda dentro da
+	// construção do índice. No caminho de cache completo — o comum — nada disto
+	// executa. Se um dia a gravação passar a acontecer com o índice já
+	// carregado, este é o lugar que vai precisar de um iterador em vez de uma
+	// cópia.
+	nDocs := len(ix.docLengths)
+	nTermos := len(ix.terms)
+	if ix.base != nil {
+		nDocs += len(ix.base.caminhos) - ix.sombraNoBase
+		nTermos += ix.termosVivosBase
+	}
+
+	comp := make(map[string]int, nDocs)
+	out := make(map[string]map[string][]TokenPosition, nTermos)
+
+	if ix.base != nil {
+		for id, path := range ix.base.caminhos {
+			if ix.sombra[path] {
+				continue
+			}
+			comp[path] = int(ix.base.docLen[id])
+		}
+		for t := 0; t+1 < len(ix.base.termIni); t++ {
+			ini, fim := ix.base.termIni[t], ix.base.termIni[t+1]
+			var dCopy map[string][]TokenPosition
+			for j := ini; j < fim; j++ {
+				path := ix.base.caminhos[ix.base.postPath[j]]
+				if ix.sombra[path] {
+					continue
+				}
+				if dCopy == nil {
+					dCopy = make(map[string][]TokenPosition, fim-ini)
+				}
+				pos := ix.base.posicoesDaPosting(j)
+				pCopy := make([]TokenPosition, len(pos))
+				copy(pCopy, pos)
+				dCopy[path] = pCopy
+			}
+			// Termo sem nenhuma posting viva não entra: a versão em mapa
+			// apagava o termo quando ele esvaziava, e o cache gravado precisa
+			// dizer a mesma coisa que o índice em memória diz.
+			if dCopy != nil {
+				out[ix.base.termos[t]] = dCopy
+			}
+		}
+	}
+
 	for path, n := range ix.docLengths {
 		comp[path] = n
 	}
-
-	out := make(map[string]map[string][]TokenPosition, len(ix.terms))
 	for term, docMap := range ix.terms {
-		dCopy := make(map[string][]TokenPosition, len(docMap))
+		dCopy := out[term]
+		if dCopy == nil {
+			dCopy = make(map[string][]TokenPosition, len(docMap))
+			out[term] = dCopy
+		}
 		for path, posList := range docMap {
 			pCopy := make([]TokenPosition, len(posList))
 			copy(pCopy, posList)
 			dCopy[path] = pCopy
 		}
-		out[term] = dCopy
 	}
 	return out, comp
 }
@@ -303,45 +524,51 @@ func (ix *Inverted) AdotarDe(outro *Inverted) error {
 	outro.mu.Lock()
 	defer outro.mu.Unlock()
 
-	if len(ix.terms) > 0 || len(ix.docLengths) > 0 {
-		return fmt.Errorf("%w: %d termos e %d documentos ja no indice",
-			ErrIndiceNaoVazio, len(ix.terms), len(ix.docLengths))
+	if len(ix.terms) > 0 || len(ix.docLengths) > 0 || ix.base != nil {
+		return fmt.Errorf("%w: %d termos e %d documentos no delta, base presente=%t",
+			ErrIndiceNaoVazio, len(ix.terms), len(ix.docLengths), ix.base != nil)
 	}
 
+	ix.base = outro.base
+	ix.sombra = outro.sombra
+	ix.sombraNoBase = outro.sombraNoBase
+	ix.postsVivasPorTermo = outro.postsVivasPorTermo
+	ix.termosVivosBase = outro.termosVivosBase
 	ix.terms = outro.terms
 	ix.docLengths = outro.docLengths
 
 	// `outro` fica vazio e utilizável, e não com mapas nil: um índice zerado por
 	// engano deve responder "sem resultados", não entrar em pânico.
+	outro.base = nil
+	outro.sombra = nil
+	outro.sombraNoBase = 0
+	outro.postsVivasPorTermo = nil
+	outro.termosVivosBase = 0
 	outro.terms = make(map[string]map[string][]TokenPosition)
 	outro.docLengths = make(map[string]int)
 
 	return nil
 }
 
-// NewInvertedFromCache reconstrói um índice invertido a partir de termos
-// serializados e dos comprimentos por documento.
+// newInvertedFromSoA monta um índice sobre a base imutável vinda do cache.
 //
-// `docLengths` vem pronto de quem decodificou. Antes esta função o recalculava
-// varrendo os termos inteiros — 3 milhões de postings espalhadas pelo heap,
-// medidas em 0,71 s no cofre de referência, gastos só para somar um número que
-// o decodificador já tinha em mãos ao ler cada posting. Nada aqui pode
-// depender dessa varredura de novo.
-//
-// `docLengths` nil é aceito e vira mapa vazio: cofre sem nota nenhuma é estado
-// legítimo, e distinguir isso de cache ausente é responsabilidade de
-// LoadInvertedCache, não desta função.
-func NewInvertedFromCache(terms map[string]map[string][]TokenPosition, docLengths map[string]int) *Inverted {
+// `postsVivasPorTermo` nasce com o total de postings de cada termo, e
+// `termosVivosBase` com o total de termos: nada foi sombreado ainda. Os dois
+// só descem, em sombrearLocked.
+func newInvertedFromSoA(b *baseSoA) *Inverted {
 	inv := NewInverted()
+	if b == nil {
+		return inv
+	}
 	inv.mu.Lock()
 	defer inv.mu.Unlock()
 
-	if terms != nil {
-		inv.terms = terms
+	inv.base = b
+	inv.sombra = make(map[string]bool)
+	inv.postsVivasPorTermo = make([]int32, len(b.termos))
+	for t := range b.termos {
+		inv.postsVivasPorTermo[t] = b.numPostings(int32(t))
 	}
-	if docLengths == nil {
-		docLengths = make(map[string]int)
-	}
-	inv.docLengths = docLengths
+	inv.termosVivosBase = len(b.termos)
 	return inv
 }

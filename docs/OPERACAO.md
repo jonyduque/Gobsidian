@@ -169,7 +169,7 @@ num cofre de 7 notas.
 | ID | Métrica (alvo) | Medição | Estado |
 |---|---|---|---|
 | **RNF-01** | Indexação a frio (≤ 3 s) | 500,11 ms no cofre sintético; **1,1 s** num cofre real de 109 MB | **Atingido** |
-| **RNF-02** | Boot com cache válido (≤ 300 ms) | 96,94 ms no cofre sintético; **1,02–1,13 s** num cofre real de 109 MB (2026-08-03) | **NÃO ATINGIDO** |
+| **RNF-02** | Boot com cache válido (≤ 300 ms) | 96,94 ms no cofre sintético; **832–1183 ms** num cofre real de 109 MB (2026-08-03) | **NÃO ATINGIDO** |
 | **RNF-03** | `note_read` p95 (≤ 15 ms) | p95 **344,97 µs**, mediana 206,47 µs (5.000 notas) | **Atingido** |
 | **RNF-04** | `vault_search` p95 (≤ 100 ms) | 500 notas: 8 de 8, 7–25 ms. 5.000 notas: 7 de 8; `limit: 200` em **181,25 ms** | **Parcial** |
 | **RNF-05** | `note_list` com filtro de metadados p95 (≤ 10 ms) | p95 **533,68 µs**, mediana 249,24 µs (5.000 notas) | **Atingido** |
@@ -280,6 +280,57 @@ que estava, e o que sobra é dominado pela construção de mapas Go — 142 mil 
 internos e 3 milhões de entradas —, não mais por serialização. `search_ready`
 saiu do log de "servidor pronto": com o cache carregado em segundo plano ele só
 poderia valer `false`, e um campo que só pode ter um valor não informa nada.
+
+### Estrutura em memória: base achatada e delta (2026-08-03)
+
+Resolvido o formato do arquivo, o que sobrava do carregamento era montar
+`map[string]map[string][]TokenPosition`: **126.342 mapas internos e 3.020.792
+entradas**, medidos em 35% do tempo em `aeshashbody`, `mapassign_faststr` e
+`matchH2`.
+
+Os mapas existiam porque o índice muda em tempo de execução — o watcher chama
+`Add`, `Remove` e `Update` a cada arquivo mudado. A saída foi separar as duas
+naturezas em vez de fazer uma estrutura servir às duas:
+
+| Camada | O que é | Muda? |
+|---|---|---|
+| `base` | arrays achatados vindos do cache (`internal/search/soa.go`) | não |
+| `delta` | mapas, com o que mudou desde a partida | sim |
+
+Toda leitura consulta as duas e o delta ganha. Toda escrita vai só para o
+delta e marca o caminho como substituído no base. Construção do zero — sem
+cache — deixa `base` nil e usa exatamente o caminho de antes.
+
+O formato do arquivo passou a gravar tudo em ordem crescente, e é isso que
+permite busca binária no lugar do mapa. O leitor **confere** as três ordens: um
+arquivo fora de ordem não falharia sozinho, responderia "termo não existe" para
+termos que existem, e a busca deixaria de achar notas sem erro nenhum no log.
+
+**Carregamento do cache, mesmo cofre e mesma máquina, `benchstat` n=6:**
+
+| Medida | Mapas (formato 4) | Base achatada (formato 5) | Delta |
+|---|---|---|---|
+| Tempo | 1,592 s ± 9% | **659,2 ms ± 23%** | **−58,58%** (p=0,002) |
+| Bytes alocados | 737,2 MiB | **389,8 MiB** | −47,12% (p=0,002) |
+| Alocações | 643,4 k | **291,1 k** | −54,76% (p=0,002) |
+
+**Boot com cache quente, cinco partidas:** busca utilizável em 603, 656, 724,
+821 e 708 ms — mediana 708 ms, contra 1217 ms de mediana medida em 12 partidas
+com a versão em mapas.
+
+**RSS em repouso, três partidas:** 382,2 / 381,5 / 380,9 MB, contra 587,0 /
+587,2 / 587,4 MB da versão em mapas. **−205 MB.**
+
+Um ganho colateral que não estava no plano: `removeLocked` varria os 126.342
+termos a **cada arquivo mudado**, para apagar o caminho de cada um. A base
+carrega um índice direto (documento → termos), construído em duas passadas
+lineares sem ordenação, e a operação passou a custar os termos daquela nota.
+
+**O que continua em mapa, de propósito:** a tabela caminho → id, com uma
+entrada por documento (3.152), porque `DocLength` é chamado dentro do laço de
+postings do BM25 e ali a busca binária sobre caminhos de prefixo longo custa
+mais que um hash. O que a estrutura achatada eliminou foram os 126 mil mapas e
+os 3 milhões de entradas, não uma tabela de 3 mil.
 
 **GOGC não foi alterado, e a memória transitória passou a ser devolvida.**
 

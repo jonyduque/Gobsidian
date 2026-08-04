@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"math"
+	"sort"
 )
 
 // Codec binário do cache de busca, versão 2.
@@ -43,8 +44,8 @@ import (
 //
 // `string` é sempre: comprimento em varint, seguido dos bytes.
 const (
-	cacheMagic     = "GBS4"
-	cacheCodecVers = 4
+	cacheMagic     = "GBS5"
+	cacheCodecVers = 5
 )
 
 // limiteRazoavel barra alocação gigante a partir de um arquivo corrompido.
@@ -96,10 +97,17 @@ func (e *escritor) str(s string) {
 	_, e.err = e.w.WriteString(s)
 }
 
-// escreveCache serializa o índice no formato 2.
+// escreveCache serializa o índice no formato corrente.
 //
 // Recebe o mapa já exportado para não segurar o lock do índice durante a
 // escrita em disco, que dura segundos.
+//
+// Grava TUDO em ordem: caminhos crescente, termos crescente, e as postings de
+// cada termo por pathID crescente. A ordem é o contrato que permite ao leitor
+// montar arrays achatados com busca binária, em vez de um mapa por termo (ver
+// soa.go). Ordenar aqui custa ~126 mil comparações de string mais 3 milhões de
+// comparações de int32, pagas numa gravação que já leva segundos; não ordenar
+// custaria uma ordenação a cada partida.
 func escreveCache(
 	w io.Writer,
 	h CacheHeader,
@@ -127,16 +135,14 @@ func escreveCache(
 	// A tabela guarda cada caminho uma vez, e não uma vez por posting: era
 	// metade do arquivo do formato antigo.
 	var totPost, totPos uint64
-	idPorCaminho := make(map[string]uint64, len(docLengths))
+	vistos := make(map[string]struct{}, len(docLengths))
 	caminhos := make([]string, 0, len(docLengths))
-	registra := func(path string) uint64 {
-		if id, ok := idPorCaminho[path]; ok {
-			return id
+	registra := func(path string) {
+		if _, ok := vistos[path]; ok {
+			return
 		}
-		id := uint64(len(caminhos))
-		idPorCaminho[path] = id
+		vistos[path] = struct{}{}
 		caminhos = append(caminhos, path)
-		return id
 	}
 	// docLengths primeiro: uma nota SEM termo nenhum (arquivo vazio, ou só
 	// pontuação) não aparece em posting alguma, e é justamente ela que precisa
@@ -153,6 +159,16 @@ func escreveCache(
 	}
 	e.uvarint(totPost)
 	e.uvarint(totPos)
+
+	// O pathID passa a ser a POSIÇÃO no vetor ordenado, e não a ordem de
+	// descoberta. É o que faz "postings ordenadas por pathID" e "resultado
+	// ordenado por caminho" serem a mesma coisa, e o que deixa o leitor
+	// devolver Postings já ordenado sem ordenar nada.
+	sort.Strings(caminhos)
+	idPorCaminho := make(map[string]uint64, len(caminhos))
+	for i, c := range caminhos {
+		idPorCaminho[c] = uint64(i)
+	}
 
 	e.uvarint(uint64(len(caminhos)))
 	for _, p := range caminhos {
@@ -174,12 +190,28 @@ func escreveCache(
 		e.uvarint(uint64(n))
 	}
 
+	termosOrd := make([]string, 0, len(termos))
+	for termo := range termos {
+		termosOrd = append(termosOrd, termo)
+	}
+	sort.Strings(termosOrd)
+
 	e.uvarint(uint64(len(termos)))
-	for termo, docs := range termos {
+	ids := make([]uint64, 0, 64)
+	for _, termo := range termosOrd {
+		docs := termos[termo]
 		e.str(termo)
 		e.uvarint(uint64(len(docs)))
-		for path, pos := range docs {
-			e.uvarint(idPorCaminho[path])
+
+		ids = ids[:0]
+		for path := range docs {
+			ids = append(ids, idPorCaminho[path])
+		}
+		sort.Slice(ids, func(i, j int) bool { return ids[i] < ids[j] })
+
+		for _, id := range ids {
+			pos := docs[caminhos[id]]
+			e.uvarint(id)
 			e.uvarint(uint64(len(pos)))
 			// Delta contra o Start anterior. Posições de um mesmo termo numa
 			// mesma nota crescem, então o delta é pequeno e cabe em 1-2 bytes
@@ -283,29 +315,28 @@ func (l *leitor) str(oque string) string {
 	return s
 }
 
-// leCache desserializa o formato corrente.
+// leCache desserializa o formato corrente direto para arrays achatados.
 //
-// Devolve o cabeçalho e os termos. As slices de posição saem todas de UMA
-// arena contígua: 17,8 milhões de posições viravam 2,96 milhões de slices
-// separadas, e agora são subfatias de um bloco só. Isso apaga a maior parte
-// das 12,8 milhões de alocações do formato antigo, e faz a estrutura ser
-// percorrida em ordem de memória em vez de saltar pelo heap.
+// Nenhum mapa por termo é construído. O arquivo declara os totais, então cada
+// array sai de UMA alocação dimensionada e é preenchido sequencialmente: seis
+// alocações grandes no lugar de 126 mil mapas e 3 milhões de entradas. Era o
+// que sobrava do tempo de carga depois de o formato já ter sido resolvido —
+// 35% em `aeshashbody`, `mapassign_faststr` e `matchH2`.
 //
-// Devolve também `docLengths`, lido do arquivo. Ele NÃO pode ser derivado das
-// postings: ver o comentário na escrita.
-func leCache(dados []byte) (CacheHeader, map[string]map[string][]TokenPosition, map[string]int, error) {
+// A estrutura devolvida e o que ela garante estão em soa.go.
+func leCache(dados []byte) (CacheHeader, *baseSoA, error) {
 	l := &leitor{b: dados}
 
 	if len(dados) < len(cacheMagic) {
-		return CacheHeader{}, nil, nil, fmt.Errorf("%w: arquivo com %d bytes, menor que a assinatura",
+		return CacheHeader{}, nil, fmt.Errorf("%w: arquivo com %d bytes, menor que a assinatura",
 			ErrCacheCorrupted, len(dados))
 	}
 	l.i = len(cacheMagic)
 	if string(dados[:len(cacheMagic)]) != cacheMagic {
-		// Cache do formato 1 cai aqui: ele começa com o gob, não com "GBS2".
+		// Cache de formato anterior cai aqui: a assinatura carrega a versão.
 		// Versão incompatível e não corrupção — a diferença decide se o log
 		// assusta alguém à toa.
-		return CacheHeader{}, nil, nil, ErrCacheVersionMismatch
+		return CacheHeader{}, nil, ErrCacheVersionMismatch
 	}
 
 	var h CacheHeader
@@ -313,126 +344,137 @@ func leCache(dados []byte) (CacheHeader, map[string]map[string][]TokenPosition, 
 	h.ParserVersion = int(l.uvarint(math.MaxInt32, "parserVersion"))
 	h.AnalyzerVersion = int(l.uvarint(math.MaxInt32, "analyzerVersion"))
 	if l.err != nil {
-		return CacheHeader{}, nil, nil, l.err
+		return CacheHeader{}, nil, l.err
 	}
 	// Portao de versao ANTES de qualquer campo de layout.
 	//
-	// A mesma magica pode cobrir layouts diferentes conforme o formato evolui —
-	// este ganhou dois totais entre noteCount e a tabela de caminhos. Se o
-	// portao ficasse la embaixo, junto com a checagem de parser e analisador em
-	// LoadInvertedCache, um arquivo do layout anterior seria decodificado
-	// primeiro: os varints casariam com campos trocados e o resultado seria
-	// lixo estruturalmente valido, ou um erro de corrupcao que culpa o disco por
-	// uma troca de formato. Recusar aqui e a diferenca entre "versao velha" e
-	// "arquivo corrompido".
+	// A mesma magica pode cobrir layouts diferentes conforme o formato evolui.
+	// Se o portao ficasse la embaixo, junto com a checagem de parser e
+	// analisador em LoadInvertedCache, um arquivo do layout anterior seria
+	// decodificado primeiro: os varints casariam com campos trocados e o
+	// resultado seria lixo estruturalmente valido, ou um erro de corrupcao que
+	// culpa o disco por uma troca de formato.
 	if h.FormatVersion != cacheCodecVers {
-		return CacheHeader{}, nil, nil, ErrCacheVersionMismatch
+		return CacheHeader{}, nil, ErrCacheVersionMismatch
 	}
 	h.VaultPath = l.str("vaultPath")
 	h.NoteCount = int(l.uvarint(math.MaxInt32, "noteCount"))
 	totPost := l.uvarint(limitePostings, "totalPostings")
 	totPos := l.uvarint(limitePosicoes, "totalPosicoes")
 	if l.err != nil {
-		return CacheHeader{}, nil, nil, l.err
+		return CacheHeader{}, nil, l.err
 	}
 
 	nCaminhos := l.uvarint(limiteCaminhos, "nCaminhos")
 	if l.err != nil {
-		return h, nil, nil, l.err
+		return h, nil, l.err
 	}
-	// Uma string por caminho, compartilhada por todas as postings que a citam.
-	// No formato antigo cada uma das 2,96 milhões de postings alocava a sua.
-	caminhos := make([]string, nCaminhos)
-	for i := range caminhos {
-		caminhos[i] = l.str("caminho")
+	b := &baseSoA{
+		caminhos: make([]string, nCaminhos),
+		docLen:   make([]int32, nCaminhos),
+	}
+	for i := range b.caminhos {
+		b.caminhos[i] = l.str("caminho")
 	}
 	if l.err != nil {
-		return h, nil, nil, l.err
+		return h, nil, l.err
 	}
 
-	nDocs := l.uvarint(uint64(len(caminhos)), "nDocs")
+	nDocs := l.uvarint(nCaminhos, "nDocs")
 	if l.err != nil {
-		return h, nil, nil, l.err
+		return h, nil, l.err
 	}
-	docLengths := make(map[string]int, nDocs)
 	for i := uint64(0); i < nDocs; i++ {
-		pathID := l.uvarint(uint64(len(caminhos))-1, "docPathID")
+		pathID := l.uvarint(nCaminhos, "docPathID")
 		n := l.uvarint(math.MaxInt32, "docLength")
 		if l.err != nil {
-			return h, nil, nil, l.err
+			return h, nil, l.err
 		}
-		docLengths[caminhos[pathID]] = int(n)
+		if pathID >= nCaminhos {
+			return h, nil, fmt.Errorf("%w: docPathID %d fora da tabela de %d caminhos",
+				ErrCacheCorrupted, pathID, nCaminhos)
+		}
+		b.docLen[pathID] = int32(n)
 	}
 
 	nTermos := l.uvarint(limiteTermos, "nTermos")
 	if l.err != nil {
-		return h, nil, nil, l.err
+		return h, nil, l.err
 	}
 
-	// Dimensionado exato: sem isto o mapa cresce por realocação e reinsere
-	// tudo a cada dobra.
-	termos := make(map[string]map[string][]TokenPosition, nTermos)
+	// Todos dimensionados pelos totais do arquivo. termIni e postIni têm um
+	// elemento a mais porque guardam FRONTEIRAS: a faixa do item i é
+	// [ini[i], ini[i+1]), e o sentinela final evita um caso especial no último.
+	b.termos = make([]string, nTermos)
+	b.termIni = make([]int32, nTermos+1)
+	b.postPath = make([]int32, totPost)
+	b.postIni = make([]int32, totPost+1)
+	b.pos = make([]TokenPosition, totPos)
 
-	// Arena. Cresce por append; o tamanho final não é conhecido de antemão
-	// sem um segundo passe pelo arquivo.
-	arena := make([]TokenPosition, 0, totPos)
-
-	// As subfatias precisam do arena estável, e append pode realocá-lo. Por
-	// isso guardamos ÍNDICES aqui e só recortamos as fatias no fim.
-	type faixa struct {
-		termo  string
-		path   string
-		ini    int
-		quantt int
-	}
-	faixas := make([]faixa, 0, totPost)
-
+	var jPost, kPos int64
 	for i := uint64(0); i < nTermos; i++ {
-		termo := l.str("termo")
+		b.termos[i] = l.str("termo")
+		b.termIni[i] = int32(jPost)
 		nPost := l.uvarint(limitePostings, "nPostings")
 		if l.err != nil {
-			return h, nil, nil, l.err
+			return h, nil, l.err
 		}
-		docs := make(map[string][]TokenPosition, nPost)
-		termos[termo] = docs
+		if jPost+int64(nPost) > int64(totPost) {
+			return h, nil, fmt.Errorf("%w: postings alem do total declarado de %d", ErrCacheCorrupted, totPost)
+		}
 
 		for j := uint64(0); j < nPost; j++ {
-			pathID := l.uvarint(uint64(len(caminhos)), "pathID")
+			pathID := l.uvarint(nCaminhos, "pathID")
 			nPos := l.uvarint(limitePosicoes, "nPosicoes")
 			if l.err != nil {
-				return h, nil, nil, l.err
+				return h, nil, l.err
 			}
-			if pathID >= uint64(len(caminhos)) {
-				return h, nil, nil, fmt.Errorf("%w: pathID %d fora da tabela de %d caminhos",
-					ErrCacheCorrupted, pathID, len(caminhos))
+			if pathID >= nCaminhos {
+				return h, nil, fmt.Errorf("%w: pathID %d fora da tabela de %d caminhos",
+					ErrCacheCorrupted, pathID, nCaminhos)
 			}
-			ini := len(arena)
+			if kPos+int64(nPos) > int64(totPos) {
+				return h, nil, fmt.Errorf("%w: posicoes alem do total declarado de %d", ErrCacheCorrupted, totPos)
+			}
+
+			b.postPath[jPost] = int32(pathID)
+			b.postIni[jPost] = int32(kPos)
+			jPost++
+
 			var anterior int64
 			for k := uint64(0); k < nPos; k++ {
 				dStart := l.varint()
 				dLen := l.varint()
 				if l.err != nil {
-					return h, nil, nil, l.err
+					return h, nil, l.err
 				}
 				start := anterior + dStart
-				arena = append(arena, TokenPosition{Start: start, End: start + dLen})
+				b.pos[kPos] = TokenPosition{Start: start, End: start + dLen}
+				kPos++
 				anterior = start
 			}
-			faixas = append(faixas, faixa{termo: termo, path: caminhos[pathID], ini: ini, quantt: int(nPos)})
 		}
 	}
 	if l.err != nil {
-		return h, nil, nil, l.err
+		return h, nil, l.err
+	}
+	b.termIni[nTermos] = int32(jPost)
+	b.postIni[jPost] = int32(kPos)
+
+	// Os totais declarados no cabeçalho e o que o corpo entregou têm de bater.
+	// Se o corpo trouxer MENOS, as caudas dos arrays ficam zeradas e viram
+	// postings do caminho 0 com zero posições — dado inventado com aparência
+	// legítima. É o mesmo motivo de o formato declarar os totais.
+	if jPost != int64(totPost) || kPos != int64(totPos) {
+		return h, nil, fmt.Errorf("%w: corpo trouxe %d postings e %d posicoes, cabecalho declarou %d e %d",
+			ErrCacheCorrupted, jPost, kPos, totPost, totPos)
 	}
 
-	for _, f := range faixas {
-		// Capacidade travada em `ini+quant`: a fatia é uma janela dentro da
-		// arena, e um append feito pelo watcher depois do boot escreveria por
-		// cima da posting VIZINHA se sobrasse capacidade. Com cap == len o
-		// append copia para fora e ninguém se contamina. Sem isto, editar uma
-		// nota corromperia os offsets de outra, em silêncio.
-		termos[f.termo][f.path] = arena[f.ini : f.ini+f.quantt : f.ini+f.quantt]
+	if err := b.validaOrdem(); err != nil {
+		return h, nil, err
 	}
+	b.montaIDs()
+	b.montaIndiceDireto()
 
-	return h, termos, docLengths, nil
+	return h, b, nil
 }

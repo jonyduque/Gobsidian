@@ -11,11 +11,12 @@ import (
 
 // Constantes de versionamento de cache (Task 49).
 const (
-	// Formato 4: codec binario proprio, tabela de caminhos, posicoes em varint
-	// com delta, totais adiantados para dimensionar a arena e docLengths
-	// gravado em vez de derivado. Ver persist_codec.go para o layout e os
-	// numeros que motivaram cada peca.
-	CacheFormatVersion   = 4
+	// Formato 5: codec binario proprio, tabela de caminhos, posicoes em varint
+	// com delta, totais adiantados, docLengths gravado em vez de derivado, e
+	// TUDO em ordem crescente — que e o que permite ao leitor montar arrays
+	// achatados com busca binaria no lugar de um mapa por termo (ver soa.go).
+	// Ver persist_codec.go para o layout e os numeros que motivaram cada peca.
+	CacheFormatVersion   = 5
 	CacheParserVersion   = 1
 	CacheAnalyzerVersion = 1
 )
@@ -126,7 +127,7 @@ func LoadInvertedCache(ctx context.Context, cacheDir string, vaultPath string) (
 		return nil, nil, fmt.Errorf("lendo cache %q: %w", finalPath, err)
 	}
 
-	h, termos, docLengths, err := leCache(dados)
+	h, base, err := leCache(dados)
 	if err != nil {
 		if errors.Is(err, ErrCacheVersionMismatch) {
 			return nil, nil, err
@@ -138,6 +139,6 @@ func LoadInvertedCache(ctx context.Context, cacheDir string, vaultPath string) (
 		return nil, &h, ErrCacheVersionMismatch
 	}
 
-	inv := NewInvertedFromCache(termos, docLengths)
+	inv := newInvertedFromSoA(base)
 	return inv, &h, nil
 }

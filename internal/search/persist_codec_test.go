@@ -4,11 +4,13 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+	"sort"
 	"testing"
 )
 
 // corpusCodec monta termos com várias postings por termo, para que as fatias de
-// posição saiam VIZINHAS na arena — que é a condição do defeito testado abaixo.
+// posição saiam VIZINHAS no array de posições — que é a condição do defeito
+// testado em TestArenaNaoVazaEntrePostings.
 func corpusCodec(nTermos, nDocs, nPos int) (map[string]map[string][]TokenPosition, map[string]int) {
 	termos := make(map[string]map[string][]TokenPosition, nTermos)
 	for t := 0; t < nTermos; t++ {
@@ -30,6 +32,23 @@ func corpusCodec(nTermos, nDocs, nPos int) (map[string]map[string][]TokenPositio
 	return termos, comp
 }
 
+// ciclo grava e relê, devolvendo o índice montado sobre a base achatada.
+func ciclo(t *testing.T, h CacheHeader, termos map[string]map[string][]TokenPosition, comp map[string]int) (*Inverted, *baseSoA) {
+	t.Helper()
+	var buf bytes.Buffer
+	if err := escreveCache(&buf, h, termos, comp); err != nil {
+		t.Fatalf("escreveCache: %v", err)
+	}
+	got, base, err := leCache(buf.Bytes())
+	if err != nil {
+		t.Fatalf("leCache: %v", err)
+	}
+	if got != h {
+		t.Fatalf("cabeçalho = %+v, quer %+v", got, h)
+	}
+	return newInvertedFromSoA(base), base
+}
+
 func TestCodecRoundTrip(t *testing.T) {
 	orig, comp := corpusCodec(40, 12, 9)
 	h := CacheHeader{
@@ -40,108 +59,98 @@ func TestCodecRoundTrip(t *testing.T) {
 		NoteCount:       12,
 	}
 
-	var buf bytes.Buffer
-	if err := escreveCache(&buf, h, orig, comp); err != nil {
-		t.Fatalf("escreveCache: %v", err)
-	}
+	inv, base := ciclo(t, h, orig, comp)
 
-	got, termos, comps, err := leCache(buf.Bytes())
-	if err != nil {
-		t.Fatalf("leCache: %v", err)
-	}
-	if got != h {
-		t.Fatalf("cabeçalho = %+v, quer %+v", got, h)
-	}
-	if len(termos) != len(orig) {
-		t.Fatalf("termos = %d, quer %d", len(termos), len(orig))
+	if len(base.termos) != len(orig) {
+		t.Fatalf("termos = %d, quer %d", len(base.termos), len(orig))
 	}
 	// docLengths tem de voltar EXATO, e nao recalculado a partir das postings:
 	// um token cuja forma reduzida difere da raiz entra em duas postings, e a
 	// soma daria o dobro. É o divisor da normalização por tamanho do BM25.
-	if len(comps) != len(comp) {
-		t.Fatalf("docLengths = %d entradas, quer %d", len(comps), len(comp))
+	if inv.DocCount() != len(comp) {
+		t.Fatalf("DocCount = %d, quer %d", inv.DocCount(), len(comp))
 	}
 	for path, n := range comp {
-		if comps[path] != n {
-			t.Fatalf("docLengths[%q] = %d, quer %d", path, comps[path], n)
+		if got := inv.DocLength(path); got != n {
+			t.Fatalf("DocLength(%q) = %d, quer %d", path, got, n)
 		}
 	}
+
 	for termo, docs := range orig {
-		lidos, ok := termos[termo]
-		if !ok {
-			t.Fatalf("termo %q sumiu", termo)
+		lidas := inv.Postings(termo)
+		if len(lidas) != len(docs) {
+			t.Fatalf("%q: %d postings, quer %d", termo, len(lidas), len(docs))
 		}
-		for path, pos := range docs {
-			lida, ok := lidos[path]
+		for _, p := range lidas {
+			quer, ok := docs[p.Path]
 			if !ok {
-				t.Fatalf("posting %q/%q sumiu", termo, path)
+				t.Fatalf("%q: posting %q nao existia no original", termo, p.Path)
 			}
-			if len(lida) != len(pos) {
-				t.Fatalf("%q/%q: %d posições, quer %d", termo, path, len(lida), len(pos))
+			if len(p.Positions) != len(quer) {
+				t.Fatalf("%q/%q: %d posições, quer %d", termo, p.Path, len(p.Positions), len(quer))
 			}
-			for i := range pos {
-				if lida[i] != pos[i] {
-					t.Fatalf("%q/%q[%d] = %+v, quer %+v", termo, path, i, lida[i], pos[i])
+			for i := range quer {
+				if p.Positions[i] != quer[i] {
+					t.Fatalf("%q/%q[%d] = %+v, quer %+v", termo, p.Path, i, p.Positions[i], quer[i])
 				}
 			}
+		}
+		// Postings sai ordenado por caminho SEM ordenar nada, porque o pathID é
+		// a posição no vetor ordenado de caminhos. Se isto quebrar, quebrou o
+		// contrato de ordem do arquivo, não o Postings.
+		if !sort.SliceIsSorted(lidas, func(i, j int) bool { return lidas[i].Path < lidas[j].Path }) {
+			t.Fatalf("%q: postings fora de ordem", termo)
 		}
 	}
 }
 
-// TestArenaNaoVazaEntrePostings guarda o defeito que a arena INTRODUZ.
+// TestArenaNaoVazaEntrePostings guarda o defeito que o array compartilhado de
+// posições INTRODUZ.
 //
-// As fatias de posição saem todas de um bloco contíguo. Uma subfatia comum
-// (`arena[i:j]`) herda a capacidade até o FIM da arena, então um `append` nela
-// grava por cima da primeira posição da posting vizinha — em silêncio, e só
-// numa nota diferente da que foi editada. Por isso `leCache` recorta com
-// `arena[i:j:j]`.
-//
-// O teste não passa por `Inverted.Add`, e isso é deliberado: `Add` começa com
-// `removeLocked`, que apaga a entrada antes de anexar, então um teste por lá
-// passaria mesmo com a capacidade solta — mediria o `removeLocked`, não o
-// recorte. Aqui o append é feito direto na fatia devolvida.
+// Todas as posições vivem num bloco só. Uma subfatia comum (`pos[i:j]`) herda a
+// capacidade até o FIM do bloco, então um `append` nela grava por cima da
+// primeira posição da posting vizinha — em silêncio, e numa nota diferente da
+// que o chamador estava mexendo. Por isso posicoesDaPosting recorta com
+// `pos[i:j:j]`.
 func TestArenaNaoVazaEntrePostings(t *testing.T) {
 	orig, comp := corpusCodec(30, 10, 6)
-
-	var buf bytes.Buffer
-	if err := escreveCache(&buf, CacheHeader{FormatVersion: CacheFormatVersion, NoteCount: 10}, orig, comp); err != nil {
-		t.Fatalf("escreveCache: %v", err)
-	}
-	_, termos, _, err := leCache(buf.Bytes())
-	if err != nil {
-		t.Fatalf("leCache: %v", err)
-	}
+	inv, _ := ciclo(t, CacheHeader{FormatVersion: CacheFormatVersion, NoteCount: 10}, orig, comp)
 
 	// Cópia de referência ANTES de qualquer append.
 	type chave struct{ termo, path string }
 	esperado := make(map[chave][]TokenPosition)
-	for termo, docs := range termos {
-		for path, pos := range docs {
-			cp := make([]TokenPosition, len(pos))
-			copy(cp, pos)
-			esperado[chave{termo, path}] = cp
+	for termo := range orig {
+		for _, p := range inv.Postings(termo) {
+			cp := make([]TokenPosition, len(p.Positions))
+			copy(cp, p.Positions)
+			esperado[chave{termo, p.Path}] = cp
 		}
 	}
 
-	// A ordem das postings na arena segue a iteração do mapa e não é
-	// observável daqui. Anexando em TODAS, qualquer par vizinho corrompido
-	// aparece — não é preciso saber quem é vizinho de quem.
+	// A vizinhança no bloco não é observável daqui. Anexando em TODAS as
+	// fatias devolvidas, qualquer par vizinho corrompido aparece.
 	sentinela := TokenPosition{Start: -777, End: -777}
-	for _, docs := range termos {
-		for path, pos := range docs {
-			docs[path] = append(pos, sentinela)
+	for termo := range orig {
+		for _, p := range inv.Postings(termo) {
+			_ = append(p.Positions, sentinela) //nolint:gocritic // o append é o teste
 		}
 	}
 
 	for k, quer := range esperado {
-		tem := termos[k.termo][k.path]
-		if len(tem) != len(quer)+1 {
-			t.Fatalf("%q/%q: %d posições após append, quer %d", k.termo, k.path, len(tem), len(quer)+1)
+		var tem []TokenPosition
+		for _, p := range inv.Postings(k.termo) {
+			if p.Path == k.path {
+				tem = p.Positions
+			}
+		}
+		if len(tem) != len(quer) {
+			t.Fatalf("%q/%q: %d posições, quer %d", k.termo, k.path, len(tem), len(quer))
 		}
 		for i := range quer {
 			if tem[i] != quer[i] {
 				t.Fatalf("posting vizinha corrompida em %q/%q[%d]: %+v, quer %+v\n"+
-					"a fatia da arena foi recortada sem travar a capacidade", k.termo, k.path, i, tem[i], quer[i])
+					"a fatia do bloco de posições foi recortada sem travar a capacidade",
+					k.termo, k.path, i, tem[i], quer[i])
 			}
 		}
 	}
@@ -149,11 +158,6 @@ func TestArenaNaoVazaEntrePostings(t *testing.T) {
 
 // TestCodecRecusaLayoutAnterior: arquivo com a mágica certa mas versão de
 // formato diferente é recusado como VERSÃO, não decodificado.
-//
-// O layout mudou uma vez dentro da mesma mágica (ganhou dois totais entre
-// noteCount e a tabela de caminhos). Sem o portão, os varints do layout velho
-// casariam com campos trocados e produziriam estrutura lixo que passa por
-// válida.
 func TestCodecRecusaLayoutAnterior(t *testing.T) {
 	var buf bytes.Buffer
 	h := CacheHeader{FormatVersion: CacheFormatVersion - 1, NoteCount: 1}
@@ -161,30 +165,93 @@ func TestCodecRecusaLayoutAnterior(t *testing.T) {
 	if err := escreveCache(&buf, h, termos, map[string]int{"n.md": 1}); err != nil {
 		t.Fatalf("escreveCache: %v", err)
 	}
-	_, _, _, err := leCache(buf.Bytes())
+	_, _, err := leCache(buf.Bytes())
 	if !errors.Is(err, ErrCacheVersionMismatch) {
 		t.Fatalf("err = %v, quer ErrCacheVersionMismatch", err)
 	}
 }
 
-// TestCodecRecusaCaminhoForaDaTabela: pathID adulterado não pode virar panic de
-// índice fora de faixa nem apontar para o caminho errado.
-func TestCodecRecusaCaminhoForaDaTabela(t *testing.T) {
+// TestCodecRecusaPrefixoTruncado: nenhum prefixo pode virar panic nem estrutura
+// aceita.
+func TestCodecRecusaPrefixoTruncado(t *testing.T) {
 	var buf bytes.Buffer
 	termos := map[string]map[string][]TokenPosition{
 		"a": {"n.md": {{Start: 0, End: 1}}},
+		"b": {"n.md": {{Start: 5, End: 9}}, "o.md": {{Start: 2, End: 4}}},
+	}
+	comp := map[string]int{"n.md": 2, "o.md": 1}
+	if err := escreveCache(&buf, CacheHeader{FormatVersion: CacheFormatVersion, NoteCount: 2}, termos, comp); err != nil {
+		t.Fatalf("escreveCache: %v", err)
+	}
+	b := buf.Bytes()
+
+	for n := 1; n < len(b); n++ {
+		_, _, err := leCache(b[:n])
+		if err == nil {
+			t.Fatalf("prefixo de %d bytes foi aceito", n)
+		}
+	}
+}
+
+// TestCodecRecusaOrdemQuebrada guarda a checagem de ordem.
+//
+// Busca binária sobre um vetor fora de ordem NÃO devolve erro: devolve "não
+// existe" para um termo que existe. A busca passaria a não achar notas que
+// contêm a palavra, sem log e com cara de cofre que não tem o termo. Aqui a
+// ordem é quebrada trocando dois termos vizinhos no arquivo já gravado.
+func TestCodecRecusaOrdemQuebrada(t *testing.T) {
+	var buf bytes.Buffer
+	// Termos de mesmo tamanho para a troca ser um swap de bytes, sem mexer nos
+	// varints de comprimento.
+	termos := map[string]map[string][]TokenPosition{
+		"aaa": {"n.md": {{Start: 0, End: 1}}},
+		"bbb": {"n.md": {{Start: 2, End: 3}}},
+	}
+	if err := escreveCache(&buf, CacheHeader{FormatVersion: CacheFormatVersion, NoteCount: 1}, termos, map[string]int{"n.md": 2}); err != nil {
+		t.Fatalf("escreveCache: %v", err)
+	}
+	b := buf.Bytes()
+
+	i := bytes.Index(b, []byte("aaa"))
+	j := bytes.Index(b, []byte("bbb"))
+	if i < 0 || j < 0 {
+		t.Fatalf("termos nao encontrados no arquivo (i=%d j=%d)", i, j)
+	}
+	copy(b[i:i+3], "bbb")
+	copy(b[j:j+3], "aaa")
+
+	_, _, err := leCache(b)
+	if !errors.Is(err, ErrCacheCorrupted) {
+		t.Fatalf("err = %v, quer ErrCacheCorrupted — ordem quebrada tem de ser recusada", err)
+	}
+}
+
+// TestCodecRecusaTotaisQueNaoBatem guarda o caso em que o corpo entrega menos do
+// que o cabeçalho declarou.
+//
+// Os arrays são dimensionados pelos totais. Se o corpo trouxer menos, as caudas
+// ficam ZERADAS — e uma cauda zerada não é um erro visível: são postings do
+// caminho 0 com zero posições, dado inventado com aparência legítima.
+func TestCodecRecusaTotaisQueNaoBatem(t *testing.T) {
+	var buf bytes.Buffer
+	termos := map[string]map[string][]TokenPosition{
+		"aaa": {"n.md": {{Start: 0, End: 1}}},
 	}
 	if err := escreveCache(&buf, CacheHeader{FormatVersion: CacheFormatVersion, NoteCount: 1}, termos, map[string]int{"n.md": 1}); err != nil {
 		t.Fatalf("escreveCache: %v", err)
 	}
 	b := buf.Bytes()
 
-	// Trunca em cada ponto: nenhum prefixo pode produzir panic, todos devem
-	// devolver erro de cache corrompido.
-	for n := 1; n < len(b); n++ {
-		_, _, _, err := leCache(b[:n])
-		if err == nil {
-			t.Fatalf("prefixo de %d bytes foi aceito", n)
-		}
+	// nTermos vem logo antes do primeiro termo. Zerá-lo faz o corpo entregar
+	// zero postings contra o total declarado de 1.
+	i := bytes.Index(b, []byte("aaa"))
+	if i < 2 {
+		t.Fatalf("termo nao encontrado (i=%d)", i)
+	}
+	b[i-2] = 0 // nTermos = 0
+
+	_, _, err := leCache(b)
+	if !errors.Is(err, ErrCacheCorrupted) {
+		t.Fatalf("err = %v, quer ErrCacheCorrupted — totais que nao batem tem de ser recusados", err)
 	}
 }
