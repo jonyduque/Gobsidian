@@ -281,9 +281,40 @@ internos e 3 milhões de entradas —, não mais por serialização. `search_rea
 saiu do log de "servidor pronto": com o cache carregado em segundo plano ele só
 poderia valer `false`, e um campo que só pode ter um valor não informa nada.
 
-**GOGC não foi alterado.** `GOGC=off` sobre o carregamento mediu
-`~ (p=0,093, n=6)` — sem diferença significativa. Custaria RSS num requisito
-(RNF-07) que já está estourado, em troca de nada mensurável.
+**GOGC não foi alterado, e a memória transitória passou a ser devolvida.**
+
+`GOGC=off` sobre o carregamento mediu `~ (p=0,093, n=6)`. `GOGC=400` durante a
+carga mediu **−28,51% (p=0,002, n=6)** no benchmark — mas o benchmark não é o
+boot: nele a estrutura de ~500 MB da iteração anterior ainda está viva quando a
+seguinte começa, então o heap vivo é o dobro do de uma partida real, que é
+justamente o regime onde afrouxar o GC ajuda. No boot real, 12 partidas por
+braço deram mediana 1217 → 1147 ms (−5,8%), com U de Mann-Whitney = 88 contra
+região crítica de 37/107: **não significativo**. E o RSS em repouso ficou igual
+ou pior — 829,5 / 794,2 / 789,1 MB contra 782,8 / 783,0 / 779,5 MB da base,
+porque um alvo de heap maior é exatamente isso. GOGC ficou como estava.
+
+O que pagou foi `debug.FreeOSMemory()` depois de o índice ficar pronto. A
+montagem aloca 737 MB para deixar ~500 MB vivos; a diferença — a fatia com o
+arquivo inteiro (70 MB) e a tabela de faixas da arena (~120 MB) — vira lixo
+assim que o índice fica montado, mas o Go devolve essas páginas no tempo dele,
+e até lá elas aparecem no RSS de um servidor que ficará horas em repouso.
+
+**RSS em repouso, 22 s depois da partida, três partidas por braço:**
+
+| Braço | Medidas | Mediana |
+|---|---|---|
+| Base | 782,8 / 783,0 / 779,5 MB | 782,8 MB |
+| `GOGC=400` só | 829,5 / 794,2 / 789,1 MB | 794,2 MB |
+| `FreeOSMemory` só | 627,4 / 587,1 / 588,6 MB | **588,6 MB** |
+| Ambos | 587,0 / 587,2 / 587,4 MB | 587,2 MB |
+
+Cerca de **−195 MB**, com as distribuições da base e do adotado sem
+sobreposição. Custo medido da chamada: 67, 70 e 73 ms, pagos depois de o
+servidor já estar respondendo e de a busca já estar utilizável.
+
+Estes números são do cofre real de 109 MB, cujo índice vivo passa de 500 MB —
+não são o cenário de RNF-07, que foi medido num cofre sintético de 5.000 notas.
+**RNF-07 não foi remedido**, então segue registrado nos 67,08 MB de antes.
 
 #### Dois defeitos que este trabalho expôs
 

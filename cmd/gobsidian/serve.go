@@ -6,6 +6,7 @@ import (
 	"io"
 	"log/slog"
 	"os"
+	"runtime/debug"
 	"sync"
 	"time"
 
@@ -122,6 +123,46 @@ func invertedCacheState(hdr *search.CacheHeader, err error, noteCount int) (pron
 	return false, true
 }
 
+// devolveMemoriaTransitoria devolve ao sistema o que a montagem do indice usou e
+// nao precisa mais.
+//
+// Montar o indice do cofre de referencia aloca 737 MB para deixar ~500 MB
+// vivos. A diferenca e transitoria — a fatia com o arquivo inteiro (70 MB) e a
+// tabela de faixas da arena (~120 MB) viram lixo assim que o indice fica
+// montado — mas o Go devolve essas paginas ao sistema no tempo dele, e ate la
+// elas aparecem no RSS de um servidor que ficara horas em repouso ao lado do
+// editor do usuario.
+//
+// Medido no cofre de referencia, RSS em repouso 22 s depois da partida, tres
+// partidas por braco:
+//
+//	sem esta chamada  782,8  783,0  779,5 MB
+//	com esta chamada  627,4  587,1  588,6 MB
+//
+// Cerca de -195 MB na mediana, com as distribuicoes sem sobreposicao. RNF-07
+// mede exatamente isto. Custo medido: 67, 70 e 73 ms.
+//
+// Roda DEPOIS de o indice ficar pronto e ANTES de w.Run, porque forca um ciclo
+// completo de GC. Os eventos do periodo nao se perdem: watcher.New ja registrou
+// os watches e eles ficam enfileirados no fsnotify.
+//
+// Chamada por `defer` e nao no fim do corpo: o caminho de cache completo — o
+// mais rapido e o mais comum — sai por um `return` antes do fim, e e nele que
+// ha mais memoria transitoria para devolver. As medicoes acima sao desse
+// caminho.
+//
+// GOGC ficou como esta. GOGC=400 durante a carga mediu -5,8% na mediana do
+// carregamento em 12 partidas por braco, e o U de Mann-Whitney deu 88 contra
+// uma regiao critica de 37/107 — nao significativo. E o RSS em repouso ficou
+// IGUAL ou pior (829,5 / 794,2 / 789,1 MB), porque um alvo de heap maior e
+// exatamente isso.
+func devolveMemoriaTransitoria(log *slog.Logger) {
+	inicio := time.Now()
+	debug.FreeOSMemory()
+	log.Debug("memoria transitoria da montagem do indice devolvida",
+		"duracao_ms", time.Since(inicio).Milliseconds())
+}
+
 // prepararIndiceDeBusca carrega o cache e completa o que faltar.
 //
 // Roda em segundo plano, fora do caminho de boot. Devolve com inv pronto ou com
@@ -138,6 +179,8 @@ func prepararIndiceDeBusca(
 	cfg config.Config,
 	log *slog.Logger,
 ) {
+	defer devolveMemoriaTransitoria(log)
+
 	inicio := time.Now()
 	doCache, hdr, err := search.LoadInvertedCache(ctx, cfg.CacheDir, cfg.VaultPath)
 	pronta, retomar := invertedCacheState(hdr, err, idx.NoteCount())
