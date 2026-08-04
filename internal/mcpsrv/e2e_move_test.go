@@ -260,7 +260,7 @@ func TestE2E_NoteMoveIsReflectedBySearchAndGraph(t *testing.T) {
 		}
 		return nil
 	}); err != nil {
-		t.Fatalf("vault_search nao refletiu o caminho novo em 10s: %v", err)
+		t.Fatalf("vault_search nao refletiu o caminho novo em %v: %v", prazoConvergencia, err)
 	}
 
 	// E o grafo: aponta.md tem de aparecer como vizinho do caminho NOVO.
@@ -295,6 +295,6 @@ func TestE2E_NoteMoveIsReflectedBySearchAndGraph(t *testing.T) {
 		}
 		return nil
 	}); err != nil {
-		t.Fatalf("link_graph nao refletiu o caminho novo em 10s: %v", err)
+		t.Fatalf("link_graph nao refletiu o caminho novo em %v: %v", prazoConvergencia, err)
 	}
 }

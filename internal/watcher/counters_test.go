@@ -242,50 +242,105 @@ func TestCounters_Coalesced(t *testing.T) {
 	}
 }
 
+// setupSoReconciliador monta a pilha com o caminho NORMAL desconectado.
+//
+// # Por que sem w.Run
+//
+// A versao anterior deste setup rodava o watcher inteiro, com debounce de
+// 10 ms. Apagar o arquivo disparava um evento de verdade, e o caminho normal
+// tirava a entrada do indice competindo com o reconciliador: quando ele
+// chegava primeiro, Reconcile nao tinha mais o que remover, `rem` vinha 0 e o
+// contador nunca subia. O teste passava por quem ganhava a corrida — sob carga
+// da suite inteira com -race, o caminho normal ganhava e o teste reprovava com
+// "ReconciledRemoved = 0, want 1".
+//
+// Confirmado por sonda antes de mexer: dando 300 ms de vantagem ao caminho
+// normal, reprovava em 3 de 3 execucoes.
+//
+// Isto e a armadilha que este projeto ja pagou uma vez, em
+// TestOverflowReconciliationFull: teste de mecanismo de recuperacao que deixa o
+// caminho normal ligado mede o caminho normal. Aqui so o aplicador roda, e a
+// entrada de eventos comuns e um canal em que ninguem escreve — o reconciliador
+// e o UNICO mecanismo capaz de mexer no indice.
+func setupSoReconciliador(t *testing.T) (*Watcher, string) {
+	t.Helper()
+	log := slog.New(slog.NewTextHandler(io.Discard, nil))
+	dir := t.TempDir()
+
+	v, err := vault.New(dir)
+	if err != nil {
+		t.Fatalf("vault.New: %v", err)
+	}
+
+	w, err := New(v, index.New(), nil, 10*time.Millisecond, log)
+	if err != nil {
+		t.Fatalf("watcher.New: %v", err)
+	}
+	t.Cleanup(func() { _ = w.Close() })
+
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+
+	// Canal sem escritor nenhum: e ele que garante que nenhum evento de
+	// arquivo chegue ao indice por fora da reconciliacao.
+	semEventos := make(chan []vault.CanonicalPath)
+	go Apply(ctx, semEventos, w.reconcile, w.idx, w.v, w.log,
+		&w.processed, &w.skipped, &w.reconciledUpdated, &w.reconciledRemoved, w.inv)
+
+	return w, dir
+}
+
+// prazoReconciliacao e quanto se espera o contador subir.
+//
+// Generoso de proposito. O que o teste mede e que a reconciliacao ACONTECE,
+// nao em quanto tempo: sob -race, com a suite inteira disputando a maquina,
+// prazo curto mede a carga e nao o mecanismo. Se o mecanismo nao funcionar, o
+// teste continua reprovando — so demora mais para dizer isso.
+const prazoReconciliacao = 30 * time.Second
+
+// esperaContador repete a leitura ate o contador chegar em `quer` ou o prazo
+// acabar, e devolve o ultimo valor visto.
+func esperaContador(t *testing.T, ler func() int64, quer int64) int64 {
+	t.Helper()
+	limite := time.Now().Add(prazoReconciliacao)
+	var ultimo int64
+	for time.Now().Before(limite) {
+		ultimo = ler()
+		if ultimo >= quer {
+			return ultimo
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	return ultimo
+}
+
 func TestCounters_ReconciledUpdatedAndRemoved(t *testing.T) {
-	w, cancel, dir, idx := setupTestWatcher(t)
-	defer cancel()
+	w, dir := setupSoReconciliador(t)
+	alvo := filepath.Join(dir, "n1.md")
 
-	v, _ := vault.New(dir)
-	if err := os.WriteFile(filepath.Join(dir, "n1.md"), []byte("content"), 0644); err != nil {
+	if err := os.WriteFile(alvo, []byte("content"), 0644); err != nil {
 		t.Fatal(err)
 	}
-
-	// Trigger reconcile via channel
 	w.reconcile <- struct{}{}
-
-	for range 50 {
-		st := w.Stats()
-		if st.ReconciledUpdated > 0 {
-			break
-		}
-		time.Sleep(20 * time.Millisecond)
+	if got := esperaContador(t, func() int64 { return w.Stats().ReconciledUpdated }, 1); got != 1 {
+		t.Fatalf("ReconciledUpdated = %d, want 1", got)
 	}
 
-	st := w.Stats()
-	if st.ReconciledUpdated != 1 {
-		t.Errorf("ReconciledUpdated = %d, want 1", st.ReconciledUpdated)
-	}
-
-	// Delete file from disk without telling index
-	if err := os.Remove(filepath.Join(dir, "n1.md")); err != nil {
+	// Apaga do disco. Sem o caminho normal ligado, so a reconciliacao pode
+	// perceber.
+	if err := os.Remove(alvo); err != nil {
 		t.Fatal(err)
 	}
-
 	w.reconcile <- struct{}{}
-
-	for range 50 {
-		st := w.Stats()
-		if st.ReconciledRemoved > 0 {
-			break
-		}
-		time.Sleep(20 * time.Millisecond)
+	if got := esperaContador(t, func() int64 { return w.Stats().ReconciledRemoved }, 1); got != 1 {
+		t.Errorf("ReconciledRemoved = %d, want 1", got)
 	}
 
-	st = w.Stats()
-	if st.ReconciledRemoved != 1 {
-		t.Errorf("ReconciledRemoved = %d, want 1", st.ReconciledRemoved)
+	// Guarda contra a regressao que causou tudo isto: religar o watcher faria
+	// EventsReceived subir, e o teste voltaria a medir quem ganha a corrida em
+	// vez do reconciliador. w.received so sobe dentro de w.Run.
+	if got := w.Stats().EventsReceived; got != 0 {
+		t.Errorf("EventsReceived = %d, want 0 — o caminho normal foi religado, "+
+			"e este teste voltou a medir uma corrida em vez da reconciliacao", got)
 	}
-	_ = idx
-	_ = v
 }
