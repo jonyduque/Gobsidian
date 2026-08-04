@@ -135,7 +135,11 @@ gobsidian/
 │   ├── build.ps1                 build local com informação de versão
 │   ├── gen_vault.ps1             gera cofre sintético para benchmark
 │   ├── check_net.ps1             verificação de RNF-30 (ver §4)
-│   └── test_orphans.ps1          100 ciclos de encerramento abrupto
+│   ├── test_orphans.ps1          ciclos de encerramento abrupto, um cenario por mecanismo
+│   ├── orphan_host.ps1           host sintetico: pipe real no stdin do servidor
+│   ├── orphan_keeper.ps1         segura o stdin aberto depois de o pai morrer
+│   ├── orphan_signal_host.ps1    host que nao morre: so CTRL_BREAK encerra
+│   └── orphan_signal_send.ps1    envia CTRL_BREAK ao grupo do servidor
 │
 ├── .github/workflows/
 │   ├── ci.yml                    vet, lint, test, race

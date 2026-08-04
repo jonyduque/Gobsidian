@@ -19,7 +19,7 @@ Reparo de arquivo misto: decodificar byte a byte, tentando sequência UTF-8 vál
 ```bash
 pwsh -File scripts/verify.ps1    # bateria inteira, para no primeiro erro
 pwsh -File scripts/build.ps1
-pwsh -File scripts/test_orphans.ps1 -Cycles 100
+pwsh -File scripts/test_orphans.ps1 -Cycles 100    # os tres mecanismos; -Scenario isola um
 golangci-lint run ./...          # exige v2.12.2; v1.x nem carrega o config
 
 pwsh -File scripts/mutate.ps1 -Path <arquivo> -Anchor '<texto>' -Replacement '<texto>' -Test <Nome> -Package ./internal/x/
@@ -175,7 +175,9 @@ O ledger fica em `.superpowers/sdd/2026-07-25-gobsidian-v01/progress.md`. O cami
 
 `GOGC` foi testado duas vezes e rejeitado nas duas — não re-litigar sem dado novo. `GOGC=off` deu `~ (p=0,093, n=6)`; `GOGC=400` deu −28,51% no benchmark mas não significativo no boot real (12 partidas por braço, U de Mann-Whitney 88 contra região crítica 37/107) e com RSS pior. O que pagou foi `debug.FreeOSMemory()` depois de o índice ficar pronto: −195 MB.
 
-Lacuna registrada pra M6: no harness de órfãos atual `stdin-eof` sempre vence (100/100 nas três últimas rodadas), então vigília do pai e sinais seguem sem verificação ponta a ponta. Falta cenário em que stdin fica aberto e pai morre.
+**O gate de órfãos cobre os três mecanismos, e o padrão roda os três.** `scripts/test_orphans.ps1 -Cycles 100` executa `stdin-eof`, `parent-death` e `signal` em sequência, e cada cenário **reprova se o `reason=` não for o do mecanismo que ele nomeia** — encerrar pelo motivo certo por acidente não conta. `parent-death` desconecta o EOF (cadeia keeper → host → servidor, com o keeper segurando a ponta de escrita do pipe); `signal` deixa tudo vivo e só manda CTRL_BREAK.
+
+Isto esteve escrito aqui como lacuna aberta por mais tempo do que foi verdade. Os cenários existem desde 2026-08-02 e o CI chama os três explicitamente (`.github/workflows/ci.yml`), mas o padrão do script era `stdin-eof` — então quem rodava o comando documentado localmente via `[OK]` na tela depois de exercitar **um** dos três, e concluía que os três estavam verificados. O padrão passou a ser `all` por causa disso. Gate cujo padrão cobre parte do que ele aparenta cobrir é pior que gate ausente.
 
 `docs/PRD.md` Q3 decidiu persistir **dois** caches; só o invertido existe. `index_cache.gob` nunca foi implementado, e o índice de metadados é reconstruído por varredura a cada partida (~900 ms num cofre de 109 MB). Anotado no próprio Q3, decisão não reaberta.
 

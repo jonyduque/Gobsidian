@@ -28,9 +28,52 @@ param(
     #   signal        nada morre e nada fecha: o host fica vivo e o stdin do
     #                 servidor e um console herdado. So o CTRL_BREAK pode
     #                 encerra-lo.
-    [ValidateSet("stdin-eof", "parent-death", "signal")]
-    [string]$Scenario = "stdin-eof"
+    #
+    # "all" roda os TRES em sequencia, e e o padrao.
+    #
+    # Era "stdin-eof", e isso deu um verde que cobria um terco do que a linha
+    # de comando parecia cobrir. O CI sempre chamou os tres explicitamente
+    # (ver .github/workflows/ci.yml), mas quem rodava o comando documentado
+    # localmente exercitava so o primeiro mecanismo — e concluia, com o [OK]
+    # na tela, que os tres estavam verificados. Um gate cujo padrao cobre parte
+    # do que ele afirma e pior que um gate ausente.
+    [ValidateSet("stdin-eof", "parent-death", "signal", "all")]
+    [string]$Scenario = "all"
 )
+
+# "all" delega a si mesmo, um cenario por vez, em vez de reestruturar o corpo
+# inteiro em laco. O corpo depende de $Scenario em uma duzia de pontos; um
+# laco por dentro exigiria zerar cada contador entre voltas, e um contador
+# esquecido daria verde somando ciclos do cenario anterior.
+if ($Scenario -eq "all") {
+    $todos = @("stdin-eof", "parent-death", "signal")
+    $falhou = @()
+    foreach ($cen in $todos) {
+        Write-Output ""
+        Write-Output "########## cenario: $cen ##########"
+        # -VaultPath so e repassado quando veio preenchido: mandar string
+        # vazia nao e o mesmo que omitir, e o corpo decide gerar um cofre
+        # sintetico justamente quando ele esta ausente.
+        $argsFilho = @{
+            Cycles       = $Cycles
+            PidTimeoutMs = $PidTimeoutMs
+            SettleMs     = $SettleMs
+            Scenario     = $cen
+        }
+        if ($VaultPath) { $argsFilho.VaultPath = $VaultPath }
+        & $PSCommandPath @argsFilho
+        if ($LASTEXITCODE -ne 0) {
+            $falhou += $cen
+        }
+    }
+    Write-Output ""
+    if ($falhou.Count -gt 0) {
+        Write-Warning "[!] FALHA nos cenarios: $($falhou -join ', ')"
+        exit 1
+    }
+    Write-Output "[OK] Nenhum orfao em $Cycles ciclos nos tres mecanismos: $($todos -join ', ')"
+    exit 0
+}
 
 # O motivo que o cenario TEM de produzir. Ciclo que encerra pelo motivo errado
 # nao testou o mecanismo que o cenario nomeia — encerrou por outra coisa e deu

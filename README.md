@@ -337,9 +337,11 @@ Existe porque uma lista solta de comandos convida a rodar três dos cinco.
 <br>
 
 ```bash
-pwsh -File scripts/test_orphans.ps1 -Cycles 100 -Scenario stdin-eof
+# Os tres cenarios, que e o padrao
+pwsh -File scripts/test_orphans.ps1 -Cycles 100
+
+# Ou um de cada vez, para diagnosticar
 pwsh -File scripts/test_orphans.ps1 -Cycles 100 -Scenario parent-death
-pwsh -File scripts/test_orphans.ps1 -Cycles 100 -Scenario signal
 ```
 
 | Cenário | O que morre | stdin do servidor | Único mecanismo possível |
