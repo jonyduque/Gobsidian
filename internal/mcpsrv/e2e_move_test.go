@@ -46,7 +46,7 @@ import (
 func servidorComWatcher(t *testing.T, root string, debounce time.Duration) (*mcp.ClientSession, context.Context) {
 	t.Helper()
 
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), prazoSessao)
 
 	v, err := vault.New(root)
 	if err != nil {
@@ -144,6 +144,23 @@ func chamaTool(ctx context.Context, t *testing.T, session *mcp.ClientSession, no
 // e a mensagem traz o que o indice tinha para separar "nao chegou" de "chegou
 // errado".
 const prazoConvergencia = 60 * time.Second
+
+// prazoSessao cobre a sessao MCP inteira, e e DERIVADO do prazo de
+// convergencia em vez de escrito a mao.
+//
+// Ele ja foi um 30s literal enquanto prazoConvergencia era 60s, e os dois
+// deram exatamente no que essa combinacao permite: o laco de espera
+// sobrevivia ao proprio transporte. Sob -race com a suite inteira rodando, a
+// sessao expirava no meio da espera e a falha saia como
+// "vault_search: connection closed ... client is closing: EOF", culpando a
+// conexao por uma convergencia que ninguem chegou a esperar ate o fim. Falhava
+// em cerca de metade das rodadas e passava sozinho em 2,5 s, que e a assinatura
+// de um teste que mede a carga da maquina.
+//
+// A folga cobre o que acontece FORA do laco: montar o cofre, construir o
+// indice, o handshake e as escritas. Amarrar os dois numeros aqui e o que
+// impede a proxima pessoa a mexer num de deixar o outro para tras.
+const prazoSessao = prazoConvergencia + 60*time.Second
 
 // esperaIndice repete fn ate ela devolver nil ou o prazo acabar, e devolve o
 // ultimo motivo. O watcher e assincrono: sem espera o teste mediria a corrida
