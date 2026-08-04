@@ -1058,3 +1058,84 @@ dispara), **76** (o entregavel e projetar um cenario de teste que hoje nao
 existe, e o modo de falha e escrever teste que nao pode falhar) e **77** (o
 entregavel sao relatorios com evidencia real, e o modo de falha de um modelo
 barato pedido a "escrever relatorios com evidencia" e fabrica-la).
+
+## Desempenho do boot com cache quente, e tres defeitos de producao — 2026-08-04
+
+Trabalho fora do plano numerado, pedido em sessao: performance do boot com cache
+quente. Rendeu seis commits, e a investigacao achou tres defeitos que nenhum
+gate via.
+
+**Formato do cache: `gob` -> codec binario proprio (`a132cb9`, `d814d0c`,
+`cddd511`).** Formato 1 -> 5. Medido no cofre real de 3.152 notas / 109 MB,
+mesma maquina, mesmos dados:
+
+| Medida | Antes (gob) | Depois | Fator |
+|---|---|---|---|
+| Arquivo | 505.643.791 B | 70.084.435 B | 7,2x |
+| Carregamento | 5,59 s | 659,2 ms (±23%, n=6) | 8,5x |
+| Bytes alocados | 3,69 GB | 389,8 MiB | 9,7x |
+| Alocacoes | 13.035.004 | 291.104 | 44,8x |
+| RSS em repouso | 782,8 MB | 381,5 MB | 2,1x |
+| Boot quente (busca utilizavel) | ~7 s | 842 ms | 8,3x |
+
+Pecas: tabela de caminhos (286,3 MB eram a mesma string repetida 2,96 milhoes de
+vezes), posicoes em varint sobre delta, codec sem reflexao, arrays achatados com
+busca binaria no lugar de 126 mil mapas internos, e `FreeOSMemory` depois da
+montagem. Detalhe e todas as medicoes em `docs/OPERACAO.md`.
+
+**GOGC foi testado duas vezes e rejeitado nas duas.** `GOGC=off` deu `~
+(p=0,093, n=6)`. `GOGC=400` deu -28,51% (p=0,002) no benchmark, mas o benchmark
+nao e o boot: nele o heap vivo e o dobro do de uma partida real. No boot real,
+12 partidas por braco, mediana 1217 -> 1147 ms com U de Mann-Whitney = 88 contra
+regiao critica de 37/107 — nao significativo. E o RSS ficou pior. Fica
+registrado para nao ser re-litigado.
+
+**RNF-02 segue NAO ATINGIDO**: 832-1183 ms contra teto de 300 ms. Esta 6,7x mais
+perto e o que sobra e construcao de mapas Go, nao serializacao.
+
+### Tres defeitos de producao achados no caminho
+
+Nenhum era hipotetico, nenhum tinha teste, todos davam resultado errado em
+silencio.
+
+1. **`DocLength` divergia entre indice construido e recarregado** (`cddd511`).
+   Era derivado somando postings, e um token cuja forma reduzida difere da raiz
+   entra em DUAS. Medido: 5 recem-construido, 10 recarregado. E o divisor da
+   normalizacao por tamanho do BM25 — o mesmo cofre ranqueava diferente
+   conforme o servidor tivesse acabado de indexar ou de ler o cache. Junto:
+   nota vazia nunca contava como coberta, entao TODO boot concluia "cache
+   parcial" e regravava o cache inteiro (3,3-3,9 s por partida).
+
+2. **A reconciliacao por overflow reparava so o indice de metadados**
+   (`ef3d4da`). `service.Search` descarta posting cujo caminho nao esta nos
+   metadados, entao uma nota movida durante o overflow devolvia ZERO resultados
+   para sempre. Segundo buraco no RF-05 depois do do M2.1: aquele era cobertura
+   zero, este era cobertura que afirmava sobre metade da resposta.
+
+3. **Diretorio novo nao era varrido** (`58658fc`). Pasta que chega ao cofre ja
+   com arquivos dentro entregava UM evento e nenhum arquivo: "eventos
+   recebidos=1, notas no indice=0". As notas ficavam invisiveis para todas as
+   tools ate o proximo reinicio. E o usuario arrastando uma pasta para o cofre —
+   e era tambem o que fazia `note_move` perder a nota quando o rename vencia o
+   registro do watch, o que reprovava `TestE2E_NoteMove...` em 3 de 10 rodadas
+   da suite sob `-race`.
+
+### Dois testes que mediam a maquina, nao o mecanismo
+
+- `TestE2E_NoteMove...` tinha prazo de convergencia de 60 s e contexto de sessao
+  de 30 s escrito a mao: o laco sobrevivia ao proprio transporte e a falha saia
+  como "connection closed", culpando a conexao (`bd7efaf`).
+- `TestCounters_ReconciledUpdatedAndRemoved` rodava o watcher inteiro, entao o
+  caminho normal competia com o reconciliador. Sonda com 300 ms de vantagem ao
+  caminho normal: reprovava 3 de 3 (`1f610a5`). Mesma armadilha de
+  `TestOverflowReconciliationFull`.
+
+### Estado
+
+`verify.ps1` verde nos 10 passos. Binario conferido contra o cofre real: boot
+905 ms, busca do cache 842 ms, `doctor` apto. **Todo cofre reconstroi o cache no
+proximo boot** — o formato mudou e caches antigos sao recusados como versao
+incompativel, com a reconstrucao em segundo plano.
+
+Pendente: reamostrar a suite sob `-race` depois de `58658fc` para confirmar que
+o e2e parou de reprovar, e o gate de orfaos desta rodada.
