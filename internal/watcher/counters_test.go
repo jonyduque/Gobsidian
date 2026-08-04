@@ -344,3 +344,81 @@ func TestCounters_ReconciledUpdatedAndRemoved(t *testing.T) {
 			"e este teste voltou a medir uma corrida em vez da reconciliacao", got)
 	}
 }
+
+// TestPastaQueChegaComArquivosDentro guarda um defeito que tornava notas
+// invisiveis para TODAS as tools ate o proximo reinicio.
+//
+// Um diretorio que chega ao cofre ja com arquivos dentro entrega exatamente UM
+// evento — a criacao do proprio diretorio. Os arquivos ja existiam quando o
+// watch foi registrado, entao nunca geraram evento nenhum. Medido antes da
+// correcao: "eventos recebidos=1, notas no indice=0", sem erro e sem log.
+//
+// Nao e caso de borda: e o usuario arrastando uma pasta para dentro do cofre.
+// E e a mesma falha que fazia note_move perder a nota, porque a tool cria o
+// diretorio de destino e renomeia para dentro dele em seguida.
+//
+// O teste move uma pasta PRONTA para dentro do cofre em vez de criar a pasta e
+// depois os arquivos: assim nao ha corrida a ganhar: os arquivos existem antes
+// de qualquer watch, sempre.
+func TestPastaQueChegaComArquivosDentro(t *testing.T) {
+	w, cancel, dir, idx := setupTestWatcher(t)
+	defer cancel()
+
+	fora := t.TempDir()
+	pronta := filepath.Join(fora, "chegou")
+	if err := os.MkdirAll(filepath.Join(pronta, "sub"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	esperados := map[string]string{
+		"chegou/a.md":     filepath.Join(pronta, "a.md"),
+		"chegou/b.md":     filepath.Join(pronta, "b.md"),
+		"chegou/sub/c.md": filepath.Join(pronta, "sub", "c.md"),
+	}
+	for _, abs := range esperados {
+		if err := os.WriteFile(abs, []byte("# X\n\nconteudo.\n"), 0644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.Rename(pronta, filepath.Join(dir, "chegou")); err != nil {
+		t.Skipf("rename de diretorio nao suportado neste ambiente: %v", err)
+	}
+
+	limite := time.Now().Add(30 * time.Second)
+	for time.Now().Before(limite) {
+		if idx.NoteCount() >= len(esperados) {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	for rel := range esperados {
+		if _, ok := idx.Get(vault.CanonicalPath(rel)); !ok {
+			var vistos []string
+			for _, p := range idx.NotePaths() {
+				vistos = append(vistos, string(p))
+			}
+			t.Errorf("%s nunca chegou ao indice (eventos=%d, indice=%v)",
+				rel, w.Stats().EventsReceived, vistos)
+		}
+	}
+
+	// A varredura tem de deixar os SUBDIRETORIOS vigiados, e nao so indexar o
+	// que achou neles. Sem isto a pasta entra certa e para de acompanhar: uma
+	// nota criada depois, dentro de chegou/sub/, nunca apareceria — e nenhuma
+	// asserção acima notaria, porque todas falam do estado inicial.
+	//
+	// Esta metade foi escrita depois: a prova de mutacao mostrou que remover o
+	// Add do subdiretorio deixava o teste verde.
+	depois := filepath.Join(dir, "chegou", "sub", "d.md")
+	if err := os.WriteFile(depois, []byte("# D\n\nnota criada depois.\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	limite = time.Now().Add(30 * time.Second)
+	for time.Now().Before(limite) {
+		if _, ok := idx.Get(vault.CanonicalPath("chegou/sub/d.md")); ok {
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Errorf("chegou/sub/d.md nao foi indexada: o subdiretorio varrido ficou sem watch")
+}

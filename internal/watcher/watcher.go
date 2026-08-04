@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io/fs"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -131,7 +132,8 @@ func (w *Watcher) Run(ctx context.Context) error {
 			}
 			w.received.Add(1)
 
-			// Se um diretorio novo for criado, adiciona o watch nele
+			// Se um diretorio novo for criado, adiciona o watch nele E varre o
+			// que ja estava dentro.
 			if e.Op&fsnotify.Create == fsnotify.Create {
 				info, err := os.Stat(e.Name)
 				if err == nil && info.IsDir() {
@@ -139,32 +141,99 @@ func (w *Watcher) Run(ctx context.Context) error {
 						if err := w.fsWatcher.Add(e.Name); err != nil {
 							w.log.Warn("falha ao adicionar watch em novo subdiretório", "path", e.Name, "err", err)
 						}
+						if err := w.varreDiretorioNovo(ctx, e.Name); err != nil {
+							return err
+						}
 					}
 				}
 			}
 
-			evt, ok, reason := filter(e, w.root, w.log)
-			if !ok {
-				switch reason {
-				case DropChmod:
-					w.droppedChmod.Add(1)
-				case DropOutsideVault:
-					w.droppedOutsideVault.Add(1)
-				case DropExcluded:
-					w.droppedExcluded.Add(1)
-				case DropUnknownOp:
-					w.droppedUnknownOp.Add(1)
-				}
-				continue
-			}
-
-			select {
-			case w.events <- evt:
-			case <-ctx.Done():
-				return ctx.Err()
+			if err := w.emite(ctx, e); err != nil {
+				return err
 			}
 		}
 	}
+}
+
+// emite passa o evento pelo filtro e o entrega ao debouncer.
+//
+// Extraida do laco de Run para que a varredura de diretorio novo use o MESMO
+// filtro e os MESMOS contadores de descarte. Duas copias da regra de exclusao
+// divergem — e a que fica na copia menos usada e a que ninguem percebe.
+func (w *Watcher) emite(ctx context.Context, e fsnotify.Event) error {
+	evt, ok, reason := filter(e, w.root, w.log)
+	if !ok {
+		switch reason {
+		case DropChmod:
+			w.droppedChmod.Add(1)
+		case DropOutsideVault:
+			w.droppedOutsideVault.Add(1)
+		case DropExcluded:
+			w.droppedExcluded.Add(1)
+		case DropUnknownOp:
+			w.droppedUnknownOp.Add(1)
+		}
+		return nil
+	}
+
+	select {
+	case w.events <- evt:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+// varreDiretorioNovo emite eventos para o que JA ESTAVA dentro de um diretorio
+// recem-criado, e registra watch nos subdiretorios dele.
+//
+// Sem isto, um diretorio que chega ao cofre ja com arquivos dentro entrega
+// exatamente UM evento — a criacao do proprio diretorio — e nenhum arquivo.
+// Medido: uma pasta com tres notas movida para dentro do cofre dava
+// "eventos recebidos=1, notas no indice=0", e as tres ficavam invisiveis para
+// TODAS as tools ate o proximo reinicio, sem erro e sem log. Nao e um caso de
+// borda: e o usuario arrastando uma pasta para o cofre.
+//
+// Tambem e o que fazia note_move perder a nota. A tool cria o diretorio de
+// destino e renomeia para dentro dele em seguida; quando o rename chega antes
+// de o watch ser registrado, o arquivo novo nunca e visto enquanto a remocao
+// do antigo e — e a nota some da busca de vez.
+//
+// Roda no laco de Run, de proposito. Numa pasta grande isso segura o consumo
+// de eventos do fsnotify e pode estourar o buffer do sistema operacional — o
+// que dispara a reconciliacao, que e justamente o anteparo para eventos
+// perdidos. Fazer a varredura numa goroutine tiraria a espera dali, mas Run
+// fecha w.events ao sair, e uma varredura sobrevivente escrevendo num canal
+// fechado derruba o processo. Espera limitada vale mais que panico.
+func (w *Watcher) varreDiretorioNovo(ctx context.Context, dir string) error {
+	err := filepath.WalkDir(dir, func(caminho string, d fs.DirEntry, erro error) error {
+		if erro != nil {
+			// Entrada ilegivel nao pode abortar a varredura das outras: a
+			// alternativa e perder o diretorio inteiro por causa de um arquivo.
+			w.log.Warn("entrada ilegivel ao varrer diretório novo", "path", caminho, "err", erro)
+			return nil
+		}
+		if caminho == dir {
+			return nil
+		}
+		if d.IsDir() {
+			if vault.IsExcludedDir(d.Name()) {
+				return filepath.SkipDir
+			}
+			if err := w.fsWatcher.Add(caminho); err != nil {
+				w.log.Warn("falha ao adicionar watch em subdiretório varrido", "path", caminho, "err", err)
+			}
+			return nil
+		}
+		return w.emite(ctx, fsnotify.Event{Name: caminho, Op: fsnotify.Create})
+	})
+	if err != nil {
+		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+			return err
+		}
+		w.log.Warn("varredura de diretório novo interrompida", "path", dir, "err", err)
+	}
+	return nil
 }
 
 // handleFSError trata um erro vindo do fsnotify. Overflow agenda reconciliação;
