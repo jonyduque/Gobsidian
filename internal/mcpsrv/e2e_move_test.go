@@ -1,14 +1,15 @@
 package mcpsrv_test
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
-	"io"
 	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -41,6 +42,46 @@ import (
 // mesmo inv. Um teste que construisse o indice depois do move mediria o
 // index.Build, nao o watcher.
 
+// bufferSeguro deixa varias goroutines do watcher escreverem log ao mesmo
+// tempo. slog nao serializa escritas por conta propria.
+type bufferSeguro struct {
+	mu  sync.Mutex
+	buf bytes.Buffer
+}
+
+func (b *bufferSeguro) Write(p []byte) (int, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.Write(p)
+}
+
+func (b *bufferSeguro) String() string {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.String()
+}
+
+// logCapturado guarda o log da pilha e o despeja SE o teste reprovar.
+//
+// Antes ia para io.Discard. Num teste de convergencia isso joga fora
+// exatamente o que explica a reprovacao: se o indice nao seguiu o move, a
+// resposta esta em o rename ter sido correlacionado ou nao, e em qual etapa
+// avisou falha. Sem o log, uma reprovacao intermitente so diz "nao convergiu",
+// que e a pergunta e nao a resposta.
+//
+// Nivel Debug porque as decisoes do watcher que interessam aqui — lote
+// aplicado, mudanca ignorada por mtime igual — nao sao Info.
+func logCapturado(t *testing.T) *slog.Logger {
+	t.Helper()
+	b := &bufferSeguro{}
+	t.Cleanup(func() {
+		if t.Failed() {
+			t.Logf("--- log da pilha ---\n%s", b.String())
+		}
+	})
+	return slog.New(slog.NewTextHandler(b, &slog.HandlerOptions{Level: slog.LevelDebug}))
+}
+
 // servidorComWatcher monta a pilha inteira e devolve a sessao MCP ja
 // conectada, com o watcher rodando sobre o mesmo indice que o servico le.
 func servidorComWatcher(t *testing.T, root string, debounce time.Duration) (*mcp.ClientSession, context.Context) {
@@ -71,7 +112,7 @@ func servidorComWatcher(t *testing.T, root string, debounce time.Duration) (*mcp
 		inv.Add(string(p), search.Analyze(string(body)))
 	}
 
-	log := slog.New(slog.NewTextHandler(io.Discard, nil))
+	log := logCapturado(t)
 
 	w, err := watcher.New(v, idx, inv, debounce, log)
 	if err != nil {

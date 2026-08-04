@@ -374,6 +374,40 @@ func (ix *Inverted) HasDoc(path string) bool {
 	return ok
 }
 
+// DocPaths devolve os caminhos de todas as notas indexadas.
+//
+// Existe para a reconciliação por overflow: ela precisa tirar do índice o que
+// sumiu do disco, e sem enumerar não há como saber o que sobrou aqui e não
+// existe mais lá.
+//
+// Aloca a lista inteira de propósito, em vez de devolver um iterador sob o
+// lock: quem chama vai chamar Remove para alguns dos caminhos, e Remove pega o
+// mesmo lock.
+func (ix *Inverted) DocPaths() []string {
+	ix.mu.RLock()
+	defer ix.mu.RUnlock()
+
+	n := len(ix.docLengths)
+	if ix.base != nil {
+		n += len(ix.base.caminhos) - ix.sombraNoBase
+	}
+	out := make([]string, 0, n)
+	if ix.base != nil {
+		for _, p := range ix.base.caminhos {
+			// Sombreado significa substituído ou removido; se foi
+			// reindexado, ele volta pelo delta abaixo, uma vez só.
+			if ix.sombra[p] {
+				continue
+			}
+			out = append(out, p)
+		}
+	}
+	for p := range ix.docLengths {
+		out = append(out, p)
+	}
+	return out
+}
+
 // DocLength devolve o número total de tokens de uma nota indexada.
 func (ix *Inverted) DocLength(path string) int {
 	ix.mu.RLock()

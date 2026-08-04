@@ -27,7 +27,7 @@ func Apply(ctx context.Context, in <-chan []vault.CanonicalPath, reconcile <-cha
 		case <-ctx.Done():
 			return
 		case <-reconcile:
-			up, rem, _ := Reconcile(ctx, v, idx, log)
+			up, rem, _ := Reconcile(ctx, v, idx, searchInv, log)
 			if reconciledUpdated != nil {
 				reconciledUpdated.Add(int64(up))
 			}

@@ -15,6 +15,7 @@ import (
 
 	"github.com/fsnotify/fsnotify"
 	"github.com/jonyd/gobsidian/internal/index"
+	"github.com/jonyd/gobsidian/internal/search"
 	"github.com/jonyd/gobsidian/internal/vault"
 )
 
@@ -57,7 +58,7 @@ func TestReconcile_CorrectsLostEvents(t *testing.T) {
 	}
 
 	log := slog.New(slog.NewTextHandler(io.Discard, nil))
-	updated, removedN, skipped := Reconcile(context.Background(), v, idx, log)
+	updated, removedN, skipped := Reconcile(context.Background(), v, idx, invDoCofre(t, v, idx), log)
 
 	if n, ok := idx.Get("file1.md"); !ok || n.Size != int64(len("new content, different size")) {
 		t.Errorf("modificado nao reconciliado: ok=%v nota=%+v", ok, n)
@@ -205,7 +206,7 @@ func TestReconcile_VaultGoneLeavesIndexIntact(t *testing.T) {
 	}
 
 	log := slog.New(slog.NewTextHandler(io.Discard, nil))
-	updated, removed, skipped := Reconcile(context.Background(), v, idx, log)
+	updated, removed, skipped := Reconcile(context.Background(), v, idx, invDoCofre(t, v, idx), log)
 
 	if idx.NoteCount() != 3 {
 		t.Errorf("NoteCount apos cofre sumir quer 3, obteve %d", idx.NoteCount())
@@ -242,7 +243,7 @@ func TestReconcile_CtxCancelStopsEarly(t *testing.T) {
 	cancel()
 
 	log := slog.New(slog.NewTextHandler(io.Discard, nil))
-	updated, removed, skipped := Reconcile(ctx, v, idx, log)
+	updated, removed, skipped := Reconcile(ctx, v, idx, invDoCofre(t, v, idx), log)
 
 	if idx.NoteCount() != 200 {
 		t.Errorf("indice foi alterado/esvaziado apos cancelamento: count=%d", idx.NoteCount())
@@ -279,7 +280,7 @@ func TestReconcile_CancelIsNotAnError(t *testing.T) {
 	var buf bytes.Buffer
 	log := slog.New(slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelDebug}))
 
-	Reconcile(ctx, v, idx, log)
+	Reconcile(ctx, v, idx, invDoCofre(t, v, idx), log)
 
 	output := buf.String()
 	if strings.Contains(output, "LEVEL=ERROR") || strings.Contains(output, "level=ERROR") || strings.Contains(output, "Erro durante varredura") {
@@ -287,5 +288,129 @@ func TestReconcile_CancelIsNotAnError(t *testing.T) {
 	}
 	if !strings.Contains(output, "Reconciliação interrompida pelo shutdown") {
 		t.Errorf("Reconcile cancelado nao emitiu log Debug de shutdown: %s", output)
+	}
+}
+
+// invDoCofre monta um indice de busca coerente com o indice de metadados no
+// momento da chamada.
+//
+// Os testes de reconciliacao passavam so o indice de metadados, e por isso nao
+// diziam nada sobre a metade que estava quebrada: a reconciliacao reparava os
+// metadados e deixava a busca obsoleta para sempre. Passar um indice de busca
+// de verdade faz esses testes exercitarem o caminho inteiro.
+func invDoCofre(t *testing.T, v *vault.Vault, idx *index.Index) *search.Inverted {
+	t.Helper()
+	inv := search.NewInverted()
+	for _, p := range idx.NotePaths() {
+		b, err := v.ReadAll(context.Background(), p)
+		if err != nil {
+			continue
+		}
+		corpo, _ := vault.StripBOM(b)
+		inv.Add(string(p), search.Analyze(string(corpo)))
+	}
+	return inv
+}
+
+// TestReconcileReparaOIndiceDeBusca guarda o defeito mais caro que a
+// reconciliacao ja teve, e que nenhum teste via.
+//
+// Ela reparava o indice de METADADOS e deixava o de BUSCA obsoleto. Como
+// service.Search descarta a posting cujo caminho nao existe nos metadados
+// (`s.index.Get` -> `if !ok { continue }`), uma nota MOVIDA durante o overflow
+// ficava com os metadados no caminho novo e a posting no antigo: `vault_search`
+// devolvia ZERO resultados para uma nota que estava la, para sempre, sem log e
+// sem erro. Uma nota CRIADA durante o overflow ficava invisivel pelo mesmo
+// motivo, ao contrario.
+//
+// O teste afirma sobre o que a BUSCA veria, e nao sobre os dois indices em
+// separado: e a combinacao dos dois que decide a resposta, e conferir cada um
+// isoladamente foi o que deixou isso passar.
+func TestReconcileReparaOIndiceDeBusca(t *testing.T) {
+	log := slog.New(slog.NewTextHandler(io.Discard, nil))
+	root := t.TempDir()
+	must := func(err error) {
+		t.Helper()
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	must(os.MkdirAll(filepath.Join(root, "origem"), 0755))
+	must(os.MkdirAll(filepath.Join(root, "destino"), 0755))
+	must(os.WriteFile(filepath.Join(root, "origem", "alvo.md"),
+		[]byte("# Alvo\n\nzarabatana e a palavra sonda.\n"), 0644))
+
+	v, err := vault.New(root)
+	must(err)
+	idx := index.New()
+	must(idx.Build(context.Background(), v))
+	inv := invDoCofre(t, v, idx)
+
+	// visiveis conta o que vault_search devolveria: posting que o indice de
+	// metadados confirma.
+	visiveis := func(termo string) []string {
+		var out []string
+		for _, p := range inv.Postings(termo) {
+			if _, ok := idx.Get(vault.CanonicalPath(p.Path)); ok {
+				out = append(out, p.Path)
+			}
+		}
+		return out
+	}
+
+	if got := visiveis("zarabatana"); len(got) != 1 || got[0] != "origem/alvo.md" {
+		t.Fatalf("estado inicial errado: %v — sem isto o resto passaria vacuamente", got)
+	}
+
+	// O cofre muda com NINGUEM escutando: e o que "eventos perdidos"
+	// significa. So a reconciliacao pode consertar.
+	must(os.Rename(filepath.Join(root, "origem", "alvo.md"),
+		filepath.Join(root, "destino", "renomeada.md")))
+	must(os.WriteFile(filepath.Join(root, "destino", "nova.md"),
+		[]byte("# Nova\n\nbodoque nasceu durante o overflow.\n"), 0644))
+
+	Reconcile(context.Background(), v, idx, inv, log)
+
+	if got := visiveis("zarabatana"); len(got) != 1 || got[0] != "destino/renomeada.md" {
+		t.Errorf("apos a reconciliacao a busca devolveria %v para a nota movida, quer [destino/renomeada.md]", got)
+	}
+	if got := visiveis("bodoque"); len(got) != 1 || got[0] != "destino/nova.md" {
+		t.Errorf("apos a reconciliacao a busca devolveria %v para a nota criada, quer [destino/nova.md]", got)
+	}
+	if inv.HasDoc("origem/alvo.md") {
+		t.Error("o caminho antigo sobreviveu no indice de busca")
+	}
+}
+
+// TestReconcileNaoPulaNotaAusenteDaBusca guarda o atalho de mtime/tamanho.
+//
+// Ele fala do indice de METADADOS. Quando a nota esta la e falta na busca —
+// que e exatamente a divergencia que esta funcao existe para consertar — pular
+// por "ja esta atualizada" fazia o anteparo confirmar o defeito.
+func TestReconcileNaoPulaNotaAusenteDaBusca(t *testing.T) {
+	log := slog.New(slog.NewTextHandler(io.Discard, nil))
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "n.md"),
+		[]byte("# N\n\nzarabatana.\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	v, err := vault.New(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	idx := index.New()
+	if err := idx.Build(context.Background(), v); err != nil {
+		t.Fatal(err)
+	}
+
+	// Metadados em dia, busca vazia: nada mudou no disco, entao mtime e
+	// tamanho batem e o atalho dispara.
+	inv := search.NewInverted()
+
+	Reconcile(context.Background(), v, idx, inv, log)
+
+	if len(inv.Postings("zarabatana")) != 1 {
+		t.Errorf("a nota continua fora do indice de busca apos a reconciliacao: %d postings",
+			len(inv.Postings("zarabatana")))
 	}
 }
