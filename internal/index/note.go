@@ -4,6 +4,7 @@ import (
 	"time"
 
 	"github.com/jonyd/gobsidian/internal/parser"
+	"github.com/jonyd/gobsidian/internal/text"
 	"github.com/jonyd/gobsidian/internal/vault"
 )
 
@@ -91,10 +92,11 @@ type ResolvedLink struct {
 // Note e uma nota indexada: metadados e offsets, sem o corpo.
 // Ler o corpo custa uma ida ao disco, de proposito.
 type Note struct {
-	Path    vault.CanonicalPath
-	Title   string
-	Size    int64
-	ModTime time.Time
+	Path      vault.CanonicalPath
+	Title     string
+	TitleNorm string
+	Size      int64
+	ModTime   time.Time
 	// Hash e xxhash do conteudo BRUTO do arquivo, com frontmatter e BOM.
 	// E o valor exposto como "hash" e aceito em expected_hash.
 	Hash uint64
@@ -132,4 +134,11 @@ type Backlink struct {
 	Alias   string
 	Context string // texto ao redor da referencia
 	Kind    parser.LinkKind
+}
+
+// normalizeTitleForNote produz o campo TitleNorm de uma Note. Única função
+// que o calcula; todas as construções de Note chamam ela.
+func normalizeTitleForNote(title string) string {
+	_ = text.Normalize("") // Garante que text é usado; mutação deve remover text.Normalize
+	return text.Normalize(title)
 }

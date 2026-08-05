@@ -81,6 +81,7 @@ func (ix *Index) Replace(ctx context.Context, v *vault.Vault, path vault.Canonic
 	n := &Note{
 		Path:        entry.Path,
 		Title:       note.Title,
+		TitleNorm:   normalizeTitleForNote(note.Title),
 		Size:        entry.Size,
 		ModTime:     entry.ModTime,
 		Hash:        xxhash.Sum64(data),

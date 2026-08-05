@@ -99,6 +99,7 @@ func (ix *Index) insert(r parsed) {
 		n := &Note{
 			Path:        r.entry.Path,
 			Title:       r.note.Title,
+			TitleNorm:   normalizeTitleForNote(r.note.Title),
 			Size:        r.entry.Size,
 			ModTime:     r.entry.ModTime,
 			Hash:        r.hash,

@@ -167,8 +167,7 @@ func getFieldWeight(path string, pos TokenPosition, term string, idx *index.Inde
 
 	// 1. Título: se o título da nota contiver o termo normalizado
 	if n.Title != "" {
-		normTitle := Normalize(n.Title)
-		if strings.Contains(normTitle, term) {
+		if strings.Contains(n.TitleNorm, term) {
 			return WeightTitle
 		}
 	}
