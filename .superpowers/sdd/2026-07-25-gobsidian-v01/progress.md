@@ -1181,3 +1181,38 @@ o normalizador de tamanho funcionando, nao um vies do corpus a esconder.
 `scripts/verify.ps1 -SkipCross -SkipNet` verde nos 7 passos.
 `go test -run TestRankingGolden ./internal/service/` verde lendo do disco (sem
 `-update`). Sem prova de mutacao: tarefa nao toca codigo de producao.
+
+## Task 79 (M7) — checador de artefato citado na doc que nao existe no codigo — 2026-08-05
+
+`scripts/check_doc_refs.ps1`, commitado em `cfb3d60`. Varre `docs/*.md` (nao
+recursivo) e `README.md` por token entre crases que parece identificador de
+codigo — nome de arquivo `.go`/`.gob`, `snake_case`, `CamelCase()` — e falta
+em todo `.go` do repositorio. `.go` confere presenca em disco pelo nome-base;
+`.gob`/`snake_case`/`CamelCase()` conferem substring no corpus de `.go`
+(producao+teste), porque sao artefato de dado ou identificador, nao arquivo
+versionado — arquivo-fonte real nunca aparece por nome dentro de outro `.go`,
+entao testar os dois do mesmo jeito deu 21 falso-positivo na primeira rodada.
+
+Achou os dois casos reais do repositorio hoje: `index_cache.gob`
+(`docs/PRD.md` Q3, decidido e nunca implementado — so `inverted_cache.gob`
+existe) e `total_bytes` (`docs/TOOLS.md` promete no retorno de `note_read`,
+`service.ReadResult` nao tem o campo nem `path`). Volume total: 14 achados,
+os outros 12 sao ruido explicado no relatorio (arquivo interno do `fsnotify`
+vendorizado, campo Go mostrado em minusculo numa tabela, nome proibido citado
+como exemplo de convencao, sysctl do Linux).
+
+Bug de parsing PowerShell no caminho: `` `{3}` `` dentro de string de aspas
+duplas faz o segundo backtick escapar a aspa de fechamento (`` `" ``), e o
+parser consome o resto do arquivo procurando a proxima aspa — corrigido com
+crase dupla (` `` ` = crase literal). `-match`/`-notmatch` do PowerShell sao
+insensiveis a maiuscula por padrao; sem `(?-i)` nos padroes e `-cnotmatch` na
+busca, `SNAKE_CASE` casava com constante GRITANTE do Windows
+(`ERROR_SHARING_VIOLATION`). Os dois foram achados olhando o volume antes de
+aceitar a regra, como o brief manda.
+
+Prova de disparo (sem mutacao — entregavel e PowerShell): inserido
+`` `create_dirs` `` em `docs/TOOLS.md`, achado foi de 14 para 15; removido,
+voltou a 14; `git status --porcelain docs/TOOLS.md` vazio.
+
+`scripts/verify.ps1 -SkipCross -SkipNet` verde nos 7 passos. Relatorio
+completo em `.superpowers/sdd/task-79-report.md`.
