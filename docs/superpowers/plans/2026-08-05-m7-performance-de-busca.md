@@ -1396,3 +1396,595 @@ Estimativa: 10 tarefas, ~2 invocações cada com revisão, ~20 no total.
 **A que eu não delegaria sem ler a saída inteira: a 86.** Ela mexe em resolução
 de link, o defeito que ela pode introduzir resolve para a nota errada com
 `state=ok`, e este projeto já pagou exatamente esse.
+
+---
+
+# Parte II — Custo por instância (Tasks 88–93)
+
+Cada sessão de host MCP abre **um** processo `gobsidian serve`. É o transporte
+stdio: o host cria o subprocesso e fala JSON-RPC pelo pipe. O servidor não tem
+como recusar — quando ele existe, o host já o criou.
+
+Medido em 2026-08-05 na máquina do projeto, com duas sessões do Claude vivas:
+
+```
+PID 24988  v1.0.0  943,8 MB   pai: claude vivo
+PID 54892  v1.0.1  584,7 MB   pai: claude vivo
+```
+
+Nenhum é órfão. É o custo normal, multiplicado. O build atual mede **381,5 MB**
+em repouso no mesmo cofre, então parte disso se resolve reinstalando; o resto é
+estrutural, e é o que estas seis tarefas atacam.
+
+## A medição que decide o transporte
+
+Feita antes de escrever as tarefas, não depois. Eco de ida e volta, 20.000
+repetições por tamanho, após aquecimento, em windows/amd64, 12 núcleos:
+
+| Transporte | 256 B | 4 KB | 64 KB |
+|---|---|---|---|
+| **AF_UNIX** (`net.Dial("unix")`) | **25,7 µs** | **23,0 µs** | **42,9 µs** |
+| named pipe (`go-winio`, config padrão) | 82,9 µs | 93,5 µs | 110,0 µs |
+
+**AF_UNIX ganha em todos os tamanhos, por 3 a 4x**, está na biblioteca padrão e
+é o mesmo código nos três sistemas. Windows suporta AF_UNIX desde a versão 10
+1803 (abril de 2018).
+
+**Decisão D-M7-6: AF_UNIX nos três sistemas, sem compilação condicional para o
+transporte.** Duas razões, e a segunda é mais forte que a primeira:
+
+1. Ganhou a medição, e sem trazer dependência nova.
+2. **A escolha quase não importa.** A ida e volta custa ~25 µs contra uma busca
+   que leva 90 a 200 ms — quatro ordens de grandeza. Mesmo que o named pipe
+   ganhasse, o critério certo seria complexidade e dependência, e AF_UNIX vence
+   os dois. Otimizar o transporte aqui seria ajustar 0,02% do tempo.
+
+Ressalva honesta: uma execução, uma máquina, `go-winio` com configuração padrão.
+Um named pipe ajustado pode fechar parte da distância. Isso não muda a decisão,
+porque a decisão não depende da margem.
+
+Build tag continua existindo para **o caminho do socket e a limpeza dele**, não
+para o transporte — Windows deixa um arquivo que precisa ser removido, Linux
+poderia usar namespace abstrato. Ver Task 91.
+
+---
+
+# Task 88 — Índice de busca carregado sob demanda
+
+**Tier: modelo barato.** O corpo do teste difícil está escrito abaixo.
+
+#### Onde encaixa
+Primeira da Parte II, e independente de todas as outras. É a que dá mais
+resultado por linha mexida.
+
+#### O que vincula esta tarefa
+
+Repetido aqui de propósito: o brief é a unidade que viaja, e decisão citada por
+código fica no preâmbulo, que não viaja com ela.
+
+- **Medição com n maior ou igual a 3, uma mudança por vez.** Sem ganho medido, a
+  mudança é revertida: código mais feio sem ganho é dívida pura.
+- **`vault_search` responde `INDEX_BUILDING`, nunca lista vazia,** enquanto o
+  índice não cobre o cofre. "Ainda não sei" e "não achei nada" pedem ações
+  diferentes de quem chama.
+- **Nenhum teto de RNF é afrouxado nesta batelada.**
+
+#### A evidência medida do defeito
+`cmd/gobsidian/serve.go:407` chama `prepararIndiceDeBusca` **incondicionalmente**,
+numa goroutine, em toda partida. Uma sessão que nunca chama `vault_search` paga
+o índice inteiro assim mesmo — e a maioria das sessões de assistente lê e
+escreve nota sem nunca buscar. RSS em repouso hoje: 381,5 MB.
+
+#### A decisão que esta tarefa tem de acertar
+O carregamento passa a ser disparado pela **primeira chamada de
+`vault_search`**, uma vez só. Até lá o índice fica marcado como em construção e
+a tool responde `INDEX_BUILDING`.
+
+**Pré-decidido:** a flag `--eager-search` liga o comportamento antigo, e o
+padrão é preguiçoso. Quem roda o servidor num script que só busca quer o
+carregamento adiantado; quem o roda como MCP quase nunca quer.
+
+**O watcher continua começando na partida.** Só o carregamento do índice de
+busca é adiado. Adiar o watcher faria eventos se perderem, e o único anteparo
+seria a reindexação no boot seguinte.
+
+#### Armadilhas já pagas que se aplicam
+- **Teste de fallback que deixa o caminho principal ligado mede o caminho
+  principal.**
+- **`sync.Once` que envolve a chamada errada** carrega o erro para sempre: se a
+  carga falhar, a próxima busca precisa poder tentar de novo. O `Once` é sobre
+  "já disparei", não sobre "já consegui".
+
+#### O corpo do teste que não é óbvio
+```go
+// TestBuscaPreguicosaCarregaUmaVezESoUmaVez guarda os dois defeitos que o
+// adiamento introduz: carregar N vezes sob concorrencia, e nunca mais tentar
+// depois de uma falha.
+func TestBuscaPreguicosaCarregaUmaVezESoUmaVez(t *testing.T) {
+	var cargas atomic.Int32
+	svc := servicoComCargaPreguicosa(t, func() error {
+		cargas.Add(1)
+		return nil
+	})
+
+	// Vinte buscas concorrentes: uma carga, nao vinte.
+	var wg sync.WaitGroup
+	for i := 0; i < 20; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			_, _ = svc.Search(context.Background(), service.SearchOptions{Query: "x"})
+		}()
+	}
+	wg.Wait()
+	if got := cargas.Load(); got != 1 {
+		t.Errorf("carregou %d vezes sob concorrencia, quer 1", got)
+	}
+
+	// Falha na carga nao pode ser definitiva.
+	var tentativas atomic.Int32
+	svc2 := servicoComCargaPreguicosa(t, func() error {
+		if tentativas.Add(1) == 1 {
+			return errors.New("falha transitoria")
+		}
+		return nil
+	})
+	if _, err := svc2.Search(context.Background(), service.SearchOptions{Query: "x"}); err == nil {
+		t.Fatal("primeira busca deveria propagar a falha da carga")
+	}
+	if _, err := svc2.Search(context.Background(), service.SearchOptions{Query: "x"}); err != nil {
+		t.Errorf("segunda busca falhou (%v): o Once travou o erro para sempre", err)
+	}
+}
+```
+
+#### Verificações além dos passos
+- RSS em repouso de uma instância que **nunca buscou**, medido em três partidas
+  no cofre real, contra os 381,5 MB de hoje. É o número que justifica a tarefa.
+- Tempo até a primeira busca responder — a carga entra nele agora. Se passar de
+  3 s, dizer o número; não afrouxar nada.
+- Golden da Task 78 idêntico.
+
+#### Regras de execução
+Rodar `pwsh -File scripts/verify.ps1` antes de dizer que acabou. Registrar no
+ledger antes de reportar conclusão. Escopo não encolhe em silêncio: `BLOCKED`
+com motivo é resposta melhor que entrega que parece completa.
+
+#### Prova de mutação
+```
+pwsh -File scripts/mutate.ps1 -Path internal/service/search.go `
+  -Anchor 'if err := s.garanteIndiceDeBusca(ctx); err != nil {' `
+  -Replacement 'if err := error(nil); err != nil {' `
+  -Test TestBuscaPreguicosaCarregaUmaVezESoUmaVez -Package ./internal/service/
+```
+
+#### Contrato de relatório
+RSS em repouso antes e depois, três partidas cada. Tempo até a primeira busca.
+Golden inalterado. Saída do `mutate.ps1` colada.
+
+**Files:** `cmd/gobsidian/serve.go`, `internal/service/search.go`,
+`internal/config/`, testes
+**Commit:** `perf(serve): load the search index on first search, not at boot`
+
+---
+
+# Task 89 — Arena de posições mapeada do arquivo
+
+**Tier: modelo forte.** Envolve `unsafe` e comportamento de mapeamento de
+memória por sistema; o modo de falha é corrupção silenciosa, não lentidão.
+
+#### Onde encaixa
+Depois da 88. É a única mudança que faz N instâncias custarem **menos que N
+vezes** o custo de uma.
+
+#### O que vincula esta tarefa
+
+Repetido aqui de propósito: o brief é a unidade que viaja, e decisão citada por
+código fica no preâmbulo, que não viaja com ela.
+
+- **Otimização que muda resultado é defeito, não trade-off.** O golden de
+  ranking da Task 78 tem de ficar idêntico. **Nunca regenerar com `-update`
+  para fazer passar.**
+- **`benchstat` com `-count=6`, uma mudança por vez.** `~` reverte a mudança.
+- **Nenhum teto de RNF é afrouxado nesta batelada.**
+
+#### A evidência
+O array de posições é **~291 MB** dos ~382 MB em repouso no cofre de referência
+(18.229.295 posições vezes 16 bytes). Hoje cada processo aloca a sua cópia.
+Mapeado do arquivo em modo leitura, o cache de páginas do sistema operacional o
+compartilha entre processos: dez instâncias pagariam cerca de uma vez a arena.
+
+#### A decisão que esta tarefa tem de acertar
+**O formato já favorece isto e não deve ser refeito.** As posições no formato 5
+estão em varint com delta — comprimidas, e portanto **não mapeáveis direto**.
+Duas saídas, e a escolha é desta tarefa:
+
+- **(a)** gravar uma segunda seção com as posições em formato fixo de 16 bytes,
+  alinhada, para ser mapeada; o varint continua para quem não puder mapear.
+  Custa espaço em disco, cerca de 291 MB.
+- **(b)** manter só o varint e mapear o arquivo comprimido, decodificando sob
+  demanda por posting. Economiza disco, mas cada leitura decodifica.
+
+**Pré-decidido: comece por (a) e meça.** A troca é disco por memória
+compartilhada, e disco é o recurso barato aqui. Se (a) não reduzir o RSS
+agregado de três instâncias em pelo menos 30%, **pare e reporte** — não parta
+para (b) sem uma decisão nova.
+
+#### Armadilhas já pagas que se aplicam
+- **O cofre fica em OneDrive.** Arquivo mapeado que o sincronizador mexe embaixo
+  é classe de falha que este projeto ainda não pagou. O **cache** fica fora do
+  cofre, em `%LOCALAPPDATA%`, o que evita isso — **confirmar** que continua fora,
+  e recusar mapear se o caminho do cache estiver dentro do cofre.
+- **Capacidade travada nas subfatias** já é regra do projeto. Num array mapeado
+  em modo leitura, um append que escrevesse por cima dispararia falha de
+  proteção de página, que é um crash e não um dado errado. Manter mesmo assim.
+- **`unsafe` sem prova de benchmark é injustificado.** Aqui a prova exigida não
+  é velocidade: é RSS agregado de várias instâncias.
+
+#### Verificações além dos passos
+- **RSS agregado de três instâncias simultâneas** no mesmo cofre, antes e
+  depois. É a medida que a tarefa existe para mover; RSS de uma instância só não
+  prova compartilhamento nenhum.
+- Cache invalidado com o arquivo mapeado aberto: o `os.Rename` do salvamento
+  atômico **falha no Windows** se alguém tem o arquivo mapeado. Testar, e decidir
+  o que acontece — desmapear antes de regravar é o caminho provável.
+- Arquivo truncado ou corrompido: recusa, não mapeia lixo.
+
+#### Regras de execução
+Rodar `pwsh -File scripts/verify.ps1` antes de dizer que acabou. Registrar no
+ledger antes de reportar conclusão. Escopo não encolhe em silêncio.
+
+#### Prova de mutação
+```
+pwsh -File scripts/mutate.ps1 -Path internal/search/mmap.go `
+  -Anchor 'if dentroDoCofre(caminhoCache, vaultPath) {' -Replacement 'if false {' `
+  -Test TestRecusaMapearCacheDentroDoCofre -Package ./internal/search/
+```
+
+#### Contrato de relatório
+RSS de uma e de **três** instâncias, antes e depois. Resultado do teste de
+regravação com o arquivo mapeado. Se o ganho agregado ficar abaixo de 30%,
+**dizer o número e parar** — é resposta melhor que seguir para (b) sozinho.
+
+**Files:** `internal/search/mmap.go`, `internal/search/mmap_windows.go`,
+`internal/search/mmap_unix.go`, `internal/search/persist_codec.go`, testes
+**Commit:** `perf(search): map the position array from the cache file`
+
+---
+
+# Task 90 — Reformular o RNF-30 e o analisador antes de abrir socket
+
+**Tier: modelo forte.** O entregável é uma garantia de produto reescrita de modo
+a continuar auditável. Errar aqui troca uma promessa verificável por uma
+afirmação.
+
+#### Onde encaixa
+**Antes** das Tasks 91 e 92, e é bloqueante para elas. Instrumento primeiro: a
+Fase 1 deste plano registra que gate que para de gatear já aconteceu duas vezes
+aqui, e abrir socket sem reescrever a regra faz o `check_net` reprovar — e a
+tentação seguinte é desligá-lo, o que é pior que ele não existir.
+
+#### O que vincula esta tarefa
+**Esta tarefa reabre uma decisão fechada, com autorização explícita do dono do
+projeto em 2026-08-05.** O texto atual de `docs/PRD.md`:
+
+> RNF-30 — Nenhuma requisição de rede. O código do produto não abre socket de
+> saída em nenhuma circunstância.
+>
+> RNF-30 é uma propriedade de produto, não apenas técnica: o cofre pode conter
+> material confidencial, e a garantia de que o servidor não exfiltra precisa ser
+> verificável, não apenas afirmada.
+
+A razão é de produto, não de gosto, e **a nova formulação tem de preservá-la**.
+
+Vale também: **nenhum teto de RNF é afrouxado nesta batelada**, e **não escreva
+número que você não mediu**.
+
+#### A decisão que esta tarefa tem de acertar
+A garantia passa de "nenhum socket" para **"nenhum socket que saia da máquina"**,
+e continua verificável em um comando:
+
+1. Nos nossos pacotes, `net.Dial` e `net.Listen` só com a rede **constante
+   `"unix"`**. Rede vinda de variável é recusada pelo analisador — sem isso,
+   `net.Dial(rede, endereco)` passa e a garantia evapora.
+2. O endereço tem de ser um caminho sob o diretório de runtime do usuário. O
+   analisador não consegue provar isso; o **teste** prova, e o analisador barra
+   a forma que permitiria burlar.
+3. `net/http`, cliente HTTP e qualquer `Dial` de `tcp` ou `udp` seguem proibidos
+   nos nossos pacotes.
+4. O texto do RNF-30 no PRD é reescrito com a data, a autorização e o que mudou.
+   **Decisão fechada que muda vira registro, não apagamento.**
+
+#### Armadilhas já pagas que se aplicam
+- **Gate que silenciosamente parou de gatear.** O `check_net` já reportou não ter
+  rodado e saiu verde. O analisador novo **tem de reprovar** um caso plantado, e
+  a prova disso vai no relatório.
+- **Campo com valor fixo mente sempre** — vale igual para regra de lint que só
+  aparenta cobrir.
+
+#### Verificações além dos passos
+Prova de disparo, uma por regra: plantar `net.Dial("tcp", ...)`; plantar
+`net.Dial(rede, ...)` com a rede numa variável; plantar uma chamada de cliente
+HTTP. As três têm de reprovar. Remover as três depois e colar as seis saídas.
+
+#### Regras de execução
+`verify.ps1` verde com o analisador novo **antes** de a Task 91 começar.
+Registrar no ledger antes de reportar. Escopo não encolhe em silêncio.
+
+#### Prova de mutação
+```
+pwsh -File scripts/mutate.ps1 -Path tools/netcheck/netcheck.go `
+  -Anchor 'if !ehConstante(arg0) || valorDe(arg0) != "unix" {' -Replacement 'if false {' `
+  -Test TestNetcheckRecusaRedeVariavel -Package ./tools/netcheck/
+```
+
+**A âncora nomeia código que ainda não existe, e isso é deliberado: ela é o
+contrato de nomes desta tarefa.** Se a implementação usar outro nome, a prova
+não casa âncora e o `mutate.ps1` sai `2`, inconclusivo — que se lê como "não
+provado", e é.
+
+#### Contrato de relatório
+As seis saídas de disparo. O diff do texto do RNF-30. A frase explícita de que a
+decisão foi reaberta, por quem e quando.
+
+**Files:** `docs/PRD.md`, `tools/netcheck/`, `scripts/check_net.ps1`, testes
+**Commit:** `docs(prd): restate RNF-30 as no socket that leaves the machine`
+
+---
+
+# Task 91 — Transporte IPC e o processo-ponte
+
+**Tier: modelo forte.** O modo de falha barato é a ponte que não sabe cair para
+o modo em processo — e aí um socket quebrado inutiliza a ferramenta.
+
+#### Onde encaixa
+Depois da 90, que é bloqueante. Antes da 92.
+
+#### O que vincula esta tarefa
+**D-M7-6, decidida por medição em 2026-08-05:** AF_UNIX nos três sistemas, sem
+compilação condicional para o transporte.
+
+| Transporte | 256 B | 4 KB | 64 KB |
+|---|---|---|---|
+| AF_UNIX | 25,7 µs | 23,0 µs | 42,9 µs |
+| named pipe | 82,9 µs | 93,5 µs | 110,0 µs |
+
+AF_UNIX ganhou em todos os tamanhos, está na stdlib e é o mesmo código nos três
+sistemas. E a escolha quase não importa: 25 µs contra uma busca de 90 a 200 ms.
+**Não re-litigar sem medição nova.** Windows 10 1803 ou superior é requisito.
+
+Vale também: **stdout pertence ao JSON-RPC**, todo log vai para stderr; e
+**código de plataforma fica atrás de build tag, em arquivo separado**.
+
+#### A decisão que esta tarefa tem de acertar
+1. **A ponte é burra.** Ela copia bytes entre o stdin e o stdout que o host lhe
+   deu e o socket. Não interpreta JSON-RPC, não tem índice, não tem estado. É o
+   que a mantém em poucos MB.
+2. **Fallback em processo é obrigatório.** Se o socket não existir, não conectar,
+   ou a versão não bater, a ponte **serve ela mesma**, exatamente como hoje. Sem
+   isso, um socket quebrado transforma a ferramenta em nada, e o usuário não tem
+   como diagnosticar.
+3. **Compilação condicional só para o caminho do socket e a limpeza dele.**
+   Windows deixa arquivo que precisa ser removido; Unix idem, em diretório de
+   runtime do usuário. `ipc_windows.go` e `ipc_unix.go`.
+4. **Permissão do socket é a garantia que substitui a antiga.** `0600` em Unix.
+   No Windows o arquivo herda a ACL do diretório, então o socket vai para um
+   diretório do próprio usuário, e a tarefa **verifica** que outro usuário não
+   consegue abrir. Um socket legível por qualquer um, para um daemon que lê o
+   cofre, é pior que qualquer preocupação de rede.
+
+#### Armadilhas já pagas que se aplicam
+- **`io.TeeReader` não propaga EOF.** A ponte copia nos dois sentidos; usar
+  `mirrorReader`, que faz `dst.CloseWithError(err)`.
+- **Goroutine parada em `Read` não é desenrolável por cancelamento de context.**
+  Vale para as duas direções da cópia.
+- **`ctx.Canceled` no retorno do laço de serviço é encerramento normal.**
+
+#### Verificações além dos passos
+- Socket ausente: a ponte serve em processo, e o log **diz** que caiu para esse
+  modo.
+- Socket presente mas de versão diferente: mesma coisa.
+- Outro usuário do sistema não abre o socket. Se não der para testar no
+  ambiente, **dizer isso** em vez de afirmar que está seguro.
+- Os três mecanismos de encerramento continuam valendo para a ponte:
+  `pwsh -File scripts/test_orphans.ps1 -Cycles 100` verde nos três cenários.
+
+#### Regras de execução
+`verify.ps1` e o gate de órfãos antes de dizer que acabou. Ledger antes de
+reportar. Escopo não encolhe em silêncio.
+
+#### Prova de mutação
+```
+pwsh -File scripts/mutate.ps1 -Path cmd/gobsidian/ponte.go `
+  -Anchor 'return serveEmProcesso(ctx, cfg, log)' `
+  -Replacement 'return err' `
+  -Test TestPonteCaiParaModoEmProcesso -Package ./cmd/gobsidian/
+```
+
+#### Contrato de relatório
+RSS da ponte sozinha. Latência de uma chamada de tool através dela contra a
+mesma chamada em processo. Saída dos três cenários de órfãos. Resultado do teste
+de permissão, ou a frase de que não foi possível testar no ambiente.
+
+**Files:** `cmd/gobsidian/ponte.go`, `internal/ipc/ipc.go`,
+`internal/ipc/ipc_windows.go`, `internal/ipc/ipc_unix.go`, testes
+**Commit:** `feat(ipc): bridge stdio to a local AF_UNIX socket, with in-process fallback`
+
+---
+
+# Task 92 — Daemon: uma instância por cofre, com ciclo de vida próprio
+
+**Tier: modelo forte.** É onde o ganho aparece e onde mora o risco: um processo
+de longa vida segurando o cofre, sem pai para vigiar.
+
+#### Onde encaixa
+Depois da 91. Última das de código desta parte.
+
+#### O que vincula esta tarefa
+D-M7-6 (AF_UNIX, já decidido por medição) e a garantia reformulada da Task 90.
+
+Mais uma que é específica desta tarefa: **a vigília do pai não se aplica ao
+daemon.** Ele não tem pai que o defina — quem o inicia é uma ponte que sai logo
+depois. Os três mecanismos de encerramento do servidor stdio não cobrem este
+caso, e o gate de órfãos, como está, não o testa.
+
+Vale também: **não escreva número que você não mediu**, e **escopo não encolhe
+em silêncio**.
+
+#### A decisão que esta tarefa tem de acertar
+1. **Um daemon por cofre**, chaveado pelo mesmo hash de caminho que já nomeia o
+   diretório de cache. Dois cofres, dois daemons.
+2. **Corrida de inicialização resolvida por arquivo de bloqueio**, não por
+   "tenta conectar, senão inicia": dez pontes subindo juntas iniciariam dez
+   daemons. Quem perde a corrida espera e conecta.
+3. **Encerra por ociosidade.** Sem cliente conectado por N minutos, sai. Sem
+   isso, o daemon é 382 MB permanentes, e a economia vira desperdício numa
+   máquina que usou a ferramenta uma vez. **Padrão: 15 minutos**, configurável.
+4. **Versão no handshake.** Ponte e daemon de versões diferentes não conversam;
+   a ponte cai para o modo em processo da Task 91 e registra no log.
+5. **O daemon não fala JSON-RPC pelo stdout**, e sim pelo socket — mas o log
+   continua em stderr, e ele precisa de um destino de log próprio, porque não
+   tem terminal.
+
+#### Armadilhas já pagas que se aplicam
+- **Vigília do pai precisa de `exitTime`, não só creation time.** Se esta tarefa
+  fizer o daemon vigiar qualquer processo, a lição vale inteira: no Windows, PID
+  e creation time seguem consultáveis depois da morte, e comparar só os dois
+  nunca detecta pai morto. Já deixou 5 de 5 órfãos aqui.
+- **Reparar metade do estado é pior que não reparar.** O daemon serve vários
+  clientes; um cofre reconciliado pela metade agora afeta todos eles.
+- **Teste de mecanismo que cruza estruturas afirma sobre o que o usuário
+  veria**, não sobre cada estrutura em separado.
+
+#### Verificações além dos passos
+- **RSS agregado de três sessões** contra três processos independentes. É o
+  número que a Parte II inteira existe para mover.
+- Daemon morto no meio de uma chamada: a ponte devolve erro acionável, não trava.
+- Dez pontes subindo simultaneamente: **um** daemon, não dez.
+- Ociosidade: sem cliente, sai dentro do prazo.
+- **Cenário novo no gate de órfãos**: matar todas as pontes deve deixar o daemon
+  saindo por ociosidade, e o harness tem de conferir isso — hoje ele não cobre
+  processo sem pai.
+
+#### Regras de execução
+`verify.ps1`, o gate de órfãos com o cenário novo, e o teste das dez pontes
+antes de dizer que acabou. Ledger antes de reportar.
+
+#### Prova de mutação
+```
+pwsh -File scripts/mutate.ps1 -Path internal/daemon/daemon.go `
+  -Anchor 'if time.Since(ultimoCliente) > cfg.OciosidadeMax {' -Replacement 'if false {' `
+  -Test TestDaemonSaiPorOciosidade -Package ./internal/daemon/
+
+pwsh -File scripts/mutate.ps1 -Path internal/daemon/lock.go `
+  -Anchor 'if !adquiriu {' -Replacement 'if false {' `
+  -Test TestDezPontesIniciamUmDaemonSo -Package ./internal/daemon/
+```
+
+**As âncoras nomeiam código que ainda não existe, e isso é deliberado: elas são
+o contrato de nomes desta tarefa.**
+
+#### Contrato de relatório
+RSS de três sessões, antes e depois, medido. Resultado dos quatro cenários de
+verificação. Saída das duas provas de mutação. Se o ganho agregado for menor que
+o custo de complexidade, **dizer isso** — a tarefa pode terminar em "medido, não
+compensa", e isso é resultado, não falha.
+
+**Files:** `internal/daemon/daemon.go`, `internal/daemon/lock.go`,
+`cmd/gobsidian/`, `scripts/test_orphans.ps1`, testes
+**Commit:** `feat(daemon): one shared process per vault, with idle exit`
+
+---
+
+# Task 93 — Medição multi-instância, documentação e fechamento da Parte II
+
+**Tier: modelo forte.** O entregável são números e uma decisão de manutenção, e
+o modo de falha de um modelo barato pedido a "escrever relatório com evidência"
+é fabricá-la.
+
+#### Onde encaixa
+Fechamento da Parte II. Não envia código.
+
+#### O que vincula esta tarefa
+- **Não escreva número que você não mediu.** Alvo não medido apresentado como
+  resultado é ficção com aparência de tabela. Onde não mediu, escreva
+  "não medido".
+- **Confira todo SHA que você escrever no ledger.** A Task 31 foi registrada em
+  `14210ee`, que não existe no repositório.
+- **Escopo não encolhe em silêncio.**
+
+#### O que entregar
+- Tabela de RSS para **uma, três e cinco** sessões simultâneas no cofre real, em
+  três configurações: hoje, com a Task 88, e com o daemon.
+- `docs/ARCHITECTURE.md` ganha a seção do daemon e do transporte, com a medição
+  de AF_UNIX contra named pipe e a razão da escolha.
+- `docs/PRD.md` com o RNF-30 já reformulado pela Task 90 — conferir que ficou.
+- `README.md`: como desligar o daemon, e o que acontece quando ele não sobe.
+- Ledger em `.superpowers/sdd/2026-07-25-gobsidian-v01/progress.md`.
+- **Uma recomendação explícita:** o daemon compensa? Se o ganho agregado não
+  justificar um processo de longa vida a mais para manter, dizer isso com o
+  número. Recomendar desligar por padrão é resposta legítima.
+
+#### Verificações além dos passos
+- `git cat-file -t` em cada SHA citado, com a saída colada.
+- `pwsh -File scripts/audit_reports.ps1` sem achados nas seções novas — achados
+  antigos de outros marcos não contam e devem ser distinguidos.
+- `pwsh -File scripts/check_doc_refs.ps1` limpo.
+- UTF-8 validado em todo `.md` tocado.
+
+#### Regras de execução
+Nenhum número entra sem o comando que o produziu colado ao lado. Ledger antes de
+reportar conclusão.
+
+#### Contrato de relatório
+Esta tarefa **não tem prova de mutação**: não envia código.
+
+**Files:** `docs/ARCHITECTURE.md`, `docs/PRD.md`, `README.md`, ledger
+**Commit:** `docs: record the multi-instance measurements and the daemon decision`
+
+---
+
+## Ordem da Parte II
+
+```
+88 -> 89 -> 90 -> 91 -> 92 -> 93
+```
+
+- **88 primeiro**: independente, e o maior ganho por linha mexida.
+- **89 independente de 90 a 92**, mas depois de 88 para as medições de RSS não
+  se confundirem.
+- **90 é bloqueante para 91 e 92.** Abrir socket antes de reescrever a garantia
+  faz o gate reprovar, e gate desligado é pior que gate ausente.
+- **92 por último entre as de código**: maior risco, e quer a 91 estável.
+
+## Adendo ao prompt de despacho
+
+> **A Parte II reabre uma decisão fechada.** O RNF-30 dizia "nenhum socket de
+> saída em nenhuma circunstância", com razão de produto escrita: o cofre pode
+> conter material confidencial e a garantia precisa ser verificável. O dono do
+> projeto autorizou reabrir em 2026-08-05. **A Task 90 reescreve a garantia de
+> modo a continuar auditável em um comando, e é bloqueante para 91 e 92.** Quem
+> executar 91 ou 92 antes da 90 vai encontrar o `check_net` vermelho e a
+> tentação de desligá-lo; desligar o gate é o pior desfecho possível desta
+> batelada.
+>
+> **A escolha do transporte já foi medida e não se re-litiga:** AF_UNIX, 25,7 µs
+> contra 82,9 µs do named pipe em 256 B, na biblioteca padrão, mesmo código nos
+> três sistemas. Ver D-M7-6.
+>
+> **A Task 92 pode terminar em "não compensa".** Se o RSS agregado de três
+> sessões não cair o suficiente para justificar um processo de longa vida a mais,
+> o relatório diz isso com o número e a Task 93 recomenda desligar por padrão.
+> Resultado medido que contraria a expectativa é resultado, não falha.
+>
+> **Aceitação por tarefa da Parte II:**
+> - **88** — falha barata: `Once` que trava o erro para sempre. Exigir o segundo
+>   caso do teste, o da falha transitória.
+> - **89** — falha barata: medir RSS de uma instância e chamar de ganho. Só o
+>   agregado de três prova compartilhamento.
+> - **90** — falha barata: analisador que aceita rede vinda de variável. Exigir
+>   as seis saídas de disparo.
+> - **91** — falha barata: sem fallback em processo, um socket quebrado inutiliza
+>   a ferramenta. Exigir os dois testes de queda.
+> - **92** — falha barata: dez pontes iniciando dez daemons. Exigir o teste.
+> - **93** — sem prova de mutação, e o relatório tem de dizer isso.
