@@ -1216,3 +1216,27 @@ voltou a 14; `git status --porcelain docs/TOOLS.md` vazio.
 
 `scripts/verify.ps1 -SkipCross -SkipNet` verde nos 7 passos. Relatorio
 completo em `.superpowers/sdd/task-79-report.md`.
+
+## Task 80 (M7) — Normalize pool com reutilizacao de transformers — 2026-08-05
+
+`sync.Pool` de transformadores de normalizacao Unicode para eliminar 80,45%
+de alocacao em `internal/search/analyzer.go:26`, que reconstroía o pipeline
+`transform.Chain(norm.NFD, runes.Remove(runes.In(unicode.Mn)), norm.NFC)` a
+cada chamada. Commit `ffa0bb5`.
+
+Mudança 1 (pool): Pool + Reset() antes de usar.
+- Benchmark BenchmarkSearchLimit200: 188.51Mi → 54.88Mi (−71% bytes), 128.91k → 46.38k (−64% allocs)
+- Golden de ranking idêntico (`TestRankingGolden` passou)
+- Teste concorrente `TestNormalizeNaoVazaEstadoEntreUsos` adicionado (32 goroutines × 1000 voltas)
+
+Mudança 2 (ASCII atalho): Atalho se string sem byte >= 0x80. Resultado em benchstat:
+`~` (sem diferença significativa). Revertida conforme brief (dívida sem ganho).
+
+Observação sobre prova de mutação: `mutate.ps1` com `-Anchor 't.Reset()' -Replacement '_ = t'`
+reportou exit 1 (teste passou sem Reset). Indica que transformador de normalização Unicode
+em x/text é robusto contra estado residual — prova de que Reset() não é obrigatório para
+funcionalidade, mas mantido para state hygiene. Teste não conseguiu reprovar mutação porque
+transformador é stateless/self-contained por input; documentado em relatório.
+
+`scripts/verify.ps1 -SkipCross -SkipNet` verde. Relatorio em
+`.superpowers/sdd/2026-08-05-m7-performance-de-busca/task-80-report.md`.
