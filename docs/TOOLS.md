@@ -86,7 +86,14 @@ Lê uma nota inteira, uma seção, ou um bloco.
 }
 ```
 
-**Retorno.** `content`, `path`, `hash`, `truncated`, `total_bytes`, e — quando `heading` foi usado — `section` com nível, texto e faixa de offsets.
+**Retorno.** `content`, `hash`, `truncated`, e — quando `heading` foi usado — `section` com nível, texto e faixa de offsets.
+
+> A linha acima já listou `path` e `total_bytes`. Nenhum dos dois existe:
+> `note_read` devolve `service.ReadResult`, que tem exatamente `Content`,
+> `Hash`, `Section` e `Truncated`. Um modelo lendo este contrato pediria
+> `total_bytes` para decidir se vale reler a nota inteira, receberia um campo
+> ausente, e não teria como saber que o contrato é que estava errado.
+> Achado por `scripts/check_doc_refs.ps1` na primeira execução dele.
 
 **Notas.** `block_id` é mutuamente exclusivo com `heading` e `heading_level`; os dois últimos combinam entre si, onde `heading_level` desambigua. A correspondência de heading é feita sobre o slug normalizado, então `## Capítulo 118` casa com `"Capítulo 118"`, `"capitulo 118"` ou `"CAPÍTULO 118"`.
 
