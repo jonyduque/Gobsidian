@@ -282,6 +282,19 @@ func TestAvgdlInvalidaComAGeracao(t *testing.T) {
 	escreve(t, root, "b.md", "# B\n\nprescricao prescricao\n")
 	inv, v, idx := servicoCompleto(t, root)
 
+	// A asserção que importa é sobre o avgdl, não sobre o score.
+	//
+	// A primeira versão deste teste comparava só `antes[0].Score` com
+	// `depois[0].Score` e exigia que fossem diferentes. Isso NÃO cobre a
+	// invalidação: o corpus passa de duas para três notas, então o IDF muda
+	// sozinho e os scores diferem mesmo servindo um avgdl obsoleto. Medido —
+	// removendo `gen == ix.avgdlGen` da condição de cache, aquele teste
+	// continuava passando.
+	//
+	// GetAvgdl é lido direto porque é o único valor que a regra promete
+	// atualizar. Uma chamada antes popula o cache; se a geração não
+	// invalidar, a chamada depois devolve o mesmo número.
+	avgdlAntes := inv.GetAvgdl(idx)
 	antes := search.CalculateBM25(search.Analyze("prescricao"), inv, idx)
 
 	// Nota longa: muda avgdl de forma detectavel.
@@ -292,6 +305,17 @@ func TestAvgdlInvalidaComAGeracao(t *testing.T) {
 	}
 	if err := inv.Update(context.Background(), v, "c.md"); err != nil {
 		t.Fatal(err)
+	}
+
+	avgdlDepois := inv.GetAvgdl(idx)
+	if avgdlDepois == avgdlAntes {
+		t.Errorf("GetAvgdl = %.6f antes e depois de entrar uma nota de 5000 "+
+			"palavras: o cache nao foi invalidado pela geracao", avgdlAntes)
+	}
+	if avgdlDepois <= avgdlAntes {
+		t.Errorf("avgdl caiu de %.6f para %.6f depois de entrar a nota mais "+
+			"longa do corpus; o valor esta errado, nao so obsoleto",
+			avgdlAntes, avgdlDepois)
 	}
 
 	depois := search.CalculateBM25(search.Analyze("prescricao"), inv, idx)
