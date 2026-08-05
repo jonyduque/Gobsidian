@@ -30,7 +30,15 @@ param(
     [string]$Command,
 
     [Parameter(Position = 1)]
-    [string]$Task
+    [string]$Task,
+
+    # Caminho do plano. Vazio = o plano mais RECENTE de docs/superpowers/plans.
+    #
+    # Era um literal apontando para o plano de 2026-07-25, o que faz `brief` e
+    # `review` de um plano novo trabalharem sobre o plano ERRADO — e o brief sai
+    # com conteudo de outra tarefa em vez de falhar. Mesmo defeito que o
+    # check_briefs.ps1 tinha.
+    [string]$Plan = ""
 )
 
 Set-StrictMode -Version Latest
@@ -55,8 +63,21 @@ function Remove-PluginGitignore {
         }
     }
 }
-$Plan = Join-Path $ProjectRoot "docs\superpowers\plans\2026-07-25-gobsidian-v01.md"
+if (-not $Plan) {
+    $Planos = @(Get-ChildItem -Path (Join-Path $ProjectRoot "docs\superpowers\plans") `
+            -Filter '*.md' -File -ErrorAction SilentlyContinue | Sort-Object Name -Descending)
+    if ($Planos.Count -eq 0) {
+        Write-Warning "[!] Nenhum plano em docs/superpowers/plans"
+        exit 1
+    }
+    $Plan = $Planos[0].FullName
+}
+if (-not (Test-Path $Plan)) {
+    Write-Warning "[!] Plano nao encontrado: $Plan"
+    exit 1
+}
 $PlanName = [System.IO.Path]::GetFileNameWithoutExtension($Plan)
+Write-Output "[i] Plano: $PlanName"
 
 # O superpowers passou a escrever artefatos por plano na 6.2.0. O caminho
 # plano antigo virou ponteiro depois que os dois ledgers derivaram — um com
