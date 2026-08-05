@@ -1139,3 +1139,45 @@ incompativel, com a reconstrucao em segundo plano.
 
 Pendente: reamostrar a suite sob `-race` depois de `58658fc` para confirmar que
 o e2e parou de reprovar, e o gate de orfaos desta rodada.
+
+## Task 78 (M7) — golden de ranking de busca — 2026-08-05
+
+`TestRankingGolden` (`internal/service/ranking_golden_test.go`) e seis
+`testdata/ranking/*.tsv` (caminho + score com 6 casas), commitados em
+`61d2ab7`. Base contra a qual as seis otimizacoes seguintes de M7 (tasks 79-87)
+sao medidas: qualquer uma que mude a ordem tem de justificar por escrito, nao
+regenerar com `-update` para fazer passar.
+
+**O corpo literal do brief nao gerava cobertura real, e foi corrigido antes de
+commitar.** O template original dava as 300 notas o mesmo titulo, heading e
+frase final palavra por palavra — "algoritmo BM25 com pesos" e "intercorrente"
+identicos em toda nota. Gerado com `-update` e lido antes de aceitar (regra do
+CLAUDE.md), os arquivos `frase-exata.tsv` e `so-no-titulo.tsv` saiam com
+exatamente 20 linhas: nao porque so 20 notas casavam, mas porque as 300 casavam
+empatadas e o Limit padrao cortava ali. As duas perguntas que a propria tarefa
+manda conferir — "a frase exata casa uma so?", "a nota com o termo no titulo
+vem antes da que so tem no corpo?" — nao tinham como ser respondidas: nenhuma
+nota tinha o termo so no corpo, nenhuma tinha a frase incompleta. Um golden que
+empata em tudo passa e nao cobre nem peso de titulo nem casamento de frase
+unico — o proprio "golden que passa com o corpus errado" que a tarefa nomeia
+como modo de falha, so que produzido pelo corpus que o brief mandava
+transcrever, nao por erro de transcricao.
+
+Corrigido com duas notas de contraste, resto do template inalterado: `n0150` e
+a UNICA nota com a sequencia exata "algoritmo BM25 com pesos" (as outras 299
+tem as mesmas palavras fora de ordem); `n0250` e a UNICA nota com
+"intercorrente" no corpo e nao no titulo, contra cinco notas (`n0005`..`n0045`)
+que tem o termo so no titulo. Golden confirma o esperado: as 5 notas de titulo
+empatam em 6.619287, `n0250` fica abaixo em 4.221181 — peso de titulo (3x)
+batendo peso de corpo, visivel no arquivo, nao so inferido.
+
+Efeito colateral honesto, nao um defeito: `n0150` tem frase de fechamento mais
+curta que as outras 299 (9 tokens contra 12), entao a normalizacao por tamanho
+do BM25 da a ela um score levemente mais alto em TODA consulta, inclusive as
+que nao tem nada a ver com a frase — e por isso ela aparece no topo de
+`termo-amplo.tsv`, `dois-termos.tsv`, `com-acento.tsv` e `so-em-heading.tsv`. E
+o normalizador de tamanho funcionando, nao um vies do corpus a esconder.
+
+`scripts/verify.ps1 -SkipCross -SkipNet` verde nos 7 passos.
+`go test -run TestRankingGolden ./internal/service/` verde lendo do disco (sem
+`-update`). Sem prova de mutacao: tarefa nao toca codigo de producao.
