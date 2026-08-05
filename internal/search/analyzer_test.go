@@ -1,6 +1,8 @@
 package search_test
 
 import (
+	"fmt"
+	"sync"
 	"testing"
 
 	"github.com/jonyd/gobsidian/internal/search"
@@ -106,5 +108,52 @@ func TestBOMStrippedTextOffsets(t *testing.T) {
 	}
 	if !found {
 		t.Error("token prescricao não foi encontrado")
+	}
+}
+
+// TestNormalizeNaoVazaEstadoEntreUsos guarda o defeito que o pool INTRODUZ.
+//
+// transform.Transformer carrega estado interno. Devolvido ao pool sem Reset, o
+// uso seguinte comeca no meio da conversao anterior — e o sintoma nao e lentidao,
+// e uma string ERRADA, so sob concorrencia, so as vezes.
+//
+// Alterna entrada longa e acentuada com entrada curta, em varias goroutines, e
+// exige o mesmo resultado que a versao sequencial daria.
+func TestNormalizeNaoVazaEstadoEntreUsos(t *testing.T) {
+	casos := []struct{ entrada, quer string }{
+		{"Prescrição Intercorrente Execução Fiscal Ação Órgão", "prescricao intercorrente execucao fiscal acao orgao"},
+		{"a", "a"},
+		{"ÁÉÍÓÚÃÕÇ", "aeiouaoc"},
+		{"sem acento nenhum aqui", "sem acento nenhum aqui"},
+		{"É", "e"},
+	}
+	// Sequencial primeiro: se isto falhar, o defeito nao e de concorrencia.
+	for _, c := range casos {
+		if got := search.Normalize(c.entrada); got != c.quer {
+			t.Fatalf("Normalize(%q) = %q, quer %q", c.entrada, got, c.quer)
+		}
+	}
+
+	const goroutines = 32
+	const voltas = 1000
+	var wg sync.WaitGroup
+	erros := make(chan string, goroutines*voltas)
+	for g := 0; g < goroutines; g++ {
+		wg.Add(1)
+		go func(g int) {
+			defer wg.Done()
+			for v := 0; v < voltas; v++ {
+				c := casos[(g+v)%len(casos)]
+				if got := search.Normalize(c.entrada); got != c.quer {
+					erros <- fmt.Sprintf("Normalize(%q) = %q, quer %q", c.entrada, got, c.quer)
+					return
+				}
+			}
+		}(g)
+	}
+	wg.Wait()
+	close(erros)
+	for e := range erros {
+		t.Error(e)
 	}
 }

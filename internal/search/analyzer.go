@@ -3,6 +3,7 @@ package search
 
 import (
 	"strings"
+	"sync"
 	"unicode"
 	"unicode/utf8"
 
@@ -10,6 +11,16 @@ import (
 	"golang.org/x/text/transform"
 	"golang.org/x/text/unicode/norm"
 )
+
+// transformerPool reutiliza transformers entre chamadas de Normalize. Um transformer por
+// goroutine garante thread-safety sem reconstrução custosa — o padrão de sync.Pool deixa
+// cada goroutine com sua própria instância, sem contenção. O Reset() antes de usar limpa
+// qualquer estado residual da chamada anterior na mesma goroutine.
+var transformerPool = sync.Pool{
+	New: func() interface{} {
+		return transform.Chain(norm.NFD, runes.Remove(runes.In(unicode.Mn)), norm.NFC)
+	},
+}
 
 // Token representa uma ocorrência de termo indexável em um texto.
 // Start e End são offsets em BYTES no texto original.
@@ -21,9 +32,12 @@ type Token struct {
 }
 
 // Normalize remove acentos e converte para caixa baixa.
-// Cria um novo transformer a cada chamada para garantir thread-safety total sob acesso concorrente.
+// Reutiliza transformer de um pool para evitar alocação a cada chamada.
+// Thread-safe: sync.Pool garante que cada goroutine tenha sua própria instância.
 func Normalize(s string) string {
-	t := transform.Chain(norm.NFD, runes.Remove(runes.In(unicode.Mn)), norm.NFC)
+	t := transformerPool.Get().(transform.Transformer)
+	defer transformerPool.Put(t)
+	t.Reset()
 	res, _, err := transform.String(t, s)
 	if err != nil {
 		res = s
