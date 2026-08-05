@@ -32,15 +32,37 @@ param(
     # Primeiro e ultimo numero de tarefa do lote. Sem eles, confere todos os
     # briefs do diretorio do plano.
     [Parameter(Position = 0)] [int]$De = 0,
-    [Parameter(Position = 1)] [int]$Ate = 0
+    [Parameter(Position = 1)] [int]$Ate = 0,
+
+    # Caminho do plano. Vazio = o plano mais RECENTE de docs/superpowers/plans.
+    #
+    # Era um literal apontando para o plano de 2026-07-25. Um plano novo ficava
+    # sem checagem nenhuma, e o script dizia "[!] Nenhum brief no intervalo
+    # pedido" apontando para o diretorio do plano ERRADO — que se le como "os
+    # briefs nao foram gerados", nao como "estou olhando outro plano". Gate que
+    # silenciosamente para de gatear ja aconteceu duas vezes neste projeto.
+    [string]$Plan = ""
 )
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
 $ProjectRoot = Split-Path -Parent $PSScriptRoot
-$Plan = Join-Path $ProjectRoot "docs\superpowers\plans\2026-07-25-gobsidian-v01.md"
+if (-not $Plan) {
+    $Planos = @(Get-ChildItem -Path (Join-Path $ProjectRoot "docs\superpowers\plans") `
+            -Filter '*.md' -File -ErrorAction SilentlyContinue | Sort-Object Name -Descending)
+    if ($Planos.Count -eq 0) {
+        Write-Warning "[!] Nenhum plano em docs/superpowers/plans"
+        exit 1
+    }
+    $Plan = $Planos[0].FullName
+}
+if (-not (Test-Path $Plan)) {
+    Write-Warning "[!] Plano nao encontrado: $Plan"
+    exit 1
+}
 $PlanName = [System.IO.Path]::GetFileNameWithoutExtension($Plan)
+Write-Output "[i] Plano: $PlanName"
 $SddDir = Join-Path $ProjectRoot ".superpowers\sdd\$PlanName"
 
 if (-not (Test-Path $SddDir)) {
