@@ -502,11 +502,27 @@ func TestNormalizeNaoVazaEstadoEntreUsos(t *testing.T) {
 - Golden da Task 78 idêntico (D-M7-1).
 
 #### Prova de mutação
-```
-pwsh -File scripts/mutate.ps1 -Path internal/search/analyzer.go `
-  -Anchor 't.Reset()' -Replacement '_ = t' `
-  -Test TestNormalizeNaoVazaEstadoEntreUsos -Package ./internal/search/
-```
+
+**A regra a mutar é o ISOLAMENTO do pool, não o `Reset()`.** A primeira versão
+desta seção mandava mutar `t.Reset()`, e isso sai `1` (regra escrita, não
+verificada) por um motivo que não é defeito do teste: `transform.String` chama
+`Reset` internamente, então o `Reset` explícito é redundante e removê-lo não
+muda comportamento nenhum. Anotado aqui porque a reação natural ao `exit 1` é
+explicar que "o transformer é robusto", e isso fecha a lacuna com prosa em vez
+de investigação.
+
+O que a regra realmente promete é **uma instância por goroutine em voo**.
+Trocar o pool por um transformer compartilhado é a mutação que a testa, e ela
+não cabe numa substituição de texto só — o `mutate.ps1` exige âncora única.
+Faça à mão, com `Edit`, e restaure conferindo SHA-256:
+
+1. Acrescente `var compartilhado = transform.Chain(norm.NFD, runes.Remove(runes.In(unicode.Mn)), norm.NFC)`.
+2. Em `Normalize`, troque o par `Get`/`defer Put` por `t := compartilhado`.
+3. `go test -race -count=1 -run TestNormalizeNaoVazaEstadoEntreUsos ./internal/search/`
+
+**Medido em 2026-08-05: reprova com `WARNING: DATA RACE` em
+`transform.(*chain).Transform`.** Se não reprovar, o teste não cobre a garantia
+que o comentário do pool afirma, e a tarefa não está pronta.
 Exit `0` esperado. Se der `1`, o teste não consegue reprovar sem o `Reset` e
 **não** cobre a regra.
 
