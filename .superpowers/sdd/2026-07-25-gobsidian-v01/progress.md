@@ -1232,11 +1232,76 @@ Mudança 1 (pool): Pool + Reset() antes de usar.
 Mudança 2 (ASCII atalho): Atalho se string sem byte >= 0x80. Resultado em benchstat:
 `~` (sem diferença significativa). Revertida conforme brief (dívida sem ganho).
 
-Observação sobre prova de mutação: `mutate.ps1` com `-Anchor 't.Reset()' -Replacement '_ = t'`
-reportou exit 1 (teste passou sem Reset). Indica que transformador de normalização Unicode
-em x/text é robusto contra estado residual — prova de que Reset() não é obrigatório para
-funcionalidade, mas mantido para state hygiene. Teste não conseguiu reprovar mutação porque
-transformador é stateless/self-contained por input; documentado em relatório.
+**Correcao da observacao original sobre a prova de mutacao (revisor, 2026-08-05).**
+O relatorio da tarefa registrou aqui que o `exit 1` de `mutate.ps1 -Anchor 't.Reset()'`
+provava que "o transformador do x/text e robusto contra estado residual". Isso fecha a
+lacuna com prosa, e estava errado nos dois sentidos.
+
+O motivo real do `exit 1`: **`transform.String` chama `Reset` internamente**, entao o
+`Reset` explicito e redundante e remove-lo nao muda comportamento nenhum. A ancora do
+brief nomeava uma regra que nao existe como regra separada — defeito do plano, corrigido
+em `f1a5d15`.
+
+A regra que o pool realmente promete e **uma instancia por goroutine em voo**, e ela ESTA
+verificada. Mutacao feita a mao pelo revisor (trocar o pool por um transformer
+compartilhado, restaurado com SHA-256 conferido):
+
+```
+WARNING: DATA RACE
+golang.org/x/text/transform.(*chain).Transform
+  internal/search/analyzer.go:42   Normalize
+  internal/search/analyzer_test.go:147  TestNormalizeNaoVazaEstadoEntreUsos
+FAIL
+```
+
+Numeros do benchmark reconferidos pelo revisor no mesmo commit:
+197.650.000 B/op / 128.894 allocs -> 57.521.018 B/op / 46.351 allocs.
 
 `scripts/verify.ps1 -SkipCross -SkipNet` verde. Relatorio em
 `.superpowers/sdd/2026-08-05-m7-performance-de-busca/task-80-report.md`.
+
+## Task 81 (M7) — titulo normalizado na indexacao — 2026-08-05
+
+`index.Note` ganhou `TitleNorm`, e `getFieldWeight` deixou de chamar
+`Normalize(n.Title)` **por posicao de cada posting**. Commit `30f7739`.
+
+Medido pelo revisor, nao pelo executor — a tarefa nao entregou relatorio, so
+codigo:
+
+```
+antes  (f1a5d15)   57.505.556 B/op   46.317 allocs/op
+depois (30f7739)   53.121.232 B/op   14.116 allocs/op
+                       -7,6%            -69,5%
+```
+
+Acumulado das tres otimizacoes de busca (78 nao conta, e teste):
+
+```
+baseline (56cebb3)   197.650.000 B/op   128.894 allocs/op
+agora    (30f7739)    53.121.232 B/op    14.116 allocs/op
+                          -73%              -89%
+```
+
+`TitleNorm` e escrito em DOIS lugares — `Build` (`index.go:102`) e `Replace`
+(`update.go:84`) — ambos pela mesma funcao `normalizeTitleForNote`, que e a
+regra desta tarefa. `MoveNote` copia a struct e o campo viaja junto, o que e
+correto: ele nao muda o titulo.
+
+Prova de mutacao rodada pelo revisor:
+
+```
+Anchor:      TitleNorm:   normalizeTitleForNote(r.note.Title),
+Replacement: TitleNorm:   r.note.Title,
+Test:        TestTitleNormAcompanhaOTitulo
+FAIL -> [OK] O teste REPROVOU com a regra mutada — a regra esta verificada.
+```
+
+`TestRankingGolden` identico. `verify.ps1 -SkipCross -SkipNet` verde.
+
+**Mudanca estrutural que nao estava no brief e nao veio em relatorio:** a tarefa
+criou `internal/text` (36 linhas) e moveu `Normalize` para la, porque `index`
+precisa normalizar e `search` ja importa `index` — importar de volta seria
+ciclo. A solucao esta certa e o pacote tem nome legitimo, mas foi decisao de
+arquitetura tomada em silencio. Encontrada pelo revisor ao investigar um alerta
+de ciclo do gopls, que era estado velho: `go build`, `go vet` e os testes dos
+dois pacotes passam limpos.
