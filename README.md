@@ -293,7 +293,7 @@ Medido em cofre sintético determinístico de **5.000 notas** (`scripts/gen_vaul
 | Requisito | Alvo | Medido | |
 |---|---|---|---|
 | Indexação a frio (metadados) | ≤ 3 s | **500 ms**; 1,1 s num cofre de 109 MB | ✅ |
-| Boot com cache válido | ≤ 300 ms | 97 ms no sintético; **832–1183 ms** num cofre de 109 MB | ❌ |
+| Boot com cache válido | ≤ 300 ms | 208–282 ms no sintético; **371–472 ms** num cofre de 109 MB | ❌ |
 | `note_read` p95 | ≤ 15 ms | **345 µs** | ✅ |
 | `note_list` com filtro p95 | ≤ 10 ms | **534 µs** | ✅ |
 | `vault_search` p95 | ≤ 100 ms | 7 de 8 formatos | ⚠️ |

@@ -175,7 +175,7 @@ num cofre de 7 notas.
 | ID | Métrica (alvo) | Medição | Estado |
 |---|---|---|---|
 | **RNF-01** | Indexação a frio (≤ 3 s) | 500,11 ms no cofre sintético; **1,1 s** num cofre real de 109 MB | **Atingido** |
-| **RNF-02** | Boot com cache válido (≤ 300 ms) | 96,94 ms no cofre sintético; **832–1183 ms** num cofre real de 109 MB (2026-08-03) | **NÃO ATINGIDO** |
+| **RNF-02** | Boot com cache válido (≤ 300 ms) | 208–282 ms no cofre sintético; **371–472 ms** num cofre real de 109 MB (2026-08-06, com `index_cache`) | **NÃO ATINGIDO** |
 | **RNF-03** | `note_read` p95 (≤ 15 ms) | p95 **344,97 µs**, mediana 206,47 µs (5.000 notas) | **Atingido** |
 | **RNF-04** | `vault_search` p95 (≤ 100 ms) | 500 notas: 8 de 8, 7–25 ms. 5.000 notas: 7 de 8; `limit: 200` em **181,25 ms** | **Parcial** |
 | **RNF-05** | `note_list` com filtro de metadados p95 (≤ 10 ms) | p95 **533,68 µs**, mediana 249,24 µs (5.000 notas) | **Atingido** |
@@ -480,11 +480,29 @@ a mesma faixa do que já estava registrado para o cofre real (832–1183 ms).
 |---|---|---|---|---|---|
 | `index_ms` | 208 | 236 | 213 | 213 | 282 |
 
-**RNF-02 passa a ser atingido nesta escala**: as cinco partidas com cache
-ficaram abaixo do teto de 300 ms — de 3 a 4 vezes mais rápido que sem cache. A
-ressalva do parágrafo anterior vale: é o cofre sintético na mesma escala do
-real, não o cofre real em si, e o número de RNF-02 no cofre real precisa ser
-remedido para fechar com certeza.
+**No cofre sintético, as cinco partidas ficaram abaixo do teto de 300 ms** — de
+3 a 4 vezes mais rápido que sem cache.
+
+**No cofre real, NÃO.** Remedido pelo revisor em 2026-08-06, seis partidas com
+`index_origin=cache`:
+
+| Partida | 1 | 2 | 3 | 4 | 5 | 6 |
+|---|---|---|---|---|---|---|
+| `index_ms` | 451 | 472 | 408 | 411 | 371 | 458 |
+
+Contra a baseline de 1267, 1396 e 1192 ms medida no mesmo cofre antes da
+tarefa: **queda de ~66%**. Mas a faixa é 371–472 ms contra um teto de 300 ms, e
+**RNF-02 segue NÃO ATINGIDO**.
+
+A diferença entre os dois cofres é o ponto que importa: o sintético é local, o
+real está em OneDrive. `VerifyFreshness` percorre todo arquivo do cofre para
+conferir mtime e tamanho, e é essa varredura — não a decodificação do cache —
+que sobra. O cofre sintético diria "requisito atingido"; o real diz "2,7 vezes
+mais perto, ainda fora".
+
+Registrado assim de propósito. Alvo não atingido e medido é informação; alvo
+medido no cofre errado e apresentado como atingido é o defeito que esta seção
+de OPERACAO.md existe para não repetir.
 
 **Os três cenários exigidos pela tarefa, verificados contra o binário real
 (não só a suíte de testes):**
@@ -497,6 +515,54 @@ remedido para fechar com certeza.
    `msg="cache de indice de metadados descartado" err="index cache file
    corrupted"`, seguido de `index_ms=868` — a reconstrução, não um índice com
    metadado corrompido servido em silêncio.
+
+#### Remedição no cofre real (2026-08-06, mesmo dia)
+
+O caminho do cofre real foi confirmado depois da medição sintética acima.
+Por pedido de quem é dono dele, o caminho não entra em nenhum artefato
+versionado — as tabelas abaixo citam só a contagem de notas e o tamanho, como
+já era o padrão nesta seção. O cofre cresceu desde a medição anterior: **4.165
+notas** hoje, não mais 3.149.
+
+Medido com o binário compilado direto (não `scripts/measure.ps1`): stdin
+mantido aberto por um `sleep 10 |` até o boot terminar, `index_ms` lido do
+próprio log.
+
+**`index_ms`, cinco partidas sem cache** (arquivo `index_cache.gob` apagado
+antes de cada uma; `inverted_cache.gob`, do índice de busca, preservado —
+apagá-lo custaria minutos de reconstrução e não mede nada desta tarefa):
+
+| Partida | 1 | 2 | 3 | 4 | 5 |
+|---|---|---|---|---|---|
+| `index_ms` | 1389 | 1230 | 1237 | 1287 | 1269 |
+
+Sem o pico de disco frio que apareceu no cofre sintético — nenhuma partida
+tomou a penalidade de OneDrive frio que a primeira execução do dia às vezes
+paga. Faixa consistente com a já registrada antes desta tarefa (832–1183 ms
+para 3.149 notas; a faixa um pouco mais alta aqui é esperada, com mais notas).
+
+**`index_ms`, cinco partidas com cache presente e válido:**
+
+| Partida | 1 | 2 | 3 | 4 | 5 |
+|---|---|---|---|---|---|
+| `index_ms` | 547 | 397 | 494 | 443 | 438 |
+
+**RNF-02 (≤ 300 ms) segue NÃO ATINGIDO no cofre real** — a correção do
+parágrafo anterior (que dizia "atingido nesta escala" sobre o cofre
+sintético) fica registrada aqui, não escondida: ~3× mais rápido do que sem
+cache (1230–1389 ms → 397–547 ms), e ainda acima do teto.
+
+**Por que o cofre real não bate com o sintético, apesar da mesma escala de
+notas:** a hipótese mais provável é `Index.VerifyFreshness`
+(`internal/index/persist.go`) — a varredura que confere mtime e tamanho de
+cada arquivo antes de aceitar o cache é sequencial e só faz `Stat`, sem
+paralelismo. Num disco local esse custo é pequeno; num cofre sincronizado
+por nuvem, cada `Stat` paga uma latência que o disco local não tem, e a
+mesma varredura dentro de `Build` fica menos visível porque roda em paralelo
+com o parse dos arquivos, não sozinha. Não investigado a fundo dentro desta
+tarefa — os testes desta seção cobrem correção (cache não pode mentir), não
+a latência de `VerifyFreshness` em disco de nuvem. Fica registrado como o
+próximo alvo de otimização se RNF-02 continuar sendo prioridade nesta escala.
 
 ### Medições anteriores, por escala
 

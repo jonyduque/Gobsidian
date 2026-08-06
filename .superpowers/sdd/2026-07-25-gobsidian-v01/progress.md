@@ -1654,3 +1654,30 @@ a tempo); nao foi implementada reconciliacao parcial (reparar so as notas
 que mudaram em vez de reconstruir tudo) — fora do escopo do brief, que so
 pedia invalidacao binaria (usar o cache inteiro ou reconstruir inteiro), e a
 reconciliacao arquivo-a-arquivo ja e trabalho do watcher (RF-05).
+
+## Task 85 — remedicao no cofre REAL pelo revisor — 2026-08-06
+
+A tarefa mediu num cofre sintetico de mesma escala, e disse isso. O caminho do
+cofre real chegou tarde na caixa dela. Remedido aqui, seis partidas, todas com
+`index_origin=cache`:
+
+```
+451  472  408  411  371  458  ms
+```
+
+Baseline no MESMO cofre, antes da tarefa (`0174778`): 1267, 1396, 1192 ms.
+**Queda de ~66%.**
+
+**RNF-02 segue NAO ATINGIDO**: 371-472 ms contra teto de 300 ms.
+
+O sintetico dizia 208-282 ms e "requisito atingido". O real diz que nao. A
+diferenca e o OneDrive: `VerifyFreshness` percorre todo arquivo do cofre para
+conferir mtime e tamanho, e e essa varredura que sobra — nao a decodificacao do
+cache. Cofre sintetico e cofre real nao sao intercambiaveis para este numero, e
+a tarefa acertou em marcar a ressalva em vez de fechar o requisito.
+
+`docs/OPERACAO.md` e `README.md` corrigidos com o numero do cofre real.
+
+Conferido tambem que o caminho do cofre — que carrega nome de empregador — nao
+vazou para commit nenhum: `git log -p` dos dois commits da tarefa, zero
+ocorrencias.
