@@ -1493,3 +1493,164 @@ Quatro testes que o brief exigiu, todos verdes: `TestNoteReadBatchKeepsFailedIte
 `TestNoteReadRecusaLoteAcimaDoTeto` (51 caminhos), `TestReadNotesMaxBytesPerNote`
 (duas notas de mesmo tamanho, `max_bytes` identico em ambas — prova de que o
 teto nao e compartilhado pelo lote).
+
+## Task 85 (M7) — cache do indice de metadados, `index_cache.gob` — 2026-08-06
+
+Commit `4d97943b8ab18000ecff8e6503a379ffdd872b20`. Fecha `docs/PRD.md` Q3: o
+indice de metadados era reconstruido por varredura e parse do cofre inteiro
+em TODA partida, mesmo com o cache de busca quente — so `inverted_cache.gob`
+existia. `internal/index/persist.go` (novo) e `persist_codec.go` (novo)
+implementam o segundo cache que a decisao de 2026-07-29 ja previa e nunca
+tinha sido escrito.
+
+**Decisao que a tarefa tinha que acertar: reaproveitar a TECNICA do codec de
+busca, nao importar codigo.** `search` importa `index`, nao o contrario, entao
+nao ha como `index` importar tipos privados de `persist_codec.go` de `search`
+— um segundo arquivo era inevitavel. O que teria sido errado era um TERCEIRO
+formato: `escritor`/`leitor` em `internal/index/persist_codec.go` usam a mesma
+tecnica (varint, string por comprimento+bytes, portao de versao antes de
+qualquer campo de layout), documentado no topo do arquivo com o motivo de nao
+ser codigo compartilhado.
+
+**Divergencia deliberada do codec de busca: um CRC32 (IEEE) de rodape.** O
+cache de busca confia nos totais declarados e nos limites por campo pra pegar
+corrupcao — suficiente quando o pior caso e busca com menos resultado. Aqui o
+pior caso e outro (o proprio brief: "um cache de metadados errado serve nota
+errada, nao nota lenta"): um byte trocado dentro do PAYLOAD de uma string
+(nao um comprimento) nao violaria limite nenhum e decodificaria "com sucesso"
+um titulo ou caminho corrompido. O checksum fecha isso de forma
+deterministica, nao probabilistica — testado contra o binario real, nao so a
+suite (ver abaixo).
+
+**`byAlias`, backlinks e a resolucao de cada link NAO sao persistidos.** Sao
+recalculados no load chamando as MESMAS tres funcoes que `Build` chama depois
+de indexar — `buildAliasMap`, `resolveAllLinks`, `buildBacklinks`. A licao ja
+paga neste projeto (`byAlias` minusculo numa via e cru na outra, `[[STJ]]`
+resolvendo para nota apagada) e que toda chave derivada calculada em dois
+lugares diverge, e a divergencia aparece no caminho menos usado. Persistir os
+tres separadamente seria exatamente essa segunda via. Para viabilizar isso,
+`insert()` (`internal/index/index.go`, chamado por `Build`) foi refatorado
+para dividir a publicacao nos indices derivados (`notes`/`assets`,
+`lowerPath`, `byName`, `tags`) em
+`publishNoteLocked`/`publishAssetLocked`/`publishNameLocked`
+(`internal/index/index.go`) — o carregamento do cache chama os MESMOS
+metodos, em vez de reescrever a logica de povoamento numa segunda funcao.
+
+**O cabecalho confere COBERTURA, nao so versao** — a regra que o cache de
+busca aprendeu na marra. `LoadIndexCache` compara `h.NoteCount`/`h.AssetCount`
+contra o indice DECODIFICADO, nao contra o que o cabecalho promete, e recusa
+com `ErrIndexCachePartial` se divergir.
+
+**Invalidacao por mtime e tamanho por arquivo** (`Index.VerifyFreshness`,
+`internal/index/persist.go`): uma varredura leve (sem parse, sem leitura de
+conteudo — so `vault.Walk`, que so faz `Stat`) confere que TODO arquivo do
+disco bate em tamanho e mtime com o que o cache tem, e que a contagem de
+arquivos e a mesma dos dois lados (pega adicao pura, que nao diverge em
+tamanho/mtime de nada porque nao ha entrada pra comparar). Qualquer
+divergencia cai pra `idx.Build` como antes; nao ha reparo parcial —
+reconciliar arquivo a arquivo e trabalho do watcher (RF-05), nao do boot.
+
+`cmd/gobsidian/serve.go`: `carregarIndiceDoCache` tenta o cache antes de
+`idx.Build`; `indexMS` continua medindo exatamente o mesmo trecho de antes
+(RNF-01), so que agora pode terminar em 200ms em vez de 900ms. Campo novo no
+log "servidor pronto": `index_origin` (`cache` ou `build`).
+
+**Teste diferencial, no molde do que pegou o defeito do `DocLength` no cache
+de busca:** `TestIndiceDeMetadadosRecarregadoEIdentico`
+(`internal/index/persist_test.go`) constroi um indice do zero, salva, carrega,
+e compara CAMPO A CAMPO — `Paths()`, `NoteCount()`, `AssetCount()`,
+`TotalSize()`, `Tags("", 0)`, e por caminho `Get()` (via `reflect.DeepEqual`
+na `*Note` inteira), `Backlinks()`, `ResolvePath()` do nome curto. O corpus
+cobre as seis armadilhas que o brief exigiu na mesma fixture: nota com alias
+(`aliases: [P3]`), nota com backlink (`Origem.md` recebe dois links da mesma
+origem), nota com ancora quebrada (`[[Origem#NaoExiste]]`), nota vazia (zero
+bytes — testa nil vs fatia/mapa vazio em quase todo campo de `Note` ao mesmo
+tempo), anexo, e nome que colide em caixa
+(`ResolvePath("civil/ponto 03.md")` contra `Civil/PONTO 03.md`, batendo nos
+dois indices). `Resolved`/`Via`/`State` de cada link NAO sao persistidos e
+batem depois do load mesmo assim — prova de que recalcular pela mesma funcao
+funciona.
+
+Achado durante o design, corrigido antes de virar bug: `yaml.v3` decodifica
+inteiro de frontmatter como Go `int` (64 bits nesta plataforma), nunca
+`int64`, mas `query.go` faz asserção de tipo `.(int)` sobre o Frontmatter — um
+codec que decodificasse de volta como `int64` faria `note_list` filtrar por
+numero de forma silenciosamente diferente entre indice recem-construido e
+recarregado do cache. O codec de valor generico
+(`internal/index/persist_codec.go`, tags `valInt`/`valInt64` separadas)
+preserva o tipo exato. `time.Time` de frontmatter (datas do YAML) e gravado
+via `MarshalBinary`/`UnmarshalBinary`, nao um par (offset, UTC assumido) —
+preserva fuso explicito (`+05:00` etc.), que `time.Parse` produz com
+`Location` != UTC e que `reflect.DeepEqual` distingue.
+
+Prova de mutacao, exatamente a que o brief pediu:
+
+```
+pwsh -File scripts/mutate.ps1 -Path internal/index/persist.go `
+  -Anchor 'if h.NoteCount != idx.NoteCount() {' -Replacement 'if false {' `
+  -Test TestCacheDeMetadadosParcialERecusado -Package ./internal/index/
+[...] Mutando internal/index/persist.go
+      - if h.NoteCount != idx.NoteCount() {
+      + if false {
+[...] go test -race -run TestCacheDeMetadadosParcialERecusado ./internal/index/
+----------------------------------------------------------------------
+--- FAIL: TestCacheDeMetadadosParcialERecusado (0.04s)
+    persist_test.go:276: LoadIndexCache deveria recusar um cabecalho que declara mais notas do que o corpo traz
+FAIL
+FAIL	github.com/jonyd/gobsidian/internal/index	0.942s
+FAIL
+----------------------------------------------------------------------
+[OK] internal/index/persist.go restaurado byte a byte (SHA-256 confere).
+[OK] O teste REPROVOU com a regra mutada — a regra esta verificada.
+```
+
+**Medicao: nao foi possivel confirmar o cofre real exato (3.149 notas, 109 MB)
+citado nas secoes anteriores de `OPERACAO.md` dentro desta tarefa** — pedido
+enviado ao team-lead, sem resposta a tempo. A medicao abaixo e num cofre
+SINTETICO gerado na mesma escala (`scripts/gen_vault.ps1 -Notes 3149
+-BodyKB 35 -Seed 42`: 3.149 notas, 50 anexos, 107,93 MB), registrado como tal
+em vez de apresentado como o mesmo dado. `docs/OPERACAO.md` e `docs/PRD.md`
+Q3 tem a tabela completa e a mesma ressalva.
+
+`index_ms`, cinco partidas sem cache (cache apagado antes de cada uma,
+equivalente ao comportamento de antes desta tarefa): **7736, 886, 877, 901,
+852 ms** — a primeira paga leitura fria de disco do SO para os 108 MB; as
+quatro seguintes ficam em 852–901 ms, a mesma faixa ja registrada pro cofre
+real (832–1183 ms).
+
+`index_ms`, cinco partidas com cache presente e valido: **208, 236, 213, 213,
+282 ms.**
+
+**RNF-02 (≤ 300 ms) passa a ser atingido nesta escala** — as cinco partidas
+com cache ficaram todas abaixo do teto, de 3 a 4 vezes mais rapido que sem
+cache. Precisa ser remedido no cofre real para fechar com certeza, porque o
+sintetico e aproximacao, nao o mesmo dado.
+
+Tres cenarios verificados contra o BINARIO REAL, nao so a suite:
+
+1. **Com cache:** `index_ms` cai de ~870 ms pra ~230 ms — tabelas acima.
+2. **Cache apagado e servidor reiniciado:** reconstroi sem erro,
+   `notes=3149 assets=50` batendo com a varredura, regrava o cache no fim.
+3. **Um byte corrompido no meio do arquivo** (flip de um byte no offset
+   451328 de 902657, bem no meio): log real da partida —
+   `msg="cache de indice de metadados descartado" err="index cache file
+   corrupted"`, seguido de `index_ms=868` (a reconstrucao, nao um indice
+   com metadado corrompido servido em silencio).
+
+`golangci-lint run ./internal/index/... ./cmd/...`: `0 issues.` — um achado
+real corrigido no caminho (`revive`/stutter: `index.IndexCacheHeader`
+renomeado pra `index.CacheHeader`, espelhando `search.CacheHeader`).
+
+`pwsh -File scripts/verify.ps1 -SkipCross -SkipNet`: verde nos 7 passos.
+
+`go test -count=1 ./internal/index/ ./internal/search/ ./internal/service/
+./cmd/...`: verde. `go test -race -count=1 ./internal/index/`: verde.
+`go test -count=1 -run TestRankingGolden ./internal/service/`: verde,
+golden de ranking IDENTICO — nenhuma reordenacao de acumulacao de ponto
+flutuante, nenhum `-update`.
+
+O que ficou de fora: remedir no cofre real (bloqueado por nao ter o caminho
+a tempo); nao foi implementada reconciliacao parcial (reparar so as notas
+que mudaram em vez de reconstruir tudo) — fora do escopo do brief, que so
+pedia invalidacao binaria (usar o cache inteiro ou reconstruir inteiro), e a
+reconciliacao arquivo-a-arquivo ja e trabalho do watcher (RF-05).
