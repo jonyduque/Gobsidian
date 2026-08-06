@@ -9,7 +9,6 @@ import (
 	"sync"
 	"sync/atomic"
 
-	"github.com/jonyd/gobsidian/internal/index"
 	"github.com/jonyd/gobsidian/internal/vault"
 )
 
@@ -93,12 +92,6 @@ type Inverted struct {
 	// dentro do mesmo lock daria a impressão de que ela é parte do estado
 	// consistente do índice, e ela não é — é um estado de ciclo de vida.
 	building atomic.Bool
-
-	// avgdlCache guarda (geracao, valor) para evitar N chamadas a DocLength a
-	// cada busca só para calcular uma constante do corpus. Uma geração
-	// obsoleta sinaliza que o índice mudou e o valor precisa recalcular.
-	avgdlGen    uint64
-	avgdlCached float64
 }
 
 // NewInverted inicializa e devolve um novo índice invertido, PRONTO.
@@ -589,71 +582,6 @@ func (ix *Inverted) AdotarDe(outro *Inverted) error {
 	outro.docLengths = make(map[string]int)
 
 	return nil
-}
-
-// GetAvgdl devolve o comprimento médio dos documentos, usando cache
-// invalidado por geração do índice. Quem chama passa a geração corrente
-// do índice; se divergir da geração do cache, o valor é recalculado e
-// guardado.
-//
-// idx pode ser nil. Se for, usa DocPaths() para iterar todos os documentos.
-// Se DocCount for zero, devolve 1.0 como padrão.
-func (ix *Inverted) GetAvgdl(idx *index.Index) float64 {
-	// Determinar a geração para validação de cache
-	var gen uint64
-	if idx != nil {
-		gen = idx.Generation()
-		ix.mu.RLock()
-		if gen == ix.avgdlGen && ix.avgdlCached > 0 {
-			defer ix.mu.RUnlock()
-			return ix.avgdlCached
-		}
-		ix.mu.RUnlock()
-	}
-
-	// Cache miss ou geração mudou — recalcular FORA do lock para evitar
-	// deadlock ao chamar DocLength que também pega RLock.
-	var sumDocLen float64
-
-	if idx != nil {
-		for _, p := range idx.Paths() {
-			if dl := ix.DocLength(string(p)); dl > 0 {
-				sumDocLen += float64(dl)
-			}
-		}
-	} else {
-		// Sem índice de metadados, usa todas as notas do invertido
-		for _, p := range ix.DocPaths() {
-			if dl := ix.DocLength(p); dl > 0 {
-				sumDocLen += float64(dl)
-			}
-		}
-	}
-
-	totalDocs := ix.DocCount()
-	if totalDocs == 0 {
-		return 1.0
-	}
-
-	avgdl := sumDocLen / float64(totalDocs)
-	if avgdl == 0 {
-		avgdl = 1.0
-	}
-
-	// Armazenar no cache sob Write lock (só se temos índice para validar).
-	if idx != nil {
-		ix.mu.Lock()
-		defer ix.mu.Unlock()
-
-		// Checar novamente: outro goroutine pode ter recalculado enquanto
-		// recalculávamos. Se a geração mudou de novo, não armazenar.
-		if gen == idx.Generation() {
-			ix.avgdlGen = gen
-			ix.avgdlCached = avgdl
-		}
-	}
-
-	return avgdl
 }
 
 // newInvertedFromSoA monta um índice sobre a base imutável vinda do cache.

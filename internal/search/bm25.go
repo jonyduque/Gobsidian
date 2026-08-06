@@ -37,7 +37,8 @@ func CalculateBM25(queryTokens []Token, ix *Inverted, idx *index.Index) []Result
 	totalDocs := ix.DocCount()
 	N := float64(totalDocs)
 
-	// Calcula frequências de termo por documento
+	// Calcula o comprimento médio dos documentos (avgdl)
+	var sumDocLen float64
 	docTermFreqs := make(map[string]map[int]float64)
 
 	type termMatch struct {
@@ -78,10 +79,22 @@ func CalculateBM25(queryTokens []Token, ix *Inverted, idx *index.Index) []Result
 		return nil
 	}
 
-	// Usa cache invalidado por geração do índice em vez de iterar
-	// Paths() e chamar DocLength() N vezes — são N aquisições de RLock
-	// só para recalcular uma constante do corpus.
-	avgdl := ix.GetAvgdl(idx)
+	if idx != nil {
+		for _, p := range idx.Paths() {
+			if dl := ix.DocLength(string(p)); dl > 0 {
+				sumDocLen += float64(dl)
+			}
+		}
+	} else {
+		for path := range docTermFreqs {
+			sumDocLen += float64(ix.DocLength(path))
+		}
+	}
+
+	avgdl := sumDocLen / N
+	if avgdl == 0 {
+		avgdl = 1.0
+	}
 
 	termIDFs := make(map[int]float64)
 	for i, qTok := range queryTokens {

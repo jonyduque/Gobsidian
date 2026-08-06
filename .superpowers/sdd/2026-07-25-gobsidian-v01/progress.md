@@ -1305,3 +1305,48 @@ ciclo. A solucao esta certa e o pacote tem nome legitimo, mas foi decisao de
 arquitetura tomada em silencio. Encontrada pelo revisor ao investigar um alerta
 de ciclo do gopls, que era estado velho: `go build`, `go vet` e os testes dos
 dois pacotes passam limpos.
+
+## Task 82 (M7) — cache de avgdl — REVERTIDA POR MEDICAO — 2026-08-05
+
+Implementada em `78fc6b6`, revertida em seguida. **A reversao e o resultado da
+tarefa, nao uma falha dela**: o codigo estava correto e testado.
+
+Medido pelo revisor, `benchstat`, n=6 dos dois lados, cofre sintetico de 5.000
+notas, `BenchmarkSearchLimit200`:
+
+```
+                  |    sec/op    |    sec/op     vs base         |
+SearchLimit200-12   126.5m +/-24%   141.6m +/-22%  ~ (p=0.065 n=6)
+                  |     B/op     |     B/op      vs base              |
+SearchLimit200-12   50.67Mi +/- 0%   50.60Mi +/- 0%  -0.14% (p=0.002 n=6)
+                  |  allocs/op  |  allocs/op   vs base         |
+SearchLimit200-12   14.13k +/- 1%   14.14k +/- 1%  ~ (p=0.699 n=6)
+```
+
+`~` em tempo e em alocacoes. Os -0,14% de bytes sao significativos e
+irrelevantes: e a fatia de 5.000 caminhos que deixou de ser alocada.
+
+**D-M7-3 do plano manda reverter com `~`**, e a razao escrita e "codigo mais
+feio sem ganho e divida pura" — aqui, ~50 linhas com dupla checagem sob lock.
+
+O erro foi de quem escolheu o alvo, nao de quem executou. O revisor leu no
+perfil que `idx.Paths()` alocava e ordenava por busca, e superestimou: o laco
+custa ~250 us contra ~140 ms de busca, **0,2%**. Otimizacao de nao-gargalo.
+
+### O achado que FICA (`9f49a74`, tambem revertido junto, mas a licao vale)
+
+O teste `TestAvgdlInvalidaComAGeracao`, transcrito literalmente do brief,
+**nao podia falhar**. Ele comparava `antes[0].Score` com `depois[0].Score` e
+exigia que diferissem — mas o corpus passa de duas para tres notas, entao o IDF
+se move sozinho e os scores diferem servindo um avgdl obsoleto ou nao.
+Medido: removendo `gen == ix.avgdlGen` da condicao de cache, o teste continuava
+verde.
+
+Corrigido durante a revisao para afirmar sobre `GetAvgdl` diretamente, e ai a
+mutacao reprovava. **Terceiro defeito de desenho do proprio plano exposto pela
+execucao** — corpus uniforme na 78, ancora errada na 80, asserçao que nao isola
+na 82. Os tres foram achados rodando a prova de mutacao, nunca lendo o teste.
+
+**Se alguem quiser reabrir:** a mudanca e O(N) -> O(1) por consulta e poderia
+pagar num cofre muito maior. RNF-09 (20.000 notas) nunca foi medido. Reabrir
+exige a medicao, nao o argumento.

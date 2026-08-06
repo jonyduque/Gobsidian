@@ -4,7 +4,6 @@ import (
 	"context"
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 
 	"github.com/jonyd/gobsidian/internal/index"
@@ -39,43 +38,6 @@ func createVaultWithNotes(t *testing.T, files map[string]string) (*vault.Vault, 
 	}
 
 	return v, idx, ix
-}
-
-// escreve é um helper que escreve conteúdo num arquivo.
-func escreve(t *testing.T, root, rel, content string) {
-	t.Helper()
-	abs := filepath.Join(root, filepath.FromSlash(rel))
-	if err := os.MkdirAll(filepath.Dir(abs), 0o755); err != nil {
-		t.Fatalf("MkdirAll: %v", err)
-	}
-	if err := os.WriteFile(abs, []byte(content), 0o644); err != nil {
-		t.Fatalf("WriteFile: %v", err)
-	}
-}
-
-// servicoCompleto monta um *search.Inverted a partir de um diretório já
-// populado e um vault+index, como exigido pelo teste de cache.
-func servicoCompleto(t *testing.T, root string) (*search.Inverted, *vault.Vault, *index.Index) {
-	t.Helper()
-
-	v, err := vault.New(root)
-	if err != nil {
-		t.Fatalf("vault.New: %v", err)
-	}
-
-	idx := index.New()
-	if err := idx.Build(context.Background(), v); err != nil {
-		t.Fatalf("idx.Build: %v", err)
-	}
-
-	inv := search.NewInverted()
-	for _, p := range idx.NotePaths() {
-		if err := inv.Update(context.Background(), v, p); err != nil {
-			t.Fatalf("inv.Update: %v", err)
-		}
-	}
-
-	return inv, v, idx
 }
 
 func TestBM25FieldWeightsAreApplied(t *testing.T) {
@@ -268,63 +230,5 @@ func TestBM25DeterministicTieBreaking(t *testing.T) {
 	if res[0].Path != "a.md" || res[1].Path != "z.md" {
 		t.Errorf("desempate deterministico falhou: obteve %s, %s; quer a.md, z.md",
 			res[0].Path, res[1].Path)
-	}
-}
-
-// TestAvgdlInvalidaComAGeracao guarda o defeito que o cache INTRODUZ.
-//
-// avgdl obsoleto nao levanta erro: muda o score em silencio. O teste adiciona
-// uma nota MUITO longa depois da primeira busca — se o cache nao invalidar, o
-// avgdl continua o da corpus pequeno e a normalizacao por tamanho fica errada.
-func TestAvgdlInvalidaComAGeracao(t *testing.T) {
-	root := t.TempDir()
-	escreve(t, root, "a.md", "# A\n\nprescricao\n")
-	escreve(t, root, "b.md", "# B\n\nprescricao prescricao\n")
-	inv, v, idx := servicoCompleto(t, root)
-
-	// A asserção que importa é sobre o avgdl, não sobre o score.
-	//
-	// A primeira versão deste teste comparava só `antes[0].Score` com
-	// `depois[0].Score` e exigia que fossem diferentes. Isso NÃO cobre a
-	// invalidação: o corpus passa de duas para três notas, então o IDF muda
-	// sozinho e os scores diferem mesmo servindo um avgdl obsoleto. Medido —
-	// removendo `gen == ix.avgdlGen` da condição de cache, aquele teste
-	// continuava passando.
-	//
-	// GetAvgdl é lido direto porque é o único valor que a regra promete
-	// atualizar. Uma chamada antes popula o cache; se a geração não
-	// invalidar, a chamada depois devolve o mesmo número.
-	avgdlAntes := inv.GetAvgdl(idx)
-	antes := search.CalculateBM25(search.Analyze("prescricao"), inv, idx)
-
-	// Nota longa: muda avgdl de forma detectavel.
-	longa := "# C\n\n" + strings.Repeat("palavra ", 5000) + "prescricao\n"
-	escreve(t, root, "c.md", longa)
-	if err := idx.Replace(context.Background(), v, "c.md"); err != nil {
-		t.Fatal(err)
-	}
-	if err := inv.Update(context.Background(), v, "c.md"); err != nil {
-		t.Fatal(err)
-	}
-
-	avgdlDepois := inv.GetAvgdl(idx)
-	if avgdlDepois == avgdlAntes {
-		t.Errorf("GetAvgdl = %.6f antes e depois de entrar uma nota de 5000 "+
-			"palavras: o cache nao foi invalidado pela geracao", avgdlAntes)
-	}
-	if avgdlDepois <= avgdlAntes {
-		t.Errorf("avgdl caiu de %.6f para %.6f depois de entrar a nota mais "+
-			"longa do corpus; o valor esta errado, nao so obsoleto",
-			avgdlAntes, avgdlDepois)
-	}
-
-	depois := search.CalculateBM25(search.Analyze("prescricao"), inv, idx)
-	if len(antes) == 0 || len(depois) == 0 {
-		t.Fatal("busca vazia nos dois lados nao prova nada")
-	}
-	if antes[0].Score == depois[0].Score {
-		t.Errorf("score de %q identico (%.6f) depois de o corpus mudar de "+
-			"tamanho: avgdl nao foi invalidado",
-			antes[0].Path, antes[0].Score)
 	}
 }
