@@ -278,7 +278,7 @@ func TestQ3PerformanceMeasurement(t *testing.T) {
 // -race.
 func TestBM25KernelLatency(t *testing.T) {
 	const corpusSize = 500
-	const numQueries = 200
+	const numQueries = 500
 	const teto = 80 * time.Millisecond
 
 	_, idx, inv, _ := geraCorpus(t, corpusSize)
@@ -292,11 +292,32 @@ func TestBM25KernelLatency(t *testing.T) {
 			"não mede o kernel", got, corpusSize)
 	}
 
-	durations := make([]time.Duration, numQueries)
-	for i := 0; i < numQueries; i++ {
+	// Medição AMORTIZADA por grupo, e não por chamada.
+	//
+	// Cronometrar cada chamada individual parou de funcionar quando as
+	// otimizações de M7 (pool de normalização, título pré-normalizado,
+	// postings buscadas uma vez) deixaram o kernel mais rápido que a
+	// granularidade do relógio nesta plataforma: a mediana passou a ler `0s` e
+	// o p95 a sair quantizado em múltiplos de milissegundo. O guarda de
+	// "mediana = 0" disparava, e a mensagem dele culpava a consulta por ser
+	// seletiva demais — quando o teste já afirma, logo acima, que ela casa as
+	// 500 notas.
+	//
+	// Somando um grupo de chamadas e dividindo, cada amostra fica muito acima
+	// do tique do relógio e volta a ter significado. É o mesmo remédio que o
+	// benchmark de IPC deste projeto precisou pelo mesmo motivo.
+	// 10 chamadas por amostra levantam cada medicao bem acima do tique do
+	// relogio; 50 amostras dao um p95 que nao e simplesmente o maximo.
+	const porGrupo = 10
+	const grupos = numQueries / porGrupo
+
+	durations := make([]time.Duration, grupos)
+	for g := 0; g < grupos; g++ {
 		start := time.Now()
-		_ = search.CalculateBM25(tokens, inv, idx)
-		durations[i] = time.Since(start)
+		for i := 0; i < porGrupo; i++ {
+			_ = search.CalculateBM25(tokens, inv, idx)
+		}
+		durations[g] = time.Since(start) / porGrupo
 	}
 
 	sort.Slice(durations, func(i, j int) bool {
@@ -304,18 +325,29 @@ func TestBM25KernelLatency(t *testing.T) {
 	})
 
 	minDur := durations[0]
-	medianDur := durations[numQueries/2]
-	p95Dur := durations[int(float64(numQueries)*0.95)]
+	medianDur := durations[grupos/2]
+	// Aritmetica inteira: `float64(grupos) * 0.95` e expressao constante, e Go
+	// recusa truncar constante para int.
+	idxP95 := grupos * 95 / 100
+	if idxP95 >= grupos {
+		idxP95 = grupos - 1
+	}
+	p95Dur := durations[idxP95]
 
-	t.Logf("Kernel BM25 (%d consultas de %d postings em %d notas):", numQueries, corpusSize, corpusSize)
+	t.Logf("Kernel BM25 (%d consultas em %d grupos de %d, %d postings em %d notas):",
+		numQueries, grupos, porGrupo, corpusSize, corpusSize)
 	t.Logf("  Mínimo:  %v", minDur)
 	t.Logf("  Mediana: %v", medianDur)
 	t.Logf("  p95:     %v  (teto deste teste: %v)", p95Dur, teto)
 
-	// Mediana em zero significa que o relógio não andou, e um percentil sobre
-	// zeros não guarda nada. Vale como falha por si só.
+	// Mediana em zero continua sendo falha: com a medição amortizada, ela só
+	// pode acontecer se o relógio não andar em 20 chamadas seguidas, e aí a
+	// medição inteira não guarda nada. A mensagem antiga culpava a consulta
+	// por ser seletiva, o que o teste já descartou na asserção acima.
 	if medianDur == 0 {
-		t.Errorf("mediana = 0s: a consulta é seletiva demais para medir o kernel")
+		t.Errorf("mediana = 0s mesmo amortizando %d chamadas por amostra: "+
+			"o relogio desta plataforma nao mede o kernel nesta escala",
+			porGrupo)
 	}
 	if !raceEnabled && p95Dur > teto {
 		t.Errorf("p95 %v excede o teto de %v deste teste (regressão algorítmica no "+
