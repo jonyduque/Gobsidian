@@ -421,6 +421,83 @@ CPU do processo em repouso, que nenhum harness deste projeto faz hoje.
 Onde a linha diz "verificado por teste", o RNF é uma garantia funcional e não um
 número: não há o que medir, há o que provar, e a prova é o teste nomeado.
 
+### Índice de metadados persistido, `index_cache.gob` (2026-08-06, Task 85)
+
+Até aqui só o índice invertido (busca) tinha cache em disco. O índice de
+metadados — o que sustenta `vault_stats`, `note_read`, `note_list` e a
+resolução de link — era reconstruído por varredura e parse do cofre inteiro em
+**toda** partida, mesmo com o cache de busca quente. Era o que faltava para
+fechar `docs/PRD.md` Q3, que já tinha decidido persistir os dois caches desde
+2026-07-29.
+
+`internal/index/persist.go` e `persist_codec.go` implementam
+`index_cache.gob`: mesma técnica do codec de busca (varint, tabela de string
+por comprimento+bytes, portão de versão antes de qualquer campo de layout),
+mais um CRC32 (IEEE) como rodapé — divergência deliberada, justificada no
+comentário do arquivo: um cache de metadados errado serve nota errada para uma
+tool, não busca lenta, então um byte corrompido no meio do payload de uma
+string (não num comprimento) precisa ser pego de forma determinística, não
+só quando por acaso estoura um limite.
+
+`byAlias`, backlinks e a resolução de cada link **não são gravados**: são
+recalculados no load chamando as mesmas três funções que `Build` chama depois
+de indexar (`buildAliasMap`, `resolveAllLinks`, `buildBacklinks`). Persistir
+esses três separadamente seria uma segunda forma de calcular o mesmo dado a
+partir das notas — a lição já paga neste projeto (`byAlias` minúsculo numa via
+e cru na outra) é que a forma menos usada é a que diverge.
+
+`cmd/gobsidian/serve.go` só aceita o cache quando `Index.VerifyFreshness`
+confirma, por uma varredura leve (sem parse, sem leitura de conteúdo), que
+todo arquivo do disco bate em tamanho e mtime com o que o cache tem — e que a
+contagem de arquivos é a mesma dos dois lados, o que pega adição pura. Qualquer
+divergência cai para `idx.Build` como antes, e o cache é regravado no fim.
+`Index.LoadIndexCache` também confere **cobertura**, não só versão: o
+cabeçalho declara `NoteCount`/`AssetCount`, e um corpo que traga menos é
+recusado — a regra que o cache de busca aprendeu na marra (`LoadInvertedCache`
+conferia versão e não contagem, e um cache parcial passava por completo).
+
+**Não foi possível confirmar o cofre real exato citado nas seções acima**
+dentro desta tarefa (3.149 notas / 109 MB), então a medição abaixo é num cofre
+**sintético** gerado com `scripts/gen_vault.ps1 -Notes 3149 -BodyKB 35 -Seed
+42`, deliberadamente na mesma escala: 3.149 notas, 50 anexos, **107,93 MB**.
+Não é o mesmo cofre; é a melhor aproximação disponível, e fica registrado como
+tal em vez de apresentado como o mesmo dado.
+
+**`index_ms`, cinco partidas sem cache (equivalente ao comportamento anterior
+a esta tarefa — cache apagado antes de cada partida):**
+
+| Partida | 1 | 2 | 3 | 4 | 5 |
+|---|---|---|---|---|---|
+| `index_ms` | 7736 | 886 | 877 | 901 | 852 |
+
+A primeira partida paga leitura fria do cache de disco do SO para os 108 MB do
+cofre — as quatro seguintes, com o mesmo disco já quente, ficam em 852–901 ms,
+a mesma faixa do que já estava registrado para o cofre real (832–1183 ms).
+
+**`index_ms`, cinco partidas com cache presente e válido:**
+
+| Partida | 1 | 2 | 3 | 4 | 5 |
+|---|---|---|---|---|---|
+| `index_ms` | 208 | 236 | 213 | 213 | 282 |
+
+**RNF-02 passa a ser atingido nesta escala**: as cinco partidas com cache
+ficaram abaixo do teto de 300 ms — de 3 a 4 vezes mais rápido que sem cache. A
+ressalva do parágrafo anterior vale: é o cofre sintético na mesma escala do
+real, não o cofre real em si, e o número de RNF-02 no cofre real precisa ser
+remedido para fechar com certeza.
+
+**Os três cenários exigidos pela tarefa, verificados contra o binário real
+(não só a suíte de testes):**
+
+1. **Com cache:** `index_ms` cai de ~870 ms para ~230 ms — tabelas acima.
+2. **Cache apagado e servidor reiniciado:** reconstrói sem erro, `notes=3149
+   assets=50` batendo com a varredura, e regrava `index_cache.gob` no fim.
+3. **Um byte corrompido no meio do arquivo:** o servidor recusa o cache e
+   reconstrói, sem decodificar lixo. Log real da partida:
+   `msg="cache de indice de metadados descartado" err="index cache file
+   corrupted"`, seguido de `index_ms=868` — a reconstrução, não um índice com
+   metadado corrompido servido em silêncio.
+
 ### Medições anteriores, por escala
 
 **Cofre pequeno, 2026-07-28.** 7 notas, 1 anexo, 180 KB. Três execuções.

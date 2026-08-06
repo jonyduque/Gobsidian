@@ -118,26 +118,45 @@ func (ix *Index) insert(r parsed) {
 			n.Links = append(n.Links, ResolvedLink{Link: l})
 		}
 
-		for _, t := range r.note.Tags {
-			ix.tags[t] = append(ix.tags[t], r.entry.Path)
-		}
-
-		ix.notes[r.entry.Path] = n
+		ix.publishNoteLocked(n)
 	} else {
 		a := &Asset{
 			Path:    r.entry.Path,
 			Size:    r.entry.Size,
 			ModTime: r.entry.ModTime,
 		}
-		ix.assets[r.entry.Path] = a
+		ix.publishAssetLocked(a)
 	}
+}
 
-	lower := strings.ToLower(string(r.entry.Path))
-	ix.lowerPath[lower] = r.entry.Path
+// publishNoteLocked registra uma nota ja construida nos indices derivados:
+// notes, lowerPath, byName e tags. E o UNICO lugar que faz isso — Build (via
+// insert) e o carregamento do cache de disco (persist.go) passam os dois
+// pelo mesmo caminho, o que impede as duas fontes de povoar os indices
+// derivados de jeitos que divergem. Exige ix.mu ja travado.
+func (ix *Index) publishNoteLocked(n *Note) {
+	ix.notes[n.Path] = n
+	ix.publishNameLocked(n.Path)
+	for _, t := range n.Tags {
+		ix.tags[t] = append(ix.tags[t], n.Path)
+	}
+}
 
-	// Populate byName for note and asset resolution
-	base := vault.CanonicalPath(filepath.ToSlash(filepath.Base(string(r.entry.Path))))
-	ix.byName[string(base)] = append(ix.byName[string(base)], r.entry.Path)
+// publishAssetLocked e o par de publishNoteLocked para anexos. Exige ix.mu
+// ja travado.
+func (ix *Index) publishAssetLocked(a *Asset) {
+	ix.assets[a.Path] = a
+	ix.publishNameLocked(a.Path)
+}
+
+// publishNameLocked povoa lowerPath e byName, comuns a nota e anexo. Exige
+// ix.mu ja travado.
+func (ix *Index) publishNameLocked(path vault.CanonicalPath) {
+	lower := strings.ToLower(string(path))
+	ix.lowerPath[lower] = path
+
+	base := vault.CanonicalPath(filepath.ToSlash(filepath.Base(string(path))))
+	ix.byName[string(base)] = append(ix.byName[string(base)], path)
 }
 
 // Paths devolve todos os caminhos indexados, notas E anexos, ordenados.

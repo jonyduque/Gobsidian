@@ -79,6 +79,41 @@ func shutdownExitCode(err error) int {
 	}
 }
 
+// carregarIndiceDoCache tenta servir o indice de metadados do disco em vez
+// de varrer e parsear o cofre inteiro — o que fecha docs/PRD.md Q3: o cache
+// so existia para o indice invertido (busca), e RNF-02 nunca era atingido
+// porque o indice de metadados sempre reconstruia do zero, mesmo com o
+// cache de busca quente.
+//
+// So aceita o cache quando VerifyFreshness confirma que ele bate com o
+// disco — mesma contagem de arquivos, mesmo tamanho e mtime por arquivo.
+// Qualquer divergencia (nota editada offline entre partidas, nota nova,
+// cache ausente, corrompido ou de versao incompativel) devolve ok=false, e
+// quem chamou cai para idx.Build, que sempre produz o indice correto. Nao
+// ha reparo parcial aqui de proposito: reparar so o que mudou e o trabalho
+// da reconciliacao do watcher (RF-05), nao do boot.
+func carregarIndiceDoCache(ctx context.Context, v *vault.Vault, cfg config.Config, log *slog.Logger) (*index.Index, bool) {
+	doCache, hdr, err := index.LoadIndexCache(ctx, cfg.CacheDir, cfg.VaultPath)
+	if err != nil {
+		if !errors.Is(err, index.ErrIndexCacheNotFound) {
+			log.Warn("cache de indice de metadados descartado", "err", err)
+		}
+		return nil, false
+	}
+
+	fresh, ferr := doCache.VerifyFreshness(ctx, v)
+	if ferr != nil {
+		log.Warn("verificacao de atualidade do cache de indice de metadados falhou", "err", ferr)
+		return nil, false
+	}
+	if !fresh {
+		log.Info("cache de indice de metadados desatualizado; reconstruindo", "no_cache", hdr.NoteCount)
+		return nil, false
+	}
+
+	return doCache, true
+}
+
 // invertedSaveInterval limita QUANTO TRABALHO se perde num encerramento
 // abrupto durante a construcao.
 //
@@ -330,9 +365,17 @@ func runServe(parent context.Context, cfg config.Config) error {
 	// boot do Go e handshake do MCP com o que o alvo cobre. Logar aqui torna a
 	// medicao reproduzivel e recorta exatamente o trecho que o requisito nomeia.
 	buildStart := time.Now()
-	idx := index.New()
-	if err := idx.Build(ctx, v); err != nil {
-		return err
+	idx, usouCache := carregarIndiceDoCache(ctx, v, cfg, log)
+	indexOrigin := "cache"
+	if !usouCache {
+		indexOrigin = "build"
+		idx = index.New()
+		if err := idx.Build(ctx, v); err != nil {
+			return err
+		}
+		if err := index.SaveIndexCache(ctx, cfg.CacheDir, cfg.VaultPath, idx); err != nil {
+			log.Warn("falha ao salvar cache de indice de metadados", "err", err)
+		}
 	}
 	indexMS := time.Since(buildStart).Milliseconds()
 
@@ -420,7 +463,8 @@ func runServe(parent context.Context, cfg config.Config) error {
 		"read_only", cfg.ReadOnly,
 		"notes", idx.NoteCount(),
 		"assets", idx.AssetCount(),
-		"index_ms", indexMS)
+		"index_ms", indexMS,
+		"index_origin", indexOrigin)
 
 	serveErr := make(chan error, 1)
 	go func() { serveErr <- srv.Serve(ctx, teed, os.Stdout) }()
