@@ -3,6 +3,7 @@ package mcpsrv_test
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"log/slog"
 	"os"
@@ -246,6 +247,178 @@ func TestResources(t *testing.T) {
 	}
 	if content.URI != "gobsidian:///A.md" {
 		t.Errorf("ReadResource Uri = %s, want gobsidian:///A.md", content.URI)
+	}
+}
+
+// firstText extrai o texto do primeiro bloco de Content de um resultado de
+// tool. E o mesmo jeito que TestReadTools usa inline para ler o codigo de
+// erro — extraido aqui porque os testes de note_read em lote precisam dele
+// mais de uma vez.
+func firstText(t *testing.T, res *mcp.CallToolResult) string {
+	t.Helper()
+	if res == nil || len(res.Content) == 0 {
+		return ""
+	}
+	b, err := json.Marshal(res.Content[0])
+	if err != nil {
+		t.Fatalf("marshal Content[0]: %v", err)
+	}
+	var obj map[string]interface{}
+	if err := json.Unmarshal(b, &obj); err != nil {
+		t.Fatalf("unmarshal Content[0]: %v", err)
+	}
+	text, _ := obj["text"].(string)
+	return text
+}
+
+func connectTestSession(ctx context.Context, t *testing.T, srv *mcpsrv.Server) *mcp.ClientSession {
+	t.Helper()
+	clientTransport, serverTransport := mcp.NewInMemoryTransports()
+	go func() { _ = srv.Connect(ctx, serverTransport) }()
+
+	client := mcp.NewClient(&mcp.Implementation{Name: "test", Version: "0.0.1"}, nil)
+	session, err := client.Connect(ctx, clientTransport, nil)
+	if err != nil {
+		t.Fatalf("Connect: %v", err)
+	}
+	t.Cleanup(func() { _ = session.Close() })
+	return session
+}
+
+// TestNoteReadPathAndPathsMutuallyExclusive prova a decisao 1 do brief da
+// Task 84: path e paths preenchidos ao mesmo tempo e erro de validacao, e
+// NAO uma precedencia silenciosa que decidiria pelo cliente qual dos dois
+// vale.
+func TestNoteReadPathAndPathsMutuallyExclusive(t *testing.T) {
+	root := t.TempDir()
+	writeFile(t, root, "A.md", "# A\n")
+	srv := newTestServerWithIndex(t, root)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	session := connectTestSession(ctx, t, srv)
+
+	res, err := session.CallTool(ctx, &mcp.CallToolParams{
+		Name:      "note_read",
+		Arguments: map[string]any{"path": "A.md", "paths": []string{"A.md"}},
+	})
+	if err != nil {
+		t.Fatalf("CallTool: %v", err)
+	}
+	if !res.IsError {
+		t.Fatalf("path e paths juntos deveria ser erro de validacao")
+	}
+	msg := firstText(t, res)
+	if !strings.HasPrefix(msg, "INVALID_ARGUMENT") {
+		t.Errorf("mensagem = %q, quer prefixo INVALID_ARGUMENT", msg)
+	}
+	if res.StructuredContent == nil {
+		t.Errorf("StructuredContent nulo — erro de validacao de lote precisa devolver Out preenchido")
+	}
+}
+
+// TestNoteReadRecusaLoteAcimaDoTeto e a prova de mutacao da decisao 4: mais
+// de 50 caminhos em paths e recusado. A mutacao do brief troca a condicao do
+// teto por "if false" — sem o teto, 51 caminhos passariam e o teste
+// (que exige IsError com prefixo INVALID_ARGUMENT) reprovaria.
+func TestNoteReadRecusaLoteAcimaDoTeto(t *testing.T) {
+	root := t.TempDir()
+	writeFile(t, root, "A.md", "# A\n")
+	srv := newTestServerWithIndex(t, root)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	session := connectTestSession(ctx, t, srv)
+
+	paths := make([]string, 51)
+	for i := range paths {
+		paths[i] = "A.md"
+	}
+
+	res, err := session.CallTool(ctx, &mcp.CallToolParams{
+		Name:      "note_read",
+		Arguments: map[string]any{"paths": paths},
+	})
+	if err != nil {
+		t.Fatalf("CallTool: %v", err)
+	}
+	if !res.IsError {
+		t.Fatalf("51 paths deveria ser erro; IsError=false")
+	}
+	msg := firstText(t, res)
+	if !strings.HasPrefix(msg, "INVALID_ARGUMENT") {
+		t.Errorf("mensagem = %q, quer prefixo INVALID_ARGUMENT", msg)
+	}
+	if res.StructuredContent == nil {
+		t.Errorf("StructuredContent nulo — erro de validacao de lote precisa devolver Out preenchido")
+	}
+}
+
+// TestNoteReadBatchKeepsFailedItemAtPosition e o teste de ponta a ponta que
+// o brief exige: dez caminhos, um deles inexistente — os nove voltam, o
+// decimo volta NA POSICAO CERTA com erro, sem derrubar o lote inteiro.
+func TestNoteReadBatchKeepsFailedItemAtPosition(t *testing.T) {
+	root := t.TempDir()
+	var paths []string
+	for i := 0; i < 10; i++ {
+		name := fmt.Sprintf("N%02d.md", i)
+		paths = append(paths, name)
+		if i == 5 {
+			continue // N05.md nunca e criada -- o item que tem de falhar
+		}
+		writeFile(t, root, name, fmt.Sprintf("# Nota %02d\n", i))
+	}
+
+	srv := newTestServerWithIndex(t, root)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	session := connectTestSession(ctx, t, srv)
+
+	res, err := session.CallTool(ctx, &mcp.CallToolParams{
+		Name:      "note_read",
+		Arguments: map[string]any{"paths": paths},
+	})
+	if err != nil {
+		t.Fatalf("CallTool: %v", err)
+	}
+	if res.IsError {
+		t.Fatalf("lote com uma falha nao pode derrubar o resultado inteiro: %v", res.Content)
+	}
+
+	b, err := json.Marshal(res.StructuredContent)
+	if err != nil {
+		t.Fatalf("marshal StructuredContent: %v", err)
+	}
+	var out struct {
+		Items []struct {
+			Path    string `json:"path"`
+			Content string `json:"content"`
+			Error   *struct {
+				Code    string `json:"code"`
+				Message string `json:"message"`
+			} `json:"error"`
+		} `json:"items"`
+	}
+	if err := json.Unmarshal(b, &out); err != nil {
+		t.Fatalf("unmarshal StructuredContent: %v", err)
+	}
+
+	if len(out.Items) != len(paths) {
+		t.Fatalf("len(items) = %d, quer %d — item sumiu em vez de aparecer com erro", len(out.Items), len(paths))
+	}
+	for i, item := range out.Items {
+		if item.Path != paths[i] {
+			t.Errorf("items[%d].path = %q, quer %q — posicao nao preservada", i, item.Path, paths[i])
+		}
+		if i == 5 {
+			if item.Error == nil {
+				t.Errorf("items[5] deveria ter error (N05.md nao existe)")
+			} else if item.Error.Code != "NOTE_NOT_FOUND" {
+				t.Errorf("items[5].error.code = %q, quer NOTE_NOT_FOUND", item.Error.Code)
+			}
+		} else if item.Error != nil {
+			t.Errorf("items[%d] nao deveria ter error: %+v", i, item.Error)
+		}
 	}
 }
 

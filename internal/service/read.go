@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -30,6 +31,104 @@ type ReadResult struct {
 	Hash      string
 	Section   *parser.Heading
 	Truncated bool
+}
+
+// ReadBatchRequest e os parametros de note_read em modo lote. Heading,
+// HeadingLevel, BlockID, MaxBytes e IncludeFrontmatter valem para CADA
+// caminho de Paths, do mesmo jeito que valeriam para um ReadRequest unico —
+// nao ha campo por-item porque o schema de entrada e plano.
+type ReadBatchRequest struct {
+	Paths              []string
+	Heading            string
+	HeadingLevel       int
+	BlockID            string
+	MaxBytes           int
+	IncludeFrontmatter bool
+}
+
+// ReadNoteItem e um item do lote de note_read. Path identifica de qual
+// entrada de ReadBatchRequest.Paths o item veio, na mesma posicao — e o que
+// permite ao chamador casar erro com pedido sem depender de ordem estavel.
+// Err carrega a falha daquele item especificamente: uma nota ausente no meio
+// de dez nao pode custar as outras nove, mas tambem nao pode desaparecer da
+// lista sem dizer nada.
+type ReadNoteItem struct {
+	Path      string
+	Content   string
+	Hash      string
+	Section   *parser.Heading
+	Truncated bool
+	Err       error
+}
+
+// readNoteItemWire e a forma serializada de ReadNoteItem. Err e um error Go
+// sem campos exportados: sem este tipo auxiliar, json.Marshal produziria
+// "error":{} e o codigo/mensagem se perderiam no canal que o cliente le.
+type readNoteItemWire struct {
+	Path      string          `json:"path"`
+	Content   string          `json:"content,omitempty"`
+	Hash      string          `json:"hash,omitempty"`
+	Section   *parser.Heading `json:"section,omitempty"`
+	Truncated bool            `json:"truncated,omitempty"`
+	Error     *itemErrorWire  `json:"error,omitempty"`
+}
+
+type itemErrorWire struct {
+	Code    string `json:"code"`
+	Message string `json:"message"`
+}
+
+// MarshalJSON traduz Err (um error Go) para {"code","message"} — a mesma
+// forma que toolErr usa no canal de texto, so que endereçavel por campo em
+// vez de exigir parsear a mensagem.
+func (i ReadNoteItem) MarshalJSON() ([]byte, error) {
+	wire := readNoteItemWire{
+		Path:      i.Path,
+		Content:   i.Content,
+		Hash:      i.Hash,
+		Section:   i.Section,
+		Truncated: i.Truncated,
+	}
+	if i.Err != nil {
+		wire.Error = &itemErrorWire{Code: string(CodeOf(i.Err)), Message: i.Err.Error()}
+	}
+	return json.Marshal(wire)
+}
+
+// ReadBatchResult e o retorno de note_read em modo lote: um item por
+// caminho pedido, na mesma ordem e no mesmo comprimento de Paths.
+type ReadBatchResult struct {
+	Items []ReadNoteItem `json:"items"`
+}
+
+// ReadNotes le varias notas numa chamada so. Cada caminho de req.Paths vira
+// um ReadNoteItem na MESMA posicao do slice de saida — um erro num item nao
+// remove os demais, e nao desloca os que vem depois dele. E o índice, não
+// o comprimento da lista, que amarra pedido e resposta.
+func (s *Service) ReadNotes(ctx context.Context, req ReadBatchRequest) ReadBatchResult {
+	out := make([]ReadNoteItem, len(req.Paths))
+	for i, p := range req.Paths {
+		res, err := s.ReadNote(ctx, ReadRequest{
+			Path:               p,
+			Heading:            req.Heading,
+			HeadingLevel:       req.HeadingLevel,
+			BlockID:            req.BlockID,
+			MaxBytes:           req.MaxBytes,
+			IncludeFrontmatter: req.IncludeFrontmatter,
+		})
+		if err != nil {
+			out[i] = ReadNoteItem{Path: p, Err: err}
+			continue
+		}
+		out[i] = ReadNoteItem{
+			Path:      p,
+			Content:   res.Content,
+			Hash:      res.Hash,
+			Section:   res.Section,
+			Truncated: res.Truncated,
+		}
+	}
+	return ReadBatchResult{Items: out}
 }
 
 // ReadNote le uma nota, ou um recorte dela por heading ou por bloco.

@@ -31,6 +31,12 @@ const (
 	CodeCloudOnlyFile    Code = "CLOUD_ONLY_FILE"
 	CodePathTooLong      Code = "PATH_TOO_LONG"
 	CodeReadOnlyMode     Code = "READ_ONLY_MODE"
+	// CodeInvalidArgument: a combinacao de parametros recebida nao tem
+	// interpretacao unica (dois campos mutuamente exclusivos preenchidos) ou
+	// viola um teto declarado no schema (lote maior que o limite). Nao e
+	// PATH_OUTSIDE_VAULT nem NOTE_NOT_FOUND porque a falha esta na chamada em
+	// si, antes de qualquer nome de arquivo ser resolvido.
+	CodeInvalidArgument Code = "INVALID_ARGUMENT"
 	// CodeIndexBuilding: o indice invertido ainda nao cobre o cofre inteiro.
 	// E um erro, e nao uma lista vazia, porque "ainda nao sei" e "nao achei
 	// nada" pedem acoes diferentes de quem chama: uma manda tentar de novo,

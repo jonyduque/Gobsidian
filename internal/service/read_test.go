@@ -212,3 +212,69 @@ func TestReadNoteAmbiguousSameLevel(t *testing.T) {
 		t.Errorf("mensagem nao diz quantas ocorrencias: %s", err.Error())
 	}
 }
+
+// TestNoteReadMantemPosicaoNoErroParcial e a prova da Task 84, decisao 2: uma
+// nota ausente no meio do lote nao pode custar as boas, mas o item dela
+// tambem nao pode sumir da lista — tem que aparecer na MESMA posicao, com o
+// erro. Checar so len(Items) nao bastaria: um item substituido por
+// ReadNoteItem{} zerado no lugar certo passaria por esse teste sem provar
+// nada. A prova de mutacao troca a linha que grava o item de erro por
+// "continue" — o que aqui deixa Items[1] com Path vazio — e esta funcao tem
+// de reprovar.
+func TestNoteReadMantemPosicaoNoErroParcial(t *testing.T) {
+	root := t.TempDir()
+	writeFile(t, root, "A.md", "# A\ntexto a\n")
+	writeFile(t, root, "B.md", "# B\ntexto b\n")
+	svc := newTestService(t, root)
+
+	paths := []string{"A.md", "Missing.md", "B.md"}
+	result := svc.ReadNotes(context.Background(), ReadBatchRequest{Paths: paths})
+
+	if len(result.Items) != len(paths) {
+		t.Fatalf("len(Items) = %d, quer %d — lista encolheu", len(result.Items), len(paths))
+	}
+	if result.Items[0].Path != "A.md" || result.Items[0].Err != nil {
+		t.Errorf("Items[0] = %+v, quer A.md sem erro", result.Items[0])
+	}
+	if result.Items[1].Path != "Missing.md" {
+		t.Errorf("Items[1].Path = %q, quer %q — item sumiu ou trocou de posicao", result.Items[1].Path, "Missing.md")
+	}
+	if result.Items[1].Err == nil || CodeOf(result.Items[1].Err) != CodeNoteNotFound {
+		t.Errorf("Items[1].Err = %v, quer codigo NOTE_NOT_FOUND", result.Items[1].Err)
+	}
+	if result.Items[2].Path != "B.md" || result.Items[2].Err != nil {
+		t.Errorf("Items[2] = %+v, quer B.md sem erro", result.Items[2])
+	}
+}
+
+// TestReadNotesMaxBytesPerNote prova a decisao 3 do brief: max_bytes se
+// aplica a CADA nota do lote, nao ao lote inteiro. Um teto de lote faria a
+// segunda nota truncar por causa dos bytes gastos na primeira — dependente
+// de ordem. As duas notas aqui tem o mesmo tamanho; se o teto fosse
+// compartilhado, a segunda ficaria com menos (ou zero) bytes disponiveis.
+func TestReadNotesMaxBytesPerNote(t *testing.T) {
+	root := t.TempDir()
+	writeFile(t, root, "A.md", strings.Repeat("a", 500))
+	writeFile(t, root, "B.md", strings.Repeat("b", 500))
+	svc := newTestService(t, root)
+
+	result := svc.ReadNotes(context.Background(), ReadBatchRequest{
+		Paths:    []string{"A.md", "B.md"},
+		MaxBytes: 10,
+	})
+
+	if len(result.Items) != 2 {
+		t.Fatalf("len(Items) = %d, quer 2", len(result.Items))
+	}
+	for _, item := range result.Items {
+		if item.Err != nil {
+			t.Fatalf("%s: erro inesperado: %v", item.Path, item.Err)
+		}
+		if len(item.Content) != 10 {
+			t.Errorf("%s: len(Content) = %d, quer 10 (max_bytes tem de valer por nota, nao acumulado no lote)", item.Path, len(item.Content))
+		}
+		if !item.Truncated {
+			t.Errorf("%s: Truncated = false, quer true", item.Path)
+		}
+	}
+}

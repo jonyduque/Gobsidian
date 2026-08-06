@@ -69,39 +69,42 @@ Se `query` for vazio mas houver filtros, a chamada é redirecionada ao caminho d
 
 ## `note_read`
 
-Lê uma nota inteira, uma seção, ou um bloco.
+Lê uma nota inteira, uma seção, ou um bloco — ou várias notas numa só chamada, via `paths`.
 
 ```json
 {
   "type": "object",
   "properties": {
-    "path":     { "type": "string" },
+    "path":     { "type": "string", "description": "Caminho de uma nota. Mutuamente exclusivo com paths." },
+    "paths":    { "type": "array", "items": { "type": "string" }, "description": "Vários caminhos numa só chamada, até 50. Mutuamente exclusivo com path; falha de um item não derruba os demais." },
     "heading":  { "type": "string", "description": "Texto do heading. Lê a seção até o próximo heading de nível igual ou superior." },
     "heading_level": { "type": "integer", "minimum": 1, "maximum": 6, "description": "Desambigua quando o mesmo texto aparece em níveis diferentes." },
     "block_id": { "type": "string", "description": "Identificador de bloco, sem o circunflexo." },
     "include_frontmatter": { "type": "boolean", "default": true },
-    "max_bytes": { "type": "integer", "default": 100000 }
-  },
-  "required": ["path"]
+    "max_bytes": { "type": "integer", "default": 100000, "description": "Aplica-se por nota, não ao lote inteiro." }
+  }
 }
 ```
 
-**Retorno.** `content`, `hash`, `truncated`, e — quando `heading` foi usado — `section` com nível, texto e faixa de offsets.
+**Retorno com `path`.** `content`, `hash`, `truncated`, e — quando `heading` foi usado — `section` com nível, texto e faixa de offsets. Corresponde a `service.ReadResult`.
 
-> A linha acima já listou `path` e `total_bytes`. Nenhum dos dois existe:
-> `note_read` devolve `service.ReadResult`, que tem exatamente `Content`,
-> `Hash`, `Section` e `Truncated`. Um modelo lendo este contrato pediria
-> `total_bytes` para decidir se vale reler a nota inteira, receberia um campo
-> ausente, e não teria como saber que o contrato é que estava errado.
-> Achado por `scripts/check_doc_refs.ps1` na primeira execução dele.
+**Retorno com `paths`.** `items`, uma lista na mesma ordem e do mesmo tamanho de `paths`. Cada item tem `path` e, ou os campos de sucesso (`content`, `hash`, `truncated`, `section`), ou `error` com `code` e `message` — uma nota que falha não derruba as demais e não desaparece da lista: o item aparece na posição de origem, com `error` preenchido. Corresponde a `service.ReadBatchResult`.
+
+> A linha acima já listou `path` e `total_bytes` no retorno de `path` único.
+> Nenhum dos dois existe como campo do retorno em si: `note_read` devolve
+> `service.ReadResult`, que tem exatamente `Content`, `Hash`, `Section` e
+> `Truncated`. Achado por `scripts/check_doc_refs.ps1` na primeira execução
+> dele.
 
 **Notas.** `block_id` é mutuamente exclusivo com `heading` e `heading_level`; os dois últimos combinam entre si, onde `heading_level` desambigua. A correspondência de heading é feita sobre o slug normalizado, então `## Capítulo 118` casa com `"Capítulo 118"`, `"capitulo 118"` ou `"CAPÍTULO 118"`.
 
+`path` e `paths` são mutuamente exclusivos; os dois preenchidos ao mesmo tempo é erro de validação (`INVALID_ARGUMENT`), não precedência silenciosa de um sobre o outro. `paths` aceita no máximo 50 itens — acima disso, `INVALID_ARGUMENT`. Quando `paths` é usado, `heading`, `heading_level`, `block_id`, `include_frontmatter` e `max_bytes` valem para CADA nota do lote; não há como variar por item numa só chamada.
+
 `hash` é do arquivo inteiro, não da seção lida, e é o valor a devolver em `expected_hash` nas tools de escrita.
 
-Ler uma seção lê apenas os bytes da seção. Uma seção de 2 KB em uma nota de 500 KB custa 2 KB.
+Ler uma seção lê apenas os bytes da seção. Uma seção de 2 KB em uma nota de 500 KB custa 2 KB. `max_bytes` no modo lote se aplica por nota: a décima nota de dez não trunca por causa dos bytes já gastos nas nove anteriores.
 
-**Erros.** `HEADING_NOT_FOUND` inclui na mensagem os headings disponíveis no mesmo nível — permite que o cliente se corrija sem uma chamada adicional.
+**Erros.** `HEADING_NOT_FOUND` inclui na mensagem os headings disponíveis no mesmo nível — permite que o cliente se corrija sem uma chamada adicional. `INVALID_ARGUMENT` cobre `path` e `paths` preenchidos juntos, e `paths` acima de 50 itens; ao contrário dos demais erros de `note_read`, este vem com `structuredContent` preenchido — um `items` de um elemento carregando o próprio erro —, porque um erro de validação de lote ainda se beneficia de o cliente poder inspecionar o código por campo, em vez de reparsear o texto.
 
 ---
 

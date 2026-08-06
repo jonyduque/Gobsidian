@@ -2,12 +2,19 @@ package mcpsrv
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	"github.com/jonyd/gobsidian/internal/index"
 	"github.com/jonyd/gobsidian/internal/service"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
+
+// maxPathsPorLote e o teto de itens que note_read aceita em req.Paths numa
+// unica chamada. Sem ele, um lote pede o cofre inteiro e o servidor
+// materializa centenas de MB em memoria para uma resposta que o cliente MCP
+// nao consegue ler de uma vez.
+const maxPathsPorLote = 50
 
 func (s *Server) registerReadToolsInternal() {
 	mcp.AddTool(s.mcp,
@@ -63,24 +70,46 @@ func (s *Server) registerReadToolsInternal() {
 	mcp.AddTool(s.mcp,
 		&mcp.Tool{
 			Name:        "note_read",
-			Description: "Lê uma nota inteira, uma seção, ou um bloco.",
+			Description: "Lê uma nota inteira, uma seção, ou um bloco. Aceita 'paths' para ler várias notas numa só chamada.",
 		},
 		guard(s.log, "note_read",
-			func(ctx context.Context, _ *mcp.CallToolRequest, in noteReadInput) (*mcp.CallToolResult, service.ReadResult, error) {
+			func(ctx context.Context, _ *mcp.CallToolRequest, req noteReadInput) (*mcp.CallToolResult, any, error) {
+				// path e paths sao mutuamente exclusivos por decisao fechada do
+				// brief: os dois preenchidos e erro de validacao, nao precedencia
+				// silenciosa que decidiria pelo cliente qual valer.
+				if req.Path != "" && len(req.Paths) > 0 {
+					return noteReadValidationError("path e paths sao mutuamente exclusivos; preencha apenas um dos dois")
+				}
+				if len(req.Paths) > maxPathsPorLote {
+					return noteReadValidationError(fmt.Sprintf("paths tem %d itens; o maximo por chamada e %d", len(req.Paths), maxPathsPorLote))
+				}
+
 				includeFrontmatter := true
-				if in.IncludeFrontmatter != nil {
-					includeFrontmatter = *in.IncludeFrontmatter
+				if req.IncludeFrontmatter != nil {
+					includeFrontmatter = *req.IncludeFrontmatter
 				}
 				maxBytes := 100000
-				if in.MaxBytes != nil {
-					maxBytes = *in.MaxBytes
+				if req.MaxBytes != nil {
+					maxBytes = *req.MaxBytes
+				}
+
+				if len(req.Paths) > 0 {
+					out := s.svc.ReadNotes(ctx, service.ReadBatchRequest{
+						Paths:              req.Paths,
+						Heading:            req.Heading,
+						HeadingLevel:       req.HeadingLevel,
+						BlockID:            req.BlockID,
+						IncludeFrontmatter: includeFrontmatter,
+						MaxBytes:           maxBytes,
+					})
+					return nil, out, nil
 				}
 
 				out, err := s.svc.ReadNote(ctx, service.ReadRequest{
-					Path:               in.Path,
-					Heading:            in.Heading,
-					HeadingLevel:       in.HeadingLevel,
-					BlockID:            in.BlockID,
+					Path:               req.Path,
+					Heading:            req.Heading,
+					HeadingLevel:       req.HeadingLevel,
+					BlockID:            req.BlockID,
 					IncludeFrontmatter: includeFrontmatter,
 					MaxBytes:           maxBytes,
 				})
@@ -243,12 +272,26 @@ type vaultSearchInput struct {
 }
 
 type noteReadInput struct {
-	Path               string `json:"path"`
-	Heading            string `json:"heading,omitempty" jsonschema:"Texto do heading. Lê a seção até o próximo heading de nível igual ou superior."`
-	HeadingLevel       int    `json:"heading_level,omitempty" jsonschema:"Desambigua quando o mesmo texto aparece em níveis diferentes."`
-	BlockID            string `json:"block_id,omitempty" jsonschema:"Identificador de bloco, sem o circunflexo."`
-	IncludeFrontmatter *bool  `json:"include_frontmatter,omitempty"`
-	MaxBytes           *int   `json:"max_bytes,omitempty"`
+	Path               string   `json:"path,omitempty" jsonschema:"Caminho de uma nota. Mutuamente exclusivo com paths."`
+	Paths              []string `json:"paths,omitempty" jsonschema:"Vários caminhos numa só chamada, até 50. Mutuamente exclusivo com path; falha de um item não derruba os demais."`
+	Heading            string   `json:"heading,omitempty" jsonschema:"Texto do heading. Lê a seção até o próximo heading de nível igual ou superior."`
+	HeadingLevel       int      `json:"heading_level,omitempty" jsonschema:"Desambigua quando o mesmo texto aparece em níveis diferentes."`
+	BlockID            string   `json:"block_id,omitempty" jsonschema:"Identificador de bloco, sem o circunflexo."`
+	IncludeFrontmatter *bool    `json:"include_frontmatter,omitempty"`
+	MaxBytes           *int     `json:"max_bytes,omitempty" jsonschema:"Aplica-se por nota, não ao lote inteiro."`
+}
+
+// noteReadValidationError monta o CallToolResult de erro a mao, em vez de
+// devolver err para o SDK. Handler que devolve error Go faz o SDK montar
+// IsError sem StructuredContent (ver toolErr) — mas um erro de validacao de
+// lote ainda se beneficia de Out estruturado, porque o cliente pode
+// inspecionar o codigo do erro por campo em vez de reparsear texto.
+func noteReadValidationError(msg string) (*mcp.CallToolResult, any, error) {
+	valErr := service.Errorf(service.CodeInvalidArgument, "%s", msg)
+	res := &mcp.CallToolResult{}
+	res.SetError(fmt.Errorf("%s: %w", service.CodeInvalidArgument, valErr))
+	out := service.ReadBatchResult{Items: []service.ReadNoteItem{{Err: valErr}}}
+	return res, out, nil
 }
 
 type noteListInput struct {
