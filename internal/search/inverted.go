@@ -97,8 +97,8 @@ type Inverted struct {
 	// avgdlCache guarda (geracao, valor) para evitar N chamadas a DocLength a
 	// cada busca só para calcular uma constante do corpus. Uma geração
 	// obsoleta sinaliza que o índice mudou e o valor precisa recalcular.
-	avgdlGen      uint64
-	avgdlCached   float64
+	avgdlGen    uint64
+	avgdlCached float64
 }
 
 // NewInverted inicializa e devolve um novo índice invertido, PRONTO.
