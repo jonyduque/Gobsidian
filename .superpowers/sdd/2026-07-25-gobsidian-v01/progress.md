@@ -1681,3 +1681,11 @@ a tarefa acertou em marcar a ressalva em vez de fechar o requisito.
 Conferido tambem que o caminho do cofre — que carrega nome de empregador — nao
 vazou para commit nenhum: `git log -p` dos dois commits da tarefa, zero
 ocorrencias.
+
+**Corroborado por uma segunda medicao independente**, feita pela propria
+Task 85 no mesmo cofre e na mesma janela de tempo (a mensagem com o caminho
+chegou tarde, mas nao tarde demais pra remedir antes de reportar): cinco
+partidas com cache, **547, 397, 494, 443, 438 ms** — faixa proxima da do
+revisor (371-472 ms), mesma conclusao (RNF-02 nao atingido, ~3x mais rapido
+que sem cache). As duas medicoes concordam no que importa: o numero do cofre
+sintetico nao serve pra fechar este requisito.
