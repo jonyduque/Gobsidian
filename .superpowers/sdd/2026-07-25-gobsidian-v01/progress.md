@@ -1350,3 +1350,41 @@ na 82. Os tres foram achados rodando a prova de mutacao, nunca lendo o teste.
 **Se alguem quiser reabrir:** a mudanca e O(N) -> O(1) por consulta e poderia
 pagar num cofre muito maior. RNF-09 (20.000 notas) nunca foi medido. Reabrir
 exige a medicao, nao o argumento.
+
+## Task 83 (M7) — fetch postings once per query — 2026-08-05
+
+Commit `98c8d0a`. Pre-fetch postings para todos os termos unicos antes do
+processamento, reaproveitando na iteracao de pontuacao e no calculo de IDF.
+Profile: `Postings` com 371.40 MB foi alocado duas vezes por consulta, uma
+vez no laco de scoring (line 61) e de novo para `docsWithTerm` de IDF (lines
+102, 106).
+
+**Sem prova de mutacao**: a tarefa remove trabalho duplicado sem criar
+invariante nova. O golden inalterado prova que nada quebrou. Golden test
+`TestRankingGolden` passou verde nos seis casos; os seis `.tsv` ficaram
+identicos (gofmt e go test rodaram limpo).
+
+Medicao de desempenho, `BenchmarkSearchLimit200`, cofre sintetico 5.000 notas,
+n=6, antes e depois:
+
+```
+Baseline (commit 71b0ea3):
+BenchmarkSearchLimit200-12   122264078 ns/op   53176260 B/op   14244 allocs/op
+BenchmarkSearchLimit200-12   131448925 ns/op   53095009 B/op   14092 allocs/op
+BenchmarkSearchLimit200-12   131386267 ns/op   53144963 B/op   14142 allocs/op
+BenchmarkSearchLimit200-12   136534400 ns/op   53126513 B/op   14127 allocs/op
+BenchmarkSearchLimit200-12   134491167 ns/op   53125110 B/op   14131 allocs/op
+BenchmarkSearchLimit200-12   129407612 ns/op   53129185 B/op   14124 allocs/op
+
+Apos (commit 98c8d0a):
+BenchmarkSearchLimit200-12   118616567 ns/op   52900094 B/op   14234 allocs/op
+BenchmarkSearchLimit200-12   115683900 ns/op   52872166 B/op   14116 allocs/op
+BenchmarkSearchLimit200-12   114568644 ns/op   52870880 B/op   14104 allocs/op
+BenchmarkSearchLimit200-12   113407289 ns/op   52884251 B/op   14119 allocs/op
+BenchmarkSearchLimit200-12   114283722 ns/op   52866808 B/op   14106 allocs/op
+BenchmarkSearchLimit200-12   115384167 ns/op   52873995 B/op   14121 allocs/op
+```
+
+Resultado: tempo mediano cai de ~131 ms para ~114 ms (ciclo normal); alocacoes
+de bytes praticamente identicas (~53 MB); alocacoes contadas identicas (~14k).
+A reducao em tempo e consistente, ~6-7% de melhora.
