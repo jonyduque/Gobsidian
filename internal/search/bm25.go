@@ -57,8 +57,17 @@ func CalculateBM25(queryTokens []Token, ix *Inverted, idx *index.Index) []Result
 		}
 	}
 
+	// Pre-fetch all postings to avoid duplicate allocations (profile: 371.40 MB in Postings).
+	// Fetch once for each unique term and reuse throughout scoring and IDF calculation.
+	termPostings := make(map[string][]Posting)
 	for _, m := range matches {
-		postings := ix.Postings(m.term)
+		if _, exists := termPostings[m.term]; !exists {
+			termPostings[m.term] = ix.Postings(m.term)
+		}
+	}
+
+	for _, m := range matches {
+		postings := termPostings[m.term]
 		if len(postings) == 0 {
 			continue
 		}
@@ -99,11 +108,11 @@ func CalculateBM25(queryTokens []Token, ix *Inverted, idx *index.Index) []Result
 	termIDFs := make(map[int]float64)
 	for i, qTok := range queryTokens {
 		docsWithTerm := make(map[string]bool)
-		for _, p := range ix.Postings(qTok.Raw) {
+		for _, p := range termPostings[qTok.Raw] {
 			docsWithTerm[p.Path] = true
 		}
 		if qTok.Reduced != "" && qTok.Reduced != qTok.Raw {
-			for _, p := range ix.Postings(qTok.Reduced) {
+			for _, p := range termPostings[qTok.Reduced] {
 				docsWithTerm[p.Path] = true
 			}
 		}
