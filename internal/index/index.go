@@ -26,19 +26,28 @@ type Index struct {
 	backlinks map[vault.CanonicalPath][]Backlink
 	tags      map[string][]vault.CanonicalPath
 
+	// citantesPorNome e o indice reverso que permite reindexar um arquivo
+	// sem varrer o cofre inteiro (RNF-06, Task 86): para cada chave derivada
+	// por nomeChave, a lista de notas que tem ao menos um link cujo alvo
+	// normaliza para aquela chave. Cobre link RESOLVIDO e QUEBRADO — um
+	// [[foo]] sem arquivo tem de estar aqui sob "foo", senao criar foo.md
+	// nunca conserta o link, porque nada dispara o reprocessamento dele.
+	citantesPorNome map[string][]vault.CanonicalPath
+
 	generation uint64
 }
 
 // New devolve um indice vazio. Quem o popula e Build, a partir de um cofre.
 func New() *Index {
 	return &Index{
-		notes:     make(map[vault.CanonicalPath]*Note),
-		assets:    make(map[vault.CanonicalPath]*Asset),
-		lowerPath: make(map[string]vault.CanonicalPath),
-		byName:    make(map[string][]vault.CanonicalPath),
-		byAlias:   make(map[string][]vault.CanonicalPath),
-		backlinks: make(map[vault.CanonicalPath][]Backlink),
-		tags:      make(map[string][]vault.CanonicalPath),
+		notes:           make(map[vault.CanonicalPath]*Note),
+		assets:          make(map[vault.CanonicalPath]*Asset),
+		lowerPath:       make(map[string]vault.CanonicalPath),
+		byName:          make(map[string][]vault.CanonicalPath),
+		byAlias:         make(map[string][]vault.CanonicalPath),
+		backlinks:       make(map[vault.CanonicalPath][]Backlink),
+		tags:            make(map[string][]vault.CanonicalPath),
+		citantesPorNome: make(map[string][]vault.CanonicalPath),
 	}
 }
 
@@ -140,6 +149,7 @@ func (ix *Index) publishNoteLocked(n *Note) {
 	for _, t := range n.Tags {
 		ix.tags[t] = append(ix.tags[t], n.Path)
 	}
+	ix.registrarCitantesLocked(n.Path, n.Links)
 }
 
 // publishAssetLocked e o par de publishNoteLocked para anexos. Exige ix.mu

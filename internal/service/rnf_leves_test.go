@@ -113,7 +113,15 @@ func TestRNF03_RNF05_RNF06(t *testing.T) {
 
 	// RNF-06: reindexação de arquivo único, que é o caminho que o watcher
 	// percorre a cada evento.
-	medir("RNF-06 index.Replace (arquivo unico)", 20*time.Millisecond, 100*time.Millisecond, 60, 1, func(i int) error {
+	//
+	// lote=1 media essa chamada sozinha até a Task 86, que trocou a
+	// reindexação de "reavaliar as 5.000 notas" por "reavaliar só quem cita
+	// o nome afetado" (ver internal/index/update.go). O caminho ficou rápido
+	// o bastante para cair abaixo da resolução do relógio, e a guarda de
+	// "mediana 0s" acima — a mesma que já tinha corrigido RNF-03 e RNF-05 —
+	// passou a acusar isso aqui também. Correção é a mesma: medir um lote e
+	// dividir, não afrouxar a guarda.
+	medir("RNF-06 index.Replace (arquivo unico)", 20*time.Millisecond, 100*time.Millisecond, 60, 20, func(i int) error {
 		return idx.Replace(ctx, v, caminhos[i%len(caminhos)])
 	})
 }

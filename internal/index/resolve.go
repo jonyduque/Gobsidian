@@ -13,6 +13,45 @@ import (
 // seria pior: o cliente leria a nota errada acreditando ter lido a certa.
 var ErrAmbiguousPath = errors.New("ambiguous path")
 
+// nomeChave normaliza um alvo de link — ou um nome derivado de caminho ou
+// alias — para a chave usada no indice reverso citantesPorNome. Toma so o
+// ultimo segmento do caminho, sem sufixo .md, em minusculas.
+//
+// E uma SUPERAPROXIMACAO deliberada. resolveByName casa nome exato (sensivel
+// a caixa, com .md so para nota) e resolveByAlias casa por aliasKey (so
+// minusculas, sem separar diretorio). Colapsar as duas regras na mesma chave
+// normalizada pode fazer um link ser marcado para reprocessar A MAIS —
+// nunca a menos. Falso positivo aqui e barato (reprocessa um link que nao
+// mudou); falso negativo e o defeito que este indice existe para nunca
+// reintroduzir — ver o comentario de citantesPorNome em index.go e a
+// armadilha de aliasKey em alias.go: chave crua num lado e normalizada no
+// outro é exatamente como [[STJ]] continuou resolvendo, com state=ok, para
+// uma nota ja removida.
+func nomeChave(s string) string {
+	s = filepath.ToSlash(s)
+	if i := strings.LastIndex(s, "/"); i >= 0 {
+		s = s[i+1:]
+	}
+	s = strings.ToLower(s)
+	return strings.TrimSuffix(s, ".md")
+}
+
+// chavesDaNota devolve as chaves de citantesPorNome que uma nota afeta ao
+// ser inserida, alterada ou removida: o proprio nome de arquivo e cada
+// alias declarado.
+//
+// Alias conta — decisao fechada da Task 86: criar uma nota com
+// "aliases: [STJ]" tem de afetar todo "[[STJ]]" do cofre, exatamente como
+// conta na resolucao de verdade (resolveByAlias, acima). Sem este loop, uma
+// nota citada so por alias nunca dispara o reprocessamento de quem a cita.
+func chavesDaNota(n *Note) []string {
+	chaves := []string{nomeChave(string(n.Path))}
+	for _, alias := range n.Aliases {
+		chaves = append(chaves, nomeChave(alias))
+	}
+	return chaves
+}
+
 func (ix *Index) resolveAllLinks() {
 	ix.mu.Lock()
 	defer ix.mu.Unlock()
