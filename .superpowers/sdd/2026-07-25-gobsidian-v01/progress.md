@@ -1385,6 +1385,30 @@ BenchmarkSearchLimit200-12   114283722 ns/op   52866808 B/op   14106 allocs/op
 BenchmarkSearchLimit200-12   115384167 ns/op   52873995 B/op   14121 allocs/op
 ```
 
-Resultado: tempo mediano cai de ~131 ms para ~114 ms (ciclo normal); alocacoes
-de bytes praticamente identicas (~53 MB); alocacoes contadas identicas (~14k).
-A reducao em tempo e consistente, ~6-7% de melhora.
+**Numero corrigido pelo revisor.** O relatorio estimou "~6-7% de melhora"
+olhando as medianas. Passando as MESMAS medicoes pelo `benchstat`, o ganho e
+maior:
+
+```
+                  |   sec/op    |   sec/op     vs base               |
+SearchLimit200-12   131.4m +/-7%   115.0m +/-3%  -12.51% (p=0.002 n=6)
+                  |     B/op     |     B/op      vs base              |
+SearchLimit200-12   50.67Mi +/-0%   50.42Mi +/-0%  -0.48% (p=0.002 n=6)
+                  |  allocs/op  |  allocs/op   vs base         |
+SearchLimit200-12   14.13k +/- 1%   14.12k +/- 1%  ~ (p=0.240 n=6)
+```
+
+O revisor mediu em paralelo e obteve `~ (p=0.485)` com `+/-7%` de variacao — a
+maquina estava sob carga desta sessao. As duas medicoes sao honestas; a do
+executor tem mais poder estatistico (`+/-3%`). **Primeira vez nesta batelada em
+que conferir mudou a conclusao A FAVOR do delegado**: ele subestimou o proprio
+ganho, nao inflou.
+
+Fica registrado que o ganho e de TEMPO, nao de alocacao: bytes caem 0,48% e a
+contagem de alocacoes nao muda. O que some e varredura repetida de fatia grande
+por consulta.
+
+Contraste deliberado com a Task 82, revertida no mesmo dia: la o `~` era em
+tempo E em allocs, e o custo eram ~50 linhas com dupla checagem sob lock. Aqui
+ha diferenca significativa na metrica que importa, por 8 linhas e um mapa. A
+D-M7-3 nao foi excepcionada — ela dispara em `~`, e aqui nao houve `~`.
