@@ -1723,3 +1723,101 @@ no mesmo worktree:
 O executor percebeu a colisao sozinho, removeu a propria secao duplicada do
 ledger e deixou so uma nota de corroboracao — comportamento certo, e foi ele
 quem tornou a colisao visivel.
+
+## Task 86 — re-resolucao de links dirigida, nao global — 2026-08-06
+
+`reprocessLinksLocked` rodava em todo evento do watcher, sobre todas as
+notas — 20,35 ms de mediana contra o teto de 20 ms do RNF-06, medido num
+cofre de 5.000 notas. Substituido por um indice reverso, `citantesPorNome`
+(`internal/index/index.go`), que mapeia a chave normalizada de um alvo de
+link (`nomeChave`, `internal/index/resolve.go`) para as notas que o citam —
+resolvido OU quebrado, porque um `[[foo]]` sem arquivo tem de ficar
+descobrivel sob "foo" para que criar `foo.md` conserte o link.
+`Replace`/`Remove`/`MoveNote` (`internal/index/update.go`) agora reprocessam
+so as notas citantes das chaves que uma mudanca de identidade pode afetar
+(caminho e aliases), em vez de varrer o cofre inteiro.
+
+**Decisao de risco.** Esta e a area onde um erro nao aparece em teste
+nenhum e sai como resposta confiante: link com `state=ok` apontando para
+nota que nao existe mais, exatamente a classe de defeito que a divergencia
+de `byAlias` produziu em 2026-07-28. Guarda: escrita e leitura de
+`citantesPorNome` passam SEMPRE por `nomeChave` — nunca o alvo cru — mesma
+disciplina de `aliasKey`.
+
+**RNF-06 ATINGIDO.** Mediana 20,35 ms → **334,87 µs** (p95 544,87 µs),
+medido por `TestRNF03_RNF05_RNF06` (`internal/service/rnf_leves_test.go`) no
+cofre sintetico de 5.000 notas. Essa mesma medicao precisou de correcao: com
+`lote=1` a chamada individual ficou rapida demais para o relogio do Windows
+resolver (mediana virava `0s`), o mesmo problema que RNF-03 e RNF-05 ja
+tinham corrigido com lote — RNF-06 foi ajustado para `lote=20`, mesma tecnica,
+nao afrouxamento de guarda.
+
+**`BenchmarkReplaceSingleFile`** (`internal/index/bench_test.go`, criado
+nesta tarefa — nao havia benchmark de reindexacao de arquivo unico antes
+dela), `-count=6` no cofre de 5.000 notas:
+
+```
+                     │ antes (task86-bench-before.txt) │        depois (task86-bench-after.txt)         │
+                     │              sec/op              │   sec/op     vs base                            │
+ReplaceSingleFile-12          19658.0µ ± 16%                332.9µ ± 30%  -98.31% (p=0.002 n=6)
+```
+
+**Diferencial contra o caminho global — TestReresolucaoDirigidaIgualAGlobal**
+(`internal/index/reindex_test.go`): sequencia criar / renomear / apagar /
+criar de novo com alias, aplicada em paralelo a dois indices — um so com a
+re-resolucao dirigida (via `Replace`/`Remove`/`MoveNote` normais), o outro
+com uma passada global forcada por cima a cada evento (`resolveAllLinks` +
+`buildBacklinks`, as MESMAS funcoes que `Build` e `LoadIndexCache` usam — o
+caminho global fica so no teste, como oraculo, nao no produto). Comparados
+campo a campo: `Get()` de cada nota (Resolved/Via/State de cada link) e
+`Backlinks()` de cada caminho. Identicos. `TestReresolucaoDirigidaCobreAliases`
+prova a decisao de que alias conta: criar uma nota com `aliases: [STJ]` faz
+um `[[STJ]]` que ja estava quebrado noutra nota passar a resolver.
+
+**Duas provas de mutacao, as duas saida `0` (regra verificada):**
+
+```
+pwsh -File scripts/mutate.ps1 -Path internal/index/resolve.go `
+  -Anchor 'for _, alias := range n.Aliases {' -Replacement 'for _, alias := range []string(nil) {' `
+  -Test TestReresolucaoDirigidaCobreAliases -Package ./internal/index/
+```
+```
+--- FAIL: TestReresolucaoDirigidaCobreAliases (0.01s)
+    reindex_test.go:60: link [[STJ]] depois de criar Tribunal.md com alias STJ = {...State:target_missing},
+    quer State=LinkOK Resolved=Tribunal.md Via=ViaAlias
+[OK] O teste REPROVOU com a regra mutada — a regra esta verificada.
+```
+
+```
+pwsh -File scripts/mutate.ps1 -Path internal/index/update.go `
+  -Anchor 'ix.citantesPorNome[nomeChave(alvo)]' -Replacement 'ix.citantesPorNome[alvo]' `
+  -Test TestReresolucaoDirigidaIgualAGlobal -Package ./internal/index/
+```
+```
+--- FAIL: TestReresolucaoDirigidaIgualAGlobal (0.03s)
+    reindex_test.go:160: Citante.md: link 0 (alvo "Original") diverge — dirigido={Resolved:"Renomeada.md" Via:name State:ok},
+    global={Resolved:"" Via: State:target_missing}
+    reindex_test.go:160: Citante.md: link 1 (alvo "Apelido") diverge — dirigido={Resolved:"" Via: State:target_missing},
+    global={Resolved:"Renomeada.md" Via:alias State:ok}
+    reindex_test.go:160: Nova.md: link 0 (alvo "Original") diverge — dirigido={Resolved:"Renomeada.md" Via:name State:ok},
+    global={Resolved:"" Via: State:target_missing}
+    reindex_test.go:160: Renomeada.md: 2 backlinks no dirigido, 1 no global
+[OK] O teste REPROVOU com a regra mutada — a regra esta verificada.
+```
+
+A segunda prova reproduz, ao vivo, exatamente o padrao de defeito que a
+tarefa foi escrita para nunca reintroduzir: link com `state=ok` apontando
+para caminho errado assim que a chave de escrita deixa de ser normalizada.
+
+**Verificacao:** `go test -count=1` e `go test -race -count=1` verdes em
+`internal/index`, `internal/watcher`, `internal/service`, `internal/mcpsrv`.
+`TestRankingGolden` identico — nenhuma reordenacao de acumulacao de ponto
+flutuante, nenhum `-update`. `pwsh -File scripts/verify.ps1 -SkipCross
+-SkipNet`: `[OK] Bateria completa`, incluindo `golangci-lint` na v2.12.2
+(mesma do CI).
+
+**Escopo cumprido integralmente.** Nenhuma reordenacao da resolucao de link
+foi necessaria alem do que a tarefa pediu.
+
+Commit: `d6fb7d0278ba50122875213644fd7d528764d44a` — "perf(index): re-resolve
+only the links a change can affect", `git cat-file -t` confirma `commit`.
