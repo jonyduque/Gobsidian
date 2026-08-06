@@ -1689,3 +1689,37 @@ partidas com cache, **547, 397, 494, 443, 438 ms** — faixa proxima da do
 revisor (371-472 ms), mesma conclusao (RNF-02 nao atingido, ~3x mais rapido
 que sem cache). As duas medicoes concordam no que importa: o numero do cofre
 sintetico nao serve pra fechar este requisito.
+
+## Colisao de escrita entre revisor e executor no mesmo worktree — 2026-08-06
+
+Registrado como defeito de PROCESSO, nao de codigo. Nada se perdeu; a atribuicao
+e que ficou errada.
+
+O revisor e o executor da Task 85 editaram `docs/OPERACAO.md` ao mesmo tempo, no
+mesmo worktree. O revisor commitou com `git add docs/OPERACAO.md`, caminho
+explicito — e mesmo assim levou junto a secao "Remedicao no cofre real" que o
+executor tinha acabado de gravar em disco e ainda nao commitado.
+
+Resultado: `6f5a842` mudou 78 linhas em `OPERACAO.md` quando a edicao do revisor
+tinha cerca de 40. A mensagem do commit descreve so a metade dele. O conteudo
+final ficou consistente **por acidente** — as duas secoes eram complementares e
+chegaram a mesma conclusao. Se tivessem se contradito, o commit teria gravado a
+contradicao sem ninguem notar.
+
+**A licao contradiz uma defesa que este projeto ja tinha.** A regra escrita e
+"nunca `git add -A`, adicione por caminho explicito". Caminho explicito **nao
+basta** quando outro processo escreve no mesmo arquivo: `git add <arquivo>`
+estagia o arquivo inteiro, incluindo o que nao e seu.
+
+Regra nova, para o resto desta batelada e para qualquer sessao com subagentes
+no mesmo worktree:
+
+- **`git diff <caminho>` antes de `git add <caminho>`**, e conferir que o diff
+  e so o que voce fez. E a unica forma de distinguir "meu arquivo" de "meu
+  arquivo mais o de outro".
+- Enquanto um executor estiver rodando, o revisor **nao edita** os mesmos
+  arquivos que a tarefa dele toca. Medir e conferir, sim; escrever, depois.
+
+O executor percebeu a colisao sozinho, removeu a propria secao duplicada do
+ledger e deixou so uma nota de corroboracao — comportamento certo, e foi ele
+quem tornou a colisao visivel.
