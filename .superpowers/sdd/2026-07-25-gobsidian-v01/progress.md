@@ -1412,3 +1412,84 @@ Contraste deliberado com a Task 82, revertida no mesmo dia: la o `~` era em
 tempo E em allocs, e o custo eram ~50 linhas com dupla checagem sob lock. Aqui
 ha diferenca significativa na metrica que importa, por 8 linhas e um mapa. A
 D-M7-3 nao foi excepcionada — ela dispara em `~`, e aqui nao houve `~`.
+
+## Task 84 (M7) — `note_read` aceitando varios caminhos — 2026-08-05
+
+Commit `301aaff`. `note_read` ganha `paths []string` ao lado de `path`; um
+fluxo de pesquisa que lia dez notas com dez idas e voltas de protocolo (para
+3,5 ms de trabalho — p95 medido em 345 us) agora paga uma so.
+
+Quatro decisoes do brief, todas mantidas sem re-litigar: `path` e `paths`
+juntos e `INVALID_ARGUMENT`, nao precedencia silenciosa; falha parcial nao
+derruba o lote — cada item carrega o proprio erro NA MESMA POSICAO; `max_bytes`
+vale por nota, nao pelo lote; `paths` recusa acima de 50 itens.
+
+`service.ReadNotes` (`internal/service/read.go`) escreve cada `ReadNoteItem`
+por indice — `out[i] = ReadNoteItem{Path: p, Err: err}` — nao por `append`,
+entao um item que falha ocupa a MESMA posicao do caminho que o gerou, com o
+proprio erro. `ReadNoteItem.MarshalJSON` traduz o `error` Go (sem campo
+exportado) para `{"code","message"}`, porque sem isso o cliente veria
+`"error":{}` e perderia o motivo.
+
+Em `internal/mcpsrv/tools_read.go`, os dois erros de validacao (campos juntos,
+lote acima do teto) sao montados a mao via `noteReadValidationError`, e NAO
+devolvidos como `error` Go — devolver `error` faz o SDK descartar
+`StructuredContent` por inteiro (ver `toolErr`), e um erro de validacao de
+lote ainda se beneficia de `Out` estruturado (`items` de um elemento,
+com o proprio erro) que o cliente pode inspecionar por campo. Confirmado por
+teste: `res.StructuredContent` nao-nulo nos dois casos, ao contrario dos erros
+normais de `note_read` (ex.: `NOTE_NOT_FOUND`), que continuam sem
+`StructuredContent`, como antes.
+
+Duas provas de mutacao, uma por regra:
+
+```
+pwsh -File scripts/mutate.ps1 -Path internal/mcpsrv/tools_read.go `
+  -Anchor 'if len(req.Paths) > maxPathsPorLote {' -Replacement 'if false {' `
+  -Test TestNoteReadRecusaLoteAcimaDoTeto -Package ./internal/mcpsrv/
+[OK] internal/mcpsrv/tools_read.go restaurado byte a byte (SHA-256 confere).
+[OK] O teste REPROVOU com a regra mutada — a regra esta verificada.
+
+pwsh -File scripts/mutate.ps1 -Path internal/service/read.go `
+  -Anchor 'out[i] = ReadNoteItem{Path: p, Err: err}' -Replacement 'continue' `
+  -Test TestNoteReadMantemPosicaoNoErroParcial -Package ./internal/service/
+[OK] internal/service/read.go restaurado byte a byte (SHA-256 confere).
+[OK] O teste REPROVOU com a regra mutada — a regra esta verificada.
+```
+
+A segunda prova o que importava de verdade: com `continue` no lugar do item
+de erro, `Items[1]` ficava com `Path` vazio e `Err` nulo — nao a lista
+encolhendo (o slice e pre-alocado por indice, `make([]ReadNoteItem,
+len(paths))`), mas um item fantasma indistinguivel de dado real na mesma
+posicao. Sem checar `Items[1].Path` explicitamente (nao so `len(Items)`), a
+mutacao passaria pelo teste sem ser notada.
+
+`docs/TOOLS.md` atualizado: `paths`, `items`, e a nota de que `INVALID_ARGUMENT`
+sai com `structuredContent` preenchido ao contrario dos demais erros da tool.
+
+`scripts/check_doc_refs.ps1`: 14 achados, 1 deles em `docs/TOOLS.md` (`total_bytes`,
+linha 93) — o mesmo achado ja registrado no ledger da Task 79 (14 achados
+naquele commit). O `docs/TOOLS.md` de antes desta tarefa citava `total_bytes`
+DUAS vezes (linhas 91 e 94), sob a mesma explicacao repetida — medido direto
+contra o corpus antes de editar: 2 achados so daquele arquivo, 15 no total.
+Este trabalho consolidou as duas mencoes numa so, voltando ao volume de 14
+que a Task 79 tinha registrado — reduziu achado, nao acrescentou. O brief
+desta tarefa citava "13 achados conhecidos hoje"; a medicao direta (script
+rodado contra o commit anterior a esta tarefa, `607ab88`) nao bate com esse
+numero — o valor real medido era 15, nao 13. Registrado aqui para quem ler
+o brief depois nao presumir 13 como fato conferido.
+
+`scripts/check_tool_params.ps1`: `[OK] todo parametro declarado e lido em
+algum lugar` — 12 structs, 69 parametros, `Paths` entre eles.
+
+`pwsh -File scripts/verify.ps1 -SkipCross -SkipNet`: verde nos 7 passos
+(build, `go test -race`, testes de teto de latencia sem `-race`, `go vet`
+Windows, `gofmt`, `golangci-lint`, `check_tool_params`) depois de corrigir um
+achado real do `golangci-lint` (`context-as-argument` em
+`connectTestSession`, helper de teste — `ctx` precisa vir primeiro).
+
+Quatro testes que o brief exigiu, todos verdes: `TestNoteReadBatchKeepsFailedItemAtPosition`
+(dez caminhos, um inexistente, posicao preservada), `TestNoteReadPathAndPathsMutuallyExclusive`,
+`TestNoteReadRecusaLoteAcimaDoTeto` (51 caminhos), `TestReadNotesMaxBytesPerNote`
+(duas notas de mesmo tamanho, `max_bytes` identico em ambas — prova de que o
+teto nao e compartilhado pelo lote).
