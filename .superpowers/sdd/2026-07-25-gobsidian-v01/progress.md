@@ -2064,10 +2064,29 @@ Isto ataca o problema que motivou a Parte II: cada sessao de host MCP abre um
 processo, e duas sessoes do Claude custavam cerca de 1 GB. Duas sessoes que so
 leem e escrevem nota passam a custar ~250 MB.
 
-**Nao medido:** o tempo ate a primeira busca responder, que agora inclui a
-carga. O executor ficou bloqueado antes de chegar nele. Referencia para quem
-for medir: com cache quente, o indice de busca carrega em 648-676 ms, entao a
-primeira busca deve ficar nessa ordem — mas isso e inferencia, nao medicao.
+### Medicao — tempo ate a primeira busca (executor, corpus sintetico)
+
+Medido depois do desbloqueio, sem o cofre real: um corpus sintetico de escala
+parecida (`scripts/gen_vault.ps1 -Notes 4490 -BodyKB 30`, 132,1 MB, mesma
+ordem de grandeza do cofre real) serve para este numero — o brief pede o
+tempo, nao o cofre especifico.
+
+Sequencia: boot com `--cache-dir` vazio para aquecer os dois caches (ignorado
+na medicao — e o caminho de construcao do zero, 13,4 s), depois tres partidas
+contra o MESMO cache ja quente, cada uma com uma unica chamada de
+`vault_search` logo apos o handshake MCP, cronometrada do envio da requisicao
+ate a linha de resposta:
+
+```
+index_ms=367 (cache)   PRIMEIRA_BUSCA_MS=848
+index_ms=345 (cache)   PRIMEIRA_BUSCA_MS=700
+index_ms=365 (cache)   PRIMEIRA_BUSCA_MS=703
+```
+
+**700-848 ms, bem abaixo do teto de 3 s.** Ordem de grandeza da referencia do
+revisor para a carga do indice de busca sozinha (648-676 ms) mais o
+round-trip do JSON-RPC e a geracao de snippets da propria busca — a inferencia
+registrada acima batia com o numero real.
 
 ### Prova de mutacao (rodada pelo revisor)
 
