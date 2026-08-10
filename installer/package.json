@@ -12,9 +12,5 @@
   },
   "files": [
     "install.js"
-  ],
-  "dependencies": {
-    "chalk": "^5.3.0",
-    "consola": "^3.2.3"
-  }
+  ]
 }

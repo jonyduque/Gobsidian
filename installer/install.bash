@@ -9,7 +9,7 @@
 set -euo pipefail
 
 command -v node >/dev/null 2>&1 || {
-	echo "⚠️  Instale Node.js 18+: https://nodejs.org" >&2
+	echo "[!] Instale Node.js 18+: https://nodejs.org" >&2
 	exit 1
 }
 
@@ -27,6 +27,6 @@ if [ -t 0 ]; then
 elif [ -e /dev/tty ]; then
 	node "$f" "$@" </dev/tty
 else
-	echo "ℹ️  Sem terminal interativo; passe --vault e --hosts." >&2
+	echo "[i] Sem terminal interativo; passe --vault e --hosts." >&2
 	node "$f" "$@"
 fi

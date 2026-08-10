@@ -10,7 +10,9 @@
 $ErrorActionPreference = "Stop"
 
 if (-not (Get-Command node -ErrorAction SilentlyContinue)) {
-    Write-Host "⚠️  Instale Node.js 18+: https://nodejs.org" -ForegroundColor Red
+    # ASCII puro: um console PowerShell em CP-850 renderiza emoji como lixo,
+    # e esta e a mensagem de quem ja esta com problema.
+    Write-Host "[!] Instale Node.js 18+: https://nodejs.org" -ForegroundColor Red
     return
 }
 

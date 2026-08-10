@@ -13,7 +13,10 @@ gobsidian/
 │       ├── doctor.go             subcomando doctor (diagnóstico de ambiente)
 │       ├── index.go              subcomando index (indexar e sair)
 │       ├── search.go             subcomando search (busca via CLI)
-│       └── inspect.go            subcomando inspect (dump do parse de uma nota)
+│       ├── inspect.go            subcomando inspect (dump do parse de uma nota)
+│       ├── ponte.go              escolhe entre daemon e modo em processo; proxy de bytes
+│       ├── servico.go            montagem do Service, compartilhada por serve e daemon
+│       └── daemon.go             subcomando daemon (oculto; quem o inicia é a ponte)
 │
 ├── internal/
 │   ├── config/
@@ -68,7 +71,10 @@ gobsidian/
 │   │   ├── bm25.go               ranking
 │   │   ├── snippet.go            extração de trecho com destaque
 │   │   ├── persist.go            carga e gravação atômica do cache
-│   │   └── persist_codec.go      codec binário do cache (formato 5)
+│   │   ├── persist_codec.go      codec binário do cache (formato 6)
+│   │   ├── mmap.go               arena do cache mapeada em memória, compartilhável
+│   │   ├── mmap_windows.go       mapeamento (build tag windows)
+│   │   └── mmap_unix.go          mapeamento (build tag !windows)
 │   │
 │   ├── watcher/
 │   │   ├── watcher.go            fachada; encapsula fsnotify
@@ -102,6 +108,18 @@ gobsidian/
 │   │   ├── resources.go          exposição de notas como resources gobsidian://
 │   │   ├── recover.go            middleware de recuperação de panic
 │   │   └── convert.go            erros de domínio → resultados MCP
+│   │
+│   ├── ipc/
+│   │   ├── ipc.go                transporte local: socket, saudação, handshake
+│   │   ├── ipc_windows.go        diretório de runtime e permissão (build tag windows)
+│   │   └── ipc_unix.go           diretório de runtime e permissão 0600 (build tag !windows)
+│   │
+│   ├── daemon/
+│   │   ├── daemon.go             laço de aceitação de N conexões sobre um índice
+│   │   ├── lock.go               corrida de inicialização: um daemon por cofre
+│   │   ├── spawn.go              lançamento do processo, e o padrão de ociosidade
+│   │   ├── spawn_windows.go      desanexação do processo (build tag windows)
+│   │   └── spawn_unix.go         desanexação do processo (build tag !windows)
 │   │
 │   └── doctor/
 │       ├── doctor.go             orquestração das verificações

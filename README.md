@@ -51,45 +51,77 @@ O projeto nasceu de três problemas concretos dos servidores MCP de Obsidian exi
 
 ## 📦 Instalação
 
-### 🚀 Instalador automático (Windows)
+Qualquer um dos instaladores abaixo faz a mesma coisa: baixa o binário da release, **confere o SHA-256 contra o `SHA256SUMS.txt` publicado junto e aborta se não bater**, instala, acrescenta ao `PATH`, lê o registro de cofres do próprio Obsidian para você não ter de ir atrás do caminho, e pergunta em quais hosts de IA da máquina registrar o servidor.
 
-Uma linha no PowerShell. Ele baixa o binário, **confere o SHA-256**, instala, acrescenta ao `PATH`, detecta os hosts de IA da máquina e pergunta em quais registrar o servidor:
+| Você está em | Use | Precisa de |
+|---|---|---|
+| 🪟 Windows | `install.ps1` da raiz | nada além do PowerShell |
+| 🪟🐧🍎 Windows, Linux ou macOS | `installer/` | Node.js 18+ |
+
+### 🚀 Windows, sem dependência nenhuma
 
 ```powershell
 iex (irm https://raw.githubusercontent.com/jonyduque/Gobsidian/master/install.ps1)
 ```
 
-O instalador ainda lê o registro de cofres do próprio Obsidian e oferece os que encontrar, para você não precisar ir atrás do caminho.
+### 🌍 Multiplataforma — pasta `installer/`
+
+O mesmo instalador escrito em Node, para quem está em Linux ou macOS, ou prefere um só caminho para as três plataformas. Requer **Node.js 18+** e nada mais: `install.js` importa apenas módulos nativos do Node, então não há `npm install`, `node_modules` nem dependência de terceiros na sua máquina.
+
+**Windows:**
+
+```powershell
+iex (irm https://raw.githubusercontent.com/jonyduque/Gobsidian/master/installer/install.ps1)
+```
+
+**Linux e macOS:**
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/jonyduque/Gobsidian/master/installer/install.bash | bash
+```
 
 <details>
 <summary>⚙️ <b>Opções do instalador</b> — instalação silenciosa, host específico, versão fixa</summary>
 
 <br>
 
-`iex` executa o **texto** do script, e um bloco `param()` não recebe nada por essa via. Para passar opções, crie um scriptblock:
+`iex` executa o **texto** do script, e um bloco `param()` não recebe nada por essa via. Para passar opções ao instalador da raiz, crie um scriptblock:
 
 ```powershell
 & ([scriptblock]::Create((irm https://raw.githubusercontent.com/jonyduque/Gobsidian/master/install.ps1))) `
     -Vault "C:\Meu Cofre" -Hosts claude-desktop,claude-code -ReadOnly
 ```
 
-| Opção | Efeito |
-|---|---|
-| `-Vault <caminho>` | Cofre a servir. Sem isto, o instalador procura e pergunta. |
-| `-Hosts <chaves>` | Configura só esses hosts, sem menu. |
-| `-Version <tag>` | Instala uma release específica. Padrão: a mais recente. |
-| `-InstallDir <caminho>` | Onde por o binário. |
-| `-ReadOnly` | Registra o servidor com `--read-only`. |
-| `-Yes` | Não pergunta nada. Exige `-Vault`. |
-| `-NoPath` | Não mexe no `PATH`. |
+O da pasta `installer/` recebe as opções no estilo de linha de comando, com dois hífens, e repassa o que vier depois:
 
-Chaves aceitas por `-Hosts`: `claude-desktop`, `claude-code`, `gemini-cli`, `antigravity`, `antigravity-ide`, `codex`, `vscode`, `cursor`, `windsurf`.
+```powershell
+& ([scriptblock]::Create((irm https://raw.githubusercontent.com/jonyduque/Gobsidian/master/installer/install.ps1))) `
+    --vault "C:\Meu Cofre" --hosts claude-desktop,claude-code --read-only
+```
 
-As mesmas opções funcionam por variável de ambiente, que atravessam as duas formas de invocação:
+```bash
+curl -fsSL https://raw.githubusercontent.com/jonyduque/Gobsidian/master/installer/install.bash | bash -s -- \
+    --vault "/caminho/do/cofre" --hosts claude-desktop,claude-code --yes
+```
+
+| Raiz | `installer/` | Efeito |
+|---|---|---|
+| `-Vault <caminho>` | `--vault <caminho>` | Cofre a servir. Repetível, ou vários separados por vírgula. Sem isto, o instalador procura e pergunta. |
+| `-Hosts <chaves>` | `--hosts <chaves>` | Configura só esses hosts, sem menu. |
+| `-Version <tag>` | `--version <tag>` | Instala uma release específica. Padrão: a mais recente. |
+| `-InstallDir <caminho>` | `--install-dir <caminho>` | Onde por o binário. |
+| `-ReadOnly` | `--read-only` | Registra o servidor com `--read-only`. |
+| `-Yes` | `--yes`, `-y` | Não pergunta nada. Exige o cofre por opção ou variável. |
+| `-NoPath` | `--no-path` | Não mexe no `PATH`. |
+| — | `--force` | Reinstala mesmo que a versão já esteja presente. |
+
+Chaves aceitas: `claude-desktop`, `claude-code`, `gemini-cli`, `antigravity`, `antigravity-ide`, `codex`, `vscode`, `cursor`, `windsurf`.
+
+As mesmas opções funcionam por variável de ambiente, nos dois instaladores, e atravessam todas as formas de invocação:
 
 ```powershell
 $env:GOBSIDIAN_VAULT = "C:\Meu Cofre"
-iex (irm https://raw.githubusercontent.com/jonyduque/Gobsidian/master/install.ps1)
+iex (irm https://raw.githubusercontent.com/jonyduque/Gobsidian/master/installer/install.ps1)
 ```
 
 `GOBSIDIAN_VAULT`, `GOBSIDIAN_VERSION` e `GOBSIDIAN_INSTALL_DIR`.
@@ -100,7 +132,10 @@ iex (irm https://raw.githubusercontent.com/jonyduque/Gobsidian/master/install.ps
 > Com elevação, a instalação vai para `Program Files` e o `PATH` de máquina. Sem elevação, vai para `%LOCALAPPDATA%\Programs\gobsidian` e o `PATH` de usuário — o instalador **não** pede UAC por conta própria.
 
 > [!IMPORTANT]
-> O instalador aborta se o `SHA256SUMS.txt` da release estiver ausente ou se a soma não bater. Um binário que vai para o `PATH` sem verificação é um buraco de cadeia de suprimentos com aparência de conveniência.
+> Os dois instaladores abortam se o `SHA256SUMS.txt` da release estiver ausente ou se a soma não bater. Um binário que vai para o `PATH` sem verificação é um buraco de cadeia de suprimentos com aparência de conveniência.
+
+> [!NOTE]
+> **Atualizando de uma v1.0.x?** O formato do cache de busca mudou, então a primeira partida reconstrói o índice do cofre em segundo plano — as ferramentas respondem desde o primeiro segundo, mas a busca só entra quando a reconstrução termina. Se você mantiver as duas versões instaladas e alternar entre elas, cada uma vai invalidar o cache da outra indefinidamente: instale por cima, não ao lado.
 
 ### 📥 Binário pré-compilado
 

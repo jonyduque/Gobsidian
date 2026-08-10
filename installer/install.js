@@ -59,8 +59,15 @@ const IS_WIN = PLATFORM === "win32";
 const EXE_NAME = IS_WIN ? "gobsidian.exe" : "gobsidian";
 
 // -----------------------------------------------------------------------
-// Log helpers -- ANSI + emoji, sem depender de chalk/consola (script
-// standalone: precisa rodar so com `node`, sem node_modules).
+// Log helpers -- ANSI, sem depender de chalk/consola (script standalone:
+// precisa rodar so com `node`, sem node_modules).
+//
+// Marcadores em ASCII puro, os MESMOS do install.ps1 da raiz ([OK], [i],
+// [!], [...]). Emoji aqui renderiza como lixo num console PowerShell em
+// CP-850, e o instalador e o primeiro programa que alguem roda -- antes de
+// ter como saber se o que ele esta vendo e um defeito da ferramenta ou da
+// fonte do terminal. A mensagem "instale o Node" cai justamente sobre quem
+// ja esta com problema.
 // -----------------------------------------------------------------------
 const ANSI = {
   reset: "\x1b[0m", bold: "\x1b[1m",
@@ -71,11 +78,11 @@ function paint(code, s) { return useColor ? `${code}${s}${ANSI.reset}` : s; }
 
 const log = {
   title: (m) => console.log(paint(ANSI.bold + ANSI.cyan, `\n  ${m}\n`)),
-  step: (m) => console.log(paint(ANSI.cyan, `⏳ ${m}`)),
-  ok: (m) => console.log(paint(ANSI.green, `✅ ${m}`)),
-  info: (m) => console.log(paint(ANSI.gray, `ℹ️  ${m}`)),
-  warn: (m) => console.log(paint(ANSI.yellow, `⚠️  ${m}`)),
-  err: (m) => console.log(paint(ANSI.red, `❌ ${m}`)),
+  step: (m) => console.log(paint(ANSI.cyan, `[...] ${m}`)),
+  ok: (m) => console.log(paint(ANSI.green, `[OK] ${m}`)),
+  info: (m) => console.log(paint(ANSI.gray, `[i] ${m}`)),
+  warn: (m) => console.log(paint(ANSI.yellow, `[!] ${m}`)),
+  err: (m) => console.log(paint(ANSI.red, `[!] ${m}`)),
 };
 
 // -----------------------------------------------------------------------
@@ -102,7 +109,7 @@ async function promptVaults(encontrados) {
   for (let tentativa = 1; tentativa <= 3; tentativa++) {
     console.log("");
     if (encontrados.length) {
-      console.log(paint(ANSI.cyan, "  📁 Cofres que o Obsidian conhece:"));
+      console.log(paint(ANSI.cyan, "  Cofres que o Obsidian conhece:"));
       encontrados.forEach((v, i) => console.log(`   [${i + 1}] ${v}`));
       console.log("");
       console.log(paint(ANSI.gray, "  Numeros separados por virgula para varios, 't' para todos,"));
@@ -648,7 +655,7 @@ function buildHostCandidates() {
 async function main() {
   const opts = parseArgs(process.argv.slice(2));
 
-  log.title("🪨  gobsidian - servidor MCP para cofres Obsidian");
+  log.title("gobsidian - servidor MCP para cofres Obsidian");
 
   // 1) qual e a release mais recente ---------------------------------------
   let release, headers;
@@ -867,7 +874,7 @@ async function main() {
   }
 
   // 7) resumo ---------------------------------------------------------------
-  log.title("📋 Resumo");
+  log.title("Resumo");
   console.log(`   binario    ${destino}`);
   console.log(`   versao     ${versao}`);
   if (!precisaInstalar) console.log("   download   pulado; a instalacao ja estava na versao mais recente");
