@@ -2607,3 +2607,268 @@ nao foi medida, porque depende do daemon da Task 92, que esta fora do
 escopo desta tarefa por decisao explicita do plano ("Nao implemente o
 daemon"). Commit `ed0ccf0ba227404efe6a03b0b799bb93b16807b8` (`git cat-file
 -t` confirma `commit`).
+
+## Task 92 (M7) — daemon: uma instancia por cofre, com ciclo de vida proprio — 2026-08-10
+
+Commit: `7da0095daeba1805c790630a907d6a349cb3eb88`
+(`feat(daemon): one shared process per vault, with idle exit`)
+
+```
+$ git cat-file -t 7da0095
+commit
+```
+
+`internal/daemon` (novo pacote): `Daemon` aceita N conexoes sobre o socket
+de `internal/ipc` contra um UNICO `*mcpsrv.Server` compartilhado — o indice,
+o watcher e o servico de dominio sao montados uma vez (`construirServico`,
+extraida de `serveEmProcesso` para `cmd/gobsidian/servico.go` de proposito,
+para as duas sequencias de boot nunca divergirem). `EnsureStarted` (lock.go)
+resolve a corrida de inicializacao por arquivo de bloqueio
+(`O_CREATE|O_EXCL`, mesma chave de `ipc.SocketPath`): so quem adquire o lock
+chama `iniciar` (a implementacao real e `SpawnDetached`, spawn.go +
+spawn_windows.go/spawn_unix.go para o destaque de processo por plataforma).
+A ociosidade usa `lifecycle.Trigger`, agora exportado, para reusar a MESMA
+infraestrutura de cancelamento e log que sinal e EOF de stdin usam nos
+outros processos — o daemon nao tem stdin de host nem pai vigiavel, entao os
+outros dois mecanismos ficam desligados (`lifecycle.New` chamado so com
+`Logger`).
+
+`internal/ipc.HandshakeConfig` estende a saudacao (versao continua
+primeiro, formato de linha unica preservado) para carregar `ReadOnly` e
+`VaultKey`: duas pontes do mesmo cofre com `--read-only` divergente
+conectadas ao mesmo daemon é bug de seguranca, nao detalhe, e o handshake
+agora recusa (`ErrConfigMismatch`) em vez de aceitar. `cmd/gobsidian/ponte.go`
+insere a tentativa de daemon entre "discar" e "servir em processo": discagem
+falha -> `EnsureStarted` -> discagem de novo -> em processo, com o fallback
+obrigatorio nos tres pontos (nao so no primeiro, como a Task 91 deixava).
+`GOBSIDIAN_NO_DAEMON` pula a decisao inteira — necessario para medir o
+"antes" sem reverter codigo, e documentavel pela Task 93 como forma de
+desligar o daemon.
+
+### Duas descobertas reais, medindo — nao hipoteses
+
+**1. O lock nao bastava contra um cofre que demora para responder.** Medido,
+nao hipotetizado: dez pontes lancadas juntas contra `testdata/vault_small`
+(build instantaneo) produziram UM daemon, de forma repetivel. A MESMA
+tentativa contra o cofre real (5.619 notas) produziu DOIS daemons vivos ao
+mesmo tempo, com quase um minuto de intervalo entre os dois "daemon
+iniciado" no log. Causa: `EnsureStarted` libera o lock assim que a PROPRIA
+chamada termina (o que inclui esperar o socket responder) — ele serializa
+quem disputa o MESMO instante, nao "existe um daemon rodando". Uma ponte
+atrasada o bastante pelo agendamento do SO (a maquina estava sob carga
+pesada do proprio gate de orfaos rodando em paralelo) via o lock livre e
+vencia uma corrida NOVA depois que o primeiro daemon ja tinha subido — sem
+nunca ter visto esse primeiro, porque o dial inicial dela (em `servePonte`)
+aconteceu ANTES dele existir. Corrigido com uma segunda checagem (dial) logo
+apos adquirir o lock, antes de chamar `iniciar`: se alguem mais ja
+respondeu enquanto esta chamada esperava a vez, usa esse, nunca inicia um
+segundo (`internal/daemon/lock.go`, o comentario no ponto exato). Reconfirmado
+DUAS VEZES depois da correcao, em maquina sem outra carga: exatamente 1
+daemon nas duas rodadas (abaixo).
+
+**2. O script de medicao, nao o produto, tinha o defeito.** A primeira
+tentativa de medir RSS travou por mais de 30 minutos: o script esperava a
+linha "indice de busca pronto" no stderr da PONTE, mas a ponte conectada a
+um daemon nunca imprime essa linha — ela so copia bytes (decisao 1 da Task
+91). O daemon de verdade tinha terminado de construir o indice em 254 s e
+ficado ocioso, correto; o script achava que estava travado. Log do daemon
+confirmou: nenhum bug de produto, o defeito era so onde o script escutava.
+Corrigido reaproveitando o cache ja aquecido nas duas fases da medicao (ver
+abaixo) e observando os sinais certos (a propria ponte, nao o daemon, para
+"conectado ao daemon via socket"; um prazo fixo generoso para o carregamento
+do cache aquecido em segundo plano, que a ponte nao pode observar
+diretamente).
+
+### RSS agregado — cofre real, 5.619 notas .md
+
+Cache aquecido por uma partida ignorada, formato binario atual,
+`--eager-search`, cache-dir dedicado (fora do cofre e fora do padrao) —
+reaproveitado nas duas fases para o estado do cache nao ser um confundidor.
+Metrica via `Win32_PerfFormattedData_PerfProc_Process`
+(`WorkingSet`/`WorkingSetPrivate`) e `Win32_OperatingSystem.FreePhysicalMemory`
+antes/depois, o mesmo metodo que fechou a Task 89:
+
+```
+=== ANTES: 3 instancias independentes (sem daemon), GOBSIDIAN_NO_DAEMON=1 ===
+Memoria livre antes: 11905,4 MB
+Memoria livre depois: 11385,1 MB  (consumida: 520,3 MB)
+PID 59496: WS=245,1 MB  WS-Private=129,5 MB
+PID 28636: WS=245,7 MB  WS-Private=130,0 MB
+PID 24132: WS=246,0 MB  WS-Private=130,4 MB
+TOTAL WS: 736,8 MB   TOTAL WS-Private: 389,8 MB
+
+=== DEPOIS: 3 pontes + 1 daemon compartilhado ===
+Memoria livre antes: 11837,0 MB
+Memoria livre depois: 11577,0 MB  (consumida: 260,0 MB)
+PID 11056 (ponte): WS=16,7 MB   WS-Private=3,7 MB
+PID 27676 (ponte): WS=15,9 MB   WS-Private=3,6 MB
+PID 65256 (ponte): WS=15,9 MB   WS-Private=3,6 MB
+PID  8016 (daemon): WS=246,7 MB  WS-Private=130,8 MB
+TOTAL WS: 295,1 MB   TOTAL WS-Private: 141,6 MB
+Daemon(s) encontrados para o cofre real: 1
+```
+
+**Working Set agregado: 736,8 MB -> 295,1 MB, queda de 59,9%. WS-Private:
+389,8 MB -> 141,6 MB, queda de 63,7%. Memoria fisica realmente consumida
+(a metrica que fecha a duvida que a Task 89 deixou sobre WS nao provar
+compartilhamento): 520,3 MB -> 260,0 MB, queda de 50,0%.** Cada ponte custa
+~16 MB — "poucos MB", como o comentario de `ponte.go` promete desde a Task
+91 — contra ~246 MB por instancia independente. O daemon sozinho custa
+essencialmente o mesmo que UMA instancia independente (246,7 MB contra
+245-246 MB): o ganho agregado vem inteiro de nao repetir esse custo por
+sessao, exatamente a tese da Parte II.
+
+### Verificacoes alem dos passos
+
+**Daemon morto no meio de uma chamada** — daemon isolado (`testdata/vault_small`),
+ponte conectada e confirmada ("conectado ao daemon via socket"), uma
+requisicao MCP `initialize` enviada, daemon morto com `Stop-Process -Force`
+300 ms depois, sem esperar resposta:
+```
+Ponte conectou ao daemon: True
+Matando o daemon PID 51416 agora
+Ponte terminou dentro do prazo: True
+Codigo de saida da ponte: 1
+```
+A ponte devolveu (nao travou) dentro do prazo de 8 s, com codigo de saida
+NAO-ZERO — erro acionavel, nao pendura. O log da ponte mostrou tambem
+`reason=stdin-eof`, uma corrida entre o mecanismo de lifecycle da propria
+ponte (o harness de teste nao segura o stdin dela com a mesma robustez que
+`orphan_host.ps1` segura em produção) e o erro de conexao — o que prova o
+requisito e o codigo de saida 1 (nunca 0 para EOF/Canceled puro), nao qual
+das duas mensagens venceu a corrida de log.
+
+**Dez pontes subindo simultaneamente: um daemon, nao dez** — reconfirmado
+duas vezes apos a correcao da descoberta 1, em maquina sem outra carga:
+```
+Lancadas 10 pontes as 04:45:20.472, aguardando...
+Verificado as 04:45:28.827. Daemons encontrados para vault_small: 1
+PID 5368
+
+Lancadas 10 pontes as 04:45:57.809, aguardando...
+Verificado as 04:46:06.066. Daemons encontrados para vault_small: 1
+PID 9768
+```
+
+**Ociosidade** — coberta pelo cenario novo do gate de orfaos, abaixo.
+
+### Gate de orfaos — quatro cenarios, 100 ciclos cada
+
+`scripts/test_orphans.ps1` ganhou o cenario `daemon-idle`: estrutura
+DIFERENTE dos outros tres (sem host/keeper, porque o daemon nao tem pai) —
+lanca o daemon e uma ponte diretamente, mata so a ponte, confere que o
+daemon sai sozinho com `reason=idle` dentro do prazo. `--idle-seconds`
+curto (3 s) so no cenario de teste; o padrao de producao
+(`internal/daemon.DefaultIdleSeconds`) continua **900** (15 minutos) —
+conferido por leitura, nao mudou.
+
+Os quatro cenarios, 100 ciclos cada, rodados separadamente (o primeiro
+alcance de 100 ciclos em `-Scenario all` foi interrompido por timeout do
+proprio harness de execucao apos os tres primeiros terem fechado limpos; o
+quarto foi refeito sozinho, sem carga concorrente, e fechou limpo tambem —
+os tres primeiros nao foram re-executados por serem independentes do quarto
+e ja terem fechado 100/100 cada):
+
+```
+cenario: stdin-eof       motivos: stdin-eof: 100x      [OK] Nenhum orfao em 100 ciclos
+cenario: parent-death    motivos: parent-gone: 100x    [OK] Nenhum orfao em 100 ciclos
+cenario: signal          motivos: signal: 100x         [OK] Nenhum orfao em 100 ciclos
+cenario: daemon-idle     [OK] Nenhum daemon orfao em 100 ciclos -- todos sairam por
+                         ociosidade (reason=idle) apos a unica ponte ser morta
+```
+
+### Prova de mutacao — as duas do brief mais uma sobre a recusa por config
+
+```
+$ pwsh -File scripts/mutate.ps1 -Path internal/daemon/daemon.go `
+  -Anchor 'if time.Since(ultimoCliente) > cfg.OciosidadeMax {' -Replacement 'if false {' `
+  -Test TestDaemonSaiPorOciosidade -Package ./internal/daemon/
+
+[...] Mutando internal/daemon/daemon.go
+      - if time.Since(ultimoCliente) > cfg.OciosidadeMax {
+      + if false {
+[...] go test -race -run TestDaemonSaiPorOciosidade ./internal/daemon/
+--- FAIL: TestDaemonSaiPorOciosidade (5.08s)
+    daemon_test.go:118: Run nao retornou apos a ociosidade estourar -- aoOcioso nunca foi chamado
+FAIL
+[OK] internal/daemon/daemon.go restaurado byte a byte (SHA-256 confere).
+[OK] O teste REPROVOU com a regra mutada — a regra esta verificada.
+```
+Exit code: `0`.
+
+```
+$ pwsh -File scripts/mutate.ps1 -Path internal/daemon/lock.go `
+  -Anchor 'if !adquiriu {' -Replacement 'if false {' `
+  -Test TestDezPontesIniciamUmDaemonSo -Package ./internal/daemon/
+
+[...] Mutando internal/daemon/lock.go
+      - if !adquiriu {
+      + if false {
+[...] go test -race -run TestDezPontesIniciamUmDaemonSo ./internal/daemon/
+panic: runtime error: invalid memory address or nil pointer dereference
+goroutine 37 [running]:
+github.com/jonyd/gobsidian/internal/daemon.EnsureStarted(...)
+	.../internal/daemon/lock.go:85 +0x39b
+FAIL
+[OK] internal/daemon/lock.go restaurado byte a byte (SHA-256 confere).
+[OK] O teste REPROVOU com a regra mutada — a regra esta verificada.
+```
+Exit code: `0`. (O painico e o proprio mecanismo de protecao mostrando os
+dentes: com a guarda removida, TODAS as chamadas seguem pelo ramo de
+vencedora, inclusive as que `adquirirLock` marcou como perdedoras — que
+recebem `liberar = nil` e travam ao tentar `defer liberar()`.)
+
+```
+$ pwsh -File scripts/mutate.ps1 -Path internal/ipc/ipc.go `
+  -Anchor 'if got != want {' -Replacement 'if false {' `
+  -Test TestDialAndHandshakeConfigDivergente -Package ./internal/ipc/
+
+[...] Mutando internal/ipc/ipc.go
+      - if got != want {
+      + if false {
+[...] go test -race -run TestDialAndHandshakeConfigDivergente ./internal/ipc/
+--- FAIL: TestDialAndHandshakeConfigDivergente (0.01s)
+    ipc_test.go:215: DialAndHandshake() error = nil, esperado ErrConfigMismatch
+FAIL
+[OK] internal/ipc/ipc.go restaurado byte a byte (SHA-256 confere).
+[OK] O teste REPROVOU com a regra mutada — a regra esta verificada.
+```
+Exit code: `0`.
+
+### Verificacao
+
+```
+$ go build ./...                          -> limpo
+$ go test -race -count=1 ./...            -> ok em todos os pacotes
+$ pwsh -File scripts/verify.ps1           -> 10/10 etapas [OK] (build, -race,
+    testes de latencia, vet windows/linux/darwin, gofmt, golangci-lint
+    v2.12.2, check_net RNF-30, check_tool_params)
+```
+
+### Recomendacao — compensa?
+
+**Sim, para a sessao concorrente, com um numero real: 50% de queda na
+memoria fisica agregada de tres sessoes simultaneas do cofre real, e cada
+sessao adicional alem da primeira custa ~16 MB (a ponte) em vez de ~246 MB
+(uma instancia inteira).** A Task 88 (carga preguicosa) ja fez a MAIORIA das
+instancias nunca carregarem indice nenhum — isso nao muda com esta tarefa e
+continua sendo o maior ganho por linha mexida do marco. O daemon resolve o
+problema QUE SOBRA depois da 88: multiplas sessoes REAIS (busca de verdade,
+nao so leitura pontual) contra o MESMO cofre ao mesmo tempo. Para quem abre
+um host MCP por vez, o daemon e complexidade sem sessao concorrente para
+economizar — e exatamente por isso que `GOBSIDIAN_NO_DAEMON` e o padrao
+DESLIGADO recomendado nesse caso continua sendo decisao de operacao, nao
+deste relatorio (a Task 93 fecha essa recomendacao com a tabela de 1/3/5
+sessoes nas tres configuracoes).
+
+### Escopo
+
+Cumprido integralmente. A janela teorica residual entre a segunda checagem
+de `EnsureStarted` (dial) e o `iniciar()` de fato (um process de
+check-then-act, nao um mutex inter-processo pelo tempo de vida inteiro do
+daemon) fica registrada como risco aceito e nao eliminado por construcao —
+reduzida de "toda a duracao do lock" para "milissegundos entre um dial e um
+spawn", e a documentacao no codigo (`internal/daemon/lock.go`) explica o
+raciocinio para quem revisar depois. `--cache-dir` dedicado e os processos
+lancados para a medicao de RSS foram todos limpos ao final; nenhum arquivo
+de teste entrou no commit.
