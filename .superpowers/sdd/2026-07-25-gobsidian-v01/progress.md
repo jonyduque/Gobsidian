@@ -2301,3 +2301,34 @@ tinha ficado bloqueada. Nao foi preciso a opcao (b): a opcao (a) sozinha
 excedeu o criterio de parada de 30%. Arquivos deste worktree de teste
 (`gob89-old-baseline`, cache dirs temporarios) removidos apos a medicao —
 nao entraram em commit nenhum.
+
+## Task 89 — compartilhamento entre processos, medido pelo revisor — 2026-08-10
+
+O relatorio da tarefa registrou, honestamente, que a queda de WS-Private era
+identica com 1 e com 3 instancias, e que **provar que as paginas sao fisicamente
+as MESMAS entre processos precisaria de RAMMap/VMMap — nao medido**. A ressalva
+estava certa: o Windows tira pagina file-backed do "Private" por ela ser
+file-backed, compartilhada ou nao, e nao tem equivalente do PSS do Linux.
+
+Fechado aqui por outra via: **memoria livre do sistema**, que nao depende de
+contador por processo. Cofre real de 4.490 notas, cache formato 6 em diretorio
+dedicado, todas as instancias com `--eager-search`:
+
+```
+0 instancias   11452 MB livres
+1 instancia    consumiu 239 MB     soma dos WS  284 MB
+2 instancias   consumiu 381 MB     soma dos WS  536 MB
+3 instancias   consumiu 513 MB     soma dos WS  788 MB
+```
+
+A soma dos Working Sets chega a 788 MB e o sistema perdeu 513 MB. O custo
+MARGINAL de cada instancia extra e **132-142 MB de memoria fisica**, contra
+~252 MB de Working Set reportado por instancia. A diferenca sao as paginas
+mapeadas, contadas em cada processo e residentes uma vez so.
+
+Sem compartilhamento, tres instancias consumiriam ~717 MB (3 x 239). Consumiram
+513 MB. **O compartilhamento e real e esta medido**, sem precisar de RAMMap.
+
+Metodo, para quem repetir: `Win32_OperatingSystem.FreePhysicalMemory` antes de
+subir qualquer instancia e depois de cada uma. Contador por processo nao serve
+para esta pergunta — foi exatamente o que a ressalva da tarefa apontou.
