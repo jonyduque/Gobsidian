@@ -2440,3 +2440,170 @@ Cumprido integralmente. Nenhum socket foi aberto nesta tarefa — so a
 garantia e o analisador que a Task 91 vai depender de manter verde. Commit
 `a46175cbdd3648d87dcfd731f22421ea1c0b3939` (`git cat-file -t` confirma
 `commit`).
+
+## Task 91 — transporte IPC e o processo-ponte — 2026-08-10
+
+Implementa `internal/ipc` (o transporte AF_UNIX de D-M7-6, com
+`runtimeDir`/`restrictPermission` atras de build tag em
+`ipc_unix.go`/`ipc_windows.go`, e o resto — chave do socket, handshake de
+versao, `Dial`/`Listen`, o proxy de bytes — compartilhado) e
+`cmd/gobsidian/ponte.go`, a ponte burra que fala com um daemon via socket
+ou cai para o modo em processo de sempre (`serveEmProcesso`, o corpo do
+antigo `runServe`, agora devolvendo `error` em vez de chamar `os.Exit`
+direto — quem decide o codigo de saida e o novo `runServe`, um nivel
+acima, porque e o mesmo lugar que escolhe entre os dois caminhos).
+
+A **Task 92 (o daemon) nao existe ainda**. Esta tarefa so exercita o
+fallback em producao; o handshake e o proxy de bytes foram provados com um
+par de teste (`ipc.Listen`/`ipc.Greet` fazendo o papel do daemon), nao com
+o daemon de verdade.
+
+`config.VaultKey` foi extraida de `defaultCacheDir` para ser a UNICA funcao
+que deriva a chave do cofre — `SocketPath` do IPC usa a mesma, em vez de
+calcular o hash de novo (a classe de defeito que `byAlias` ja pagou aqui:
+duas contas do mesmo hash divergem assim que uma muda sozinha).
+
+### Decisao que a tarefa tinha que acertar, e como ficou
+
+1. **Ponte burra.** Depois do handshake ela so copia bytes — nao interpreta
+   JSON-RPC. RSS medido conectada a um daemon de teste: **13,77 MB** (ver
+   medicao abaixo).
+2. **Fallback obrigatorio.** `servePonte` chama `serveEmProcesso` sempre que
+   `ipc.DialAndHandshake` falha — socket ausente, conexao recusada ou
+   versao incompativel levam ao mesmo lugar, e o log registra qual foi.
+3. **Build tag so no caminho do socket e na limpeza.** `runtimeDir`,
+   `restrictPermission` e nada mais estao em `ipc_unix.go`/`ipc_windows.go`;
+   o handshake, o `Dial`/`Listen` (com `"unix"` literal) e o proxy de bytes
+   sao um so, compartilhado.
+4. **Permissao do socket.** `restrictPermission` aplica `0600` em Unix. No
+   Windows o socket herda a ACL de `%LocalAppData%\gobsidian\run` — ver a
+   verificacao abaixo, e a lacuna que ela deixa.
+
+### RSS da ponte sozinha
+
+Medido com um daemon de teste (`ipc.Listen` + `ipc.Greet`, sem logica
+nenhuma alem de eco) escutando o socket do cofre, e `gobsidian.exe serve`
+apontado para o mesmo cofre — o log confirma `"conectado ao daemon via
+socket"`, ou seja, o processo estava em modo ponte, nao em fallback:
+
+```
+Get-Process -Id <pid> | Select Id,WS,PagedMemorySize64
+   Id WS_MB PM_MB
+   -- ----- -----
+<pid> 13,77 47,36
+```
+Tres leituras com 2 s de intervalo, valor estavel: **13,77 MB de Working
+Set**. Confirma a decisao 1 — "mantem em poucos MB".
+
+### Latencia
+
+Duas medicoes, **nao comparaveis diretamente entre si** porque nao ha
+daemon de verdade (Task 92) para uma chamada de tool completa atravessar a
+ponte:
+
+**Chamada de tool real, em processo** (cliente MCP real via
+`go-sdk`/`CommandTransport`, `vault_stats`, 30 amostras, cofre de 1 nota,
+3 chamadas de aquecimento descartadas):
+```
+em processo (chamada de tool real, vault_stats): n=30 mean=539.496µs p50=556.2µs p95=1.7155ms min=0s max=2.2123ms
+```
+
+**Salto de transporte que a ponte adiciona**, isolado com um daemon de
+teste que so faz eco cru (nao fala JSON-RPC — a Task 92 e quem implementa
+o daemon de verdade), 30 idas-e-voltas de uma linha por stdin/stdout do
+processo real:
+```
+via ponte (eco cru atraves do socket, sem daemon real): n=30 mean=172.64µs p50=0s p95=593.7µs min=0s max=594.1µs
+```
+Para contexto, nao remedido aqui: D-M7-6 mediu o socket AF_UNIX puro (sem
+processo, sem pipe do stdio) em 25,7-42,9 µs de ida-e-volta. O numero acima
+inclui o hop adicional do `mirrorReader`/`io.Pipe` e dois `io.Copy` em
+goroutines separadas, e ainda fica na casa de centenas de microssegundos —
+desprezivel contra os 90-200 ms que uma busca real leva (PRD RNF-04) e
+contra os ~540 µs medidos acima para uma chamada de tool completa em
+processo.
+
+**Nao medido**: latencia de uma chamada de tool completa atraves da ponte
+ate um daemon de verdade, porque esse daemon e a Task 92.
+
+### Permissao do socket
+
+Unix: `restrictPermission` chama `os.Chmod(path, 0600)`, coberto por
+`TestListenRestringePermissaoUnix` (roda so em GOOS != windows; pulado
+neste ambiente, que e Windows).
+
+Windows — o que foi possivel verificar sem privilegio administrativo:
+```
+icacls "C:\Users\jonyd\AppData\Local\gobsidian\run\<hash>.sock"
+C:\Users\jonyd\AppData\Local\gobsidian\run\<hash>.sock AUTORIDADE NT\SISTEMA:(I)(F)
+                                                        BUILTIN\Administradores:(I)(F)
+                                                        NB-JONY\jonyd:(I)(F)
+```
+A ACL do socket (herdada de `%LocalAppData%`) concede acesso so a SYSTEM,
+Administradores e ao usuario corrente — nenhuma entrada para "Todos" ou
+"Usuarios Autenticados".
+
+**O que NAO foi possivel testar neste ambiente**: uma tentativa real de
+conexao como OUTRO usuario local. Isso exigiria criar uma segunda conta
+(`New-LocalUser`), e essa acao foi recusada pelo classificador de seguranca
+do proprio harness por ser uma mudanca de sistema persistente que ninguem
+pediu. A evidencia acima (ACL herdada, sem entrada de acesso amplo) e a
+mais forte disponivel sem esse privilegio — nao e o mesmo que confirmar a
+recusa de conexao de fato.
+
+### Gate
+
+```
+go test -race -count=1 ./internal/ipc/ ./cmd/...        -> ok, ok
+pwsh -File scripts/verify.ps1 -SkipCross                 -> 8/8 etapas [OK], incluindo check_net (RNF-30)
+GOOS=linux  go vet ./internal/... ./cmd/... ./tools/...  -> limpo
+GOOS=darwin go vet ./internal/... ./cmd/... ./tools/...  -> limpo
+GOOS=linux/darwin go vet -vettool=netcheck ./internal/... ./cmd/... -> limpo
+```
+
+`pwsh -File scripts/test_orphans.ps1 -Cycles 100` (padrao `all`, os tres
+cenarios — nenhum socket real presente, entao os 300 ciclos exercitam o
+fallback em processo, ponta a ponta, com o binario de verdade):
+```
+cenario: stdin-eof     motivos: stdin-eof: 100x      [OK] Nenhum orfao em 100 ciclos
+cenario: parent-death  motivos: parent-gone: 100x    [OK] Nenhum orfao em 100 ciclos
+cenario: signal        motivos: signal: 100x         [OK] Nenhum orfao em 100 ciclos
+[OK] Nenhum orfao em 100 ciclos nos tres mecanismos: stdin-eof, parent-death, signal
+```
+Os tres mecanismos de encerramento tambem foram exercitados no CAMINHO DE
+PONTE (conectada a um daemon de teste): o encerramento por `stdin-eof`
+apareceu no log real (`reason=stdin-eof`, `step=close-conn`) na medicao de
+RSS acima. `parent-death` e `signal` no caminho de ponte nao tem cenario
+dedicado no harness — `servePonteRemota` usa o mesmo `lifecycle.New` que
+`serveEmProcesso`, entao o mecanismo e identico, mas isso e argumento de
+codigo compartilhado, nao uma segunda rodada de 100 ciclos medida.
+
+### Prova de mutacao
+
+```
+pwsh -File scripts/mutate.ps1 -Path cmd/gobsidian/ponte.go `
+  -Anchor 'return serveEmProcesso(ctx, cfg, log)' -Replacement 'return err' `
+  -Test TestPonteCaiParaModoEmProcesso -Package ./cmd/gobsidian/
+
+[...] Mutando cmd/gobsidian/ponte.go
+      - return serveEmProcesso(ctx, cfg, log)
+      + return err
+[...] go test -race -run TestPonteCaiParaModoEmProcesso ./cmd/gobsidian/
+--- FAIL: TestPonteCaiParaModoEmProcesso (0.03s)
+    ponte_test.go:48: servePonte() error = "conectando ao socket ...\\81fb...sock: dial unix ...: connect: No connection could be made because the target machine actively refused it.", esperado mencionar "raiz do cofre inacessivel" -- essa mensagem so vem de dentro de serveEmProcesso -> vault.New; se o texto for outro (por exemplo, o erro de conectar ao socket), o fallback nao foi chamado
+FAIL
+[OK] cmd/gobsidian/ponte.go restaurado byte a byte (SHA-256 confere).
+[OK] O teste REPROVOU com a regra mutada — a regra esta verificada.
+```
+Exit code do `mutate.ps1`: `0`.
+
+### Escopo
+
+Cumprido integralmente, com uma lacuna explicita e ja registrada acima: o
+teste de "outro usuario nao abre o socket" no Windows nao pode ser
+completado neste ambiente por falta de privilegio para criar uma segunda
+conta. A latencia de uma chamada de tool completa atraves da ponte tambem
+nao foi medida, porque depende do daemon da Task 92, que esta fora do
+escopo desta tarefa por decisao explicita do plano ("Nao implemente o
+daemon"). Commit `ed0ccf0ba227404efe6a03b0b799bb93b16807b8` (`git cat-file
+-t` confirma `commit`).
