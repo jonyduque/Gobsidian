@@ -46,6 +46,16 @@ type WatchStats interface {
 type Options struct {
 	ReadOnly   bool
 	MaxResults int
+	// CarregarBusca, quando nao nil, adia o carregamento do indice
+	// invertido para a primeira chamada de Search. Quem monta o servico
+	// (cmd/gobsidian) e quem sabe COMO carregar — cache em disco, cofre,
+	// config — o pacote service so sabe QUANDO: uma vez, na primeira busca,
+	// com retentativa se aquela tentativa falhar. Ver garanteIndiceDeBusca.
+	//
+	// nil preserva o comportamento antigo: o indice chega pronto (ou
+	// marcado em construcao por outro caminho, em segundo plano) e Search
+	// nunca dispara carga nenhuma.
+	CarregarBusca CarregadorBusca
 }
 
 // Service e a fachada unica sobre os subsistemas: cada tool MCP corresponde a um metodo daqui.
@@ -56,17 +66,21 @@ type Service struct {
 	watcher  WatchStats
 	opts     Options
 	locker   *writer.PathLocker
+
+	carregarBusca CarregadorBusca
+	cargaBusca    cargaUnica
 }
 
 // New monta o servico.
 func New(v *vault.Vault, idx Index, inv *search.Inverted, w WatchStats, opts Options) *Service {
 	return &Service{
-		vault:    v,
-		index:    idx,
-		inverted: inv,
-		watcher:  w,
-		opts:     opts,
-		locker:   writer.NewPathLocker(),
+		vault:         v,
+		index:         idx,
+		inverted:      inv,
+		watcher:       w,
+		opts:          opts,
+		locker:        writer.NewPathLocker(),
+		carregarBusca: opts.CarregarBusca,
 	}
 }
 

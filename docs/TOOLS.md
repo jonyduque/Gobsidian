@@ -65,6 +65,8 @@ Busca full-text com ranking, combinável com filtros de metadados.
 
 Se `query` for vazio mas houver filtros, a chamada é redirecionada ao caminho de consulta de metadados, muito mais barato. Ainda assim, prefira `note_list` para consultas puramente estruturais.
 
+O índice de busca carrega sob demanda: a primeira chamada de `vault_search` numa sessão dispara o carregamento (do cache em disco, ou tokenizando o cofre se o cache não servir) e só responde depois dele terminar — normalmente bem abaixo de 1 s, com cache quente. `--eager-search` na CLI muda isso para carregar no boot do servidor, antes de qualquer chamada.
+
 ---
 
 ## `note_read`

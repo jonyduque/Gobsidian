@@ -15,9 +15,10 @@ const (
 // defensavel, e Load exige que alguem o forneca.
 func Defaults() Config {
 	return Config{
-		LogLevel:   slog.LevelInfo,
-		ReadOnly:   false,
-		DebounceMS: DefaultDebounceMS,
-		MaxResults: DefaultMaxResults,
+		LogLevel:    slog.LevelInfo,
+		ReadOnly:    false,
+		DebounceMS:  DefaultDebounceMS,
+		MaxResults:  DefaultMaxResults,
+		EagerSearch: false,
 	}
 }

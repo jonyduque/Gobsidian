@@ -2015,3 +2015,73 @@ pendente (RNF-06 na tabela principal) foi paga junto.
 Esta tarefa nao produz commit de codigo — so documentacao e ledger, no unico
 commit que segue esta entrada no historico, mensagem "docs(ledger): record M7
 and the measured state of the four RNFs".
+
+## Task 88 (M7) — indice de busca sob demanda — 2026-08-10
+
+`cmd/gobsidian/serve.go` chamava `prepararIndiceDeBusca` incondicionalmente em
+toda partida. Uma sessao que nunca chama `vault_search` pagava o indice inteiro
+assim mesmo — e a maioria das sessoes de assistente le e escreve nota sem nunca
+buscar. Cada sessao de host MCP abre um processo desses.
+
+Agora a carga e disparada pela PRIMEIRA chamada de `vault_search`. Ate la o
+indice fica marcado como em construcao e a tool responde `INDEX_BUILDING`, nunca
+lista vazia. `--eager-search` liga o comportamento antigo, para quem roda num
+script que so busca.
+
+O watcher continua comecando na partida. So o carregamento do indice de busca e
+adiado — adiar o watcher faria eventos se perderem, e o unico anteparo seria a
+reindexacao no boot seguinte.
+
+### Medicao — feita pelo REVISOR, nao pelo executor
+
+O executor ficou bloqueado esperando o caminho do cofre real, que carrega nome
+de empregador e nao entra em artefato versionado. Duas mensagens com o caminho
+nao chegaram a caixa dele. O revisor mediu com o codigo dele, compilado da
+arvore antes do commit.
+
+Cofre real de 4.490 notas, tres partidas, **sem nenhuma chamada a
+`vault_search`**:
+
+```
+RSS 165,7 MB   index_ms=1850   <- cache de metadados desatualizado, reconstruiu
+RSS 125,2 MB   index_ms=622
+RSS 125,0 MB   index_ms=507
+```
+
+Baseline no mesmo cofre e maquina, cache quente, antes da mudanca:
+
+```
+RSS 501,9 / 502,1 / 501,9 MB
+```
+
+**~502 MB -> ~125 MB numa instancia que nunca busca: queda de 75%.**
+
+A primeira amostra e descartada de proposito: o cofre mudou entre as medicoes e
+aquela partida pagou uma reconstrucao do cache de metadados. As duas seguintes
+sao o numero em repouso.
+
+Isto ataca o problema que motivou a Parte II: cada sessao de host MCP abre um
+processo, e duas sessoes do Claude custavam cerca de 1 GB. Duas sessoes que so
+leem e escrevem nota passam a custar ~250 MB.
+
+**Nao medido:** o tempo ate a primeira busca responder, que agora inclui a
+carga. O executor ficou bloqueado antes de chegar nele. Referencia para quem
+for medir: com cache quente, o indice de busca carrega em 648-676 ms, entao a
+primeira busca deve ficar nessa ordem — mas isso e inferencia, nao medicao.
+
+### Prova de mutacao (rodada pelo revisor)
+
+```
+Anchor:      if err := s.garanteIndiceDeBusca(ctx); err != nil {
+Replacement: if err := error(nil); err != nil {
+Test:        TestBuscaPreguicosaCarregaUmaVezESoUmaVez
+--- FAIL: carregou 0 vezes sob concorrencia, quer 1
+--- FAIL: segunda busca falhou: o Once travou o erro para sempre
+[OK] O teste REPROVOU com a regra mutada — a regra esta verificada.
+```
+
+O teste cobre os DOIS defeitos que o adiamento introduz: carregar N vezes sob
+concorrencia, e nunca mais tentar depois de uma falha. `Once` e sobre "ja
+disparei", nao sobre "ja consegui".
+
+`TestRankingGolden` identico. `verify.ps1 -SkipCross -SkipNet` verde.

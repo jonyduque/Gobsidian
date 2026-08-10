@@ -49,6 +49,8 @@ func newServeCmd() *cobra.Command {
 	cmd.Flags().BoolVar(&flags.ReadOnly, "read-only", false, "desabilita toda a superficie de escrita")
 	cmd.Flags().IntVar(&flags.DebounceMS, "debounce-ms", 0, "janela de coalescencia de eventos do watcher")
 	cmd.Flags().StringVar(&flags.CacheDir, "cache-dir", "", "diretorio do cache de indice")
+	cmd.Flags().BoolVar(&flags.EagerSearch, "eager-search", false,
+		"carrega o indice de busca no boot em vez de esperar a primeira vault_search")
 
 	return cmd
 }
@@ -429,25 +431,58 @@ func runServe(parent context.Context, cfg config.Config) error {
 		return err
 	}
 
-	svc := service.New(v, idx, inv, watcherStats{w: w}, service.Options{
+	opts := service.Options{
 		ReadOnly:   cfg.ReadOnly,
 		MaxResults: cfg.MaxResults,
-	})
+	}
+	if !cfg.EagerSearch {
+		// Modo padrao: a carga so acontece na primeira vault_search, e
+		// dentro DELA — e o Service quem decide quando chamar isto (uma vez,
+		// com retentativa se falhar; ver Service.garanteIndiceDeBusca). O
+		// context recebido aqui e o da chamada MCP que disparou a carga, nao
+		// o de boot: se aquele cliente especifico desistir no meio de uma
+		// construcao longa, a proxima busca — com um context novo — tenta de
+		// novo a partir do que HasDoc ja cobriu.
+		//
+		// Como o watcher.Run comeca no boot (ver comentario abaixo) e nao
+		// espera este carregamento, uma edicao no cofre entre a partida e a
+		// primeira busca pode chegar primeiro e escrever no indice
+		// invertido. Nesse caso search.Inverted.AdotarDe recusa o cache
+		// (indice nao vazio) e prepararIndiceDeBusca cai para
+		// buildInvertedIndex, que ja conta o que o watcher escreveu via
+		// HasDoc e so le do disco o resto — mais lento que o caminho de
+		// cache, nunca incorreto.
+		opts.CarregarBusca = func(searchCtx context.Context) error {
+			prepararIndiceDeBusca(searchCtx, v, idx, inv, cfg, log)
+			if err := searchCtx.Err(); err != nil {
+				return err
+			}
+			return nil
+		}
+	}
+
+	svc := service.New(v, idx, inv, watcherStats{w: w}, opts)
 	srv := mcpsrv.New(ctx, svc, cfg, log)
 
 	var wg sync.WaitGroup
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		// prepararIndiceDeBusca ANTES de w.Run, e nao em paralelo com ele.
-		//
-		// A adocao do cache SUBSTITUI o conteudo do indice (ver
-		// search.Inverted.AdotarDe). Um evento do watcher aplicado antes dela
-		// seria descartado sem deixar rastro, e o sintoma seria uma nota editada
-		// durante o boot sumir da busca ate o proximo reinicio. Os eventos desse
-		// intervalo nao se perdem: watcher.New ja registrou os watches, entao
-		// eles ficam enfileirados no fsnotify e w.Run os consome em seguida.
-		prepararIndiceDeBusca(ctx, v, idx, inv, cfg, log)
+		if cfg.EagerSearch {
+			// prepararIndiceDeBusca ANTES de w.Run, e nao em paralelo com ele.
+			//
+			// A adocao do cache SUBSTITUI o conteudo do indice (ver
+			// search.Inverted.AdotarDe). Um evento do watcher aplicado antes dela
+			// seria descartado sem deixar rastro, e o sintoma seria uma nota editada
+			// durante o boot sumir da busca ate o proximo reinicio. Os eventos desse
+			// intervalo nao se perdem: watcher.New ja registrou os watches, entao
+			// eles ficam enfileirados no fsnotify e w.Run os consome em seguida.
+			prepararIndiceDeBusca(ctx, v, idx, inv, cfg, log)
+		}
+		// Modo padrao: o watcher comeca a consumir a fila do fsnotify sem
+		// esperar o indice de busca. Adiar w.Run ate a primeira busca faria
+		// eventos se perderem enquanto ninguem busca — e o unico anteparo
+		// seria a reindexacao completa no proximo reinicio.
 		_ = w.Run(ctx)
 	}()
 

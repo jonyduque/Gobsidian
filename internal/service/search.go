@@ -73,6 +73,17 @@ type SearchResult struct {
 
 // Search executa a busca full-text com ranking BM25 e filtros de metadados.
 func (s *Service) Search(ctx context.Context, opts SearchOptions) (SearchResult, error) {
+	// garanteIndiceDeBusca dispara o carregamento do índice de busca na
+	// primeira chamada (modo padrão, --eager-search desligado) e bloqueia até
+	// ele terminar — é por isso que a carga entra na latência desta primeira
+	// busca, e não da partida do servidor. Chamadas concorrentes esperam a
+	// mesma carga; chamadas seguintes, com o índice já pronto, não pagam
+	// nada aqui.
+	if err := s.garanteIndiceDeBusca(ctx); err != nil {
+		return SearchResult{}, Wrap(CodeIndexBuilding, err,
+			"o indice de busca nao pode ser carregado; tente de novo em alguns segundos")
+	}
+
 	// O índice invertido pode estar sendo construído em segundo plano: o
 	// servidor anuncia as tools assim que o índice de METADADOS fica pronto, o
 	// que leva ~1 s, e não espera a tokenização do cofre, que num cofre de

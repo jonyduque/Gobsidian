@@ -32,18 +32,24 @@ type Flags struct {
 	DebounceMS    int
 	DebounceMSSet bool
 	CacheDir      string
+	// EagerSearch nao tem par de variavel de ambiente, entao nao precisa do
+	// companheiro *Set: sem uma segunda fonte para desempatar, o valor zero
+	// (false, o padrao preguicoso) e indistinguivel de "omitida" so no
+	// sentido em que os dois significam a mesma coisa.
+	EagerSearch bool
 }
 
 // Config e a configuracao ja resolvida, do jeito que o resto do produto a
 // consome. Ninguem abaixo desta camada volta a olhar flag ou variavel de
 // ambiente: se um valor nao esta aqui, ele nao existe.
 type Config struct {
-	VaultPath  string
-	LogLevel   slog.Level
-	ReadOnly   bool
-	DebounceMS int
-	CacheDir   string
-	MaxResults int
+	VaultPath   string
+	LogLevel    slog.Level
+	ReadOnly    bool
+	DebounceMS  int
+	CacheDir    string
+	MaxResults  int
+	EagerSearch bool
 }
 
 // Load resolve a configuracao com precedencia flag > env > default.
@@ -103,6 +109,8 @@ func Load(f Flags) (Config, error) {
 	if cfg.CacheDir == "" {
 		cfg.CacheDir = defaultCacheDir(cfg.VaultPath)
 	}
+
+	cfg.EagerSearch = f.EagerSearch
 
 	return cfg, nil
 }

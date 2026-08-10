@@ -193,6 +193,7 @@ code --add-mcp '{"name":"gobsidian","command":"gobsidian","args":["serve","--vau
 | `--cache-dir <caminho>` | Diretório do cache de índice. Padrão: derivado de um hash do caminho do cofre, sempre **fora** do cofre. |
 | `--debounce-ms <n>` | Janela de coalescência de eventos do watcher. |
 | `--log-level <nível>` | `debug`, `info`, `warn` ou `error`. |
+| `--eager-search` | Carrega o índice de busca no boot, em vez de esperar a primeira `vault_search`. Padrão: preguiçoso — a maioria das sessões de assistente lê e escreve nota sem nunca buscar, e pagar o índice de qualquer jeito custa RSS que a sessão nunca usa. |
 
 </details>
 
