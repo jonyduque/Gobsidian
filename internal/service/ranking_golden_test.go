@@ -170,12 +170,22 @@ func TestRankingGolden(t *testing.T) {
 				t.Logf("golden gravado: %s — LEIA antes de commitar", golden)
 				return
 			}
-			quer, err := os.ReadFile(golden)
+			bruto, err := os.ReadFile(golden)
 			if err != nil {
 				t.Fatalf("golden ausente (%v). Gere com -update e LEIA o "+
 					"arquivo antes de commitar", err)
 			}
-			if b.String() != string(quer) {
+			// Fim de linha nao e dado: as linhas sao caminho + TAB + score, e
+			// o que este golden congela e a ORDEM e o VALOR, nada mais. O
+			// arquivo e gravado com "\n" acima, mas quem o le pode te-lo
+			// recebido em CRLF de um checkout com core.autocrlf=true — o
+			// padrao dos runners Windows do CI e da maioria dos clones no
+			// Windows. Comparar bytes crus fazia os seis subtestes reprovarem
+			// com "ranking mudou" num clone novo, o que parece regressao de
+			// ranking e nao e. .gitattributes agora fixa *.tsv em LF; esta
+			// normalizacao existe para o teste nao depender DISSO tambem.
+			quer := strings.ReplaceAll(string(bruto), "\r\n", "\n")
+			if b.String() != quer {
 				t.Errorf("ranking mudou.\n--- quer ---\n%s\n--- tem ---\n%s\n"+
 					"Golden que muda exige explicacao escrita. NAO regenere "+
 					"para fazer passar.", quer, b.String())
