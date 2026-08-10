@@ -1079,128 +1079,140 @@ notas, 71 anexos — o número que o próprio servidor reporta no log de boot
 (`notes=`), não uma contagem bruta de arquivos `.md` no disco, que conta
 entradas dentro de `.obsidian/` e outras que `vault.Walk` exclui.
 
-**Método**, idêntico ao das Tasks 89 e 92: `Win32_PerfFormattedData_PerfProc_Process`
-(`WorkingSet`, `WorkingSetPrivate`) por processo, somado; `Win32_OperatingSystem.FreePhysicalMemory`
-antes de subir qualquer processo e depois de todos acomodados — a métrica
-que não confunde página compartilhada com página duplicada (ver Task 89,
-"compartilhamento entre processos"). Todas as três colunas usam
-`--cache-dir` dedicado (fora do cofre e fora do padrão), aquecido por uma
-partida ignorada antes de cada bateria de medição, e a coluna "com o
-daemon" soma a(s) ponte(s) lançada(s) **mais** o processo `daemon`
-detached que elas iniciam — omitir o daemon do total sub-contaria a
-configuração inteira.
+**Nome da coluna do meio corrigido.** "Com a Task 88" nomeava mal a coluna:
+88 (carga sob demanda) e 89 (arena mapeada) vieram juntas, e não dá para
+isolar o efeito de uma sem um terceiro binário. A coluna mede o efeito das
+duas somadas, sem daemon, e passa a se chamar **"Parte II, sem daemon"**.
+
+**Duas rodadas de correção de método, as duas descobertas medindo, não
+supondo:**
+
+1. **`FreePhysicalMemory` (chamada de "física" na primeira versão desta
+   tabela) é ruidosa demais para decidir a célula que importa.** Repetindo
+   a MESMA configuração (1 sessão, sem daemon) três vezes seguidas, a queda
+   de memória livre do sistema saiu **223,8 / 252,8 / 317,2 MB** — variação
+   de 93,4 MB **dentro da mesma configuração**, maior que o efeito de
+   ~16 MB que a comparação com/sem daemon precisa resolver em uma sessão
+   só. É uma métrica de sistema inteiro, e qualquer outra coisa rodando na
+   máquina no instante da amostra entra na conta. `WorkingSet` e
+   `WorkingSet-Private`, por processo, saíram estáveis nas mesmas três
+   repetições (244,4 / 244,4 / 244,2 MB) — são a métrica que decide daqui
+   pra frente; física fica só como contexto, nunca como prova, e só onde o
+   efeito (centenas de MB) é grande demais para o ruído observado
+   (dezenas de MB) mudar a direção.
+2. **A primeira tentativa de reproduzir "dois daemons vivos" (a corrida da
+   Task 92) foi falso positivo do próprio script de medição, não uma
+   segunda ocorrência do bug.** Contando "todo processo `gobsidian.exe`
+   vivo" sem filtrar pelo cofre, uma bateria de N=5 apareceu com 7
+   processos em vez de 6. O sétimo era um daemon de
+   `testdata\vault_small` — outro processo, de outro agente, rodando no
+   MESMO worktree ao mesmo tempo, não relacionado a esta medição. Corrigido
+   filtrando por linha de comando conter o caminho do cofre alvo antes de
+   somar OU de matar qualquer processo; refeita a medição com o filtro
+   certo, o resultado voltou a ser exatamente 1 daemon (a mesma contagem
+   que as baterias anteriores, feitas antes desse processo concorrente
+   aparecer, já mostravam). **Ressalva honesta e sem meio-termo:** a
+   limpeza anterior deste script matava `gobsidian.exe` por nome, sem
+   filtrar — se algum processo concorrente de outro agente estava vivo
+   durante essa janela, pode ter sido encerrado sem querer. Corrigido antes
+   de qualquer medição nova ser aceita.
+
+**Método**, com as correções acima: `Win32_PerfFormattedData_PerfProc_Process`
+(`WorkingSet`, `WorkingSetPrivate`) por processo, **filtrado pela linha de
+comando conter o caminho do cofre desta medição**, somado; a célula
+decisiva (N=1) repetida **3 vezes por configuração**, N=5 repetida 2 vezes,
+N=3 medida uma vez (diferença grande o bastante para não depender de
+repetição). Todas as três colunas usam `--cache-dir` dedicado (fora do
+cofre e fora do padrão), aquecido por uma partida ignorada antes de cada
+bateria, e a coluna "com o daemon" soma a(s) ponte(s) **mais** o processo
+`daemon` detached que elas iniciam. **As sessões de fato buscam**:
+`--eager-search` força a mesma carga que `vault_search` dispararia de
+qualquer forma — sem isso as três colunas mediriam a mesma coisa (Task 88
+já garante que sessão que só lê/escreve nunca carrega o índice de busca).
 
 **Coluna "hoje"**: binário compilado no commit `782e813` (o commit
 imediatamente anterior à Task 88 — `git cat-file -t 782e813` confirma
 `commit`), a única forma de reproduzir fielmente "sempre carrega o índice
 inteiro, sem mmap, sem daemon" já que o binário atual não tem mais esse
-caminho de código. **Coluna "com a Task 88"**: binário atual (HEAD,
-`4e05d06`), `GOBSIDIAN_NO_DAEMON=1`, `--eager-search` — força a mesma carga
-que uma sessão que de fato busca pagaria de qualquer forma (lazy load só
-muda o **quando**, não o **quanto**, para quem chama `vault_search`).
-**Coluna "com o daemon"**: binário atual, sem `GOBSIDIAN_NO_DAEMON`,
-`--eager-search` propagado ao daemon (`internal/daemon/spawn.go` já
-encaminha a flag — ver Task 92).
+caminho. **1 e 3 sessões medidas no cofre de hoje** (4.513 notas) para
+ficarem comparáveis com as outras duas colunas; **5 sessões também
+medidas** (não foi preciso reaproveitar número antigo de outro tamanho de
+cofre — o binário já estava compilado e o cofre já estava com cache
+aquecido, então a medição de 5 custou só mais uma rodada, não um worktree
+novo).
 
-| Sessões simultâneas | hoje (pré-Parte II) | com a Task 88 (sem daemon) | com o daemon |
+| Sessões simultâneas | hoje (pré-Parte II) | Parte II, sem daemon | com o daemon |
 |---|---|---|---|
-| **1** | WS 585,0 MB · WS-Priv 574,1 MB · **física 579,1 MB** | WS 244,4 MB · WS-Priv 129,9 MB · **física 244,6 MB** | WS 260,1 MB · WS-Priv 134,0 MB · **física 223,6 MB** |
-| **3** | WS 1.754,4 MB · WS-Priv 1.721,7 MB · **física 1.681,3 MB** | WS 733,3 MB · WS-Priv 389,6 MB · **física 508,5 MB** | WS 288,7 MB · WS-Priv 141,1 MB · **física 262,2 MB** |
-| **5** | WS 2.923,1 MB · WS-Priv 2.868,9 MB · **física 2.916,4 MB** | WS 1.221,3 MB · WS-Priv 648,7 MB · **física 773,4 MB** | WS 318,7 MB · WS-Priv 148,5 MB · **física 229,4 MB** |
+| **1** | WS 585,0 MB · WS-Priv 574,1 MB | WS 244,3 MB · WS-Priv 129,8 MB (média de 3) | WS 260,3 MB · WS-Priv 134,3 MB (média de 3) |
+| **3** | WS 1.754,4 MB · WS-Priv 1.721,7 MB | WS 733,3 MB · WS-Priv 389,6 MB | WS 288,7 MB · WS-Priv 141,1 MB |
+| **5** | WS 2.923,1 MB · WS-Priv 2.868,9 MB | WS 1.221,3 MB · WS-Priv 648,6 MB (média de 2) | WS 319,4 MB · WS-Priv 148,3 MB (média de 2) |
 
-`WS` = Working Set total (conta página mapeada residente inteira em cada
-processo que a tem residente — infla quando há compartilhamento). `WS-Priv`
-= Working Set-Private (sai da conta quando a página é file-backed e
-compartilhável, mesmo sem confirmar compartilhamento físico estrito — ver a
-ressalva da Task 89). **Física** = queda de `FreePhysicalMemory` do sistema
-— a única das três que não pode confundir "página barata" com "página
-compartilhada", porque é a memória que o sistema operacional inteiro deixou
-de ter livre, não um contador por processo.
+`WS` = Working Set total. `WS-Priv` = Working Set-Private (sai da conta
+quando a página é file-backed e compartilhável — ver a ressalva da
+Task 89 sobre não confirmar compartilhamento físico estrito sem
+RAMMap/VMMap). Os três números de "hoje" e a linha N=3 das outras duas
+colunas são medição única; onde há "média de N", as N amostras
+individuais estão na seção de verificação abaixo.
 
-Comandos, colados por coluna (script de medição descartável, não
-commitado — a lógica é a mesma de `scripts/measure.ps1`, estendida para N
-processos e para somar todo `gobsidian.exe` vivo, inclusive o daemon
-detached):
+**A célula decisiva — 1 sessão, sem daemon contra com daemon:**
 
-```
-# hoje, N=1/3/5: binario em 782e813, sem flags de Parte II
-gobsidian.exe serve --vault <cofre> --cache-dir <dir formato 5>
+| Métrica | sem daemon (3 amostras) | com daemon (3 amostras) | diferença |
+|---|---|---|---|
+| WS | 244,4 / 244,4 / 244,2 | 260,8 / 260,1 / 260,0 | **+16,0 MB (+6,5%)** |
+| WS-Private | 129,9 / 129,9 / 129,6 | 134,8 / 134,1 / 134,0 | **+4,5 MB (+3,5%)** |
 
-# com a Task 88, N=1/3/5: binario atual, sem daemon, forcando carga
-$env:GOBSIDIAN_NO_DAEMON = "1"
-gobsidian.exe serve --vault <cofre> --cache-dir <dir formato 6> --eager-search
+**A expectativa registrada antes de medir — bridge (~15 MB) mais o processo
+do daemon (~246 MB) custam mais que uma instância independente sozinha —
+bateu.** As três amostras de cada lado não se sobrepõem (o pior caso "sem
+daemon" é 244,4; o melhor caso "com daemon" é 260,0), então a diferença não
+é ruído de uma medição só — é o custo real de manter um segundo processo
+vivo quando não há segunda sessão para compartilhar com ele.
 
-# com o daemon, N=1/3/5: binario atual, daemon ligado (padrao)
-gobsidian.exe serve --vault <cofre> --cache-dir <dir formato 6> --eager-search
-```
+**3 e 5 sessões, sem e com daemon:**
 
-**Física consumida cai monotonicamente da esquerda para a direita em cada
-linha**, e a coluna do daemon é a única que **não escala com N**: 223,6 →
-262,2 → 229,4 MB (ruído de medição em torno de ~225-260 MB, não tendência),
-contra crescimento aproximadamente linear nas outras duas colunas. Isso é
-exatamente o que "um processo, N conexões" prediz — cada ponte adicional
-custa 14-15 MB de Working Set, não mais um índice inteiro.
-
-**Queda de física consumida, hoje → com o daemon:**
-
-| Sessões | Queda |
-|---|---|
-| 1 | −61,4% (579,1 → 223,6 MB) |
-| 3 | −84,4% (1.681,3 → 262,2 MB) |
-| 5 | −92,1% (2.916,4 → 229,4 MB) |
-
-**Queda de física consumida, com a Task 88 → com o daemon (o que o daemon
-soma sobre o que a Task 88 já entrega sozinha):**
-
-| Sessões | Queda |
-|---|---|
-| 1 | −8,6% (244,6 → 223,6 MB) — dentro da margem de ruído de uma medição só; **não é seguro afirmar ganho na sessão única**, mas também não há perda |
-| 3 | −48,4% (508,5 → 262,2 MB) |
-| 5 | −70,3% (773,4 → 229,4 MB) |
+| Sessões | WS sem → com | WS-Priv sem → com |
+|---|---|---|
+| 3 | 733,3 → 288,7 MB (**−60,6%**) | 389,6 → 141,1 MB (**−63,8%**) |
+| 5 | 1.221,3 → 319,4 MB (**−73,8%**) | 648,6 → 148,3 MB (**−77,1%**) |
 
 ### Recomendação — o daemon deve vir ligado por padrão?
 
-**Sim.** A tabela acima resolve a pergunta que a Task 92 deixou em aberto —
-"o caso de uma sessão só pode não ganhar nada" — e a resposta medida é: **na
-sessão única, o daemon não piora** (223,6 MB contra 244,6 MB sem ele; a
-diferença de 8,6% está dentro do que uma medição só pode afirmar, então a
-leitura correta é "empate", não "ganho"), e a partir de **três sessões
-simultâneas que buscam de verdade, o ganho já é grande** (−48%) **e cresce
-com N** (−70% em cinco). Não existe nesta tabela nenhum ponto em que manter
-o daemon desligado seria a escolha melhor.
+**Não — os dados invertem a leitura inicial.** A regra que o brief desta
+tarefa já tinha fixado antes de qualquer medição — "se a coluna de uma
+sessão mostrar ganho zero ou negativo, isso decide a questão" — se aplica
+diretamente: a sessão única **perde** 16,0 MB de Working Set (6,5%) e 4,5 MB
+de Working Set-Private (3,5%) com o daemon ligado, medido com três
+repetições que não se sobrepõem. Não é ruído, e não é zero: é negativo.
 
-**O raciocínio, com as duas pontas:**
+**As duas pontas, com número:**
 
-- **A favor, com número:** física consumida some de 773,4 MB para 229,4 MB
-  com cinco sessões simultâneas do cofre real — a mesma ordem de grandeza
-  do −50% que a Task 92 já tinha medido num cofre menor, agora confirmada
-  numa bateria inteira e consistente de 1/3/5. O ganho **cresce** com o
-  número de sessões, que é exatamente o eixo em que "um processo por
-  sessão" piora.
-- **Contra, também com número:** o ganho na sessão única é zero (dentro do
-  ruído), e o daemon adiciona um processo de vida longa, um arquivo de
-  lock com a corrida residual documentada acima, e um modo de falha novo
-  (socket morto, versão incompatível). Nenhum desses custos aparece nesta
-  tabela porque eles não são de memória — são operacionais, e continuam
-  valendo mesmo quando o número de RSS está do lado do daemon.
+- **A favor:** a partir de três sessões simultâneas que buscam de verdade
+  contra o mesmo cofre, o ganho é grande (−60,6% de Working Set em 3,
+  −73,8% em 5) e cresce com N. Para quem sabe que vai abrir sessões
+  concorrentes, o daemon é uma vitória clara.
+- **Contra:** a sessão única — o caso mais comum, um host MCP por vez — paga
+  um custo real, ainda que pequeno em termos absolutos (16 MB), só para
+  manter viva uma capacidade que ela não usa. Some a isso o processo de
+  vida longa, o arquivo de lock com a corrida residual (abaixo) e o modo de
+  falha novo, e o argumento "compartilhamento sem downside" que sustentava
+  a recomendação anterior não sobrevive à célula que faltava medir.
 
-**Por que "ligado por padrão" e não "desligado por padrão" apesar do custo
-operacional real:** o fallback é automático nos três pontos (Task 91) e o
-pior caso medido de todo este trabalho — dois daemons vivos ao mesmo tempo
-(Task 92, corrigido) — nunca produziu corrupção de dado, só duplicação de
-processo. Um usuário com uma sessão só paga zero custo adicional (medido);
-um usuário com sessões concorrentes — o caso que motivou a Parte II inteira
-— ganha proporcionalmente ao número de sessões, sem precisar saber que o
-daemon existe. `GOBSIDIAN_NO_DAEMON=1` fica documentado no `README.md` para
-quem preferir desligá-lo (operação de longa duração isolada, depuração, ou
-desconfiança do mecanismo novo).
+**Por isso a recomendação muda para desligado por padrão, com opt-in para
+quem sabe que vai rodar sessões concorrentes.** O mecanismo atual
+(`GOBSIDIAN_NO_DAEMON=1` desliga; sem a variável, o padrão tenta o daemon)
+está invertido em relação a essa conclusão — hoje o padrão já É tentar o
+daemon. Virar esse padrão (o daemon só nasce se pedido explicitamente, por
+uma flag ou variável de ambiente ainda a nomear) é mudança de código, fora
+do escopo desta tarefa; o que cabe aqui é deixar registrado que o padrão
+atual do binário não bate com o que os números recomendam, para quem
+decidir o código seguinte.
 
-A Task 88 continua sendo o maior ganho por linha mexida do marco — ela é
-quem faz a MAIORIA das sessões (leitura e escrita, sem busca) nunca pagar
-custo nenhum, e essa tabela nem chega a exercitar esse caso, porque as três
-colunas forçam `--eager-search` de propósito. O daemon é o complemento para
-quem sobra depois da 88: sessão que busca de verdade, contra o mesmo cofre,
-ao mesmo tempo.
+**O que isto NÃO muda:** a Task 88 continua sendo o maior ganho por linha
+mexida do marco — ela é quem faz a MAIORIA das sessões (leitura e escrita,
+sem busca) nunca pagar custo nenhum, e essa tabela nem chega a exercitar
+esse caso, porque as três colunas forçam `--eager-search` de propósito. O
+daemon continua tendo valor real — só não de graça, e não para o caso
+comum.
 
 ### Risco residual conhecido — corrida de inicialização do daemon
 

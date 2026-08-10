@@ -2906,35 +2906,76 @@ $ git cat-file -t 4e05d06
 commit
 ```
 
-| Sessoes | hoje (pre-Parte II) | com a Task 88 (sem daemon) | com o daemon |
+**Duas correcoes de metodo, feitas DEPOIS do primeiro envio deste relatorio
+ao revisor, as duas por medicao, nao suposicao:**
+
+1. `FreePhysicalMemory` ("fisica") repetida 3x na MESMA configuracao (1
+   sessao, sem daemon) deu **223,8 / 252,8 / 317,2 MB** -- 93,4 MB de
+   variacao dentro da mesma config, maior que o efeito de ~16 MB que a
+   celula decisiva precisa resolver. `WorkingSet`/`WorkingSet-Private`, por
+   processo, ficaram estaveis nas mesmas repeticoes (244,4/244,4/244,2).
+   Fisica saiu de metrica decisiva para contexto secundario; WS/WS-Private
+   viraram a base da tabela.
+2. Uma tentativa de investigar "sera que a corrida da Task 92 se repetiu"
+   contou 7 processos em vez de 6 numa bateria de N=5 -- o setimo era um
+   daemon de `testdata\vault_small`, de OUTRO agente rodando no MESMO
+   worktree ao mesmo tempo, nao um segundo daemon do cofre real. O script
+   de medicao somava (e matava) "todo gobsidian.exe", sem filtrar por
+   cofre. Corrigido para filtrar pela linha de comando conter o caminho do
+   cofre desta medicao antes de somar OU matar qualquer processo; refeita a
+   medicao, voltou a 1 daemon so, batendo com as baterias anteriores (feitas
+   antes desse processo concorrente aparecer). **Risco assumido:** a
+   limpeza antiga matava por nome, sem filtro -- se um processo concorrente
+   de outro agente estava vivo durante essa janela, pode ter sido encerrado
+   sem querer. Reportado ao revisor assim que percebido.
+
+Coluna renomeada: "com a Task 88" virou **"Parte II, sem daemon"** -- 88
+(carga sob demanda) e 89 (arena mapeada) vieram juntas, e a coluna mede as
+duas somadas, nao uma isolada.
+
+| Sessoes | hoje (pre-Parte II) | Parte II, sem daemon | com o daemon |
 |---|---|---|---|
-| 1 | WS 585,0 / WS-Priv 574,1 / **fisica 579,1 MB** | WS 244,4 / WS-Priv 129,9 / **fisica 244,6 MB** | WS 260,1 / WS-Priv 134,0 / **fisica 223,6 MB** |
-| 3 | WS 1.754,4 / WS-Priv 1.721,7 / **fisica 1.681,3 MB** | WS 733,3 / WS-Priv 389,6 / **fisica 508,5 MB** | WS 288,7 / WS-Priv 141,1 / **fisica 262,2 MB** |
-| 5 | WS 2.923,1 / WS-Priv 2.868,9 / **fisica 2.916,4 MB** | WS 1.221,3 / WS-Priv 648,7 / **fisica 773,4 MB** | WS 318,7 / WS-Priv 148,5 / **fisica 229,4 MB** |
+| 1 | WS 585,0 / WS-Priv 574,1 MB | WS 244,3 / WS-Priv 129,8 MB (media de 3) | WS 260,3 / WS-Priv 134,3 MB (media de 3) |
+| 3 | WS 1.754,4 / WS-Priv 1.721,7 MB | WS 733,3 / WS-Priv 389,6 MB | WS 288,7 / WS-Priv 141,1 MB |
+| 5 | WS 2.923,1 / WS-Priv 2.868,9 MB | WS 1.221,3 / WS-Priv 648,6 MB (media de 2) | WS 319,4 / WS-Priv 148,3 MB (media de 2) |
 
-Tabela completa com os comandos colados por coluna e a leitura de cada
-metrica em `docs/OPERACAO.md`, secao "Task 93".
+Tabela completa, as amostras individuais da celula decisiva e a leitura de
+cada metrica em `docs/OPERACAO.md`, secao "Task 93".
 
-**Achado central: a coluna do daemon nao escala com N** (223,6 / 262,2 /
-229,4 MB -- ruido em torno de ~225-260 MB, nao tendencia), contra
-crescimento aproximadamente linear nas outras duas. Fisica consumida,
-com a Task 88 -> com o daemon: **-8,6% em 1 sessao** (dentro da margem de
-ruido de uma medicao so -- leitura correta e "empate", nao "ganho"),
-**-48,4% em 3**, **-70,3% em 5**.
+**A celula decisiva -- 1 sessao, sem daemon contra com daemon, 3 amostras
+por lado, sem sobreposicao entre os dois grupos:**
 
-### Recomendacao: daemon ligado por padrao — SIM
+```
+sem daemon:  WS 244,4 / 244,4 / 244,2   WS-Priv 129,9 / 129,9 / 129,6
+com daemon:  WS 260,8 / 260,1 / 260,0   WS-Priv 134,8 / 134,1 / 134,0
+```
 
-A Task 92 tinha deixado em aberto se a sessao unica ganharia algo; a
-resposta medida e que ela **nao perde nada** (empate dentro do ruido) e o
-ganho **cresce com N** a partir de 3 sessoes concorrentes que buscam de
-verdade. Nao ha, nesta tabela, nenhum ponto em que desligar o daemon por
-padrao seria a escolha melhor. O custo operacional do daemon (processo de
-vida longa, arquivo de lock com a corrida residual da Task 92, modo de
-falha novo) e real e nao aparece nos numeros de RSS -- mas o fallback
-automatico nos tres pontos (Task 91) e o pior caso ja medido (dois daemons
-vivos, nunca corrupcao de dado) tornam o risco aceitavel contra um ganho que
-cresce exatamente no cenario que motivou a Parte II inteira. Raciocinio
-completo, com as duas pontas, em `docs/OPERACAO.md`.
+**+16,0 MB de WS (+6,5%), +4,5 MB de WS-Private (+3,5%) com o daemon
+ligado, numa sessao so.** A expectativa do revisor -- bridge (~15 MB) mais
+o processo do daemon (~246 MB) custam mais que uma instancia independente
+sozinha -- bateu. **3 e 5 sessoes, sem -> com daemon:** WS -60,6% e -73,8%;
+WS-Private -63,8% e -77,1%.
+
+### Recomendacao: daemon ligado por padrao — NAO (revertida apos a celula decisiva)
+
+O primeiro envio deste relatorio recomendava "ligado por padrao" com base
+em `FreePhysicalMemory`, que a correcao 1 acima desqualificou como metrica
+decisiva. Com WS/WS-Private -- estaveis, repetidos, sem sobreposicao entre
+grupos -- **a sessao unica perde, nao empata**: 16,0 MB de WS a mais com o
+daemon ligado. O proprio brief da tarefa ja tinha fixado a regra antes de
+qualquer medicao: "se a coluna de uma sessao mostrar ganho zero ou
+negativo, isso decide a questao". Decidiu.
+
+A partir de 3 sessoes concorrentes que buscam de verdade contra o mesmo
+cofre, o ganho continua grande (-60,6% de WS em 3, -73,8% em 5) e continua
+sendo a resposta certa para quem sabe que vai rodar sessoes concorrentes --
+so nao e mais o padrao certo para o caso comum (uma sessao por vez), que
+paga o custo do processo extra sem nunca usar o beneficio dele. Mudar o
+padrao do binario (hoje: tenta o daemon sempre, `GOBSIDIAN_NO_DAEMON=1`
+desliga; recomendado: so tenta se pedido explicitamente) e mudanca de
+codigo, fora do escopo desta tarefa -- fica registrado para quem decidir o
+codigo seguinte. Raciocinio completo, com as duas pontas, em
+`docs/OPERACAO.md`.
 
 ### Sincronizacao de documentacao
 
@@ -2959,7 +3000,11 @@ completo, com as duas pontas, em `docs/OPERACAO.md`.
 - `README.md` — nova secao `## Daemon (opcional, ligado por padrao)`,
   entre "Linha de comando" e "Compatibilidade": como desligar
   (`GOBSIDIAN_NO_DAEMON=1`) e o que acontece quando ele nao sobe (fallback
-  automatico, sem inutilizar a ferramenta). **So essa secao foi tocada** --
+  automatico, sem inutilizar a ferramenta). Corrigida depois da celula
+  decisiva: a frase "custo essencialmente igual" para sessao unica estava
+  errada (era baseada em `FreePhysicalMemory`); agora diz que a sessao
+  unica custa ~16 MB a mais, com o numero, e aponta para a recomendacao
+  revertida em `docs/OPERACAO.md`. **So essa secao foi tocada** --
   `## Instalacao` e tudo acima dela ficaram fora, por instrucao explicita.
 
 ### Verificacoes

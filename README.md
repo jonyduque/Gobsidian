@@ -310,7 +310,7 @@ gobsidian inspect "Pasta/Minha nota.md" --vault "/caminho/do/cofre" --json
 
 ## 🧵 Daemon (opcional, ligado por padrão)
 
-Cada sessão de host MCP abre um processo `gobsidian serve`. Se duas ou mais sessões apontam para o **mesmo cofre ao mesmo tempo** e alguma delas de fato usa `vault_search`, o daemon compartilha um único índice entre elas em vez de cada sessão carregar a própria cópia — a ponte de cada sessão fica com poucos MB e o custo pesado é pago uma vez só. Para uma sessão isolada, ou para sessões que só leem e escrevem nota sem nunca buscar, o daemon não muda nada: o custo dele é essencialmente igual ao de rodar sem ele. Números completos em [`docs/OPERACAO.md`](docs/OPERACAO.md), seção "Parte II do M7".
+Cada sessão de host MCP abre um processo `gobsidian serve`. Se duas ou mais sessões apontam para o **mesmo cofre ao mesmo tempo** e alguma delas de fato usa `vault_search`, o daemon compartilha um único índice entre elas em vez de cada sessão carregar a própria cópia — a ponte de cada sessão fica com poucos MB e o custo pesado é pago uma vez só (medido: −60% de memória com 3 sessões simultâneas, −74% com 5). Para uma sessão isolada — o caso mais comum — o daemon **custa mais**, não menos: bridge mais o processo do daemon somam ~16 MB acima de uma instância única sem daemon, medido com repetição. A tabela completa e a recomendação (que os números levaram a inverter em relação à primeira leitura) estão em [`docs/OPERACAO.md`](docs/OPERACAO.md), seção "Task 93".
 
 O transporte é um socket de domínio Unix local, sob o diretório de runtime do usuário — nunca um socket que sai da máquina (RNF-30, `docs/PRD.md` §6.4).
 
