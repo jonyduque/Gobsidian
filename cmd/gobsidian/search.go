@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"github.com/jonyd/gobsidian/internal/config"
+	"github.com/jonyd/gobsidian/internal/console"
 	"github.com/jonyd/gobsidian/internal/index"
 	"github.com/jonyd/gobsidian/internal/search"
 	"github.com/jonyd/gobsidian/internal/service"
@@ -68,16 +69,17 @@ func newSearchCmd() *cobra.Command {
 				return nil
 			}
 
+			con := console.New(out)
 			if len(res.Results) == 0 {
-				_, _ = fmt.Fprintf(out, "[i] Nenhum resultado para %q\n", args[0])
+				con.Info("Nenhum resultado para %q", args[0])
 				return nil
 			}
 
-			_, _ = fmt.Fprintf(out, "[OK] %d resultado(s) para %q (total: %d):\n", len(res.Results), args[0], res.Total)
+			con.OK("%d resultado(s) para %q (total: %d):", len(res.Results), args[0], res.Total)
 			for _, m := range res.Results {
-				_, _ = fmt.Fprintf(out, "[*] %s (score: %.2f)\n", m.Path, m.Score)
+				con.Item("%s (score: %.2f)", m.Path, m.Score)
 				if m.Snippet != "" {
-					_, _ = fmt.Fprintf(out, "    ... %s ...\n", m.Snippet)
+					con.Detail("... %s ...", m.Snippet)
 				}
 			}
 			return nil

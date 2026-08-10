@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/jonyd/gobsidian/internal/config"
+	"github.com/jonyd/gobsidian/internal/console"
 	"github.com/jonyd/gobsidian/internal/index"
 	"github.com/jonyd/gobsidian/internal/vault"
 	"github.com/spf13/cobra"
@@ -101,18 +102,22 @@ func newInspectCmd() *cobra.Command {
 				return nil
 			}
 
-			_, _ = fmt.Fprintf(out, "[OK] Inspeção da nota %q:\n", string(n.Path))
-			_, _ = fmt.Fprintf(out, "[*] Título: %s\n", n.Title)
-			_, _ = fmt.Fprintf(out, "[*] Tamanho: %d bytes\n", n.Size)
+			// Sem acento: a saida de console e ASCII puro. Um console
+			// PowerShell em CP-850 renderia "Inspecao" e "Titulo" como lixo,
+			// e a regra existe justamente para os comandos de diagnostico.
+			con := console.New(out)
+			con.OK("Inspecao da nota %q:", string(n.Path))
+			con.Item("Titulo: %s", n.Title)
+			con.Item("Tamanho: %d bytes", n.Size)
 			if len(n.Tags) > 0 {
-				_, _ = fmt.Fprintf(out, "[*] Tags (%d): %s\n", len(n.Tags), strings.Join(n.Tags, ", "))
+				con.Item("Tags (%d): %s", len(n.Tags), strings.Join(n.Tags, ", "))
 			}
 			if len(headings) > 0 {
-				_, _ = fmt.Fprintf(out, "[*] Headings (%d): %s\n", len(headings), strings.Join(headings, ", "))
+				con.Item("Headings (%d): %s", len(headings), strings.Join(headings, ", "))
 			}
-			_, _ = fmt.Fprintf(out, "[*] Links de saída: %d\n", len(n.Links))
+			con.Item("Links de saida: %d", len(n.Links))
 			if len(backlinks) > 0 {
-				_, _ = fmt.Fprintf(out, "[*] Backlinks (%d): %s\n", len(backlinks), strings.Join(backlinks, ", "))
+				con.Item("Backlinks (%d): %s", len(backlinks), strings.Join(backlinks, ", "))
 			}
 			return nil
 		},
