@@ -1821,3 +1821,197 @@ foi necessaria alem do que a tarefa pediu.
 
 Commit: `d6fb7d0278ba50122875213644fd7d528764d44a` — "perf(index): re-resolve
 only the links a change can affect", `git cat-file -t` confirma `commit`.
+
+## Task 87 — fechamento da Parte I do M7: relatorios, ledger e medicao final — 2026-08-09
+
+Nao envia codigo. Mede o efeito acumulado das Tasks 78 a 86, corrige
+`docs/OPERACAO.md` e `README.md`, e fecha esta parte do marco.
+
+**Sem prova de mutacao: esta tarefa nao altera regra de codigo nenhuma**, entao
+nao ha regra para provar por mutacao.
+
+### O que ja tinha numero e nao foi remedido
+
+Instrucao explicita do lote: nao remedir o que ja tem numero, a menos que haja
+motivo para suspeitar dele. Nenhum dos dois casos abaixo deu esse motivo.
+
+- **RNF-02** (boot com cache valido, teto 300 ms): **371-472 ms** num cofre
+  real de 4.165 notas, medido pela Task 85 (`4d97943`) e corroborado de forma
+  independente (`6f5a842`). Nenhuma das Tasks 78-86 tocou
+  `Index.VerifyFreshness` nem `LoadIndexCache`, os dois pontos que a analise
+  anterior aponta como o custo residual. **NAO ATINGIDO.**
+- **RNF-06** (reindexacao de arquivo unico, teto 20 ms): **334,87 us**
+  mediana, p95 544,87 us, commit `d6fb7d0`, com duas provas de mutacao ja
+  coladas na secao "Task 86" deste mesmo ledger. **Atingido.**
+
+### O que esta tarefa mediu: RNF-04 e RNF-07, cofre sintetico de 5.000 notas
+
+A tabela de RNF-04 (`limit: 200` e mais sete formatos) e a de RNF-07 (RSS
+quente/fria) desta batelada foram estabelecidas no cofre sintetico gerado por
+`scripts/gen_vault.ps1 -Notes 5000 -Seed 42` (2026-08-01), nao no cofre real —
+diferente de RNF-02, que so tem numero no cofre real. Remedir a mesma tabela
+exige o mesmo cofre.
+
+**Achado antes de remedir:** `%TEMP%\vault_5000` ja existia na maquina, mas
+com 3 anexos e 6,7 MB — nao bate com o cofre documentado (50 anexos, 1,27 MB,
+10.101 links, 1.518 quebrados). Regenerado com o comando exato ja documentado:
+
+```
+pwsh -File scripts/gen_vault.ps1 -Out "$env:TEMP\vault_5000" -Notes 5000 -Seed 42
+```
+```
+[OK] Cofre sintético gerado em C:\Users\jonyd\AppData\Local\Temp\vault_5000
+[*] Notas: 5000
+[*] Anexos: 50
+[*] Tamanho total: 1.27 MB (1329475 bytes)
+[*] Links totais: 10101
+[*] Links quebrados: 1518
+```
+
+Confere com a geracao de 2026-08-01 (mesma semente, mesmo script).
+
+**RNF-04**, via `TestScale5000_RNF01_RNF02_RNF07_RNF04`
+(`internal/service/rnf5000_test.go`), que chama `svc.Search` — a mesma funcao
+que `internal/mcpsrv/tools_read.go` chama para a tool `vault_search`. Tres
+rodadas independentes, sem `-race`:
+
+```
+go test ./internal/service/ -run TestScale5000_RNF01_RNF02_RNF07_RNF04 -v -count=1
+```
+```
+=== RNF-04 (Latencia vault_search p95 5.000 notas) ===
+  termo amplo, limit default     mediana 19.75ms    p95 29.517ms
+  dois termos                    mediana 9.9605ms   p95 14.2779ms
+  termo seletivo                 mediana 5.7207ms   p95 11.989ms
+  filtro de pasta                mediana 20.5042ms  p95 25.7847ms
+  filtro de tag                  mediana 20.5481ms  p95 31.3671ms
+  frase exata                    mediana 13.0583ms  p95 19.7018ms
+  trecho maximo                  mediana 7.9574ms   p95 13.2298ms
+  limit maximo do schema         mediana 107.7772ms p95 122.5453ms
+--- PASS: TestScale5000_RNF01_RNF02_RNF07_RNF04 (11.19s)
+```
+
+Rodadas 2 e 3 (so a linha de `limit: 200`, a unica que nao fecha): p95
+120,0577 ms e 119,1827 ms. As outras sete linhas variaram entre 8 e 34 ms nas
+tres rodadas, todas dentro do teto de 100 ms.
+
+**Sete formatos de oito atingidos, com mais folga que antes** (o pior deles,
+"termo amplo", tinha p95 de 94,54 ms nas Tasks anteriores a este lote; hoje
+29-33 ms). `limit: 200` caiu de 181,25 ms para a faixa 119-123 ms — queda de
+~33%, e **segue NAO ATINGIDO** contra o teto de 100 ms.
+
+**RNF-07**, via `WorkingSet64` do processo real, mesmo cofre. `measure.ps1`
+nao aceita `--cache-dir`, e medir frio vs quente exige controlar se o cache ja
+existe antes do boot — usado um script local equivalente (mesma sequencia de
+handshake MCP, `SettleMs=8000`, 5 amostras a 200ms, reporta o pico), nao
+commitado, so chamando o binario compilado com `--cache-dir` explicito.
+
+Cache quente (3 partidas):
+
+```
+notes=5000 assets=50 index_ms=280 index_origin=cache RSS_pico_MB=38.10
+notes=5000 assets=50 index_ms=283 index_origin=cache RSS_pico_MB=37.95
+notes=5000 assets=50 index_ms=267 index_origin=cache RSS_pico_MB=38.10
+```
+
+Cache frio (3 partidas, cache apagado antes de cada uma):
+
+```
+notes=5000 assets=50 index_ms=508 index_origin=build RSS_pico_MB=54.82
+notes=5000 assets=50 index_ms=513 index_origin=build RSS_pico_MB=54.76
+notes=5000 assets=50 index_ms=538 index_origin=build RSS_pico_MB=54.69
+```
+
+**RNF-07 estava NAO ATINGIDO (67,08 MB quente / 112,96 MB frio, 2026-08-01) e
+agora esta ATINGIDO nos dois regimes**: 37,95-38,10 MB quente (37% de folga
+sobre o teto de 60 MB) e 54,69-54,82 MB frio (9% de folga).
+
+### Tabela de fechamento — os quatro RNFs
+
+| RNF | Metrica (alvo) | Antes | Depois (2026-08-09) | Estado |
+|---|---|---|---|---|
+| **RNF-02** | Boot com cache valido (<= 300 ms) | 1192-1396 ms sem `index_cache` | **371-472 ms** (cofre real, 4.165 notas; nao remedido — numero da Task 85, 2026-08-06) | **NAO ATINGIDO** |
+| **RNF-04** | `vault_search` p95 (<= 100 ms) | `limit: 200` em 181,25 ms; 7 outros formatos ja atingidos | 7 de 8 formatos atingidos (7-33 ms); `limit: 200` em **119-123 ms** | **Parcial (1 de 8 formatos NAO ATINGIDO)** |
+| **RNF-06** | Reindexacao de arquivo unico (<= 20 ms) | mediana 20,35 ms, p95 30,14 ms | **334,87 us** mediana, p95 544,87 us (Task 86, nao remedido) | **Atingido** |
+| **RNF-07** | RSS em repouso (<= 60 MB) | 67,08 MB quente / 112,96 MB frio | **37,95-38,10 MB** quente / **54,69-54,82 MB** frio | **Atingido** |
+
+Dos quatro RNFs que fechavam o M6 como nao atingidos, dois seguem nao
+totalmente atingidos (RNF-02, e RNF-04 num unico formato de oito) e dois
+passaram a ser atingidos (RNF-06 pela Task 86, RNF-07 como efeito colateral
+das otimizacoes de busca das Tasks 78-85). Nenhum teto foi afrouxado.
+
+### Correcao de doc encontrada nesta tarefa
+
+A tabela "Tabela completa dos RNFs" em `docs/OPERACAO.md` ainda listava RNF-06
+como NAO ATINGIDO com o numero antigo (20,35 ms) — a Task 86 tinha corrigido o
+codigo e registrado o resultado no ledger, mas nao tinha atualizado essa
+tabela, que e a que `README.md` referencia. Corrigido junto com as linhas de
+RNF-04 e RNF-07.
+
+`README.md` dizia "Quatro requisitos nao estao atingidos" — hoje sao dois
+(RNF-02 e RNF-04 parcial); a tabela e o texto de aviso foram atualizados para
+bater, e a contagem foi conferida contando as linhas com ❌/⚠️ na tabela
+(2), nao assumida.
+
+### Verificacao
+
+```
+pwsh -File scripts/verify.ps1 -SkipCross -SkipNet
+```
+```
+[OK] go build
+[OK] go test -race
+[OK] go test (tetos de latencia, sem -race)
+[OK] go vet (windows)
+[OK] gofmt
+[OK] golangci-lint
+[OK] check_tool_params
+[OK] Bateria completa. Pode commitar.
+```
+
+`golangci-lint version` confirmado em `2.12.2` (mesma do CI) antes de aceitar
+o zero acima.
+
+`pwsh -File scripts/check_doc_refs.ps1`: 10 achados, todos pre-existentes em
+`ARCHITECTURE.md`, `ESTRUTURA.md`, `TOOLS.md` e `WINDOWS.md` — nenhum em
+`docs/OPERACAO.md` nem `README.md`, os dois arquivos que esta tarefa tocou.
+
+`pwsh -File scripts/audit_reports.ps1`: 45 achados, todos pre-existentes em
+relatorios de tarefas anteriores (Tasks 1-79) e em tres linhas do ledger de
+2026-07 (duas de SHA-nao-confere nas Tasks 4 e 6, uma de SHA-fantasma com um
+identificador de exemplo que nao corresponde a commit nenhum) — nenhum deles
+introduzido por esta tarefa. O script nao verifica `docs/OPERACAO.md` nem
+`README.md` (so `task-*-report.md` e `progress.md`), entao a tabela e o aviso
+atualizados nesses dois arquivos nao passam por ele; a evidencia deles esta
+colada acima e neste ledger.
+
+Todo SHA citado neste registro conferido com `git cat-file -t`:
+
+```
+$ git cat-file -t 4d97943
+commit
+$ git cat-file -t 6f5a842
+commit
+$ git cat-file -t d6fb7d0
+commit
+```
+
+Validacao UTF-8 dos dois arquivos `.md` tocados:
+
+```
+$ python -c "open('docs/OPERACAO.md',encoding='utf-8').read()"
+[OK] UTF-8 valido
+$ python -c "open('README.md',encoding='utf-8').read()"
+[OK] UTF-8 valido README
+```
+
+### Escopo
+
+Cumprido integralmente: os quatro RNFs tem numero antes/depois, `docs/OPERACAO.md`
+e `README.md` corrigidos, contagem de requisitos nao atingidos conferida por
+contagem real (nao suposta), e a correcao de doc que a Task 86 tinha deixado
+pendente (RNF-06 na tabela principal) foi paga junto.
+
+Esta tarefa nao produz commit de codigo — so documentacao e ledger, no unico
+commit que segue esta entrada no historico, mensagem "docs(ledger): record M7
+and the measured state of the four RNFs".

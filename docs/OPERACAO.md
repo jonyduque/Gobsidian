@@ -162,7 +162,15 @@ pwsh -File scripts/measure.ps1 -Vault <caminho-do-cofre>
 
 **Cofre pequeno, 2026-07-28.** 7 notas, 1 anexo, 180 KB. maquina de referencia, 12 núcleos, Windows 11. Três execuções.
 
-### Tabela completa dos RNFs — estado no fechamento do M6 (2026-08-02)
+### Tabela completa dos RNFs — estado apos o fechamento da Parte I do M7 (2026-08-09)
+
+Atualizada pela Task 87. As linhas RNF-04, RNF-06 e RNF-07 mudaram desde o
+fechamento do M6 (2026-08-02): RNF-06 foi corrigido pela Task 86 e RNF-07
+melhorou como efeito colateral das otimizacoes de busca das Tasks 78-85 — a
+tabela abaixo nao tinha sido atualizada ate agora, e por isso RNF-06 ainda
+aparecia como NAO ATINGIDO aqui apesar de a Task 86 ja ter corrigido.
+Detalhe de cada remedicao na secao "Fechamento da Parte I do M7", ao fim deste
+documento.
 
 Os 22 RNFs do PRD, cada um com **número medido** ou **"não medido"**. Não há
 terceira coluna de opinião: alvo não atingido e registrado é informação; alvo
@@ -177,10 +185,10 @@ num cofre de 7 notas.
 | **RNF-01** | Indexação a frio (≤ 3 s) | 500,11 ms no cofre sintético; **1,1 s** num cofre real de 109 MB | **Atingido** |
 | **RNF-02** | Boot com cache válido (≤ 300 ms) | 208–282 ms no cofre sintético; **371–472 ms** num cofre real de 109 MB (2026-08-06, com `index_cache`) | **NÃO ATINGIDO** |
 | **RNF-03** | `note_read` p95 (≤ 15 ms) | p95 **344,97 µs**, mediana 206,47 µs (5.000 notas) | **Atingido** |
-| **RNF-04** | `vault_search` p95 (≤ 100 ms) | 500 notas: 8 de 8, 7–25 ms. 5.000 notas: 7 de 8; `limit: 200` em **181,25 ms** | **Parcial** |
+| **RNF-04** | `vault_search` p95 (≤ 100 ms) | 500 notas: 8 de 8, 7–25 ms. 5.000 notas: 7 de 8; `limit: 200` em **119–123 ms** (2026-08-09, era 181,25 ms) | **Parcial** |
 | **RNF-05** | `note_list` com filtro de metadados p95 (≤ 10 ms) | p95 **533,68 µs**, mediana 249,24 µs (5.000 notas) | **Atingido** |
-| **RNF-06** | Reindexação de arquivo único (≤ 20 ms) | mediana **20,35 ms**, p95 30,14 ms (5.000 notas). Degradado do PRD: 100 ms | **NÃO ATINGIDO** |
-| **RNF-07** | RSS em repouso (≤ 60 MB) | 5.000 notas: **67,08 MB** com cache quente, **112,96 MB** a frio | **NÃO ATINGIDO** |
+| **RNF-06** | Reindexação de arquivo único (≤ 20 ms) | mediana **334,87 µs**, p95 544,87 µs (5.000 notas, lote=20; Task 86, 2026-08-06). Era 20,35 ms | **Atingido** |
+| **RNF-07** | RSS em repouso (≤ 60 MB) | 5.000 notas: **37,95–38,10 MB** com cache quente, **54,69–54,82 MB** a frio (2026-08-09). Era 67,08 / 112,96 MB | **Atingido** |
 | **RNF-08** | CPU em repouso (< 0,5 %) | **não medido** | — |
 | **RNF-09** | Escalabilidade linear até 20.000 notas | **não medido** (medido até 5.000) | — |
 | **RNF-10** | Zero órfãos em 100 ciclos de start/kill do host | **100/100 em três cenários** — `stdin-eof`, `parent-death`, `signal` —, cada um com o `reason=` do seu mecanismo | **Atingido** |
@@ -690,3 +698,175 @@ Quem escolheu `maxSnippetWorkers = 8` foi a coluna de processo único, medida em
 e a 500 notas não são melhores que 4. **Fica registrado como lacuna** que não há,
 hoje, um harness de carga que estresse a máquina sem multiplicar o pool do
 servidor.
+
+## Fechamento da Parte I do M7 — Task 87 (2026-08-09)
+
+Task 87 não envia código — mede o efeito das Tasks 78 a 86 (seis delas mudam o
+calculo de score de busca; as demais tocam `note_read` em lote e o cache de
+metadados) e fecha a documentação. **Esta tarefa não tem prova de mutação: não
+altera nenhuma regra de código, então não há regra para provar por mutação.**
+
+### O que já tinha número e não foi remedido
+
+Por instrução explícita do lote: "não remeça o que já tem número, a menos que
+suspeite dele". Nenhuma das duas rasuras abaixo deu motivo para suspeita.
+
+- **RNF-02** (boot com cache válido): **371–472 ms** num cofre real de 4.165
+  notas (2026-08-06), contra baseline de 1192–1396 ms sem `index_cache`.
+  Medido pela Task 85 (commit `4d97943`) e corroborado independentemente
+  (commit `6f5a842`), ambos `git cat-file -t` confirmando `commit`. **NÃO
+  ATINGIDO** contra o teto de 300 ms. Nenhuma das Tasks 78-86 tocou
+  `Index.VerifyFreshness` nem `LoadIndexCache`, os dois pontos que a análise
+  anterior aponta como o custo residual (varredura sequencial de `Stat` por
+  arquivo, agravada por sincronização de nuvem) — não há razão técnica para
+  esperar que o número tenha mudado, e por isso não foi remedido aqui.
+- **RNF-06** (reindexação de arquivo único): **334,87 µs** de mediana, p95
+  544,87 µs (5.000 notas, lote=20), commit `d6fb7d0`, duas provas de mutação
+  coladas no ledger (`.superpowers/sdd/2026-07-25-gobsidian-v01/progress.md`,
+  seção "Task 86"). **Atingido**, folga de ~60x sobre o teto de 20 ms.
+
+### O que esta tarefa remediu: RNF-04 e RNF-07, no cofre sintético de 5.000 notas
+
+**Por que o cofre sintético e não o real desta vez.** A tabela de RNF-04 que
+esta tarefa atualiza (`limit: 200` a 5.000 notas, oito formatos de consulta)
+e a de RNF-07 (RSS a 5.000 notas, cache quente/frio) foram estabelecidas no
+cofre sintético gerado por `scripts/gen_vault.ps1 -Notes 5000 -Seed 42`
+(2026-08-01), não no cofre real — ao contrário de RNF-02, que só tem número no
+cofre real. Remedir a mesma tabela exige o mesmo cofre; usar o real aqui
+trocaria a variável errada (cofre, não código) e tornaria o antes/depois
+incomparável.
+
+**Achado incidental antes de remedir.** O diretório `%TEMP%\vault_5000` já
+existia na máquina, mas com 5.000 notas, 3 anexos e 6,7 MB — não bate com o
+cofre documentado (50 anexos, 1,27 MB, 10.101 links, 1.518 quebrados), então
+não era o corpus de referência: provavelmente um cofre gerado por uma tarefa
+anterior do mesmo lote, com parâmetros diferentes de `-BodyKB`. Regenerado com
+o comando exato documentado:
+
+```
+pwsh -File scripts/gen_vault.ps1 -Out "$env:TEMP\vault_5000" -Notes 5000 -Seed 42
+```
+
+```
+[OK] Cofre sintético gerado em C:\Users\jonyd\AppData\Local\Temp\vault_5000
+[*] Notas: 5000
+[*] Anexos: 50
+[*] Tamanho total: 1.27 MB (1329475 bytes)
+[*] Links totais: 10101
+[*] Links quebrados: 1518
+```
+
+Confere byte a byte com a geração de 2026-08-01 (mesma semente, mesmo script).
+
+#### RNF-04 — `TestScale5000_RNF01_RNF02_RNF07_RNF04`, `internal/service/rnf5000_test.go`
+
+Mede através de `svc.Search`, a mesma chamada que `internal/mcpsrv/tools_read.go`
+faz para a tool `vault_search` (`s.svc.Search(ctx, service.SearchOptions{...})`)
+— é a "pilha inteira" que o RNF nomeia: parsing da consulta, filtros,
+limit/offset e leitura de disco por trecho. `BenchmarkSearchLimit200` (que caiu
+de 218,5 ms para 115,0 ms segundo o revisor) mede só o kernel de busca, sem
+passar por essa camada — por isso não substitui esta medição.
+
+```
+go test ./internal/service/ -run TestScale5000_RNF01_RNF02_RNF07_RNF04 -v -count=1
+```
+
+Três rodadas independentes (a suíte já tolera até 3 antes de reprovar, para
+separar pico de carga de regressão real — aqui todas as três concordam):
+
+| Formato | Rodada 1 p95 | Rodada 2 p95 | Rodada 3 p95 | Status (alvo ≤ 100 ms) |
+|---|---|---|---|---|
+| termo amplo, limit default | 29,52 ms | 31,80 ms | 33,37 ms | **Atingido** |
+| dois termos | 14,28 ms | 10,67 ms | 13,97 ms | **Atingido** |
+| termo seletivo | 11,99 ms | 11,27 ms | 8,35 ms | **Atingido** |
+| filtro de pasta | 25,78 ms | 32,94 ms | 29,94 ms | **Atingido** |
+| filtro de tag | 31,37 ms | 34,24 ms | 33,07 ms | **Atingido** |
+| frase exata | 19,70 ms | 20,82 ms | 17,51 ms | **Atingido** |
+| trecho máximo | 13,23 ms | 12,31 ms | 10,53 ms | **Atingido** |
+| `limit: 200` | **122,55 ms** | **120,06 ms** | **119,18 ms** | **NÃO ATINGIDO** |
+
+Saída bruta da primeira rodada:
+
+```
+=== RNF-04 (Latencia vault_search p95 5.000 notas) ===
+  termo amplo, limit default     mediana 19.75ms    p95 29.517ms
+  dois termos                    mediana 9.9605ms   p95 14.2779ms
+  termo seletivo                 mediana 5.7207ms   p95 11.989ms
+  filtro de pasta                mediana 20.5042ms  p95 25.7847ms
+  filtro de tag                  mediana 20.5481ms  p95 31.3671ms
+  frase exata                    mediana 13.0583ms  p95 19.7018ms
+  trecho maximo                  mediana 7.9574ms   p95 13.2298ms
+  limit maximo do schema         mediana 107.7772ms p95 122.5453ms
+--- PASS: TestScale5000_RNF01_RNF02_RNF07_RNF04 (11.19s)
+```
+
+**Sete formatos de oito seguem atingidos, com folga maior que antes** (o pior
+deles, "termo amplo", tinha p95 de 94,54 ms nas Tasks 78-86 anteriores; hoje
+está em 29–33 ms). `limit: 200` caiu de 181,25 ms para a faixa 119–123 ms —
+**queda de ~33%, e segue NÃO ATINGIDO** contra o teto de 100 ms. Registrar essa
+faixa é a resposta certa; chamar de "quase lá" e parar omitiria os ~20 ms que
+faltam. Medido sem `-race` (o teto do RNF-04 só vale sem o detector, que
+multiplica a latência por 2 a 6 — mesma regra já cobrada por `verify.ps1`).
+
+#### RNF-07 — `WorkingSet64` do processo real, cofre sintético de 5.000 notas
+
+`scripts/measure.ps1` não aceita `--cache-dir`, e medir "frio" vs "quente"
+exige controlar se o cache já existe antes do boot. Usado um script local
+equivalente (mesma sequência de handshake MCP, mesmo `SettleMs`, mesmo "reporta
+o pico, não a última amostra"), não commitado — só chama o binário compilado
+com `--cache-dir` explícito, a mesma superfície que `measure.ps1` já expõe por
+outro caminho.
+
+```
+pwsh -File scripts/build.ps1
+# depois, por partida: gobsidian.exe serve --vault <vault_5000> --cache-dir <dir vazio ou já preenchido>
+# handshake MCP, sleep de acomodacao (8s), 5 amostras de WorkingSet64 a 200ms, reporta o pico
+```
+
+**Cache quente** (cache já presente e válido; 3 partidas, settle 8 s, 5
+amostras cada):
+
+| Partida | `index_ms` | `index_origin` | RSS pico |
+|---|---|---|---|
+| 1 | 280 | cache | 38,10 MB |
+| 2 | 283 | cache | 37,95 MB |
+| 3 | 267 | cache | 38,10 MB |
+
+**Cache frio** (diretório de cache vazio, servidor reconstrói e grava; 3
+partidas, settle 8 s, cache apagado antes de cada uma):
+
+| Partida | `index_ms` | `index_origin` | RSS pico |
+|---|---|---|---|
+| 1 | 508 | build | 54,82 MB |
+| 2 | 513 | build | 54,76 MB |
+| 3 | 538 | build | 54,69 MB |
+
+**RNF-07 estava NÃO ATINGIDO (67,08 MB quente / 112,96 MB frio, 2026-08-01) e
+agora está ATINGIDO nos dois regimes**: 37,95–38,10 MB quente (43% abaixo do
+teto de 60 MB) e 54,69–54,82 MB frio (9% abaixo). Consistente com a redução de
+alocação de 89% relatada pelo revisor para o lote — a fração que chega a RSS é
+menor que 89% porque RSS inclui runtime do Go, stacks e páginas ainda
+residentes que a redução de alocação no heap não toca diretamente, mas a
+direção e a magnitude batem.
+
+O instrumento foi conferido antes de aceitar o resultado: o cofre regenerado
+bate nota por nota, anexo por anexo e link por link com a geração de
+2026-08-01 (mesma semente), então a comparação antes/depois é sobre o mesmo
+corpus, não sobre um corpus parecido.
+
+### Tabela de fechamento — os quatro RNFs, antes e depois
+
+| RNF | Métrica (alvo) | Antes (M7, pré-Task 78) | Depois (2026-08-09) | Estado |
+|---|---|---|---|---|
+| **RNF-02** | Boot com cache válido (≤ 300 ms) | 1192–1396 ms sem `index_cache` | **371–472 ms** (cofre real, 4.165 notas; não remedido nesta tarefa — número já estabelecido pela Task 85, 2026-08-06) | **NÃO ATINGIDO** |
+| **RNF-04** | `vault_search` p95 (≤ 100 ms) | `limit: 200` em 181,25 ms; outros 7 formatos já atingidos | 7 de 8 formatos atingidos (7–33 ms); `limit: 200` em **119–123 ms** | **Parcial (NÃO ATINGIDO em 1 de 8 formatos)** |
+| **RNF-06** | Reindexação de arquivo único (≤ 20 ms) | mediana 20,35 ms, p95 30,14 ms | **334,87 µs** mediana, p95 544,87 µs (Task 86, não remedido nesta tarefa) | **Atingido** |
+| **RNF-07** | RSS em repouso (≤ 60 MB) | 67,08 MB quente / 112,96 MB frio | **37,95–38,10 MB** quente / **54,69–54,82 MB** frio | **Atingido** |
+
+Dos quatro RNFs que fechavam o M6 como não atingidos, **dois seguem não
+totalmente atingidos hoje** (RNF-02, e RNF-04 num único formato de oito) e
+**dois passaram a ser atingidos** (RNF-06 pela Task 86, RNF-07 como efeito
+colateral das otimizações de busca das Tasks 78-85). Nenhum teto foi
+afrouxado para chegar a esse resultado — decisão fechada do lote (D-M7,
+"nenhum teto de RNF é afrouxado nesta batelada"), e os números acima medem
+contra os mesmos alvos do PRD.

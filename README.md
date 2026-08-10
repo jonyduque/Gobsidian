@@ -293,16 +293,16 @@ Medido em cofre sintético determinístico de **5.000 notas** (`scripts/gen_vaul
 | Requisito | Alvo | Medido | |
 |---|---|---|---|
 | Indexação a frio (metadados) | ≤ 3 s | **500 ms**; 1,1 s num cofre de 109 MB | ✅ |
-| Boot com cache válido | ≤ 300 ms | 208–282 ms no sintético; **371–472 ms** num cofre de 109 MB | ❌ |
+| Boot com cache válido | ≤ 300 ms | 208–282 ms no sintético; **371–472 ms** num cofre real de 4.165 notas | ❌ |
 | `note_read` p95 | ≤ 15 ms | **345 µs** | ✅ |
 | `note_list` com filtro p95 | ≤ 10 ms | **534 µs** | ✅ |
-| `vault_search` p95 | ≤ 100 ms | 7 de 8 formatos | ⚠️ |
-| Reindexação de arquivo único | ≤ 20 ms | 20,35 ms | ❌ |
-| RSS em repouso | ≤ 60 MB | 67 MB | ❌ |
+| `vault_search` p95 | ≤ 100 ms | 7 de 8 formatos; `limit: 200` em 119–123 ms | ⚠️ |
+| Reindexação de arquivo único | ≤ 20 ms | **335 µs** | ✅ |
+| RSS em repouso | ≤ 60 MB | **38 MB** com cache quente, 55 MB a frio | ✅ |
 | Processos órfãos após morte do host | 0 | **0 em 300 ciclos** | ✅ |
 
 > [!WARNING]
-> **Quatro requisitos não estão atingidos, e estão medidos.** O boot com cache válido leva 832–1183 ms num cofre real de 109 MB contra um teto de 300 ms — era ~7 s antes do trabalho de formato do cache de 2026-08-03, e o que sobra agora é construção de mapas, não serialização. `vault_search` com `limit: 200` custa 181 ms a 5.000 notas contra um teto de 100 ms; a reindexação de arquivo único passa 2% do alvo; e o RSS fica em 67 MB com cache quente e 113 MB depois de uma indexação a frio. CPU em repouso e linearidade até 20.000 notas **não foram medidos**.
+> **Dois requisitos não estão totalmente atingidos, e estão medidos.** O boot com cache válido leva 371–472 ms num cofre real de 4.165 notas contra um teto de 300 ms — era 1192–1396 ms antes do cache de índice de metadados da Task 85 (2026-08-06), e o que sobra agora é a varredura de `Stat` por arquivo que confere o cache antes de aceitá-lo, mais cara num cofre sincronizado por nuvem que num disco local. `vault_search` atinge o teto em 7 dos 8 formatos medidos; só `limit: 200` continua acima, em 119–123 ms a 5.000 notas (era 181 ms). A reindexação de arquivo único e o RSS em repouso, que fechavam o M6 como não atingidos, passaram a ser atingidos com as otimizações de busca do M7 (Tasks 78–86) — ver a tabela de fechamento em [`docs/OPERACAO.md`](docs/OPERACAO.md). CPU em repouso e linearidade até 20.000 notas **não foram medidos**.
 >
 > A tabela dos 22 requisitos não-funcionais, cada um com número medido ou a palavra "não medido", está em [`docs/OPERACAO.md`](docs/OPERACAO.md).
 
