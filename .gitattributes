@@ -13,6 +13,15 @@
 *.txt      text eol=lf
 Makefile   text eol=lf
 
+# Os golden de ranking (internal/service/testdata/ranking/*.tsv) sao comparados
+# BYTE A BYTE contra uma string que o teste monta com "\n". Sem esta linha eles
+# caem no "* text=auto" acima e um checkout no Windows os materializa em CRLF —
+# e os seis subtestes de TestRankingGolden reprovam com "ranking mudou", que
+# parece regressao de ranking e nao e. Passava na maquina de quem os gerou
+# porque o arquivo escrito pelo -update nunca tinha sido re-materializado pelo
+# Git; falhava em todo clone novo, inclusive no CI.
+*.tsv      text eol=lf
+
 # Os scripts de PowerShell ficam em CRLF: e o que o Windows espera, e sao
 # executados la e so la.
 *.ps1  text eol=crlf
