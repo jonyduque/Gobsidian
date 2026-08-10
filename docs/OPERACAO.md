@@ -870,3 +870,115 @@ colateral das otimizações de busca das Tasks 78-85). Nenhum teto foi
 afrouxado para chegar a esse resultado — decisão fechada do lote (D-M7,
 "nenhum teto de RNF é afrouxado nesta batelada"), e os números acima medem
 contra os mesmos alvos do PRD.
+
+## Parte II do M7 — carga sob demanda e arena mapeada (2026-08-10)
+
+### Task 88 — índice de busca carregado só na primeira `vault_search`
+
+`prepararIndiceDeBusca` deixou de rodar incondicionalmente no boot. A carga só
+dispara na primeira chamada de `vault_search`; até lá a tool devolve
+`INDEX_BUILDING`, nunca lista vazia. `--eager-search` liga o comportamento
+antigo.
+
+Medido no cofre real de 4.490 notas, três partidas, sem nenhuma chamada a
+`vault_search`:
+
+```
+RSS 125,2 MB   index_ms=622
+RSS 125,0 MB   index_ms=507
+```
+
+Baseline no mesmo cofre e máquina, cache quente, antes da mudança: **501,9 /
+502,1 / 501,9 MB**. **~502 MB → ~125 MB numa instância que nunca busca — queda
+de 75%.** Detalhe completo, inclusive a prova de mutação, no ledger
+(`.superpowers/sdd/2026-07-25-gobsidian-v01/progress.md`, "Task 88 (M7)").
+
+Isto reduz o público da Task 89 seguinte: só instância que **busca** carrega o
+array de posições, então só ela se beneficia de mapeá-lo.
+
+### Task 89 — arena de posições mapeada do arquivo
+
+O array de posições era ~291 MB (na época do brief) dos ~500 MB de uma
+instância com índice carregado — cada processo alocava a própria cópia no
+heap. Mapeado do arquivo em modo leitura, essas páginas passam a ser
+file-backed e reclamáveis pelo sistema operacional em vez de heap privado
+sempre residente.
+
+**Formato do cache: 5 → 6.** `escreveCache` passou a gravar, depois do corpo em
+varint de sempre (que continua sendo o que a decodificação integral usa), uma
+seção fixa de posições em 16 bytes cada — alinhada em 8 — e um rodapé de 24
+bytes no fim do arquivo. `LoadInvertedCache` tenta mapear essa seção primeiro;
+qualquer recusa (cache dentro do cofre, arquivo pequeno demais, rodapé
+ausente/corrompido, mmap falhou na plataforma) cai para `os.ReadFile` + decodificação
+integral de sempre — nunca mapeia lixo.
+
+**Toda troca de formato reconstrói o cache de busca no boot seguinte** — regra
+já registrada no `CLAUDE.md` para a troca 1→5, e que vale de novo aqui.
+Medido no cofre real (formato 5 → formato 6, tokenização completa das 4.490
+notas): **157,3 s** (binário anterior à Task 89, grava o formato 5) contra
+**157,9 s** (binário desta tarefa, grava o formato 6) — a diferença entre os
+dois é ruído; escrever a seção fixa adicional não mede no tempo de
+construção, que é dominado pela tokenização. Os dois rodam em segundo plano,
+com as outras onze tools respondendo desde o primeiro segundo (mesmo
+mecanismo de sempre).
+
+**Custo em disco.** `inverted_cache.gob` do cofre real:
+
+| Formato | Tamanho | 
+|---|---|
+| 5 (antes) | 108.492.193 B (103,5 MB) |
+| 6 (depois) | 573.554.656 B (546,9 MB) |
+
+**5,3× maior — 443,5 MB a mais**, não os ~291 MB estimados no brief: o cofre
+real cresceu desde que aquele número foi escrito (é um cofre de uso diário do
+usuário), então o array de posições hoje tem mais entradas do que as
+18.229.295 registradas antes. É o troco pré-decidido — disco por memória
+compartilhada — só que o disco pago é maior do que a estimativa.
+
+**RSS, cofre real, três partidas com `--eager-search` (equivalente a ter
+buscado — força a mesma carga sob demanda da Task 88), cache aquecido por uma
+partida anterior ignorada na medição:**
+
+| Cenário | Working Set (soma) | Working Set - Private (soma) |
+|---|---|---|
+| 1 instância, formato 5 (antes) | 584,9 MB | 574,0 MB |
+| 1 instância, formato 6 + mmap (depois) | 244,3 MB | 129,9 MB |
+| 3 instâncias, formato 5 (antes) | 1.754,5 MB | 1.721,9 MB |
+| 3 instâncias, formato 6 + mmap (depois) | 732,7 MB | 389,6 MB |
+
+Queda no agregado de três instâncias: **58,2% em Working Set total, 77,4% em
+Working Set-Private** — a métrica certa aqui, porque Working Set total conta
+página mapeada residente inteira em CADA processo que a tem residente, mesmo
+quando o cache de páginas do SO a compartilha; Working Set-Private é o que
+sai do cômputo de cada processo quando a memória deixa de ser heap privado.
+**Acima do critério de parada de 30% definido no brief — não foi preciso
+considerar a opção (b) (mapear o arquivo comprimido e decodificar sob
+demanda).**
+
+Ressalva que o relatório desta tarefa também registra: a queda percentual por
+instância é **igual** com uma ou com três instâncias (77,4% nos dois casos), e
+3 × (Working Set-Private de uma instância) bate com o Working Set-Private
+agregado de três — não há queda ADICIONAL mensurável por instância extra
+além da primeira. Isso é esperado: no Windows, página mapeada de arquivo em
+modo leitura sai da contagem de "Private" por ser file-backed e reclamável,
+**independente de quantos processos a têm mapeada** — os contadores de
+processo do Windows não expõem uma métrica de "páginas de quadro físico
+únicas entre N processos" (o equivalente do PSS do Linux). O que está medido
+e provado é que o array deixou de ser heap privado sempre residente; que as
+páginas residentes são efetivamente as MESMAS entre os processos (e não só
+"igualmente baratas cada uma") seria preciso uma ferramenta como RAMMap/VMMap
+para confirmar — não medido nesta tarefa.
+
+**Rename atômico sobre arquivo mapeado.** `os.Rename` do salvamento atômico
+falha no Windows se o processo ainda tem o arquivo de destino mapeado — só
+importa no caminho raro de cache PARCIAL retomado e depois regravado
+(`buildInvertedIndex` continuando depois de `AdotarDe` um cache incompleto
+carregado via arena). Confirmado experimentalmente antes de confiar na
+correção: com o arquivo ainda mapeado, `os.Remove` nele falha de verdade
+(`TestSaveOverwritesMappedCache`, `internal/search/persist_test.go`).
+`promoverArenaSePresente` copia as posições para o heap e desmapeia ANTES do
+`os.Rename`; no caminho comum (cache completo, "pronta") `SaveInvertedCache`
+nunca roda de novo no mesmo processo, então isto não dispara ali.
+
+Ver ledger (`.superpowers/sdd/2026-07-25-gobsidian-v01/progress.md`, "Task 89
+(M7)") para a prova de mutação e a saída de `verify.ps1`.

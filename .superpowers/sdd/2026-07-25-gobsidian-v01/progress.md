@@ -2104,3 +2104,200 @@ concorrencia, e nunca mais tentar depois de uma falha. `Once` e sobre "ja
 disparei", nao sobre "ja consegui".
 
 `TestRankingGolden` identico. `verify.ps1 -SkipCross -SkipNet` verde.
+
+## Task 89 (M7) — arena de posicoes mapeada do arquivo — 2026-08-10
+
+Commit: `b92d58a0da17a98ad9605e535f2de971a031900f`
+("perf(search): map the position array from the cache file")
+
+```
+$ git cat-file -t b92d58a
+commit
+```
+
+Formato do cache: 5 -> 6 (`GBS5` -> `GBS6`). `escreveCache` grava, depois do
+corpo em varint de sempre, uma secao fixa de posicoes em 16 bytes cada
+(alinhada em 8) e um rodape de 24 bytes no fim do arquivo (assinatura +
+offset da secao fixa + contagem). O varint continua sendo o que a
+decodificacao integral usa; a secao fixa so existe para quem mapeia.
+`internal/search/mmap.go` (guarda `dentroDoCofre` + orquestracao) e
+`mmap_windows.go`/`mmap_unix.go` (build tag, `syscall` da std lib, sem
+dependencia nova) fazem o mapeamento. `LoadInvertedCache` tenta mapear
+primeiro; qualquer recusa cai pro `os.ReadFile` + decodificacao integral —
+nunca mapeia lixo.
+
+### A decisao que a tarefa tinha de acertar: opcao (a), medida
+
+Pre-decidido: comecar pela opcao (a) — segunda secao fixa, custa disco — e
+medir. Se o RSS agregado de tres instancias que buscaram nao caisse pelo
+menos 30%, parar e reportar, sem partir pra opcao (b) (mapear o arquivo
+comprimido, decodificar sob demanda).
+
+**Bloqueio e o que mudou entre as duas mensagens do brief.** O primeiro envio
+do caminho do cofre real nao chegou pela caixa do executor duas vezes — mesmo
+problema que ja tinha custado a medicao da Task 88 ao revisor. A segunda
+mensagem trouxe o caminho E um alerta: uma sessao real do usuario roda
+`C:\Program Files\gobsidian\gobsidian.exe` v1.0.1 (formato `gob`, anterior ao
+codec binario) contra o `--cache-dir` PADRAO do cofre real, e as duas versoes
+ficavam disputando o mesmo arquivo — cada uma achava o formato da outra
+incompativel, reconstruia, e a seguinte reconstruia de novo. Medir ali daria
+numero de reconstrucao, nao de repouso. A correcao: `--cache-dir` dedicado
+(`%TEMP%\gob89_cache_old` e `%TEMP%\gob89_cache_new`, fora do cofre e fora do
+caminho padrao), pre-populado por UMA partida ignorada na medicao, e as
+partidas medidas todas com `--eager-search` (Task 88) em vez de handshake MCP
+manual — carrega o indice do mesmo jeito que uma busca real carregaria.
+
+**Baseline "antes" medido de verdade, nao extrapolado.** Em vez de supor que
+tres instancias do binario anterior custariam ~3x uma, foi criado um worktree
+detached em `db68915` (HEAD antes desta tarefa comecar), compilado, e as
+mesmas tres partidas rodadas contra um cache formato-5 pre-populado no cofre
+real.
+
+### Medicao — RSS, cofre real de 4.490 notas
+
+Tres partidas por cenario, `--eager-search`, cache aquecido por uma partida
+anterior ignorada. Metrica via `Win32_PerfFormattedData_PerfProc_Process`
+(`WorkingSet`, `WorkingSetPrivate`), casada por `IDProcess`:
+
+```
+=== UMA instancia, OLD (formato 5, sem mmap) ===
+PID 37232: WorkingSet=584,9 MB   WorkingSet-Private=574,0 MB
+
+=== UMA instancia, NEW (formato 6, mmap) ===
+PID 62028: WorkingSet=244,3 MB   WorkingSet-Private=129,9 MB
+
+=== TRES instancias, OLD (formato 5, sem mmap) ===
+PID 38560: WS=585,0  WSPriv=574,1
+PID 56656: WS=584,9  WSPriv=574,0
+PID 67972: WS=584,6  WSPriv=573,7
+TOTAL WS: 1754,5 MB   TOTAL WS-Private: 1721,9 MB
+
+=== TRES instancias, NEW (formato 6, mmap) ===
+PID 36228: WS=244,5  WSPriv=130,1
+PID 66632: WS=244,2  WSPriv=129,9
+PID 69196: WS=244,0  WSPriv=129,6
+TOTAL WS: 732,7 MB   TOTAL WS-Private: 389,6 MB
+```
+
+**Queda no agregado de tres instancias: 58,2% em Working Set total, 77,4% em
+Working Set-Private.** Acima do criterio de parada de 30% — nao foi preciso
+considerar a opcao (b).
+
+**Working Set-Private e a metrica certa** (confirmado pelo revisor antes de
+eu medir, e o motivo bate com o que a medicao mostrou): Working Set total
+conta pagina mapeada residente INTEIRA em cada processo que a tem residente,
+mesmo quando o cache de paginas do SO a compartilha entre processos —
+por isso ele so caiu 58% enquanto o WS-Private caiu 77%.
+
+**Ressalva que fica registrada, e nao escondida:** a queda percentual por
+instancia e IGUAL com uma ou com tres instancias (77,4% nos dois casos), e
+3 x (WS-Private de uma instancia) bate com o WS-Private agregado de tres —
+nao ha queda ADICIONAL mensuravel por instancia extra alem da primeira. Isso
+e esperado dado como o Windows contabiliza pagina mapeada de arquivo em modo
+leitura: ela sai do "Private" por ser file-backed e reclamavel,
+INDEPENDENTE de quantos processos a tem mapeada — os contadores de processo
+do Windows nao expoem uma metrica de paginas de quadro fisico UNICAS entre N
+processos (o equivalente do PSS do Linux). O que esta medido e provado e que
+o array deixou de ser heap privado sempre residente, o que ja e um ganho real
+e mensuravel; que as paginas residentes sao efetivamente as MESMAS entre os
+processos (compartilhamento fisico estrito, e nao so "igualmente barata
+cada copia") precisaria de RAMMap/VMMap para confirmar — **nao medido nesta
+tarefa**.
+
+### Custo em disco — reportado com o mesmo destaque do ganho
+
+```
+Formato 5 (antes):  108.492.193 B (103,5 MB)
+Formato 6 (depois): 573.554.656 B (546,9 MB)
+```
+
+**5,3x maior, +443,5 MB** — mais do que os ~291 MB estimados no brief, porque
+o cofre real (uso diario do usuario) cresceu desde que aquele numero foi
+escrito: o array de posicoes hoje tem mais entradas do que as 18.229.295
+registradas antes. Troco pre-decidido (disco por memoria compartilhada), so
+que o disco pago e maior do que a estimativa original.
+
+### Custo da reconstrucao pelo bump de formato
+
+Medido no cofre real, tokenizacao completa das 4.490 notas: **157,3 s**
+(binario `db68915`, grava formato 5) contra **157,9 s** (binario desta
+tarefa, grava formato 6) — diferenca e ruido; escrever a secao fixa adicional
+nao aparece no tempo de construcao, dominado pela tokenizacao. Ambos em
+segundo plano, com as outras onze tools respondendo desde o primeiro segundo.
+Registrado tambem em `docs/OPERACAO.md`, que e onde a decisao "toda troca de
+formato reconstroi" ja estava documentada para a troca 1 -> 5.
+
+### Rename atomico sobre arquivo mapeado — testado antes de confiar
+
+`os.Rename` do salvamento atomico falha no Windows se o arquivo de destino
+ainda esta mapeado neste processo. Confirmado experimentalmente, nao supondo:
+`TestSaveOverwritesMappedCache` primeiro tenta `os.Remove` no arquivo com
+`loaded` ainda mapeado e confere que FALHA (condicionado a
+`runtime.GOOS=="windows"`), so depois exercita `SaveInvertedCache` por cima
+do mesmo arquivo e confere que passa. `promoverArenaSePresente` copia `pos`
+para o heap e desmapeia antes do rename — so dispara no caminho raro de cache
+PARCIAL retomado e depois regravado; no caminho comum (cache completo)
+`SaveInvertedCache` nunca roda de novo no mesmo processo.
+
+### Verificacao
+
+```
+$ go test -race -count=1 ./internal/search/ ./internal/service/
+ok  	github.com/jonyd/gobsidian/internal/search	12.339s
+ok  	github.com/jonyd/gobsidian/internal/service	66.881s
+
+$ go test -count=1 -run TestRankingGolden -v ./internal/service/...
+--- PASS: TestRankingGolden (0.58s)
+    (6 subtestes, todos PASS)
+
+$ go vet ./... (windows, linux, darwin) — limpo nos tres
+$ golangci-lint version
+golangci-lint has version 2.12.2 ... — confere com o que o CI fixa
+
+$ pwsh -File scripts/verify.ps1 -SkipNet
+[OK] go build
+[OK] go test -race
+[OK] go test (tetos de latencia, sem -race)
+[OK] go vet (windows)
+[OK] go vet (linux)
+[OK] go vet (darwin)
+[OK] gofmt
+[OK] golangci-lint
+[OK] check_tool_params
+[OK] Bateria completa. Pode commitar.
+```
+
+Nota lateral sobre `go vet`: `mmap_windows.go` tem uma conversao
+`uintptr -> unsafe.Pointer` que e o idioma padrao de mapeamento de arquivo no
+Windows em Go puro sem cgo (o proprio `cmd/go/internal/mmap/mmap_windows.go`
+do toolchain usa o mesmo padrao) e que `go vet` marca por padrao como
+"possible misuse". Reinterpretado via ponteiro-para-ponteiro (documentado no
+codigo) em vez de suprimir a checagem globalmente — `go vet` roda limpo nos
+tres alvos sem tocar em `verify.ps1` nem no config do `golangci-lint`.
+
+### Prova de mutacao
+
+```
+pwsh -File scripts/mutate.ps1 -Path internal/search/mmap.go `
+  -Anchor 'if dentroDoCofre(caminhoCache, vaultPath) {' -Replacement 'if false {' `
+  -Test TestRecusaMapearCacheDentroDoCofre -Package ./internal/search/
+
+[...] Mutando internal/search/mmap.go
+      - if dentroDoCofre(caminhoCache, vaultPath) {
+      + if false {
+[...] go test -race -run TestRecusaMapearCacheDentroDoCofre ./internal/search/
+--- FAIL: TestRecusaMapearCacheDentroDoCofre (0.02s)
+    mmap_test.go:66: tentaAbrirArena mapeou um cache dentro do cofre; a guarda nao disparou
+FAIL
+[OK] internal/search/mmap.go restaurado byte a byte (SHA-256 confere).
+[OK] O teste REPROVOU com a regra mutada — a regra esta verificada.
+```
+Exit code do `mutate.ps1`: `0`.
+
+### Escopo
+
+Cumprido integralmente, incluindo a medicao real no cofre de 4.490 notas que
+tinha ficado bloqueada. Nao foi preciso a opcao (b): a opcao (a) sozinha
+excedeu o criterio de parada de 30%. Arquivos deste worktree de teste
+(`gob89-old-baseline`, cache dirs temporarios) removidos apos a medicao —
+nao entraram em commit nenhum.
