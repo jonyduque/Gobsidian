@@ -69,12 +69,17 @@ func TestScale5000_RNF01_RNF02_RNF07_RNF04(t *testing.T) {
 	var rnf02Times []time.Duration
 	for i := 0; i < 5; i++ {
 		start := time.Now()
-		_, _, err := search.LoadInvertedCache(context.Background(), cacheDir, vaultDir)
+		loaded, _, err := search.LoadInvertedCache(context.Background(), cacheDir, vaultDir)
 		if err != nil {
 			t.Fatalf("LoadInvertedCache: %v", err)
 		}
 		dur := time.Since(start)
 		rnf02Times = append(rnf02Times, dur)
+		// Task 89: fecha a arena mapeada (se houver) ANTES da proxima volta —
+		// medido o tempo de carga, o mapeamento nao serve mais para nada, e
+		// cinco deles abertos ao mesmo tempo sobre o mesmo arquivo fariam o
+		// t.TempDir() do fim do teste recusar apagar o diretorio no Windows.
+		_ = loaded.Close()
 	}
 	sort.Slice(rnf02Times, func(i, j int) bool { return rnf02Times[i] < rnf02Times[j] })
 	t.Logf("=== RNF-02 (Boot com Cache Valido 5.000 notas) ===")

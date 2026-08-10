@@ -229,6 +229,12 @@ func prepararIndiceDeBusca(
 	adotado := func() bool {
 		if err := inv.AdotarDe(doCache); err != nil {
 			log.Warn("cache de busca nao aplicado; construindo do zero", "err", err)
+			// doCache pode ter uma arena de posicoes mapeada (Task 89) que
+			// ninguem mais vai usar, ja que a adocao foi recusada. Sem isto
+			// o mapeamento fica aberto ate o processo terminar.
+			if cerr := doCache.Close(); cerr != nil {
+				log.Warn("falha ao liberar cache de busca nao adotado", "err", cerr)
+			}
 			return false
 		}
 		return true

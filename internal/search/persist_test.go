@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strings"
 	"testing"
@@ -33,6 +34,10 @@ func TestSaveAndLoadInvertedCache(t *testing.T) {
 	if err != nil {
 		t.Fatalf("LoadInvertedCache: %v", err)
 	}
+	// Task 89: LoadInvertedCache pode ter mapeado o arquivo em vez de
+	// decodificá-lo para o heap. Sem fechar, o Windows recusa apagar o
+	// arquivo mapeado quando t.TempDir() limpa o diretório no fim do teste.
+	t.Cleanup(func() { _ = loaded.Close() })
 	if header.NoteCount != 2 {
 		t.Errorf("header.NoteCount = %d, want 2", header.NoteCount)
 	}
@@ -40,6 +45,86 @@ func TestSaveAndLoadInvertedCache(t *testing.T) {
 	postings := loaded.Postings("prescricao")
 	if len(postings) != 1 || postings[0].Path != "a.md" {
 		t.Errorf("Get(prescricao) = %+v, want a.md", postings)
+	}
+}
+
+// TestSaveOverwritesMappedCache exercita o caminho que a Task 89 identificou
+// como o único em que o rename atômico de SaveInvertedCache pode colidir com
+// um mapeamento deste MESMO processo: cache PARCIAL retomado — carregado via
+// arena mapeada — e depois regravado por quem continua a construção
+// (buildInvertedIndex, em cmd/gobsidian/serve.go).
+//
+// O os.Rename do salvamento atômico falha no Windows
+// (ERROR_SHARING_VIOLATION) se o arquivo de destino ainda está mapeado neste
+// processo. Antes de confiar que o SaveInvertedCache abaixo tem de dar certo,
+// este teste primeiro CONFIRMA o problema que promoverArenaSePresente existe
+// para evitar: no Windows, remover o arquivo enquanto `loaded` ainda o tem
+// mapeado falha. Em Unix isso não é um problema (unlink de arquivo mapeado é
+// uma operação válida), então essa confirmação só roda sob GOOS==windows —
+// runtime.GOOS em teste, para pular caso, é aceitável (ver CLAUDE.md).
+func TestSaveOverwritesMappedCache(t *testing.T) {
+	cacheDir := t.TempDir()
+	vaultPath := t.TempDir()
+	ctx := context.Background()
+
+	partida := search.NewInverted()
+	partida.Add("a.md", search.Analyze("prescricao intercorrente civil"))
+	if err := search.SaveInvertedCache(ctx, cacheDir, vaultPath, partida); err != nil {
+		t.Fatalf("SaveInvertedCache (partida): %v", err)
+	}
+
+	loaded, _, err := search.LoadInvertedCache(ctx, cacheDir, vaultPath)
+	if err != nil {
+		t.Fatalf("LoadInvertedCache: %v", err)
+	}
+	// Defensivo: se SaveInvertedCache falhar antes de promover a arena, esta
+	// chamada garante que o t.TempDir() do fim do teste ainda consegue
+	// limpar o diretorio. Depois de uma regravacao bem-sucedida,
+	// promoverArenaSePresente ja fechou a arena e isto vira no-op.
+	t.Cleanup(func() { _ = loaded.Close() })
+
+	cachePath := filepath.Join(cacheDir, "inverted_cache.gob")
+
+	if runtime.GOOS == "windows" {
+		// Confirma o problema ANTES de confirmar a solução: com o arquivo
+		// ainda mapeado por `loaded`, o Windows recusa removê-lo. Se esta
+		// asserção um dia parar de disparar, TestSaveOverwritesMappedCache
+		// deixou de testar o que diz testar — não há mais nada para
+		// promoverArenaSePresente proteger.
+		if err := os.Remove(cachePath); err == nil {
+			t.Fatal("os.Remove teve sucesso com o cache ainda mapeado; " +
+				"o cenario que este teste existe para cobrir nao ocorreu")
+		}
+	}
+
+	// Simula o resto de buildInvertedIndex retomando a partir do cache
+	// parcial: escreve no DELTA do mesmo índice que carregou via arena.
+	loaded.Add("b.md", search.Analyze("recurso extraordinario processo civil"))
+
+	// A regravação por cima do arquivo mapeado é o que a Task 89 precisa
+	// funcionar sem erro — sem promoverArenaSePresente, este Rename falharia
+	// no Windows com o cenário confirmado acima.
+	if err := search.SaveInvertedCache(ctx, cacheDir, vaultPath, loaded); err != nil {
+		t.Fatalf("SaveInvertedCache por cima do cache mapeado: %v", err)
+	}
+
+	reloaded, hdr, err := search.LoadInvertedCache(ctx, cacheDir, vaultPath)
+	if err != nil {
+		t.Fatalf("LoadInvertedCache apos a regravacao: %v", err)
+	}
+	t.Cleanup(func() { _ = reloaded.Close() })
+
+	if hdr.NoteCount != 2 {
+		t.Errorf("hdr.NoteCount = %d, quer 2 (a.md do cache original + b.md do delta)", hdr.NoteCount)
+	}
+	if !reloaded.HasDoc("a.md") {
+		t.Error("a.md (do cache original, promovido) sumiu apos a regravacao")
+	}
+	if !reloaded.HasDoc("b.md") {
+		t.Error("b.md (do delta escrito depois da carga) sumiu apos a regravacao")
+	}
+	if postings := reloaded.Postings("civil"); len(postings) != 2 {
+		t.Errorf("Postings(civil) = %d notas, quer 2 (civil aparece em a.md e b.md)", len(postings))
 	}
 }
 
@@ -135,6 +220,7 @@ func TestEmptyVaultCacheDistinguishableFromMissing(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Cache de cofre vazio falhou: %v", err)
 	}
+	t.Cleanup(func() { _ = loaded.Close() })
 	if header.NoteCount != 0 {
 		t.Errorf("header.NoteCount = %d, want 0", header.NoteCount)
 	}
@@ -208,6 +294,7 @@ func TestQ3PerformanceMeasurement(t *testing.T) {
 	if err != nil {
 		t.Fatalf("LoadInvertedCache: %v", err)
 	}
+	t.Cleanup(func() { _ = loadedInv.Close() })
 	loadDur := time.Since(startLoad)
 
 	if header.NoteCount != n {
@@ -391,6 +478,7 @@ func TestIndiceRecarregadoEIdenticoAoConstruido(t *testing.T) {
 	if err != nil {
 		t.Fatalf("LoadInvertedCache: %v", err)
 	}
+	t.Cleanup(func() { _ = lido.Close() })
 
 	if lido.DocCount() != fresco.DocCount() {
 		t.Errorf("DocCount recarregado = %d, construido = %d", lido.DocCount(), fresco.DocCount())

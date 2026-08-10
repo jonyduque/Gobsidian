@@ -171,8 +171,16 @@ func TestCodecRecusaLayoutAnterior(t *testing.T) {
 	}
 }
 
-// TestCodecRecusaPrefixoTruncado: nenhum prefixo pode virar panic nem estrutura
-// aceita.
+// TestCodecRecusaPrefixoTruncado: nenhum prefixo do corpo em varint pode virar
+// panic nem estrutura aceita.
+//
+// O limite do laço é posArrayOffset, e não len(b), desde a Task 89:
+// escreveCache passou a acrescentar, DEPOIS do corpo em varint que leCache
+// decodifica, uma seção fixa de posições e um rodapé — conteúdo que existe
+// para quem mapeia o arquivo (leCacheComArena), e que leCache (o caminho sem
+// arena, testado aqui) nunca lê. Um prefixo que corta só essa cauda não é
+// truncamento do que leCache consome; testá-lo reprovaria por um motivo que
+// não é o que este teste guarda.
 func TestCodecRecusaPrefixoTruncado(t *testing.T) {
 	var buf bytes.Buffer
 	termos := map[string]map[string][]TokenPosition{
@@ -185,10 +193,22 @@ func TestCodecRecusaPrefixoTruncado(t *testing.T) {
 	}
 	b := buf.Bytes()
 
-	for n := 1; n < len(b); n++ {
+	offset, _, ok := leRodape(b)
+	if !ok {
+		t.Fatalf("rodape ausente ou invalido no arquivo recem-gravado")
+	}
+
+	// Entre o último byte que leCache realmente consome e posArrayOffset fica
+	// o padding de alinhamento — até 7 bytes zero, sem significado nenhum
+	// para quem não mapeia. Um prefixo que corte só essa zona também
+	// decodifica com sucesso, e isso não é o defeito que este teste guarda;
+	// por isso o limite fica 7 bytes antes do offset, e não nele.
+	limite := int(offset) - 7
+
+	for n := 1; n < limite; n++ {
 		_, _, err := leCache(b[:n])
 		if err == nil {
-			t.Fatalf("prefixo de %d bytes foi aceito", n)
+			t.Fatalf("prefixo de %d bytes (< %d, com folga do padding) foi aceito", n, limite)
 		}
 	}
 }

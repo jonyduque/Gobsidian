@@ -118,6 +118,10 @@ func BenchmarkInvertedLoad(b *testing.B) {
 		if got == nil {
 			b.Fatal("LoadInvertedCache devolveu cache nulo")
 		}
+		// Task 89: fecha a arena mapeada (se houver) a cada volta, senao
+		// b.TempDir() recusa apagar o arquivo mapeado varias vezes no
+		// Windows quando o benchmark termina.
+		_ = got.Close()
 	}
 }
 

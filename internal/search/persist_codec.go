@@ -44,9 +44,22 @@ import (
 //
 // `string` é sempre: comprimento em varint, seguido dos bytes.
 const (
-	cacheMagic     = "GBS5"
-	cacheCodecVers = 5
+	cacheMagic     = "GBS6"
+	cacheCodecVers = 6
 )
+
+// footerBytes é o tamanho do rodapé fixo escrito no fim do arquivo (Task 89):
+// 8 bytes de assinatura, 8 bytes de offset da seção fixa de posições, 8 bytes
+// de contagem de posições — todos little-endian, sem varint. Fixo e no fim
+// de propósito: quem só quer mapear a arena (ver mmap.go) acha o rodapé sem
+// decodificar o corpo inteiro em varint.
+const footerBytes = 24
+
+// footerMagic identifica o rodapé da seção fixa. Um cache do formato anterior
+// (sem rodapé) quase certamente não termina com estes 8 bytes por acaso, e o
+// leitor trata a ausência da assinatura como "sem arena para mapear" — nunca
+// como corrupção; a decodificação integral cobre o arquivo de qualquer jeito.
+var footerMagic = [8]byte{'G', 'B', 'S', 'A', 'R', 'E', 'N', 'A'}
 
 // limiteRazoavel barra alocação gigante a partir de um arquivo corrompido.
 //
@@ -70,7 +83,23 @@ const (
 type escritor struct {
 	w   *bufio.Writer
 	buf [binary.MaxVarintLen64]byte
+	// n conta bytes efetivamente escritos, para a seção fixa (Task 89) saber
+	// o próprio offset dentro do arquivo sem que bufio exponha isso.
+	n   int64
 	err error
+}
+
+// raw escreve bytes crus e soma em n. Todo outro método do escritor passa por
+// aqui, para nunca haver um caminho de escrita que n não conte.
+func (e *escritor) raw(b []byte) {
+	if e.err != nil {
+		return
+	}
+	nn, err := e.w.Write(b)
+	e.n += int64(nn)
+	if err != nil {
+		e.err = err
+	}
 }
 
 func (e *escritor) uvarint(v uint64) {
@@ -78,7 +107,7 @@ func (e *escritor) uvarint(v uint64) {
 		return
 	}
 	n := binary.PutUvarint(e.buf[:], v)
-	_, e.err = e.w.Write(e.buf[:n])
+	e.raw(e.buf[:n])
 }
 
 func (e *escritor) varint(v int64) {
@@ -86,7 +115,7 @@ func (e *escritor) varint(v int64) {
 		return
 	}
 	n := binary.PutVarint(e.buf[:], v)
-	_, e.err = e.w.Write(e.buf[:n])
+	e.raw(e.buf[:n])
 }
 
 func (e *escritor) str(s string) {
@@ -94,7 +123,11 @@ func (e *escritor) str(s string) {
 	if e.err != nil {
 		return
 	}
-	_, e.err = e.w.WriteString(s)
+	nn, err := e.w.WriteString(s)
+	e.n += int64(nn)
+	if err != nil {
+		e.err = err
+	}
 }
 
 // escreveCache serializa o índice no formato corrente.
@@ -116,9 +149,7 @@ func escreveCache(
 ) error {
 	e := &escritor{w: bufio.NewWriterSize(w, 1<<20)}
 
-	if _, err := e.w.WriteString(cacheMagic); err != nil {
-		return err
-	}
+	e.raw([]byte(cacheMagic))
 	e.uvarint(uint64(h.FormatVersion))
 	e.uvarint(uint64(h.ParserVersion))
 	e.uvarint(uint64(h.AnalyzerVersion))
@@ -159,6 +190,16 @@ func escreveCache(
 	}
 	e.uvarint(totPost)
 	e.uvarint(totPos)
+
+	// Seção fixa de posições (Task 89): mesmo conteúdo do delta-varint acima,
+	// em bytes crus de 16 (Start int64 + End int64, little-endian), na MESMA
+	// ordem — preenchida dentro do mesmo laço que grava o varint, para as duas
+	// ordens não poderem divergir. Fica no fim do arquivo (ver mais abaixo) e
+	// existe para ser mapeada em modo leitura: um array varint com delta não é
+	// mapeável direto, mas quem só quer economia de disco nem olha para cá — o
+	// varint acima continua sendo o que a decodificação integral usa.
+	fixedSec := make([]byte, totPos*16)
+	var fixedCursor int
 
 	// O pathID passa a ser a POSIÇÃO no vetor ordenado, e não a ordem de
 	// descoberta. É o que faz "postings ordenadas por pathID" e "resultado
@@ -223,9 +264,31 @@ func escreveCache(
 				e.varint(p.Start - anterior)
 				e.varint(p.End - p.Start)
 				anterior = p.Start
+
+				binary.LittleEndian.PutUint64(fixedSec[fixedCursor:], uint64(p.Start))
+				binary.LittleEndian.PutUint64(fixedSec[fixedCursor+8:], uint64(p.End))
+				fixedCursor += 16
 			}
 		}
 	}
+
+	// Alinhamento de 8 bytes ANTES da seção fixa. A leitura mapeada
+	// reinterpreta esses bytes como []TokenPosition via unsafe.Slice, e isso
+	// exige um ponteiro alinhado em 8 bytes: a base do mapeamento já vem
+	// alinhada por página do sistema operacional, então basta o OFFSET dentro
+	// do arquivo também ser múltiplo de 8.
+	for e.n%8 != 0 {
+		e.raw([]byte{0})
+	}
+	posArrayOffset := e.n
+	e.raw(fixedSec)
+
+	// Rodapé fixo, sempre nos ÚLTIMOS 24 bytes do arquivo — ver footerBytes.
+	var rodape [footerBytes]byte
+	copy(rodape[:8], footerMagic[:])
+	binary.LittleEndian.PutUint64(rodape[8:16], uint64(posArrayOffset))
+	binary.LittleEndian.PutUint64(rodape[16:24], totPos)
+	e.raw(rodape[:])
 
 	if e.err != nil {
 		return e.err
@@ -325,6 +388,30 @@ func (l *leitor) str(oque string) string {
 //
 // A estrutura devolvida e o que ela garante estão em soa.go.
 func leCache(dados []byte) (CacheHeader, *baseSoA, error) {
+	return decodificaCache(dados, nil)
+}
+
+// leCacheComArena decodifica como leCache, mas usa `arena` — vinda de um
+// arquivo mapeado (ver mmap.go) — como o array de posições em vez de alocar e
+// preencher um novo a partir do varint. O corpo do varint ainda é percorrido
+// byte a byte, e não pulado: é o que continua detectando um arquivo
+// corrompido no meio das posições mesmo quando a arena está sendo usada.
+//
+// Quem chama garante len(arena) == totPos declarado no cabeçalho antes de
+// chamar (ver tentaAbrirArena); decodificaCache confere de novo aqui, porque
+// um arquivo cujo rodapé mente sobre a contagem não pode produzir uma base
+// cujos limites não batem com o que ela própria despachou.
+func leCacheComArena(dados []byte, arena []TokenPosition) (CacheHeader, *baseSoA, error) {
+	return decodificaCache(dados, arena)
+}
+
+// decodificaCache é o corpo compartilhado por leCache e leCacheComArena.
+//
+// `arena`, quando não nil, substitui a alocação de b.pos: o array de posições
+// vem de fora (mapeado do arquivo) em vez de heap comum, e o laço abaixo pula
+// só a ESCRITA em b.pos — continua decodificando cada delta varint, para o
+// corpo do arquivo continuar sendo a fonte de verdade sobre corrupção.
+func decodificaCache(dados []byte, arena []TokenPosition) (CacheHeader, *baseSoA, error) {
 	l := &leitor{b: dados}
 
 	if len(dados) < len(cacheMagic) {
@@ -409,7 +496,15 @@ func leCache(dados []byte) (CacheHeader, *baseSoA, error) {
 	b.termIni = make([]int32, nTermos+1)
 	b.postPath = make([]int32, totPost)
 	b.postIni = make([]int32, totPost+1)
-	b.pos = make([]TokenPosition, totPos)
+	if arena != nil {
+		if uint64(len(arena)) != totPos {
+			return h, nil, fmt.Errorf("%w: arena mapeada tem %d posicoes, cabecalho declara %d",
+				ErrCacheCorrupted, len(arena), totPos)
+		}
+		b.pos = arena
+	} else {
+		b.pos = make([]TokenPosition, totPos)
+	}
 
 	var jPost, kPos int64
 	for i := uint64(0); i < nTermos; i++ {
@@ -449,7 +544,9 @@ func leCache(dados []byte) (CacheHeader, *baseSoA, error) {
 					return h, nil, l.err
 				}
 				start := anterior + dStart
-				b.pos[kPos] = TokenPosition{Start: start, End: start + dLen}
+				if arena == nil {
+					b.pos[kPos] = TokenPosition{Start: start, End: start + dLen}
+				}
 				kPos++
 				anterior = start
 			}

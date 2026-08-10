@@ -66,6 +66,19 @@ type baseSoA struct {
 
 	docTermIni []int32
 	docTermos  []int32
+
+	// arenaFechar desfaz o mapeamento de arquivo que fornece `pos`, quando
+	// pos vem de uma arena mapeada (ver mmap.go) em vez de um []TokenPosition
+	// alocado no heap. nil no caminho comum (decodificação integral).
+	//
+	// SaveInvertedCache chama promoverArenaSePresente ANTES do os.Rename do
+	// salvamento atômico: renomear por cima de um arquivo que este processo
+	// ainda tem mapeado falha no Windows (ERROR_SHARING_VIOLATION). Promover
+	// copia `pos` para o heap e desfaz o mapeamento primeiro — custa uma
+	// cópia só no caminho raro de cache parcial retomado e depois regravado;
+	// no caminho comum (cache completo, "pronta") SaveInvertedCache nunca
+	// roda de novo neste processo, então isto nunca dispara.
+	arenaFechar func() error
 }
 
 // buscaTermo devolve o índice do termo e se ele existe.

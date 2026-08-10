@@ -584,6 +584,34 @@ func (ix *Inverted) AdotarDe(outro *Inverted) error {
 	return nil
 }
 
+// Close desfaz o mapeamento de arquivo que o base possa segurar (Task 89),
+// quando LoadInvertedCache mapeou a arena de posições em vez de decodificar
+// para o heap. Idempotente: chamar mais de uma vez não desmapeia duas vezes,
+// e um índice sem arena (o caminho comum, construído do zero ou recusado
+// para mapear) não faz nada.
+//
+// Em produção o servidor NUNCA chama isto: o processo inteiro terminando
+// libera o mapeamento de graça, e desmapear enquanto o índice segue servindo
+// buscas seria o crash que a documentação de mmap.go descreve — ler memória
+// desmapeada é falha de proteção de página, não dado errado. Existe para
+// dois chamadores: LoadInvertedCache não adotado (cache descartado porque
+// AdotarDe recusou) e testes que carregam cache num t.TempDir() — o Windows
+// recusa apagar um arquivo que o próprio processo ainda tem mapeado.
+func (ix *Inverted) Close() error {
+	ix.mu.Lock()
+	var fechar func() error
+	if ix.base != nil && ix.base.arenaFechar != nil {
+		fechar = ix.base.arenaFechar
+		ix.base.arenaFechar = nil
+	}
+	ix.mu.Unlock()
+
+	if fechar != nil {
+		return fechar()
+	}
+	return nil
+}
+
 // newInvertedFromSoA monta um índice sobre a base imutável vinda do cache.
 //
 // `postsVivasPorTermo` nasce com o total de postings de cada termo, e

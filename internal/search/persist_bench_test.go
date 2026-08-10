@@ -38,6 +38,7 @@ func BenchmarkLoadInvertedCacheReal(b *testing.B) {
 		b.Fatalf("cache vazio: %d notas, %d termos", hdr.NoteCount, inv.TermCount())
 	}
 	b.Logf("cofre de referencia: %d notas, %d termos", hdr.NoteCount, inv.TermCount())
+	_ = inv.Close()
 
 	b.ReportAllocs()
 	b.ResetTimer()
@@ -50,5 +51,9 @@ func BenchmarkLoadInvertedCacheReal(b *testing.B) {
 		if got.TermCount() == 0 {
 			b.Fatal("indice vazio")
 		}
+		// Task 89: fecha a arena mapeada a cada volta — sem isto o cofre real
+		// fica mapeado uma vez por iteracao do benchmark, ate o processo
+		// terminar.
+		_ = got.Close()
 	}
 }
