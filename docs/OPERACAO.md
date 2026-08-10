@@ -1202,13 +1202,12 @@ opt-in para quem sabe que vai rodar sessões concorrentes. O critério tinha
 sido fixado antes de medir — ganho zero ou negativo na sessão única decide
 a questão — e a sessão única deu negativo.
 
-**O dono do projeto decidiu o contrário, com o número na frente: o daemon
-sai ligado por padrão na v1.1.0** (decisão de 2026-08-10). O raciocínio não
-contesta a medição, contesta o peso dela: 16 MB é caro em porcentagem e
-barato em valor absoluto numa máquina que roda um host de IA, enquanto os
-−60% e −74% de três e cinco sessões só chegam a quem os recebe **sem
-precisar descobrir uma variável de ambiente na documentação**. Padrão que
-exige leitura de documento para valer é padrão que quase ninguém tem.
+**O padrão embarcado na v1.1.0 é o contrário: o daemon sai ligado**
+(decisão de projeto de 2026-08-10, tomada com esta tabela à vista). O que a
+decisão troca é explícito e está inteiro nos números acima — 16 MB a mais
+na sessão única, para todo mundo, em troca de os −60% e −74% de três e
+cinco sessões chegarem sem depender de o usuário encontrar uma variável de
+ambiente na documentação.
 
 Quem quer o comportamento que os números recomendam liga
 `GOBSIDIAN_NO_DAEMON=1` e paga zero. **Esta seção fica como está, com a
