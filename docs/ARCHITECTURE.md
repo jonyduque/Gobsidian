@@ -102,6 +102,14 @@ Guarda o resultado do parse de todas as notas, mais os grafos derivados (backlin
 
 Escritas atômicas e transformações estruturais de conteúdo (inserir sob heading, substituir seção, reescrever links).
 
+### 2.11 `internal/ipc`
+
+Transporte local entre a ponte (`cmd/gobsidian`) e o daemon (`internal/daemon`): chave do socket, handshake de versão e de configuração, `Dial`/`Listen`, proxy de bytes. `runtimeDir` e `restrictPermission` vivem atrás de build tag em `ipc_unix.go`/`ipc_windows.go`; o resto é compartilhado. Ver §7.5.
+
+### 2.12 `internal/daemon`
+
+Um `*mcpsrv.Server` compartilhado por N conexões sobre o socket de `internal/ipc`, para o mesmo cofre. Resolve a corrida de inicialização por arquivo de lock e sai por ociosidade reusando `internal/lifecycle`. Ver §7.5.
+
 ---
 
 ## 3. Modelo de caminhos
@@ -529,6 +537,39 @@ context cancelado
 
 **Um guarda-chuva final.** Um `time.AfterFunc(6*time.Second, func(){ os.Exit(1) })` armado no início da sequência. Se qualquer etapa travar de um jeito que o orçamento dela não previu, o processo morre mesmo assim. Encerrar com código de erro é ruim; sobreviver ao pai é pior.
 
+### 7.5 Daemon e transporte IPC local
+
+Cada sessão de host MCP (Claude Desktop, Claude Code, VS Code) abre um processo `gobsidian serve` novo. Antes desta seção existir, duas sessões contra o mesmo cofre pagavam o índice completo duas vezes — medido em ~1 GB agregado num cofre real antes da carga sob demanda da Tarefa 88. A Tarefa 88 já resolve a maioria dos casos (sessão que só lê e escreve nota nunca carrega o índice de busca); o que sobra depois dela é a sessão que **busca de verdade**, contra o **mesmo cofre**, ao **mesmo tempo** — e é isso que o daemon ataca.
+
+**Um processo por cofre, não um processo global.** `EnsureStarted` deriva a chave do cofre pela mesma `config.VaultKey` que `ipc.SocketPath` usa (uma função, não duas contas do mesmo hash — a classe de defeito que `byAlias` já pagou aqui). O daemon monta `index`, `watcher` e o serviço de domínio uma única vez (`construirServico`, compartilhada com o boot em processo para as duas sequências nunca divergirem) e aceita N conexões sobre o socket.
+
+**A ponte é burra.** `cmd/gobsidian` primeiro tenta discar o socket do cofre; se conectar, vira um proxy de bytes entre o stdio do host e a conexão — não interpreta JSON-RPC. Se a discagem falhar (socket ausente, conexão recusada, versão ou configuração incompatível), tenta `EnsureStarted` e disca de novo; se isso também falhar, cai para o modo em processo de sempre (`serveEmProcesso`). O fallback é obrigatório nos três pontos, não só no primeiro — nenhum caminho deixa a ferramenta inutilizável por um socket quebrado. Medido: a ponte sozinha, conectada, custa ~13,8 MB de Working Set contra ~250 MB de uma instância completa.
+
+**Handshake carrega versão e configuração.** Além da versão de protocolo, `ipc.HandshakeConfig` carrega `ReadOnly` e `VaultKey`. Duas pontes do mesmo cofre com `--read-only` divergente conectadas ao mesmo daemon seria bug de segurança, não detalhe — o handshake recusa (`ErrConfigMismatch`) em vez de aceitar.
+
+**Ociosidade, não sinal nem pai.** O daemon não tem stdin de host nem pai vigiável, então dos três mecanismos de §7 só o cancelamento de context se aplica; `lifecycle.Trigger` (exportado para isso) é chamado quando nenhum cliente está conectado por mais que `OciosidadeMax` (padrão de produção: 900 s / 15 min). Reusa a mesma infraestrutura de log e cancelamento que sinal e EOF usam nos outros processos, em vez de um mecanismo paralelo.
+
+**`GOBSIDIAN_NO_DAEMON=1`** pula a decisão inteira e força o caminho em processo de sempre — é como desligar o daemon sem reverter código, e é o que as medições de §-comparação (`docs/OPERACAO.md`) usam para o "antes".
+
+#### A escolha do transporte — D-M7-6
+
+Medida antes de escrever código, não depois. Eco de ida e volta, 20.000 repetições por tamanho, `windows/amd64`, mesmo código nos três sistemas:
+
+| Transporte | 256 B | 4 KB | 64 KB |
+|---|---|---|---|
+| **AF_UNIX** (`net.Dial("unix")`) | **25,7 µs** | **23,0 µs** | **42,9 µs** |
+| named pipe (`go-winio`, config padrão) | 82,9 µs | 93,5 µs | 110,0 µs |
+
+AF_UNIX ganhou em todos os tamanhos, por 3 a 4×, está na biblioteca padrão (sem dependência nova) e usa o mesmo código nos três sistemas — Windows suporta AF_UNIX desde a versão 10 1803 (abril de 2018). A margem quase não importa: a ida e volta custa dezenas de microssegundos contra uma busca real de 90-200 ms (RNF-04), quatro ordens de grandeza de distância. Build tag continua existindo para o caminho do socket e a limpeza dele (Windows deixa um arquivo que precisa ser removido), não para o transporte em si.
+
+O par `net.Dial`/`net.Listen` restrito à constante literal `"unix"` é o que a garantia reformulada do RNF-30 exige e o `netcheck` (PRD §6.4) verifica estaticamente. Ver ali para a regra completa e a razão de produto por trás dela.
+
+#### Risco residual conhecido
+
+`EnsureStarted` resolve a corrida de inicialização por arquivo de lock (`O_CREATE|O_EXCL`), mas o lock é liberado assim que a chamada da própria ponte termina — o que inclui esperar o socket responder. Isso serializa quem disputa o **mesmo instante**, não "existe um daemon rodando". Sob carga pesada da máquina, dez pontes lançadas juntas contra o cofre real produziram, uma vez, dois daemons vivos simultaneamente antes da correção (quase um minuto de intervalo entre os dois "daemon iniciado" no log — uma ponte atrasada pelo agendamento do SO via o lock livre e vencia uma corrida nova depois que o primeiro já tinha subido, sem nunca tê-lo visto). A correção adiciona uma segunda checagem (um dial) logo após adquirir o lock, antes de chamar `iniciar`: se alguém já respondeu enquanto esta chamada esperava a vez, usa esse, nunca inicia um segundo.
+
+**Isso reduz a janela, não a elimina por construção.** É um *check-then-act* de milissegundos (entre o dial de confirmação e o `SpawnDetached` de fato), não exclusão mútua entre processos pelo tempo de vida inteiro do daemon. Reconfirmado sem daemon duplicado em duas rodadas de dez pontes simultâneas depois da correção, em máquina sem carga concorrente — mas a janela teórica continua existindo sob a mesma condição que a expôs uma vez (contenção pesada de CPU no exato instante da corrida). Documentado também como limite conhecido em `docs/OPERACAO.md`, com o número.
+
 ---
 
 ## 8. Tratamento de erros
@@ -598,9 +639,9 @@ Custo: os offsets invalidam quando o arquivo muda, exigindo a verificação de h
 
 Ver §7. Redundância deliberada. Cada mecanismo falha em cenários diferentes e nenhum custa mais do que algumas dezenas de linhas.
 
-### AD-07 — Sem rede
+### AD-07 — Nenhum socket que saia da máquina
 
-RNF-30. Nenhum pacote sob `internal/` ou `cmd/` importa rede, e nenhuma chamada de socket existe no código do produto. Verificável por análise estática no CI. O SDK carrega `net/http` transitivamente para um transporte que a v1 não constrói; a formulação exata da garantia, e o que o CI checa, estão em PRD §6.4. Em um cofre que pode conter material confidencial, essa garantia tem valor de produto, não apenas técnico.
+RNF-30. Até 2026-08-05 a regra era "nenhuma chamada de socket no código do produto"; reaberta com autorização explícita do dono do projeto para o IPC local do daemon (§7.5) e reformulada para **nenhum socket que saia da máquina** — um socket de domínio Unix não atravessa rede, então a garantia contra exfiltração se mantém. Nenhum pacote sob `internal/` ou `cmd/` importa `net/http` ou qualquer outro `net/*`; dentro do pacote `net`, só `net.Dial`/`net.Listen` com a constante literal `"unix"` são aceitos, verificado por análise estática (`tools/netcheck`) no CI. O SDK carrega `net/http` transitivamente para um transporte que a v1 não constrói; a formulação exata da garantia, as três partes da regra e o que o CI checa estão em PRD §6.4. Em um cofre que pode conter material confidencial, essa garantia tem valor de produto, não apenas técnico.
 
 ### AD-08 — Esquema de URI próprio para resources
 

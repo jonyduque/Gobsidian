@@ -309,51 +309,61 @@ golangci-lint run
 # Regenerar golden files apos mudanca intencional do parser
 go test ./internal/parser -update
 
-# Verificar que nenhum pacote NOSSO importa rede (RNF-30)
+# Verificar que nenhum pacote NOSSO abre socket que saia da maquina (RNF-30)
+# Reformulado em 2026-08-05 (Task 90) para permitir net.Dial/net.Listen("unix"),
+# usado pelo IPC local do daemon (ARCHITECTURE §7.5). Duas camadas, nao uma:
+
+# 1. Analise semantica: dentro do pacote "net", so Dial/Listen com a
+#    constante literal "unix" passam. go/types, nao so go/ast -- precisa
+#    distinguir constante de variavel, que go/ast sozinho nao prova.
+go build -o $TempBin ./tools/netcheck/cmd/netcheck
+foreach ($targetOS in @("windows", "linux", "darwin")) {
+    $env:GOOS = $targetOS
+    go vet "-vettool=$TempBin" ./internal/... ./cmd/...
+    # reprova com exit != 0 se algum Dial/Listen nao for "unix" literal,
+    # ou se algum pacote net/* (net/http incluido) for importado
+}
+
+# 2. Checagem textual de retrocompatibilidade: so net/* (net/http incluido)
+#    entra na lista de ofensores -- o pacote "net" em si e permitido agora
 $ModulePath = go list -m 2>$null
 if ($LASTEXITCODE -ne 0 -or -not $ModulePath) {
     Write-Warning "[!] 'go list -m' falhou; nao foi possivel determinar o modulo"
     exit 1
 }
 
-$Rows = go list -f '{{.ImportPath}}|{{join .Imports ","}}' ./...
+$Rows = go list -f '{{.ImportPath}}|{{join .Imports ","}}' ./internal/... ./cmd/...
 if ($LASTEXITCODE -ne 0 -or -not $Rows) {
-    Write-Warning "[!] 'go list ./...' falhou ou nao retornou pacotes; verificacao nao executada"
+    Write-Warning "[!] 'go list' falhou ou nao retornou pacotes; verificacao nao executada"
     exit 1
 }
 
-$Scoped = $Rows | Where-Object {
-    $Pkg = ($_ -split "\|", 2)[0]
-    $Pkg -eq "$ModulePath/internal" -or $Pkg -like "$ModulePath/internal/*" -or
-    $Pkg -eq "$ModulePath/cmd" -or $Pkg -like "$ModulePath/cmd/*"
-}
-
 $Offenders = @()
-
-foreach ($Row in $Scoped) {
+foreach ($Row in $Rows) {
     $Parts = $Row -split "\|", 2
     $Pkg = $Parts[0]
-
     $Imports = @()
     if ($Parts.Count -gt 1 -and $Parts[1]) { $Imports = $Parts[1] -split "," }
 
-    $Net = $Imports | Where-Object { $_ -eq "net" -or $_ -like "net/*" }
+    $Net = $Imports | Where-Object { $_ -like "net/*" }
     if ($Net) { $Offenders += "$Pkg -> $($Net -join ', ')" }
 }
 
 if ($Offenders) {
-    Write-Warning "[!] Pacote do produto importando rede:"
+    Write-Warning "[!] Pacote do produto importando subpacote de rede:"
     $Offenders | ForEach-Object { Write-Output "    $_" }
     exit 1
 }
-Write-Output "[OK] Nenhum pacote de internal/ ou cmd/ importa rede"
+Write-Output "[OK] Nenhum pacote de internal/ ou cmd/ importa net/* ou abre socket que saia da maquina"
 ```
 
-A última verificação vira um passo do CI. RNF-30 só tem valor se for continuamente verificado. O script falha alto (`[!]` e `exit 1`) se `go list` não conseguir rodar ou devolver nada — um gate que não consegue distinguir "nada para checar" de "nada errado" não é gate. A varredura roda sobre todos os pacotes do módulo, mas os candidatos a ofensor são filtrados para os que vivem sob `internal/` e `cmd/`, que é o escopo real da garantia — não todo `./...`.
+Versão completa e mantida em `scripts/check_net.ps1`; o bloco acima é o essencial das duas camadas, não uma cópia literal.
 
-**Por que `./...` e não `-deps`.** A verificação óbvia — `go list -deps ./cmd/gobsidian` e falhar se aparecer qualquer `net/*` — falharia sempre e em poucos dias estaria comentada. O SDK de MCP importa `net/http` para o transporte HTTP/SSE, e essa importação entra no fechamento transitivo mesmo construindo apenas stdio.
+A última verificação vira um passo do CI. RNF-30 só tem valor se for continuamente verificado. O script falha alto (`[!]` e `exit 1`) se `go list` não conseguir rodar ou devolver nada — um gate que não consegue distinguir "nada para checar" de "nada errado" não é gate. A varredura roda sobre `internal/` e `cmd/`, que é o escopo real da garantia — não todo `./...`, porque o SDK de MCP importa `net/http` transitivamente (parágrafo seguinte).
 
-`go list ./...` percorre somente os pacotes do módulo. O que ele verifica é a afirmação que de fato sustentamos: nenhum código nosso fala com a rede. Ver PRD §6.4 para as três partes da garantia e para o segundo passo, o analisador de chamadas.
+**Por que `internal/...` e `cmd/...`, não `-deps`.** A verificação óbvia — `go list -deps ./cmd/gobsidian` e falhar se aparecer qualquer `net/*` — falharia sempre e em poucos dias estaria comentada. O SDK de MCP importa `net/http` para o transporte HTTP/SSE, e essa importação entra no fechamento transitivo mesmo construindo apenas stdio.
+
+`go list -f ... ./internal/... ./cmd/...` já nasce restrito aos dois diretórios que são o escopo real da garantia, sem precisar filtrar depois. O que ele verifica é a afirmação que de fato sustentamos: nenhum código nosso fala com a rede fora do socket Unix local. Ver PRD §6.4 para as três partes da garantia e para o primeiro passo, o analisador de chamadas (`tools/netcheck`).
 
 ---
 

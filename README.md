@@ -273,6 +273,24 @@ gobsidian inspect "Pasta/Minha nota.md" --vault "/caminho/do/cofre" --json
 
 ---
 
+## 🧵 Daemon (opcional, ligado por padrão)
+
+Cada sessão de host MCP abre um processo `gobsidian serve`. Se duas ou mais sessões apontam para o **mesmo cofre ao mesmo tempo** e alguma delas de fato usa `vault_search`, o daemon compartilha um único índice entre elas em vez de cada sessão carregar a própria cópia — a ponte de cada sessão fica com poucos MB e o custo pesado é pago uma vez só. Para uma sessão isolada, ou para sessões que só leem e escrevem nota sem nunca buscar, o daemon não muda nada: o custo dele é essencialmente igual ao de rodar sem ele. Números completos em [`docs/OPERACAO.md`](docs/OPERACAO.md), seção "Parte II do M7".
+
+O transporte é um socket de domínio Unix local, sob o diretório de runtime do usuário — nunca um socket que sai da máquina (RNF-30, `docs/PRD.md` §6.4).
+
+**Desligar o daemon.** A variável de ambiente `GOBSIDIAN_NO_DAEMON=1` força todo `gobsidian serve` a rodar sempre em processo, sem tentar discar ou iniciar um daemon:
+
+```bash
+GOBSIDIAN_NO_DAEMON=1 gobsidian serve --vault "/caminho/do/cofre"
+```
+
+No `claude_desktop_config.json` (ou equivalente do host), a variável entra no bloco `env` da entrada do servidor.
+
+**O que acontece quando ele não sobe.** O fallback é automático e silencioso para quem usa a ferramenta: se a discagem ao socket falhar (daemon ausente, socket quebrado, versão ou configuração incompatível — por exemplo `--read-only` divergente de uma instância já conectada) e a tentativa seguinte de iniciar um daemon também falhar, `gobsidian serve` cai para o modo em processo de sempre, o mesmo caminho usado quando o daemon está desligado. Nenhum caminho deixa a ferramenta inutilizável por causa do daemon; o pior caso é perder o compartilhamento de memória, não a funcionalidade. O daemon em si sai sozinho depois de 15 minutos sem nenhuma sessão conectada.
+
+---
+
 ## 🖥️ Compatibilidade
 
 | Item | Estado |

@@ -200,7 +200,7 @@ num cofre de 7 notas.
 | **RNF-22** | Caminhos acima de 260 caracteres no Windows | **não medido**; verificado por teste (`longpath_windows_test.go`) | — |
 | **RNF-23** | Nomes com acentuação e espaços | **não medido**; verificado por teste (corpus dos golden files) | — |
 | **RNF-24** | Protocolo MCP fixado em `2025-11-25` com fallback | **não medido**; fixado no SDK e verificado por teste | — |
-| **RNF-30** | Nenhuma requisição de rede | **não medido**; verificado por gate — `check_net.ps1` com o analisador `netcheck` em `go vet -vettool`, nos três GOOS | **Atingido** |
+| **RNF-30** | Nenhum socket que saia da máquina (reformulado em 2026-08-05, Task 90 — texto anterior: "nenhuma requisição de rede") | **não medido**; verificado por gate — `check_net.ps1` com o analisador `netcheck` em `go vet -vettool`, nos três GOOS, mais checagem textual de `net/*` | **Atingido** |
 | **RNF-31** | Todo caminho de tool confinado ao cofre | **não medido**; verificado por teste (`validateLocal` + `Canonicalize`) | — |
 | **RNF-32** | Links simbólicos para fora do cofre não são seguidos | **não medido**; verificado por teste (`TestWalkNaoSegueSymlink`, executado com privilégio) | **Atingido** |
 | **RNF-33** | `--read-only` desabilita toda a superfície de escrita | **não medido**; verificado por teste (tools de escrita ausentes de `ListTools`) | — |
@@ -982,3 +982,250 @@ nunca roda de novo no mesmo processo, então isto não dispara ali.
 
 Ver ledger (`.superpowers/sdd/2026-07-25-gobsidian-v01/progress.md`, "Task 89
 (M7)") para a prova de mutação e a saída de `verify.ps1`.
+
+### Task 90 — RNF-30 reformulado, antes de abrir o primeiro socket
+
+Reabre uma decisão fechada, com autorização explícita do dono do projeto em
+2026-08-05: de "nenhuma requisição de rede... nenhum socket de saída em
+nenhuma circunstância" para **"nenhum socket que saia da máquina"**. Um socket
+de domínio Unix não atravessa rede — o kernel resolve um caminho de arquivo
+especial —, então a garantia contra exfiltração se mantém sob a formulação
+nova; o que muda é o mecanismo de IPC permitido, não a superfície de
+exposição. Texto completo, com data e autorização, em `docs/PRD.md` §6.4.
+
+A regra passou a ter duas camadas: nenhum pacote sob `internal/` ou `cmd/`
+importa `net/http` ou qualquer `net/*` (o pacote `net` em si passou a ser
+permitido); e dentro de `net`, só `net.Dial`/`net.Listen` com a constante
+literal `"unix"` são aceitos — rede vinda de variável é recusada estaticamente
+mesmo que o valor em tempo de execução seja `"unix"`. Verificado por
+`tools/netcheck` via `go/analysis` + `go/types`, com as três formas de
+violação plantadas e removidas para confirmar disparo (`net.Dial("tcp", ...)`,
+`net.Dial` com rede vinda de variável, `http.Get`). Detalhe e saída completa
+no ledger, seção "Task 90".
+
+### Task 91 — transporte IPC e o processo-ponte
+
+Implementa `internal/ipc` (o transporte AF_UNIX, chave do socket, handshake de
+versão, `Dial`/`Listen`, proxy de bytes) e a ponte burra em
+`cmd/gobsidian/ponte.go`: depois do handshake ela só copia bytes, não
+interpreta JSON-RPC. RSS medido conectada a um daemon de teste: **13,77 MB**
+de Working Set, contra a dezenas ou centenas de MB de uma instância completa.
+Fallback para o modo em processo é obrigatório sempre que a discagem falha —
+socket ausente, conexão recusada ou versão incompatível levam ao mesmo lugar.
+
+Esta tarefa ainda não tinha o daemon (Task 92); só exercitou o fallback em
+produção e o handshake/proxy contra um par de teste. Latência de uma chamada
+de tool completa através da ponte não foi medida aqui por depender do daemon
+real — ver Task 92 e a tabela desta seção.
+
+### Task 92 — daemon: uma instância por cofre, com ciclo de vida próprio
+
+`internal/daemon`: um único `*mcpsrv.Server` compartilhado por N conexões
+sobre o socket de `internal/ipc`, resolvido por cofre via a mesma
+`config.VaultKey` que deriva o caminho do socket. `EnsureStarted` resolve a
+corrida de inicialização por arquivo de lock; o handshake carrega `ReadOnly` e
+`VaultKey` e recusa (`ErrConfigMismatch`) duas pontes do mesmo cofre com
+configuração divergente conectadas ao mesmo daemon. Ociosidade (padrão: 900 s
+/ 15 min) reusa `lifecycle.Trigger`. `GOBSIDIAN_NO_DAEMON=1` pula a decisão
+inteira — é como desligar o daemon sem reverter código, e é o mecanismo que
+`README.md` documenta.
+
+**Duas descobertas reais, medindo — não hipóteses.** Primeiro: o lock por
+arquivo sozinho não bastava contra um cofre que demora para responder — dez
+pontes lançadas juntas contra o cofre real, sob carga pesada da máquina,
+produziram **dois** daemons vivos ao mesmo tempo, com quase um minuto de
+intervalo entre os dois "daemon iniciado" no log. Corrigido com uma segunda
+checagem (um dial) logo após adquirir o lock, antes de iniciar; ver "Risco
+residual conhecido" abaixo — a correção reduz a janela, não a elimina por
+construção. Segundo: um script de medição que esperava o sinal errado (da
+ponte, não do daemon) ficou "travado" por 30 minutos sem bug nenhum de
+produto — o daemon tinha terminado de construir o índice e ficado ocioso,
+correto.
+
+**RSS agregado, cofre real de 5.619 notas, três instâncias:**
+
+```
+ANTES (sem daemon, GOBSIDIAN_NO_DAEMON=1):
+  memória física consumida: 520,3 MB
+  Working Set total: 736,8 MB   Working Set-Private total: 389,8 MB
+
+DEPOIS (3 pontes + 1 daemon compartilhado):
+  memória física consumida: 260,0 MB
+  Working Set total: 295,1 MB   Working Set-Private total: 141,6 MB
+```
+
+Working Set agregado caiu 59,9%, Working Set-Private 63,7%, e a **memória
+física realmente consumida** (via `Win32_OperatingSystem.FreePhysicalMemory`
+antes/depois — a métrica que não confunde página compartilhada com página
+duplicada, porque o Windows não expõe um equivalente do PSS do Linux por
+processo) caiu **50,0%**. Cada ponte custa ~16 MB contra ~246 MB de uma
+instância independente; o daemon sozinho custa essencialmente o mesmo que uma
+instância independente — o ganho agregado vem inteiro de não repetir esse
+custo por sessão.
+
+Ver ledger, seção "Task 92 (M7)", para as provas de mutação, o gate de
+órfãos com o quarto cenário (`daemon-idle`) e o teste do daemon morto no meio
+de uma chamada.
+
+### Task 93 — tabela de 1, 3 e 5 sessões, nas três configurações
+
+Fecha a Parte II. Não envia código; mede o que faltava para a recomendação
+final. As Tasks 88, 89 e 92 já tinham medido pedaços desta tabela em
+snapshots diferentes do cofre real (4.490 notas na Task 89, 5.619 na Task
+92 — o cofre cresce com o uso diário). Para que as nove células fossem
+comparáveis **entre si**, esta tarefa remediu as três colunas inteiras
+**no mesmo cofre real, na mesma sessão de medição, 2026-08-10**: 4.513
+notas, 71 anexos — o número que o próprio servidor reporta no log de boot
+(`notes=`), não uma contagem bruta de arquivos `.md` no disco, que conta
+entradas dentro de `.obsidian/` e outras que `vault.Walk` exclui.
+
+**Método**, idêntico ao das Tasks 89 e 92: `Win32_PerfFormattedData_PerfProc_Process`
+(`WorkingSet`, `WorkingSetPrivate`) por processo, somado; `Win32_OperatingSystem.FreePhysicalMemory`
+antes de subir qualquer processo e depois de todos acomodados — a métrica
+que não confunde página compartilhada com página duplicada (ver Task 89,
+"compartilhamento entre processos"). Todas as três colunas usam
+`--cache-dir` dedicado (fora do cofre e fora do padrão), aquecido por uma
+partida ignorada antes de cada bateria de medição, e a coluna "com o
+daemon" soma a(s) ponte(s) lançada(s) **mais** o processo `daemon`
+detached que elas iniciam — omitir o daemon do total sub-contaria a
+configuração inteira.
+
+**Coluna "hoje"**: binário compilado no commit `782e813` (o commit
+imediatamente anterior à Task 88 — `git cat-file -t 782e813` confirma
+`commit`), a única forma de reproduzir fielmente "sempre carrega o índice
+inteiro, sem mmap, sem daemon" já que o binário atual não tem mais esse
+caminho de código. **Coluna "com a Task 88"**: binário atual (HEAD,
+`4e05d06`), `GOBSIDIAN_NO_DAEMON=1`, `--eager-search` — força a mesma carga
+que uma sessão que de fato busca pagaria de qualquer forma (lazy load só
+muda o **quando**, não o **quanto**, para quem chama `vault_search`).
+**Coluna "com o daemon"**: binário atual, sem `GOBSIDIAN_NO_DAEMON`,
+`--eager-search` propagado ao daemon (`internal/daemon/spawn.go` já
+encaminha a flag — ver Task 92).
+
+| Sessões simultâneas | hoje (pré-Parte II) | com a Task 88 (sem daemon) | com o daemon |
+|---|---|---|---|
+| **1** | WS 585,0 MB · WS-Priv 574,1 MB · **física 579,1 MB** | WS 244,4 MB · WS-Priv 129,9 MB · **física 244,6 MB** | WS 260,1 MB · WS-Priv 134,0 MB · **física 223,6 MB** |
+| **3** | WS 1.754,4 MB · WS-Priv 1.721,7 MB · **física 1.681,3 MB** | WS 733,3 MB · WS-Priv 389,6 MB · **física 508,5 MB** | WS 288,7 MB · WS-Priv 141,1 MB · **física 262,2 MB** |
+| **5** | WS 2.923,1 MB · WS-Priv 2.868,9 MB · **física 2.916,4 MB** | WS 1.221,3 MB · WS-Priv 648,7 MB · **física 773,4 MB** | WS 318,7 MB · WS-Priv 148,5 MB · **física 229,4 MB** |
+
+`WS` = Working Set total (conta página mapeada residente inteira em cada
+processo que a tem residente — infla quando há compartilhamento). `WS-Priv`
+= Working Set-Private (sai da conta quando a página é file-backed e
+compartilhável, mesmo sem confirmar compartilhamento físico estrito — ver a
+ressalva da Task 89). **Física** = queda de `FreePhysicalMemory` do sistema
+— a única das três que não pode confundir "página barata" com "página
+compartilhada", porque é a memória que o sistema operacional inteiro deixou
+de ter livre, não um contador por processo.
+
+Comandos, colados por coluna (script de medição descartável, não
+commitado — a lógica é a mesma de `scripts/measure.ps1`, estendida para N
+processos e para somar todo `gobsidian.exe` vivo, inclusive o daemon
+detached):
+
+```
+# hoje, N=1/3/5: binario em 782e813, sem flags de Parte II
+gobsidian.exe serve --vault <cofre> --cache-dir <dir formato 5>
+
+# com a Task 88, N=1/3/5: binario atual, sem daemon, forcando carga
+$env:GOBSIDIAN_NO_DAEMON = "1"
+gobsidian.exe serve --vault <cofre> --cache-dir <dir formato 6> --eager-search
+
+# com o daemon, N=1/3/5: binario atual, daemon ligado (padrao)
+gobsidian.exe serve --vault <cofre> --cache-dir <dir formato 6> --eager-search
+```
+
+**Física consumida cai monotonicamente da esquerda para a direita em cada
+linha**, e a coluna do daemon é a única que **não escala com N**: 223,6 →
+262,2 → 229,4 MB (ruído de medição em torno de ~225-260 MB, não tendência),
+contra crescimento aproximadamente linear nas outras duas colunas. Isso é
+exatamente o que "um processo, N conexões" prediz — cada ponte adicional
+custa 14-15 MB de Working Set, não mais um índice inteiro.
+
+**Queda de física consumida, hoje → com o daemon:**
+
+| Sessões | Queda |
+|---|---|
+| 1 | −61,4% (579,1 → 223,6 MB) |
+| 3 | −84,4% (1.681,3 → 262,2 MB) |
+| 5 | −92,1% (2.916,4 → 229,4 MB) |
+
+**Queda de física consumida, com a Task 88 → com o daemon (o que o daemon
+soma sobre o que a Task 88 já entrega sozinha):**
+
+| Sessões | Queda |
+|---|---|
+| 1 | −8,6% (244,6 → 223,6 MB) — dentro da margem de ruído de uma medição só; **não é seguro afirmar ganho na sessão única**, mas também não há perda |
+| 3 | −48,4% (508,5 → 262,2 MB) |
+| 5 | −70,3% (773,4 → 229,4 MB) |
+
+### Recomendação — o daemon deve vir ligado por padrão?
+
+**Sim.** A tabela acima resolve a pergunta que a Task 92 deixou em aberto —
+"o caso de uma sessão só pode não ganhar nada" — e a resposta medida é: **na
+sessão única, o daemon não piora** (223,6 MB contra 244,6 MB sem ele; a
+diferença de 8,6% está dentro do que uma medição só pode afirmar, então a
+leitura correta é "empate", não "ganho"), e a partir de **três sessões
+simultâneas que buscam de verdade, o ganho já é grande** (−48%) **e cresce
+com N** (−70% em cinco). Não existe nesta tabela nenhum ponto em que manter
+o daemon desligado seria a escolha melhor.
+
+**O raciocínio, com as duas pontas:**
+
+- **A favor, com número:** física consumida some de 773,4 MB para 229,4 MB
+  com cinco sessões simultâneas do cofre real — a mesma ordem de grandeza
+  do −50% que a Task 92 já tinha medido num cofre menor, agora confirmada
+  numa bateria inteira e consistente de 1/3/5. O ganho **cresce** com o
+  número de sessões, que é exatamente o eixo em que "um processo por
+  sessão" piora.
+- **Contra, também com número:** o ganho na sessão única é zero (dentro do
+  ruído), e o daemon adiciona um processo de vida longa, um arquivo de
+  lock com a corrida residual documentada acima, e um modo de falha novo
+  (socket morto, versão incompatível). Nenhum desses custos aparece nesta
+  tabela porque eles não são de memória — são operacionais, e continuam
+  valendo mesmo quando o número de RSS está do lado do daemon.
+
+**Por que "ligado por padrão" e não "desligado por padrão" apesar do custo
+operacional real:** o fallback é automático nos três pontos (Task 91) e o
+pior caso medido de todo este trabalho — dois daemons vivos ao mesmo tempo
+(Task 92, corrigido) — nunca produziu corrupção de dado, só duplicação de
+processo. Um usuário com uma sessão só paga zero custo adicional (medido);
+um usuário com sessões concorrentes — o caso que motivou a Parte II inteira
+— ganha proporcionalmente ao número de sessões, sem precisar saber que o
+daemon existe. `GOBSIDIAN_NO_DAEMON=1` fica documentado no `README.md` para
+quem preferir desligá-lo (operação de longa duração isolada, depuração, ou
+desconfiança do mecanismo novo).
+
+A Task 88 continua sendo o maior ganho por linha mexida do marco — ela é
+quem faz a MAIORIA das sessões (leitura e escrita, sem busca) nunca pagar
+custo nenhum, e essa tabela nem chega a exercitar esse caso, porque as três
+colunas forçam `--eager-search` de propósito. O daemon é o complemento para
+quem sobra depois da 88: sessão que busca de verdade, contra o mesmo cofre,
+ao mesmo tempo.
+
+### Risco residual conhecido — corrida de inicialização do daemon
+
+`EnsureStarted` (`internal/daemon/lock.go`) usa um arquivo de lock
+(`O_CREATE|O_EXCL`) para serializar quem tenta iniciar o daemon do mesmo
+cofre, mas libera o lock assim que a própria chamada termina — o que inclui
+esperar o socket responder. Isso serializa quem disputa o **mesmo instante**,
+não "existe um daemon rodando". **Medido, não hipotético:** dez pontes
+lançadas juntas contra o cofre real, sob carga pesada da máquina (o gate de
+órfãos rodando em paralelo), produziram dois daemons vivos simultaneamente,
+uma vez, antes da correção — quase um minuto de intervalo entre os dois logs
+de "daemon iniciado". A correção adiciona uma segunda checagem (um dial)
+logo após adquirir o lock, antes de chamar `iniciar`: se outro processo já
+respondeu enquanto esta chamada esperava a vez, usa esse e nunca inicia um
+segundo.
+
+**Isso reduz a janela para milissegundos; não é exclusão mútua entre
+processos por construção.** É um *check-then-act*: entre o dial de
+confirmação e o `SpawnDetached` de fato ainda existe uma janela teórica, só
+que agora medida em milissegundos em vez de "a duração inteira do lock,
+incluindo o tempo de boot do daemon". Reconfirmado sem daemon duplicado em
+duas rodadas de dez pontes simultâneas depois da correção, em máquina sem
+carga concorrente — a janela teórica continua existindo sob a mesma condição
+que a expôs uma vez (contenção pesada de CPU no instante exato da corrida).
+Não observado em produção fora da condição de teste que a expôs. Se dois
+daemons chegarem a coexistir, o pior caso é dois processos com índice
+próprio competindo pelo mesmo socket — não corrupção do cofre, que continua
+protegida pelas escritas atômicas e pelo mutex por caminho (`internal/writer`).

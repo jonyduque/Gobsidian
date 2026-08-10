@@ -2872,3 +2872,125 @@ spawn", e a documentacao no codigo (`internal/daemon/lock.go`) explica o
 raciocinio para quem revisar depois. `--cache-dir` dedicado e os processos
 lancados para a medicao de RSS foram todos limpos ao final; nenhum arquivo
 de teste entrou no commit.
+
+## Task 93 (M7) — medicao multi-instancia, documentacao e fechamento da Parte II — 2026-08-10
+
+**Esta tarefa nao envia codigo e nao tem prova de mutacao** — nao ha regra
+nova para provar por mutacao, so medicao e documentacao (contrato do proprio
+brief).
+
+### O que foi medido: tabela de 1/3/5 sessoes x 3 configuracoes
+
+As Tasks 88, 89 e 92 ja tinham pedacos desta tabela, mas em snapshots
+diferentes do cofre real (4.490 notas na Task 89, 5.619 na Task 92 -- o
+cofre cresce com uso diario). Para as nove celulas serem comparaveis entre
+si, remedidas as tres colunas inteiras no MESMO cofre real, na mesma sessao,
+2026-08-10: **4.513 notas** (numero que o proprio servidor reporta em
+`notes=`, nao contagem bruta de `.md` no disco, que inclui entradas dentro
+de `.obsidian/` que `vault.Walk` exclui).
+
+Metodo identico as Tasks 89/92: `Win32_PerfFormattedData_PerfProc_Process`
+somado por processo, `Win32_OperatingSystem.FreePhysicalMemory` antes/depois.
+Coluna "hoje": binario compilado no commit `782e813` (worktree detached,
+removido apos a medicao), o commit imediatamente anterior a Task 88 -- unica
+forma de reproduzir fielmente "sempre carrega tudo, sem mmap, sem daemon" ja
+que o binario atual nao tem mais esse caminho. Colunas "com a Task 88" e
+"com o daemon": binario atual (HEAD, `4e05d06`), `--eager-search` para
+forcar a mesma carga que uma sessao que busca de verdade pagaria de
+qualquer jeito.
+
+```
+$ git cat-file -t 782e813
+commit
+$ git cat-file -t 4e05d06
+commit
+```
+
+| Sessoes | hoje (pre-Parte II) | com a Task 88 (sem daemon) | com o daemon |
+|---|---|---|---|
+| 1 | WS 585,0 / WS-Priv 574,1 / **fisica 579,1 MB** | WS 244,4 / WS-Priv 129,9 / **fisica 244,6 MB** | WS 260,1 / WS-Priv 134,0 / **fisica 223,6 MB** |
+| 3 | WS 1.754,4 / WS-Priv 1.721,7 / **fisica 1.681,3 MB** | WS 733,3 / WS-Priv 389,6 / **fisica 508,5 MB** | WS 288,7 / WS-Priv 141,1 / **fisica 262,2 MB** |
+| 5 | WS 2.923,1 / WS-Priv 2.868,9 / **fisica 2.916,4 MB** | WS 1.221,3 / WS-Priv 648,7 / **fisica 773,4 MB** | WS 318,7 / WS-Priv 148,5 / **fisica 229,4 MB** |
+
+Tabela completa com os comandos colados por coluna e a leitura de cada
+metrica em `docs/OPERACAO.md`, secao "Task 93".
+
+**Achado central: a coluna do daemon nao escala com N** (223,6 / 262,2 /
+229,4 MB -- ruido em torno de ~225-260 MB, nao tendencia), contra
+crescimento aproximadamente linear nas outras duas. Fisica consumida,
+com a Task 88 -> com o daemon: **-8,6% em 1 sessao** (dentro da margem de
+ruido de uma medicao so -- leitura correta e "empate", nao "ganho"),
+**-48,4% em 3**, **-70,3% em 5**.
+
+### Recomendacao: daemon ligado por padrao — SIM
+
+A Task 92 tinha deixado em aberto se a sessao unica ganharia algo; a
+resposta medida e que ela **nao perde nada** (empate dentro do ruido) e o
+ganho **cresce com N** a partir de 3 sessoes concorrentes que buscam de
+verdade. Nao ha, nesta tabela, nenhum ponto em que desligar o daemon por
+padrao seria a escolha melhor. O custo operacional do daemon (processo de
+vida longa, arquivo de lock com a corrida residual da Task 92, modo de
+falha novo) e real e nao aparece nos numeros de RSS -- mas o fallback
+automatico nos tres pontos (Task 91) e o pior caso ja medido (dois daemons
+vivos, nunca corrupcao de dado) tornam o risco aceitavel contra um ganho que
+cresce exatamente no cenario que motivou a Parte II inteira. Raciocinio
+completo, com as duas pontas, em `docs/OPERACAO.md`.
+
+### Sincronizacao de documentacao
+
+- `docs/PRD.md` — conferido: RNF-30 reformulado pela Task 90 ja estava la
+  (`§6.4`), nao precisou de edicao.
+- `docs/ARCHITECTURE.md` — nova secao `§7.5 Daemon e transporte IPC local`
+  (motivacao, ponte burra, handshake com config, ociosidade, a medicao
+  D-M7-6 de AF_UNIX x named pipe, o risco residual do lock); `AD-07`
+  reescrita de "Sem rede" para "Nenhum socket que saia da maquina", com a
+  formulacao nova; `§2.11`/`§2.12` descrevem `internal/ipc` e
+  `internal/daemon`.
+- `docs/ESTRUTURA.md` — o trecho de `check_net.ps1` citado no doc ainda
+  mostrava a checagem antiga (proibia o pacote `net` inteiro); atualizado
+  para as duas camadas reais (vettool `netcheck` + checagem textual so de
+  `net/*`), com nota de que a versao completa vive em `scripts/check_net.ps1`.
+- `docs/OPERACAO.md` — linha do RNF-30 na tabela de fechamento atualizada
+  com a formulacao nova e a data da Task 90; secoes novas para as Tasks
+  90/91/92 (que ainda nao tinham entrado no documento, so no ledger), a
+  tabela de 1/3/5 sessoes, a recomendacao, e "Risco residual conhecido —
+  corrida de inicializacao do daemon" com o numero (dois daemons vivos,
+  medido, corrigido, janela reduzida mas nao eliminada por construcao).
+- `README.md` — nova secao `## Daemon (opcional, ligado por padrao)`,
+  entre "Linha de comando" e "Compatibilidade": como desligar
+  (`GOBSIDIAN_NO_DAEMON=1`) e o que acontece quando ele nao sobe (fallback
+  automatico, sem inutilizar a ferramenta). **So essa secao foi tocada** --
+  `## Instalacao` e tudo acima dela ficaram fora, por instrucao explicita.
+
+### Verificacoes
+
+```
+$ pwsh -File scripts/check_doc_refs.ps1
+[!] 10 achado(s)
+```
+Os 10 sao pre-existentes (ARCHITECTURE.md:366, ESTRUTURA.md:186/188/234,
+TOOLS.md:95, WINDOWS.md:157) -- nenhum referencia `internal/ipc`,
+`internal/daemon`, `ponte.go` ou qualquer artefato que esta tarefa
+introduziu na documentacao.
+
+```
+$ pwsh -File scripts/audit_reports.ps1
+[!] 45 achado(s)
+```
+Os 45 sao os mesmos de antes desta tarefa (relatorios de tasks 1-80 e duas
+linhas do ledger anteriores a linha 920) -- confirmado por diff: nenhum
+achado novo aparece nas secoes que esta tarefa escreveu.
+
+**Privacidade**: `git diff --cached | grep -niE "Tribunal|TJSP|OneDrive|Estudos"`
+sobre os arquivos versionados tocados (`docs/`, `README.md`, este ledger) —
+saida vazia, conferida antes do commit.
+
+### Escopo
+
+Cumprido integralmente. Nao encontrado nada fora do escopo desta tarefa que
+merecesse relato -- `docs/ESTRUTURA.md` tem a arvore de diretorios sem
+`internal/ipc`, `internal/daemon`, `cmd/gobsidian/ponte.go` nem
+`cmd/gobsidian/servico.go`, e `persist_codec.go` ainda rotulado "formato 5"
+quando o formato atual e 6 (Task 89) -- fora do pedido explicito desta
+tarefa (so a redacao do RNF-30 em `ESTRUTURA.md`), relatado aqui em vez de
+consertado.
