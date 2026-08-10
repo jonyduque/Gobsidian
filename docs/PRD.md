@@ -262,22 +262,28 @@ Cofre de referência para todas as medições: 5.000 notas Markdown, 50 MB de te
 
 | ID | Requisito |
 |---|---|
-| RNF-30 | Nenhuma requisição de rede. O código do produto não abre socket de saída em nenhuma circunstância |
+| RNF-30 | Nenhum socket que saia da máquina. Socket de domínio Unix é permitido para IPC local, endereçado sob o diretório de runtime do usuário; nenhum socket TCP/UDP e nenhuma requisição HTTP de saída, em nenhuma circunstância |
 | RNF-31 | Todo caminho recebido de uma tool é resolvido e verificado como interno ao cofre; travessia rejeitada |
 | RNF-32 | Links simbólicos que apontem para fora do cofre não são seguidos |
 | RNF-33 | Modo `--read-only` que desabilita toda a superfície de escrita |
 
-RNF-30 é uma propriedade de produto, não apenas técnica: o cofre pode conter material confidencial, e a garantia de que o servidor não exfiltra precisa ser verificável, não apenas afirmada.
+RNF-30 é uma propriedade de produto, não apenas técnica: o cofre pode conter material confidencial, e a garantia de que o servidor não exfiltra precisa ser verificável, não apenas afirmada. Essa razão não mudou e não foi renegociada.
+
+**Reaberta em 2026-08-05, com autorização explícita do dono do projeto**, para as Tasks 91 e 92 (IPC local entre processos via socket Unix). A formulação vigente até esta data era:
+
+> RNF-30 — Nenhuma requisição de rede. O código do produto não abre socket de saída em nenhuma circunstância.
+
+O que mudou: de "nenhum socket" para "nenhum socket que saia da máquina". Um socket de domínio Unix não atravessa a rede — o kernel resolve um caminho de arquivo especial, e a comunicação nunca sai da máquina —, então a garantia contra exfiltração se mantém intacta sob a formulação nova. O que muda é o mecanismo de IPC permitido, não a superfície de exposição.
 
 A formulação exige cuidado. O SDK oficial de MCP importa `net/http` para o transporte HTTP/SSE, e essa importação entra no grafo de dependências mesmo quando só o transporte stdio é usado. Uma regra de CI do tipo "nenhum pacote `net/*` no grafo" falharia permanentemente e acabaria desabilitada — pior que não existir.
 
 A regra verificável é outra, em três partes:
 
-1. Nenhum pacote sob `internal/` ou `cmd/` importa `net`, `net/http` ou qualquer pacote de rede. Verificado por análise estática do grafo de importação **do nosso código**, não do fechamento transitivo.
-2. Nenhuma chamada a `net.Dial`, `http.Get`, `http.Client` ou equivalente no código do produto. Verificado por `go vet` com um analisador próprio.
-3. RF-54 (transporte HTTP/SSE) fica fora da v1. O único transporte construído é stdio.
+1. Nenhum pacote sob `internal/` ou `cmd/` importa `net/http` ou qualquer outro pacote `net/*`. Importar o pacote `net` em si passou a ser permitido — é dele que vêm `net.Dial` e `net.Listen` para o socket Unix. Verificado por análise estática do grafo de importação **do nosso código**, não do fechamento transitivo.
+2. Toda chamada a `net.Dial` ou `net.Listen` no código do produto só aceita a rede como constante literal `"unix"`; rede vinda de variável, ou de qualquer expressão não constante, é recusada estaticamente. Qualquer outra chamada do pacote `net` (`net.DialTCP`, `net.ListenTCP`, `net.DialUDP`, `net.LookupHost` etc.) é proibida por padrão — o par Dial/Listen com `"unix"` é a única porta aberta. Nenhuma chamada a `http.Get`, `http.Client` ou equivalente continua valendo, porque `net/http` já está banido pela regra 1. Verificado por `go vet` com o analisador de `tools/netcheck`.
+3. O endereço do socket Unix é um caminho sob o diretório de runtime do usuário. O analisador estático não prova isso — é um valor de tempo de execução, não estático —; quem prova é o teste. RF-54 (transporte HTTP/SSE) continua fora da v1: o único transporte MCP construído é stdio, e o socket Unix das Tasks 91/92 é IPC auxiliar, não substituto dele.
 
-O resultado é honesto: `net/http` está compilado no binário porque o SDK o carrega, e nunca é exercitado. Auditável em um comando, e é a garantia que dá para sustentar sem manter um fork podado do SDK.
+O resultado é honesto: `net/http` está compilado no binário porque o SDK o carrega, e nunca é exercitado pelo nosso código. Auditável em um comando, e é a garantia que dá para sustentar sem manter um fork podado do SDK.
 
 ---
 

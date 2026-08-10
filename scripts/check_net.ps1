@@ -38,6 +38,13 @@ try {
     }
 
     # 3. Mantem a verificacao textual de retrocompatibilidade
+    #
+    # Reaberta em 2026-08-05 (Task 90): so pacotes net/* (net/http incluido)
+    # entram nesta lista. O pacote "net" em si passou a ser permitido -- e
+    # dele que vem net.Dial/net.Listen para o socket Unix das Tasks 91/92 --,
+    # e quem cobra que toda chamada dentro dele seja Dial/Listen com a
+    # constante "unix" e o vettool no passo 2, nao esta checagem textual, que
+    # so ve import, nao chamada.
     $ModulePath = go list -m 2>$null
     if ($LASTEXITCODE -eq 0 -and $ModulePath) {
         $Rows = go list -f '{{.ImportPath}}|{{join .Imports ","}}' ./internal/... ./cmd/...
@@ -56,19 +63,19 @@ try {
                 $Imports = @()
                 if ($Parts.Count -gt 1 -and $Parts[1]) { $Imports = $Parts[1] -split "," }
 
-                $Net = $Imports | Where-Object { $_ -eq "net" -or $_ -like "net/*" }
+                $Net = $Imports | Where-Object { $_ -like "net/*" }
                 if ($Net) { $Offenders += "$Pkg -> $($Net -join ', ')" }
             }
 
             if ($Offenders) {
-                Write-Warning "[!] Pacote do produto importando rede:"
+                Write-Warning "[!] Pacote do produto importando subpacote de rede:"
                 $Offenders | ForEach-Object { Write-Output "    $_" }
                 exit 1
             }
         }
     }
 
-    Write-Output "[OK] Nenhum pacote de internal/ ou cmd/ importa rede (verificado via netcheck vettool em windows, linux, darwin)"
+    Write-Output "[OK] Nenhum pacote de internal/ ou cmd/ importa net/* ou abre socket que saia da maquina (verificado via netcheck vettool em windows, linux, darwin)"
 }
 finally {
     if (Test-Path $TempBin) {
