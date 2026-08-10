@@ -306,6 +306,10 @@ gobsidian inspect "Pasta/Minha nota.md" --vault "/caminho/do/cofre" --json
 
 `doctor` e `version` escrevem em **stdout** de propósito, porque são comandos de CLI. Em `serve`, stdout pertence inteiro ao JSON-RPC e todo log vai para stderr.
 
+A saída dos comandos de CLI vem colorida quando o destino é um terminal, e **em texto puro quando não é** — `gobsidian doctor > relatorio.txt` grava um arquivo sem nenhuma sequência de escape. A decisão é tomada por destino, então um `stdout` redirecionado não tira a cor dos erros que ainda vão para o terminal pelo `stderr`. Defina `NO_COLOR` com qualquer valor não vazio para desligar em todos os casos.
+
+Os marcadores `[OK]`, `[!]`, `[i]`, `[*]` e `[...]` continuam em ASCII puro, e a cor apenas os reforça: com a cor descartada, a saída continua legível e os estados continuam distinguíveis. Isso não é detalhe estético — um console PowerShell em CP-850 renderiza qualquer coisa fora do ASCII como lixo, e `doctor` é o comando que alguém roda quando já está confuso.
+
 ---
 
 ## 🧵 Daemon (opcional, ligado por padrão)
