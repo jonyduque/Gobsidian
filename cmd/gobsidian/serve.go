@@ -347,11 +347,28 @@ func buildInvertedIndex(
 		"duracao_ms", time.Since(inicio).Milliseconds())
 }
 
+// runServe e o ponto de entrada do comando `serve`. Cria o logger — o unico
+// que existe no processo inteiro, ver a nota sobre stdout abaixo — e entrega
+// a decisao entre falar com um daemon via socket ou servir o cofre neste
+// processo para servePonte (ponte.go). runServe nao retorna: termina o
+// processo aqui para que o codigo de saida seja o desta decisao e nao o que
+// cobra derivaria de um error. O return no fim e inalcancavel e existe so
+// para satisfazer a assinatura que RunE exige.
 func runServe(parent context.Context, cfg config.Config) error {
 	// stderr, sempre. stdout carrega o JSON-RPC e um unico byte estranho
 	// corrompe a sessao.
 	log := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: cfg.LogLevel}))
 
+	os.Exit(shutdownExitCode(servePonte(parent, cfg, log)))
+	return nil
+}
+
+// serveEmProcesso monta o indice, o watcher e o servidor MCP dentro deste
+// processo — o caminho que o servidor sempre usou, antes de existir ponte
+// nenhuma. E tambem o fallback obrigatorio de servePonte (ponte.go) quando
+// nao ha daemon para conversar: socket ausente, conexao recusada ou versao
+// incompativel caem todos aqui.
+func serveEmProcesso(parent context.Context, cfg config.Config, log *slog.Logger) error {
 	v, err := vault.New(cfg.VaultPath)
 	if err != nil {
 		return err
@@ -575,12 +592,13 @@ func runServe(parent context.Context, cfg config.Config) error {
 	default:
 	}
 
-	// runServe nao retorna: termina o processo aqui para que o codigo de saida
-	// seja o desta decisao e nao o que cobra derivaria de um error. O return
-	// abaixo e inalcancavel e existe so para satisfazer a assinatura que RunE
-	// exige.
-	os.Exit(shutdownExitCode(loopErr))
-	return nil
+	// Diferente do runServe de antes da ponte (Task 91), esta funcao AGORA
+	// retorna em vez de terminar o processo: quem decide o codigo de saida e
+	// runServe, um nivel acima, porque e o mesmo lugar que decide entre este
+	// caminho e servePonteRemota — os dois precisam do mesmo shutdownExitCode
+	// aplicado ao MESMO loopErr, e duplicar a chamada a os.Exit nos dois
+	// caminhos teria dado a cada um seu proprio codigo de saida.
+	return loopErr
 }
 
 // mirrorDst e o subconjunto de *io.PipeWriter que mirrorReader usa. Extrair

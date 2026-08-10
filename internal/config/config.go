@@ -171,15 +171,24 @@ func validateDebounceMS(n int) error {
 	return nil
 }
 
+// VaultKey deriva um nome de arquivo estavel a partir do caminho absoluto do
+// cofre. E a UNICA funcao que calcula essa chave — defaultCacheDir e
+// internal/ipc.SocketPath dependem dela para nomear, respectivamente, o
+// diretorio de cache e o socket IPC do mesmo cofre. Duas contas separadas do
+// mesmo hash e exatamente o padrao que ja custou caro neste projeto (ver
+// byAlias em CLAUDE.md): enquanto os dois calculos concordam por coincidencia
+// eles nunca divergem, ate que um dos dois lados mude sozinho.
+func VaultKey(vaultPath string) string {
+	sum := xxhash.Sum64String(strings.ToLower(vaultPath))
+	return strconv.FormatUint(sum, 16)
+}
+
 // defaultCacheDir deriva o diretorio de cache de um hash do caminho absoluto
 // do cofre, sempre FORA do cofre (PRD D1).
 func defaultCacheDir(vaultPath string) string {
-	sum := xxhash.Sum64String(strings.ToLower(vaultPath))
-	name := strconv.FormatUint(sum, 16)
-
 	base, err := os.UserCacheDir()
 	if err != nil {
 		base = os.TempDir()
 	}
-	return filepath.Join(base, "gobsidian", name)
+	return filepath.Join(base, "gobsidian", VaultKey(vaultPath))
 }
