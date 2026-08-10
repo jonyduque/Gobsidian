@@ -2332,3 +2332,111 @@ Sem compartilhamento, tres instancias consumiriam ~717 MB (3 x 239). Consumiram
 Metodo, para quem repetir: `Win32_OperatingSystem.FreePhysicalMemory` antes de
 subir qualquer instancia e depois de cada uma. Contador por processo nao serve
 para esta pergunta — foi exatamente o que a ressalva da tarefa apontou.
+
+## Task 90 — RNF-30 reformulado, antes de abrir o primeiro socket — 2026-08-10
+
+Reabre uma decisao fechada, com autorizacao explicita do dono do projeto em
+2026-08-05, para desbloquear o IPC local via socket AF_UNIX das Tasks 91 e 92.
+Formulacao antiga: "nenhuma requisicao de rede... nenhum socket de saida em
+nenhuma circunstancia." Nova: **"nenhum socket que saia da maquina."** Um
+socket de dominio Unix nao atravessa rede nenhuma — o kernel resolve um
+caminho de arquivo especial —, entao a garantia contra exfiltracao continua
+de pe sob a formulacao nova; o que muda e o mecanismo de IPC permitido, nao a
+superficie de exposicao. Texto completo, com data e autorizacao, em
+`docs/PRD.md` §6.4.
+
+A regra deixou de ser "nenhum import de `net`" e passou a ter duas camadas:
+
+1. **Importacao.** `net/http` e qualquer `net/*` continuam banidos. O pacote
+   `net` em si passou a ser permitido — sem ele nao ha como pedir um socket
+   Unix.
+2. **Chamada.** Dentro de `net`, so `net.Dial` e `net.Listen` sao aceitos, e
+   so quando o primeiro argumento (a rede) e a constante literal `"unix"`.
+   Rede vinda de variavel e recusada mesmo que o valor em tempo de execucao
+   seja `"unix"` — o analisador nao pode provar isso estaticamente, entao nao
+   aceita. Qualquer outra chamada do pacote `net` (`DialTCP`, `ListenTCP`,
+   `DialUDP`, `LookupHost` etc.) e banida por padrao: o par Dial/Listen com
+   `"unix"` e a unica porta aberta.
+
+Implementado em `tools/netcheck/netcheck.go` via `go/analysis` + `go/types`
+(nao so `go/ast` — precisa da informacao de tipo para distinguir constante de
+variavel). `scripts/check_net.ps1` teve sua checagem textual de retrocompat
+ajustada no mesmo sentido: so flagra `net/*`, nao mais `net` puro.
+
+### Prova de disparo — as tres regras, plantadas e removidas
+
+Plantado cada caso em `internal/config/zz_netcheck_scratch.go` (fora de
+qualquer commit), rodado `scripts/check_net.ps1`, removido, rodado de novo.
+
+**1. `net.Dial("tcp", ...)` — reprova:**
+```
+[!] netcheck reprovou em GOOS=windows
+     internal\config\zz_netcheck_scratch.go:6:9: rede proibida: net.Dial so aceita a constante "unix"
+```
+**Removido — passa:**
+```
+[OK] Nenhum pacote de internal/ ou cmd/ importa net/* ou abre socket que saia da maquina (verificado via netcheck vettool em windows, linux, darwin)
+```
+
+**2. `net.Dial(rede, ...)` com `rede := "unix"` (variavel, nao literal) — reprova:**
+```
+[!] netcheck reprovou em GOOS=windows
+     internal\config\zz_netcheck_scratch.go:7:9: rede proibida: net.Dial so aceita a constante "unix"
+```
+**Removido — passa:**
+```
+[OK] Nenhum pacote de internal/ ou cmd/ importa net/* ou abre socket que saia da maquina (verificado via netcheck vettool em windows, linux, darwin)
+```
+
+**3. `http.Get(...)` — reprova:**
+```
+[!] netcheck reprovou em GOOS=windows
+     internal\config\zz_netcheck_scratch.go:3:8: pacote de rede proibido: net/http
+```
+**Removido — passa:**
+```
+[OK] Nenhum pacote de internal/ ou cmd/ importa net/* ou abre socket que saia da maquina (verificado via netcheck vettool em windows, linux, darwin)
+```
+
+`git status --porcelain internal/config` vazio depois do ultimo removido —
+nao sobrou scratch em nenhum commit.
+
+### Prova de mutacao
+
+A primeira tentativa, com o corpo do `if` referenciando so `call.Pos()`,
+saiu **inconclusiva**: `if false {` deixava `ehConstante`, `valorDe` e `arg0`
+sem uso nenhum no resto da funcao, e o `go test` reprovava por "declared and
+not used" — build quebrado, nao cobertura. Corrigido referenciando os tres de
+novo dentro do proprio corpo do `if` (na mensagem do `Reportf`, com
+`arg0.Pos()`), que fica parado mas presente apos a mutacao trocar so a linha
+da condicao.
+
+```
+pwsh -File scripts/mutate.ps1 -Path tools/netcheck/netcheck.go `
+  -Anchor 'if !ehConstante(arg0) || valorDe(arg0) != "unix" {' -Replacement 'if false {' `
+  -Test TestNetcheckRecusaRedeVariavel -Package ./tools/netcheck/
+
+[...] Mutando tools/netcheck/netcheck.go
+      - if !ehConstante(arg0) || valorDe(arg0) != "unix" {
+      + if false {
+[...] go test -race -run TestNetcheckRecusaRedeVariavel ./tools/netcheck/
+--- FAIL: TestNetcheckRecusaRedeVariavel (3.71s)
+    analysistest.go:713: redevar/redevar.go:7: no diagnostic was reported matching `rede proibida: net.Dial so aceita a constante "unix"`
+FAIL
+[OK] tools/netcheck/netcheck.go restaurado byte a byte (SHA-256 confere).
+[OK] O teste REPROVOU com a regra mutada — a regra esta verificada.
+```
+Exit code do `mutate.ps1`: `0`.
+
+### Gate completo
+
+`pwsh -File scripts/verify.ps1 -SkipCross` verde nas 8 etapas, incluindo
+`golangci-lint` (confirmado `v2.12.2`, igual ao fixado no CI) e `check_net
+(RNF-30)`.
+
+### Escopo
+
+Cumprido integralmente. Nenhum socket foi aberto nesta tarefa — so a
+garantia e o analisador que a Task 91 vai depender de manter verde. Commit
+`a46175cbdd3648d87dcfd731f22421ea1c0b3939` (`git cat-file -t` confirma
+`commit`).
