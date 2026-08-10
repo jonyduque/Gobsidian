@@ -1197,15 +1197,24 @@ repetições que não se sobrepõem. Não é ruído, e não é zero: é negativo
   falha novo, e o argumento "compartilhamento sem downside" que sustentava
   a recomendação anterior não sobrevive à célula que faltava medir.
 
-**Por isso a recomendação muda para desligado por padrão, com opt-in para
-quem sabe que vai rodar sessões concorrentes.** O mecanismo atual
-(`GOBSIDIAN_NO_DAEMON=1` desliga; sem a variável, o padrão tenta o daemon)
-está invertido em relação a essa conclusão — hoje o padrão já É tentar o
-daemon. Virar esse padrão (o daemon só nasce se pedido explicitamente, por
-uma flag ou variável de ambiente ainda a nomear) é mudança de código, fora
-do escopo desta tarefa; o que cabe aqui é deixar registrado que o padrão
-atual do binário não bate com o que os números recomendam, para quem
-decidir o código seguinte.
+**A recomendação técnica desta medição era desligar por padrão**, com
+opt-in para quem sabe que vai rodar sessões concorrentes. O critério tinha
+sido fixado antes de medir — ganho zero ou negativo na sessão única decide
+a questão — e a sessão única deu negativo.
+
+**O dono do projeto decidiu o contrário, com o número na frente: o daemon
+sai ligado por padrão na v1.1.0** (decisão de 2026-08-10). O raciocínio não
+contesta a medição, contesta o peso dela: 16 MB é caro em porcentagem e
+barato em valor absoluto numa máquina que roda um host de IA, enquanto os
+−60% e −74% de três e cinco sessões só chegam a quem os recebe **sem
+precisar descobrir uma variável de ambiente na documentação**. Padrão que
+exige leitura de documento para valer é padrão que quase ninguém tem.
+
+Quem quer o comportamento que os números recomendam liga
+`GOBSIDIAN_NO_DAEMON=1` e paga zero. **Esta seção fica como está, com a
+recomendação técnica contrária ao padrão embarcado, de propósito:** quem
+reabrir a questão precisa do número que a contraria, não de uma
+justificativa retroativa do que foi decidido.
 
 **O que isto NÃO muda:** a Task 88 continua sendo o maior ganho por linha
 mexida do marco — ela é quem faz a MAIORIA das sessões (leitura e escrita,
