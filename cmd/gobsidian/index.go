@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/jonyd/gobsidian/internal/config"
+	"github.com/jonyd/gobsidian/internal/console"
 	"github.com/jonyd/gobsidian/internal/index"
 	"github.com/jonyd/gobsidian/internal/vault"
 	"github.com/spf13/cobra"
@@ -74,11 +75,12 @@ func newIndexCmd() *cobra.Command {
 				return nil
 			}
 
-			_, _ = fmt.Fprintf(out, "[OK] Indexacao concluida em %d ms\n", dur.Milliseconds())
-			_, _ = fmt.Fprintf(out, "[*] Notas: %d\n", notes)
-			_, _ = fmt.Fprintf(out, "[*] Anexos: %d\n", assets)
-			_, _ = fmt.Fprintf(out, "[*] Tags: %d\n", tags)
-			_, _ = fmt.Fprintf(out, "[*] Tamanho total: %d bytes\n", size)
+			con := console.New(out)
+			con.OK("Indexacao concluida em %d ms", dur.Milliseconds())
+			con.Item("Notas: %d", notes)
+			con.Item("Anexos: %d", assets)
+			con.Item("Tags: %d", tags)
+			con.Item("Tamanho total: %d bytes", size)
 			return nil
 		},
 	}

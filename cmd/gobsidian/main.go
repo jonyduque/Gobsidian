@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"os"
 
+	"github.com/jonyd/gobsidian/internal/console"
 	"github.com/jonyd/gobsidian/internal/mcpsrv"
 	"github.com/spf13/cobra"
 )
@@ -29,6 +30,25 @@ func main() {
 	// o cliente ve sempre "dev", mesmo em build de release.
 	mcpsrv.Version = version
 
+	root := newRootCmd()
+
+	if err := root.Execute(); err != nil {
+		// Erro vai para o stderr, e a decisao de cor sai do PROPRIO stderr.
+		// Se stdout estiver redirecionado e o stderr for um terminal, o erro
+		// continua colorido -- e o inverso tambem vale.
+		console.New(os.Stderr).Err("%v", err)
+		os.Exit(1)
+	}
+}
+
+// newRootCmd monta a arvore de comandos completa.
+//
+// Existe separada de main() para que o teste exercite a MESMA arvore que o
+// binario, e nao uma parecida. SilenceUsage e o exemplo de por que isso
+// importa: com ele, um erro de configuracao nao despeja o texto de uso na
+// saida -- e um teste que montasse o proprio root sem essa flag afirmaria
+// sobre um programa que nao existe.
+func newRootCmd() *cobra.Command {
 	root := &cobra.Command{
 		Use:           "gobsidian",
 		Short:         "Servidor MCP para cofres locais do Obsidian",
@@ -38,10 +58,12 @@ func main() {
 
 	root.AddCommand(newServeCmd(), newDoctorCmd(), newVersionCmd(), newIndexCmd(), newSearchCmd(), newInspectCmd(), newDaemonCmd())
 
-	if err := root.Execute(); err != nil {
-		fmt.Fprintf(os.Stderr, "[!] %v\n", err)
-		os.Exit(1)
-	}
+	// A ajuda formatada e instalada na arvore inteira. Isto nao alcanca o
+	// stdout de `serve`: o cobra so imprime ajuda quando --help e pedido, e
+	// nesse caso o comando nao chega a servir nada.
+	console.SetupHelp(root)
+
+	return root
 }
 
 func newVersionCmd() *cobra.Command {

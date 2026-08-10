@@ -1,10 +1,10 @@
 package main
 
 import (
-	"fmt"
 	"os"
 
 	"github.com/jonyd/gobsidian/internal/config"
+	"github.com/jonyd/gobsidian/internal/console"
 	"github.com/jonyd/gobsidian/internal/doctor"
 	"github.com/spf13/cobra"
 )
@@ -36,20 +36,29 @@ func newDoctorCmd() *cobra.Command {
 			// O erro de escrita e descartado explicitamente, e nao por
 			// esquecimento: se o proprio relatorio nao sai, nao sobra canal
 			// para reclamar disso.
-			out := cmd.OutOrStdout()
+			// A cor sai do writer do comando, nao de os.Stdout: quem faz
+			// `gobsidian doctor > relatorio.txt` recebe um arquivo limpo.
+			con := console.New(cmd.OutOrStdout())
 			for _, r := range results {
-				_, _ = fmt.Fprintf(out, "%s %s\n", r.Status.Marker(), r.Name)
+				switch r.Status {
+				case doctor.StatusOK:
+					con.OK("%s", r.Name)
+				case doctor.StatusWarn:
+					con.Warn("%s", r.Name)
+				default:
+					con.Err("%s", r.Name)
+				}
 				if r.Detail != "" {
-					_, _ = fmt.Fprintf(out, "     %s\n", r.Detail)
+					con.Detail("%s", r.Detail)
 				}
 			}
 
 			code := doctor.ExitCode(results)
 			if code != 0 {
-				_, _ = fmt.Fprintln(out, "[!] Ha falhas bloqueantes acima")
+				con.Err("Ha falhas bloqueantes acima")
 				os.Exit(code)
 			}
-			_, _ = fmt.Fprintln(out, "[OK] Ambiente apto")
+			con.OK("Ambiente apto")
 			return nil
 		},
 	}
