@@ -58,7 +58,7 @@ func TestDialAndHandshakeSocketAusente(t *testing.T) {
 	vault := t.TempDir()
 
 	start := time.Now()
-	conn, err := ipc.DialAndHandshake(context.Background(), vault, 200*time.Millisecond)
+	conn, err := ipc.DialAndHandshake(context.Background(), vault, false, 200*time.Millisecond)
 	elapsed := time.Since(start)
 
 	if err == nil {
@@ -86,7 +86,8 @@ func TestDialAndHandshakeRoundTrip(t *testing.T) {
 		if err != nil {
 			return
 		}
-		if err := ipc.Greet(c); err != nil {
+		saudacao := ipc.HandshakeConfig{VaultKey: config.VaultKey(vault)}
+		if err := ipc.Greet(c, saudacao); err != nil {
 			t.Errorf("Greet() error = %v", err)
 			return
 		}
@@ -96,7 +97,7 @@ func TestDialAndHandshakeRoundTrip(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), boundedWait)
 	defer cancel()
 
-	conn, err := ipc.DialAndHandshake(ctx, vault, boundedWait)
+	conn, err := ipc.DialAndHandshake(ctx, vault, false, boundedWait)
 	if err != nil {
 		t.Fatalf("DialAndHandshake() error = %v", err)
 	}
@@ -166,13 +167,55 @@ func TestDialAndHandshakeVersaoDiferente(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), boundedWait)
 	defer cancel()
 
-	conn, err := ipc.DialAndHandshake(ctx, vault, boundedWait)
+	conn, err := ipc.DialAndHandshake(ctx, vault, false, boundedWait)
 	if err == nil {
 		_ = conn.Close()
 		t.Fatal("DialAndHandshake() error = nil, esperado ErrVersionMismatch")
 	}
 	if !errors.Is(err, ipc.ErrVersionMismatch) {
 		t.Fatalf("DialAndHandshake() error = %v, esperado embrulhar ipc.ErrVersionMismatch", err)
+	}
+}
+
+// TestDialAndHandshakeConfigDivergente prova o perigo 1 do brief da Task
+// 92: versao bate, mas a configuracao do daemon (ro=1) diverge do que esta
+// ponte quer (ReadOnly=false). O handshake tem de recusar -- nunca aceitar
+// uma sessao que escreve num daemon que outra ponte configurou como
+// somente-leitura, ou vice-versa.
+func TestDialAndHandshakeConfigDivergente(t *testing.T) {
+	vault := t.TempDir()
+
+	ln, _, err := ipc.Listen(vault)
+	if err != nil {
+		t.Fatalf("Listen() error = %v", err)
+	}
+	t.Cleanup(func() { _ = ln.Close() })
+
+	go func() {
+		c, err := ln.Accept()
+		if err != nil {
+			return
+		}
+		defer func() { _ = c.Close() }()
+		// O daemon oferece ro=1 (somente-leitura); a ponte abaixo quer
+		// ReadOnly=false.
+		saudacao := ipc.HandshakeConfig{ReadOnly: true, VaultKey: config.VaultKey(vault)}
+		if err := ipc.Greet(c, saudacao); err != nil {
+			return
+		}
+		time.Sleep(100 * time.Millisecond)
+	}()
+
+	ctx, cancel := context.WithTimeout(context.Background(), boundedWait)
+	defer cancel()
+
+	conn, err := ipc.DialAndHandshake(ctx, vault, false, boundedWait)
+	if err == nil {
+		_ = conn.Close()
+		t.Fatal("DialAndHandshake() error = nil, esperado ErrConfigMismatch")
+	}
+	if !errors.Is(err, ipc.ErrConfigMismatch) {
+		t.Fatalf("DialAndHandshake() error = %v, esperado embrulhar ipc.ErrConfigMismatch", err)
 	}
 }
 
@@ -183,7 +226,7 @@ func TestDialAndHandshakeRespeitaContext(t *testing.T) {
 	cancel() // ja cancelado antes de discar
 
 	start := time.Now()
-	conn, err := ipc.DialAndHandshake(ctx, vault, boundedWait)
+	conn, err := ipc.DialAndHandshake(ctx, vault, false, boundedWait)
 	elapsed := time.Since(start)
 
 	if err == nil {

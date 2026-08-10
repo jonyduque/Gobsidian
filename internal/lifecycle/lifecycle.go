@@ -85,6 +85,18 @@ func (l *Lifecycle) trigger(reason string) {
 	l.cancel()
 }
 
+// Trigger e o trigger acima, exportado para um mecanismo de encerramento
+// que nao mora neste pacote. O daemon de cofre (internal/daemon, Task 92)
+// e o primeiro a usar isto: ele nao tem stdin de host nem pai vigiavel (os
+// tres mecanismos abaixo pressupoem um subprocesso de host), e a
+// ociosidade que o substitui e uma decisao de dominio do daemon, nao algo
+// que este pacote deveria saber calcular. Trigger deixa o daemon reusar a
+// MESMA infraestrutura de cancelamento e log que sinal, EOF de stdin e
+// morte do pai usam -- o gate de orfaos confere "reason=" do mesmo jeito
+// para os quatro motivos, sem precisar saber que um deles vem de fora
+// deste pacote.
+func (l *Lifecycle) Trigger(reason string) { l.trigger(reason) }
+
 // Reason devolve o mecanismo que pediu o encerramento — "stdin-eof",
 // "signal" ou "parent-gone" — ou string vazia se nada pediu ainda. E o que
 // o harness de orfaos le nos logs para provar que algum mecanismo disparou:

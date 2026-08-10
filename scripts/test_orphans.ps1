@@ -28,16 +28,25 @@ param(
     #   signal        nada morre e nada fecha: o host fica vivo e o stdin do
     #                 servidor e um console herdado. So o CTRL_BREAK pode
     #                 encerra-lo.
+    #   daemon-idle   o daemon de cofre (internal/daemon, Task 92) nao tem
+    #                 pai vigiavel nem stdin de host -- os tres mecanismos
+    #                 acima nao se aplicam a ele. Este cenario mata a UNICA
+    #                 ponte conectada e confere que o daemon sai por
+    #                 ociosidade dentro do prazo, sozinho, sem ninguem para
+    #                 vigia-lo. Estrutura DIFERENTE dos outros tres (sem
+    #                 host/keeper) porque o processo sob teste tambem e
+    #                 diferente -- ver o bloco dedicado logo abaixo.
     #
-    # "all" roda os TRES em sequencia, e e o padrao.
+    # "all" roda os QUATRO em sequencia, e e o padrao.
     #
-    # Era "stdin-eof", e isso deu um verde que cobria um terco do que a linha
-    # de comando parecia cobrir. O CI sempre chamou os tres explicitamente
-    # (ver .github/workflows/ci.yml), mas quem rodava o comando documentado
-    # localmente exercitava so o primeiro mecanismo — e concluia, com o [OK]
-    # na tela, que os tres estavam verificados. Um gate cujo padrao cobre parte
-    # do que ele afirma e pior que um gate ausente.
-    [ValidateSet("stdin-eof", "parent-death", "signal", "all")]
+    # Era "stdin-eof", e isso deu um verde que cobria uma fracao do que a
+    # linha de comando parecia cobrir. O CI sempre chamou os mecanismos
+    # aplicaveis explicitamente (ver .github/workflows/ci.yml), mas quem
+    # rodava o comando documentado localmente exercitava so o primeiro
+    # mecanismo — e concluia, com o [OK] na tela, que todos estavam
+    # verificados. Um gate cujo padrao cobre parte do que ele afirma e pior
+    # que um gate ausente.
+    [ValidateSet("stdin-eof", "parent-death", "signal", "daemon-idle", "all")]
     [string]$Scenario = "all"
 )
 
@@ -46,7 +55,7 @@ param(
 # laco por dentro exigiria zerar cada contador entre voltas, e um contador
 # esquecido daria verde somando ciclos do cenario anterior.
 if ($Scenario -eq "all") {
-    $todos = @("stdin-eof", "parent-death", "signal")
+    $todos = @("stdin-eof", "parent-death", "signal", "daemon-idle")
     $falhou = @()
     foreach ($cen in $todos) {
         Write-Output ""
@@ -71,7 +80,219 @@ if ($Scenario -eq "all") {
         Write-Warning "[!] FALHA nos cenarios: $($falhou -join ', ')"
         exit 1
     }
-    Write-Output "[OK] Nenhum orfao em $Cycles ciclos nos tres mecanismos: $($todos -join ', ')"
+    Write-Output "[OK] Nenhum orfao em $Cycles ciclos nos quatro mecanismos: $($todos -join ', ')"
+    exit 0
+}
+
+# daemon-idle e estruturalmente diferente dos outros tres: nao ha host nem
+# keeper, porque o daemon nao tem pai vigiavel (e o ponto do cenario). O
+# bloco abaixo lanca o daemon e uma ponte diretamente, mata so a ponte, e
+# confere que o daemon -- sozinho, sem pai, sem stdin de host -- sai por
+# ociosidade dentro do prazo com "reason=idle". Sai (exit) daqui: nao entra
+# no laco generico abaixo, que assume a forma host->servidor que as outras
+# tres cenarios compartilham.
+if ($Scenario -eq "daemon-idle") {
+    Set-StrictMode -Version Latest
+    $ErrorActionPreference = "Stop"
+
+    if ($Cycles -lt 1) {
+        Write-Warning "[!] Cycles precisa ser >= 1 (recebido $Cycles) - uma rodada de 0 nao lanca daemon nenhum e nao prova nada"
+        exit 1
+    }
+
+    $ProjectRoot = Split-Path -Parent $PSScriptRoot
+    $BinaryPath = Join-Path $ProjectRoot "bin\gobsidian.exe"
+    if (-not (Test-Path $BinaryPath)) {
+        Write-Warning "[!] Binario nao encontrado: $BinaryPath"
+        exit 1
+    }
+    if (-not $VaultPath) {
+        $VaultPath = Join-Path $ProjectRoot "testdata\vault_small"
+    }
+
+    $WorkDir = Join-Path $env:TEMP ("gobsidian_orphan_daemonidle_" + [guid]::NewGuid().ToString("N"))
+    New-Item -ItemType Directory -Path $WorkDir | Out-Null
+    Write-Output "[...] $Cycles ciclos de ociosidade do daemon (sem cliente conectado, sem pai vigiavel)"
+    Write-Output "[i] logs em $WorkDir"
+
+    # Curto de proposito, so para o gate nao levar 15 minutos por ciclo. O
+    # PADRAO de producao (internal/daemon.DefaultIdleSeconds, 15 minutos)
+    # nunca muda por causa disto: --idle-seconds e passado explicitamente
+    # aqui, exatamente o que o brief da Task 92 pede ("confira que o padrao
+    # continua 15 minutos" -- um padrao de teste vazado para producao
+    # mataria o daemon no meio do uso real).
+    $IdleSeconds = 3
+    # > 4x IdleSeconds (o intervalo de checagem do daemon e OciosidadeMax/4)
+    # mais folga para o handshake da ponte, o taskkill, e o encerramento
+    # ordenado do daemon (ate o hardLimit de 6s de lifecycle.Shutdown).
+    $DaemonSettleMs = 12000
+    $ReadyTimeoutMs = 5000
+
+    $Survivors = 0
+    $LaunchFailures = 0
+    $WrongReasonCycles = 0
+    $MeasuredCycles = 0
+    $LaunchedDaemonPids = @()
+
+    for ($i = 1; $i -le $Cycles; $i++) {
+        $DaemonLog = Join-Path $WorkDir "cycle_$i.daemon.log"
+
+        $DaemonProc = Start-Process -FilePath $BinaryPath `
+            -ArgumentList "daemon", "--vault", $VaultPath, "--idle-seconds", $IdleSeconds, "--log-level", "debug" `
+            -PassThru -WindowStyle Hidden `
+            -RedirectStandardError $DaemonLog
+
+        if (-not $DaemonProc) {
+            $LaunchFailures++
+            Write-Warning "[!] Ciclo ${i}: Start-Process nao devolveu um processo daemon"
+            continue
+        }
+
+        # Poll do proprio log (redirecionado do stderr do processo, ver o
+        # comentario de novoLoggerDoDaemon em cmd/gobsidian/daemon.go) ate
+        # "daemon iniciado" aparecer -- o socket esta aberto e pronto.
+        $Deadline = [DateTime]::UtcNow.AddMilliseconds($ReadyTimeoutMs)
+        $DaemonPronto = $false
+        while ([DateTime]::UtcNow -lt $Deadline) {
+            if ((Test-Path $DaemonLog) -and (Select-String -Path $DaemonLog -Pattern 'daemon iniciado' -Quiet -ErrorAction SilentlyContinue)) {
+                $DaemonPronto = $true
+                break
+            }
+            Start-Sleep -Milliseconds 50
+        }
+        if (-not $DaemonPronto) {
+            $LaunchFailures++
+            Write-Warning "[!] Ciclo ${i}: daemon nao anunciou prontidao (linha 'daemon iniciado') em ${ReadyTimeoutMs}ms"
+            Stop-Process -Id $DaemonProc.Id -Force -ErrorAction SilentlyContinue
+            continue
+        }
+        $DaemonAlive = Get-Process -Id $DaemonProc.Id -ErrorAction SilentlyContinue
+        if (-not $DaemonAlive) {
+            $LaunchFailures++
+            Write-Warning "[!] Ciclo ${i}: daemon anunciou prontidao mas o processo ja nao existe"
+            continue
+        }
+        $LaunchedDaemonPids += [PSCustomObject]@{ Id = $DaemonProc.Id; StartTime = $DaemonAlive.StartTime }
+
+        # A ponte: harness segura a ponta de escrita do stdin (mesmo papel
+        # que orphan_host.ps1 tem nos outros cenarios, so que aqui o proprio
+        # harness e o host -- nao ha keeper nem indirecao, porque o que se
+        # mata em seguida e a ponte, nao um ancestral dela).
+        $psi = New-Object System.Diagnostics.ProcessStartInfo
+        $psi.FileName = $BinaryPath
+        $psi.ArgumentList.Add("serve")
+        $psi.ArgumentList.Add("--vault")
+        $psi.ArgumentList.Add($VaultPath)
+        $psi.ArgumentList.Add("--log-level")
+        $psi.ArgumentList.Add("debug")
+        $psi.UseShellExecute = $false
+        $psi.RedirectStandardInput = $true
+        $psi.RedirectStandardError = $true
+
+        $BridgeProc = [System.Diagnostics.Process]::Start($psi)
+
+        # Le o stderr da ponte LINHA A LINHA (Peek/ReadLine, nunca
+        # ReadToEnd*) ate "conectado ao daemon via socket" aparecer ou o
+        # prazo estourar -- ReadToEndAsync so completa no EOF do processo, e
+        # a ponte fica viva de proposito ate ser morta abaixo.
+        $BridgeConectou = $false
+        $BridgeDeadline = [DateTime]::UtcNow.AddMilliseconds($ReadyTimeoutMs)
+        $sr = $BridgeProc.StandardError
+        while ([DateTime]::UtcNow -lt $BridgeDeadline) {
+            if ($sr.Peek() -ge 0) {
+                $line = $sr.ReadLine()
+                if ($null -eq $line) { break }
+                if ($line -match 'conectado ao daemon via socket') {
+                    $BridgeConectou = $true
+                    break
+                }
+            }
+            else {
+                Start-Sleep -Milliseconds 50
+            }
+        }
+
+        if (-not $BridgeConectou) {
+            $LaunchFailures++
+            Write-Warning "[!] Ciclo ${i}: a ponte nao confirmou conexao ao daemon via socket em ${ReadyTimeoutMs}ms -- ela pode ter caido para o modo em processo, o que nao exercitaria a ociosidade do daemon"
+            Stop-Process -Id $BridgeProc.Id -Force -ErrorAction SilentlyContinue
+            Stop-Process -Id $DaemonProc.Id -Force -ErrorAction SilentlyContinue
+            continue
+        }
+
+        $MeasuredCycles++
+
+        # Mata SO a ponte -- "matar todas as pontes" com N=1 pontes. O
+        # daemon nao tem pai; nada mais precisa morrer para ele ficar sem
+        # nenhum cliente.
+        taskkill /F /PID $BridgeProc.Id 2>$null | Out-Null
+
+        Start-Sleep -Milliseconds $DaemonSettleMs
+
+        $DaemonDepois = Get-Process -Id $DaemonProc.Id -ErrorAction SilentlyContinue
+        if ($DaemonDepois -and $DaemonDepois.ProcessName -eq "gobsidian" -and $DaemonDepois.StartTime -eq $DaemonAlive.StartTime) {
+            $Survivors++
+            Write-Warning "[!] Ciclo ${i}: daemon PID $($DaemonProc.Id) sobreviveu alem de ${DaemonSettleMs}ms sem cliente"
+            Stop-Process -Id $DaemonProc.Id -Force -ErrorAction SilentlyContinue
+        }
+        else {
+            # Reason= tem de ser "idle" -- a mesma regra dos outros tres
+            # cenarios: encerrar pelo motivo certo por acidente nao conta.
+            $Found = @(Select-String -Path $DaemonLog -Pattern 'reason=(\S+)' -ErrorAction SilentlyContinue |
+                ForEach-Object { $_.Matches[0].Groups[1].Value })
+            if ($Found.Count -eq 0) {
+                $WrongReasonCycles++
+                Write-Warning "[!] Ciclo ${i}: daemon encerrou sem registrar 'reason=' -- nenhum mecanismo nomeado disparou"
+            }
+            elseif ($Found[0] -ne "idle") {
+                $WrongReasonCycles++
+                Write-Warning "[!] Ciclo ${i}: reason=$($Found[0]), esperado 'idle'"
+            }
+        }
+
+        if ($i % 10 -eq 0) { Write-Output "[i] $i/$Cycles" }
+    }
+
+    $Remaining = @($LaunchedDaemonPids | ForEach-Object {
+        $Proc = Get-Process -Id $_.Id -ErrorAction SilentlyContinue
+        if ($Proc -and $Proc.ProcessName -eq "gobsidian" -and $Proc.StartTime -eq $_.StartTime) {
+            $Proc
+        }
+    })
+    if ($Remaining.Count -gt 0) {
+        Write-Warning "[!] $($Remaining.Count) processo(s) gobsidian (daemon) lancado(s) por este script ainda em execucao"
+        $Remaining | ForEach-Object { Stop-Process -Id $_.Id -Force -ErrorAction SilentlyContinue }
+        $Survivors += $Remaining.Count
+    }
+
+    if ($MeasuredCycles -eq 0) {
+        Write-Warning "[!] FALHA: nenhum ciclo mediu nada - todos os $Cycles ciclo(s) falharam no lancamento"
+    }
+
+    $Failed = ($Survivors -gt 0) -or ($LaunchFailures -gt 0) -or ($WrongReasonCycles -gt 0) -or ($MeasuredCycles -eq 0)
+
+    if ($Failed) {
+        Write-Output "[i] work dir preservado para inspecao: $WorkDir"
+    }
+    else {
+        Remove-Item -Path $WorkDir -Recurse -Force -ErrorAction SilentlyContinue
+    }
+
+    if ($LaunchFailures -gt 0) {
+        Write-Warning "[!] FALHA: $LaunchFailures ciclo(s) nao conseguiram medir nada (lancamento, prontidao ou conexao da ponte)"
+    }
+    if ($WrongReasonCycles -gt 0) {
+        Write-Warning "[!] FALHA: $WrongReasonCycles de $MeasuredCycles ciclo(s) nao encerraram com reason=idle"
+    }
+    if ($Survivors -gt 0) {
+        Write-Warning "[!] FALHA: $Survivors orfao(s) de daemon em $Cycles ciclos"
+    }
+
+    if ($Failed) {
+        exit 1
+    }
+
+    Write-Output "[OK] Nenhum daemon orfao em $Cycles ciclos -- todos sairam por ociosidade (reason=idle) apos a unica ponte ser morta"
     exit 0
 }
 

@@ -20,6 +20,7 @@ import (
 	"time"
 
 	"github.com/jonyd/gobsidian/internal/config"
+	"github.com/jonyd/gobsidian/internal/daemon"
 	"github.com/jonyd/gobsidian/internal/ipc"
 	"github.com/jonyd/gobsidian/internal/lifecycle"
 )
@@ -31,21 +32,72 @@ import (
 // mais esta escutando nele (daemon morto sem limpar).
 const ipcDialTimeout = 300 * time.Millisecond
 
-// servePonte decide entre falar com um daemon via socket ou servir o cofre
-// neste processo.
+// daemonStartTimeout limita quanto tempo a ponte espera o daemon recem-
+// pedido abrir o socket -- o que inclui o tempo de montar o indice de
+// metadados (RNF-01 mediu ~900ms num cofre de 109 MB via varredura, bem
+// abaixo deste orcamento). Generoso o suficiente para o boot real, mas
+// finito: um daemon que nunca sobe nao pode travar a ponte para sempre --
+// o fallback em processo continua valendo (ver o comentario de servePonte).
 //
-// O fallback e obrigatorio (decisao 2 da Task 91): DialAndHandshake falha
-// dos mesmos tres jeitos — socket ausente, conexao recusada, versao
-// incompativel — e os tres levam ao mesmo lugar. Sem isso um socket quebrado
-// transformaria a ferramenta em nada, e quem a chama nao teria como
-// diagnosticar; por isso o log abaixo sempre registra o motivo da queda.
+// Variavel, nao const: os testes deste pacote encolhem este numero para nao
+// esperar segundos por um daemon que o teste nunca deixa subir de verdade.
+var daemonStartTimeout = 10 * time.Second
+
+// iniciarDaemonFn e a implementacao real de "iniciar" que EnsureStarted
+// chama quando esta ponte vence a corrida (internal/daemon.EnsureStarted,
+// decisao 2 da Task 92). Indireto via variavel de pacote para os testes
+// poderem substituir o lancamento de um processo real por um dublê: sob
+// "go test", os.Executable() devolve o BINARIO DE TESTE, e deixar
+// EnsureStarted chama-lo com argumentos de subcomando lancaria um processo
+// imprevisivel em vez de nada.
+var iniciarDaemonFn = func(cfg config.Config) error {
+	return daemon.SpawnDetached(cfg, daemon.DefaultIdleSeconds, cfg.LogLevel.String())
+}
+
+// servePonte decide entre falar com um daemon via socket, iniciar um se
+// nenhum estiver rodando, ou servir o cofre neste processo.
+//
+// O fallback em processo e obrigatorio em QUALQUER dos tres pontos onde
+// pode ser alcancado (decisao 2 da Task 91, mantida pela Task 92): socket
+// ausente na primeira tentativa, EnsureStarted incapaz de iniciar ou de
+// confirmar que o daemon subiu, ou o handshake apos iniciar ainda assim
+// falhando (por exemplo, corrida perdida contra outro processo que
+// removeu o socket). Sem isso um daemon quebrado transformaria a
+// ferramenta em nada, e quem a chama nao teria como diagnosticar; por
+// isso o log abaixo sempre registra o motivo de cada queda.
+//
+// GOBSIDIAN_NO_DAEMON, se definida com qualquer valor nao vazio, pula
+// TODA esta decisao e vai direto para o modo em processo -- nem tenta
+// discar, nem tenta iniciar. Dois usos: medir o "antes" da Task 92 sem
+// precisar reverter codigo (a Parte II inteira existe para mover esse
+// numero, e comparar exige um jeito de desligar o lado novo sem recompilar
+// um binario velho), e dar a quem opera o servidor um jeito de desligar o
+// daemon numa maquina onde ele nao e desejado (documentado no README).
 func servePonte(ctx context.Context, cfg config.Config, log *slog.Logger) error {
-	conn, err := ipc.DialAndHandshake(ctx, cfg.VaultPath, ipcDialTimeout)
-	if err != nil {
-		log.Info("socket do daemon indisponivel; servindo em processo", "err", err)
+	if os.Getenv("GOBSIDIAN_NO_DAEMON") != "" {
+		log.Info("GOBSIDIAN_NO_DAEMON definida; servindo em processo sem tentar o daemon")
 		return serveEmProcesso(ctx, cfg, log)
 	}
-	log.Info("conectado ao daemon via socket")
+
+	conn, err := ipc.DialAndHandshake(ctx, cfg.VaultPath, cfg.ReadOnly, ipcDialTimeout)
+	if err == nil {
+		log.Info("conectado ao daemon via socket")
+		return servePonteRemota(ctx, conn, log)
+	}
+	log.Info("socket do daemon indisponivel; tentando iniciar o daemon", "err", err)
+
+	iniciar := func() error { return iniciarDaemonFn(cfg) }
+	if startErr := daemon.EnsureStarted(ctx, cfg, daemonStartTimeout, iniciar); startErr != nil {
+		log.Info("nao foi possivel iniciar o daemon; servindo em processo", "err", startErr)
+		return serveEmProcesso(ctx, cfg, log)
+	}
+
+	conn, err = ipc.DialAndHandshake(ctx, cfg.VaultPath, cfg.ReadOnly, ipcDialTimeout)
+	if err != nil {
+		log.Info("daemon nao respondeu apos iniciar; servindo em processo", "err", err)
+		return serveEmProcesso(ctx, cfg, log)
+	}
+	log.Info("conectado ao daemon recem-iniciado via socket")
 	return servePonteRemota(ctx, conn, log)
 }
 

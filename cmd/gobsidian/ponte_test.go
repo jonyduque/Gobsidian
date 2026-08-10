@@ -27,7 +27,28 @@ import (
 // A mutacao devolveria o erro da conexao recusada em vez disso -- um erro
 // com uma mensagem completamente diferente -- e este teste distingue os
 // dois.
+
+// semDaemonParaTeste desliga a tentativa de iniciar um daemon de verdade
+// nos testes deste arquivo: sob "go test", os.Executable() devolveria o
+// BINARIO DE TESTE, e deixar EnsureStarted (chamada por servePonte) lanca-lo
+// com argumentos de subcomando lancaria um processo imprevisivel em vez de
+// nada. Encolhe daemonStartTimeout tambem, senao EnsureStarted insiste por
+// segundos tentando um socket que este teste nunca deixa existir.
+func semDaemonParaTeste(t *testing.T) {
+	t.Helper()
+	origIniciar := iniciarDaemonFn
+	origTimeout := daemonStartTimeout
+	iniciarDaemonFn = func(config.Config) error { return nil }
+	daemonStartTimeout = 60 * time.Millisecond
+	t.Cleanup(func() {
+		iniciarDaemonFn = origIniciar
+		daemonStartTimeout = origTimeout
+	})
+}
+
 func TestPonteCaiParaModoEmProcesso(t *testing.T) {
+	semDaemonParaTeste(t)
+
 	var logBuf bytes.Buffer
 	log := slog.New(slog.NewTextHandler(&logBuf, nil))
 
@@ -36,7 +57,9 @@ func TestPonteCaiParaModoEmProcesso(t *testing.T) {
 
 	// Nenhum socket existe para este cofre (nenhum daemon rodou nunca para
 	// um diretorio temporario recem-criado), entao DialAndHandshake falha
-	// de verdade -- sem precisar de um dublê.
+	// de verdade -- sem precisar de um dublê. iniciarDaemonFn acima nao faz
+	// nada, entao EnsureStarted tambem falha em esperarSocket, e o
+	// fallback obrigatorio e alcancado do mesmo jeito que antes da Task 92.
 	ctx, cancel := context.WithTimeout(context.Background(), boundedWait)
 	defer cancel()
 
@@ -55,12 +78,64 @@ func TestPonteCaiParaModoEmProcesso(t *testing.T) {
 	}
 }
 
+// TestServePonteRespeitaGobsidianNoDaemon prova que GOBSIDIAN_NO_DAEMON pula
+// a decisao inteira -- nem tenta discar um daemon, nem tenta iniciar um. Um
+// socket presente e respondendo (o oposto do caso "ausente") teria que ser
+// IGNORADO com a variavel definida; sem essa prova, um "-> servindo em
+// processo" no log nao distingue "pulou por causa da variavel" de "tentou e
+// falhou por outro motivo".
+func TestServePonteRespeitaGobsidianNoDaemon(t *testing.T) {
+	t.Setenv("GOBSIDIAN_NO_DAEMON", "1")
+
+	var logBuf bytes.Buffer
+	log := slog.New(slog.NewTextHandler(&logBuf, nil))
+
+	vaultInexistente := filepath.Join(t.TempDir(), "nao-existe")
+	cfg := config.Config{VaultPath: vaultInexistente}
+
+	// Um socket de verdade, respondendo com a saudacao certa -- se a
+	// variavel nao fosse respeitada, este teste conectaria e
+	// servePonteRemota ficaria presa em os.Stdin, travando o teste.
+	ln, _, err := ipc.Listen(cfg.VaultPath)
+	if err != nil {
+		t.Fatalf("ipc.Listen() error = %v", err)
+	}
+	t.Cleanup(func() { _ = ln.Close() })
+	go func() {
+		c, err := ln.Accept()
+		if err != nil {
+			return
+		}
+		defer func() { _ = c.Close() }()
+		_ = ipc.Greet(c, ipc.HandshakeConfig{VaultKey: config.VaultKey(cfg.VaultPath)})
+		time.Sleep(200 * time.Millisecond)
+	}()
+
+	ctx, cancel := context.WithTimeout(context.Background(), boundedWait)
+	defer cancel()
+
+	err = servePonte(ctx, cfg, log)
+	if err == nil {
+		t.Fatal("servePonte() error = nil, esperado erro (cofre inexistente, modo em processo forcado)")
+	}
+	if !strings.Contains(err.Error(), "raiz do cofre inacessivel") {
+		t.Fatalf("servePonte() error = %q, esperado mencionar %q -- essa mensagem so vem de serveEmProcesso -> vault.New; "+
+			"se o texto for outro, GOBSIDIAN_NO_DAEMON nao pulou a tentativa de socket",
+			err, "raiz do cofre inacessivel")
+	}
+	if !strings.Contains(logBuf.String(), "GOBSIDIAN_NO_DAEMON") {
+		t.Fatalf("log nao registrou que GOBSIDIAN_NO_DAEMON forcou o modo em processo: %s", logBuf.String())
+	}
+}
+
 // TestServePonteVersaoDiferenteCaiParaProcesso cobre a segunda verificacao
 // que o brief da Task 91 pede: um socket presente, mas de uma versao que a
 // ponte nao fala, tem de cair para o mesmo lugar que um socket ausente --
 // sem precisar da Task 92 (o daemon de verdade) para existir, simulando o
 // lado do servidor com um listener de teste.
 func TestServePonteVersaoDiferenteCaiParaProcesso(t *testing.T) {
+	semDaemonParaTeste(t)
+
 	var logBuf bytes.Buffer
 	log := slog.New(slog.NewTextHandler(&logBuf, nil))
 

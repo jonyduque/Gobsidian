@@ -48,6 +48,16 @@ const greetingMaxLen = 128
 // decidir se vale a pena reportar de outro jeito) via errors.Is.
 var ErrVersionMismatch = errors.New("versao do protocolo ipc incompativel")
 
+// ErrConfigMismatch e a causa especifica de handshake recusado por
+// configuracao divergente -- versao bate, mas ReadOnly ou VaultKey nao
+// (ver HandshakeConfig). Duas pontes do mesmo cofre com configuracao
+// diferente conectadas ao mesmo daemon e bug de seguranca, nao detalhe: uma
+// ponte iniciada com --read-only receberia uma sessao que escreve no cofre,
+// e quem a configurou nao teria como saber (Task 92, perigo 1). A resposta
+// certa nao e negociar -- e recusar o daemon e cair para o modo em
+// processo, que so pode servir a configuracao de quem o esta rodando.
+var ErrConfigMismatch = errors.New("configuracao do daemon diverge da ponte")
+
 // Conn e o subconjunto de *net.UnixConn que a ponte precisa: ler, escrever,
 // fechar dos dois lados, e meio-fechar so a metade de escrita quando o
 // stdin do host chega ao fim mas o daemon ainda pode ter algo para
@@ -107,12 +117,29 @@ func Listen(vaultPath string) (net.Listener, string, error) {
 	return ln, path, nil
 }
 
-// Greet escreve a saudacao de versao que readGreeting espera do outro lado.
-// Quem aceita a conexao (o daemon, Task 92; os testes deste pacote hoje)
-// chama isto uma vez, antes de entregar a conexao ao proxy — e o unico
-// byte que atravessa o socket que este pacote interpreta.
-func Greet(w io.Writer) error {
-	_, err := fmt.Fprintf(w, "%s%s\n", greetingPrefix, ProtocolVersion)
+// HandshakeConfig e o que o handshake confere ALEM da versao: os campos que
+// mudam comportamento observavel entre pontes diferentes conectadas ao
+// mesmo daemon. Hoje sao dois -- ReadOnly (ver ErrConfigMismatch) e
+// VaultKey, a mesma chave que nomeia o socket (config.VaultKey), conferida
+// de novo aqui como segunda camada: se algum dia as duas contas dessa chave
+// divergirem (a licao do byAlias em CLAUDE.md), o handshake pega o que o
+// nome do arquivo do socket sozinho nao pegaria.
+type HandshakeConfig struct {
+	ReadOnly bool
+	VaultKey string
+}
+
+// Greet escreve a saudacao de versao e configuracao que readGreeting espera
+// do outro lado. Quem aceita a conexao (o daemon, Task 92; os testes deste
+// pacote hoje) chama isto uma vez, antes de entregar a conexao ao proxy —
+// e a UNICA linha que atravessa o socket que este pacote interpreta; tudo
+// depois dela e byte cru.
+func Greet(w io.Writer, cfg HandshakeConfig) error {
+	ro := 0
+	if cfg.ReadOnly {
+		ro = 1
+	}
+	_, err := fmt.Fprintf(w, "%s%s ro=%d vault=%s\n", greetingPrefix, ProtocolVersion, ro, cfg.VaultKey)
 	return err
 }
 
@@ -121,7 +148,7 @@ func Greet(w io.Writer) error {
 // conexao recusada, prazo excedido, ou versao incompativel — devolve um
 // erro nao-nil; quem chama decide o fallback (ver servePonte em
 // cmd/gobsidian/ponte.go, que cai para o modo em processo nos tres casos).
-func DialAndHandshake(ctx context.Context, vaultPath string, timeout time.Duration) (Conn, error) {
+func DialAndHandshake(ctx context.Context, vaultPath string, readOnly bool, timeout time.Duration) (Conn, error) {
 	path, err := SocketPath(vaultPath)
 	if err != nil {
 		return nil, err
@@ -139,7 +166,8 @@ func DialAndHandshake(ctx context.Context, vaultPath string, timeout time.Durati
 		_ = raw.Close()
 		return nil, fmt.Errorf("configurando prazo do handshake: %w", err)
 	}
-	if err := readGreeting(raw); err != nil {
+	want := HandshakeConfig{ReadOnly: readOnly, VaultKey: config.VaultKey(vaultPath)}
+	if err := readGreeting(raw, want); err != nil {
 		_ = raw.Close()
 		return nil, err
 	}
@@ -186,8 +214,11 @@ func dialUnix(ctx context.Context, path string) (net.Conn, error) {
 	}
 }
 
-// readGreeting le e valida a linha de saudacao do outro lado.
-func readGreeting(r io.Reader) error {
+// readGreeting le e valida a linha de saudacao do outro lado: primeiro a
+// versao (recusa imediata e independente do resto se ela nao bater — um
+// daemon de outra versao pode nem falar o resto deste formato), depois a
+// configuracao (ErrConfigMismatch; ver o comentario de HandshakeConfig).
+func readGreeting(r io.Reader, want HandshakeConfig) error {
 	line, err := readLine(r, greetingMaxLen)
 	if err != nil {
 		return fmt.Errorf("lendo saudacao do daemon: %w", err)
@@ -195,11 +226,55 @@ func readGreeting(r io.Reader) error {
 	if !strings.HasPrefix(line, greetingPrefix) {
 		return fmt.Errorf("saudacao do daemon invalida: %q", line)
 	}
-	version := strings.TrimPrefix(line, greetingPrefix)
+
+	fields := strings.Fields(strings.TrimPrefix(line, greetingPrefix))
+	if len(fields) == 0 {
+		return fmt.Errorf("saudacao do daemon vazia")
+	}
+
+	version := fields[0]
 	if version != ProtocolVersion {
 		return fmt.Errorf("%w: ponte=%s daemon=%s", ErrVersionMismatch, ProtocolVersion, version)
 	}
+
+	got, err := parseHandshakeFields(fields[1:])
+	if err != nil {
+		return fmt.Errorf("saudacao do daemon malformada: %w", err)
+	}
+	if got != want {
+		return fmt.Errorf("%w: ponte quer %+v, daemon oferece %+v", ErrConfigMismatch, want, got)
+	}
 	return nil
+}
+
+// parseHandshakeFields le os campos "chave=valor" depois da versao. Nao
+// exige ordem nem presenca de todos os campos -- um campo ausente fica no
+// zero-valor de HandshakeConfig, o que so importa se `want` esperar algo
+// diferente, e ai o comparador em readGreeting recusa do jeito certo.
+func parseHandshakeFields(fields []string) (HandshakeConfig, error) {
+	var cfg HandshakeConfig
+	for _, f := range fields {
+		key, value, ok := strings.Cut(f, "=")
+		if !ok {
+			return HandshakeConfig{}, fmt.Errorf("campo sem '=': %q", f)
+		}
+		switch key {
+		case "ro":
+			switch value {
+			case "1":
+				cfg.ReadOnly = true
+			case "0":
+				cfg.ReadOnly = false
+			default:
+				return HandshakeConfig{}, fmt.Errorf("valor invalido para ro: %q", value)
+			}
+		case "vault":
+			cfg.VaultKey = value
+		default:
+			return HandshakeConfig{}, fmt.Errorf("campo desconhecido: %q", key)
+		}
+	}
+	return cfg, nil
 }
 
 // readLine le um byte de cada vez ate '\n' ou maxLen, sem usar bufio.Reader.
