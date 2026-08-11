@@ -54,6 +54,37 @@ param(
 # inteiro em laco. O corpo depende de $Scenario em uma duzia de pontos; um
 # laco por dentro exigiria zerar cada contador entre voltas, e um contador
 # esquecido daria verde somando ciclos do cenario anterior.
+# Binario mais velho que o codigo e recusado, em vez de exercitado em silencio.
+#
+# Este script NAO compila: ele roda o que estiver em bin\. Sem esta checagem,
+# um binario obsoleto passa nos cenarios que nao dependem do codigo novo e
+# reprova nos que dependem, com uma mensagem que aponta para o lugar errado.
+# Medido: um binario de quatro dias antes deu tres [OK] e depois 100 falhas de
+# "daemon nao anunciou prontidao" -- que parece problema de tempo no daemon, e
+# era o subcomando `daemon` nao existir naquele build.
+#
+# Fica AQUI, antes de qualquer despacho, e nao junto da segunda definicao de
+# $BinaryPath la embaixo: o bloco de daemon-idle resolve o proprio caminho do
+# binario e SAI do script antes de alcancar aquele ponto. Uma guarda colocada
+# depois dele passa a valer para tres cenarios e nao para o quarto -- que e
+# exatamente o defeito que ela existe para impedir, cometido de novo dentro
+# do proprio conserto. Medido: a primeira versao desta checagem nao disparou.
+$RaizDoProjeto = Split-Path -Parent $PSScriptRoot
+$BinarioDoGate = Join-Path $RaizDoProjeto "bin\gobsidian.exe"
+
+if (Test-Path $BinarioDoGate) {
+    $FonteMaisNova = Get-ChildItem -Path $RaizDoProjeto -Recurse -Include *.go, go.mod, go.sum -File -ErrorAction SilentlyContinue |
+        Where-Object { $_.FullName -notmatch '\\(bin|\.git|testdata)\\' } |
+        Sort-Object LastWriteTimeUtc -Descending |
+        Select-Object -First 1
+
+    if ($FonteMaisNova -and (Get-Item $BinarioDoGate).LastWriteTimeUtc -lt $FonteMaisNova.LastWriteTimeUtc) {
+        Write-Warning "[!] Binario desatualizado: bin\gobsidian.exe e mais antigo que $($FonteMaisNova.Name)"
+        Write-Warning "[!] Rode 'pwsh -File scripts/build.ps1' antes do gate -- este script nao compila."
+        exit 1
+    }
+}
+
 if ($Scenario -eq "all") {
     $todos = @("stdin-eof", "parent-death", "signal", "daemon-idle")
     $falhou = @()
@@ -195,20 +226,28 @@ if ($Scenario -eq "daemon-idle") {
         # ReadToEnd*) ate "conectado ao daemon via socket" aparecer ou o
         # prazo estourar -- ReadToEndAsync so completa no EOF do processo, e
         # a ponte fica viva de proposito ate ser morta abaixo.
+        # ReadLineAsync com espera limitada, NUNCA Peek(). StreamReader.Peek()
+        # BLOQUEIA num pipe sem dados disponiveis -- ele nao e uma consulta
+        # sem espera, como o nome sugere. Com ele, o teste do prazo logo acima
+        # deixava de ser alcancado e o laco ficava presto para sempre: medido,
+        # o ciclo 82 de uma rodada de 100 ficou 15h44m parado, com o daemon
+        # vivo e ativos=1, ate alguem matar a ponte a mao. Um gate que pode
+        # travar indefinidamente acaba sendo pulado, e gate pulado nao e gate.
         $BridgeConectou = $false
         $BridgeDeadline = [DateTime]::UtcNow.AddMilliseconds($ReadyTimeoutMs)
         $sr = $BridgeProc.StandardError
-        while ([DateTime]::UtcNow -lt $BridgeDeadline) {
-            if ($sr.Peek() -ge 0) {
-                $line = $sr.ReadLine()
-                if ($null -eq $line) { break }
-                if ($line -match 'conectado ao daemon via socket') {
-                    $BridgeConectou = $true
-                    break
-                }
-            }
-            else {
-                Start-Sleep -Milliseconds 50
+        while ($true) {
+            $RestanteMs = [int]([DateTime]::UtcNow - $BridgeDeadline).TotalMilliseconds * -1
+            if ($RestanteMs -le 0) { break }
+
+            $Leitura = $sr.ReadLineAsync()
+            if (-not $Leitura.Wait($RestanteMs)) { break }
+
+            $line = $Leitura.Result
+            if ($null -eq $line) { break }
+            if ($line -match 'conectado ao daemon via socket') {
+                $BridgeConectou = $true
+                break
             }
         }
 
@@ -351,6 +390,7 @@ if (-not (Test-Path $BinaryPath)) {
     Write-Warning "[!] Binario nao encontrado: $BinaryPath"
     exit 1
 }
+
 if (-not (Test-Path $HostScript)) {
     Write-Warning "[!] Script do host nao encontrado: $HostScript"
     exit 1
