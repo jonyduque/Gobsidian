@@ -328,7 +328,7 @@ pwsh -File scripts/build.ps1         # binário com versão embutida
 
 <br>
 
-Em ordem, parando no primeiro erro: build, `go test -race`, tetos de latência **sem** `-race`, `go vet` nos três alvos, `gofmt`, `golangci-lint`, checagem de rede e de parâmetros de schema.
+Em ordem, parando no primeiro erro: build, `go test -race`, tetos de latência **sem** `-race`, `go vet` nos três alvos, `gofmt`, `golangci-lint`, checagem de rede, de parâmetros de schema, de referências da documentação a artefatos que não existem, e de âncoras do README.
 
 É um comando só porque uma lista solta convida a rodar três dos cinco.
 

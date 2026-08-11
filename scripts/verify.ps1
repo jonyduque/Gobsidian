@@ -171,6 +171,14 @@ else {
 
 Invoke-Step "check_tool_params" { & (Join-Path $PSScriptRoot "check_tool_params.ps1") }
 
+# As duas checagens de documentacao entram na bateria porque, ate 2026-08-11,
+# nao rodavam em lugar nenhum -- nem aqui, nem no CI. Verificador que so roda
+# quando alguem lembra e verificador que nao existe: foi assim que tres secoes
+# do README ficaram sem link de navegacao por um marco inteiro, e que a tabela
+# do cabecalho do cache citou campos com grafia que o codigo nunca teve.
+Invoke-Step "check_doc_refs" { & (Join-Path $PSScriptRoot "check_doc_refs.ps1") }
+Invoke-Step "check_readme_anchors" { & (Join-Path $PSScriptRoot "check_readme_anchors.ps1") }
+
 Pop-Location
 
 Write-Output ""
