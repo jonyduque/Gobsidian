@@ -356,6 +356,8 @@ pwsh -File scripts/test_orphans.ps1 -Cycles 100 -Scenario parent-death
 
 **Cada cenário desconecta os outros**, e o harness reprova se o motivo registrado não for o do mecanismo que ele nomeia. Sem isso, cair no mecanismo errado pareceria verde — foi assim que a vigília do pai atravessou marcos inteiros sem nunca ter sido exercitada.
 
+**Órfão vazado e ciclo não medido são coisas diferentes.** Um ciclo que não chegou a lançar o processo não observou nada, nem sucesso nem vazamento, e reprovar por causa dele mede a carga da máquina. Até 2% dos ciclos podem não medir — sempre impressos, nunca silenciosos — e `-MaxNaoMedidosPct 0` exige que todos midam. Um vazamento de verdade, ou uma rodada em que **nenhum** ciclo mediu, reprova com qualquer teto.
+
 O script **não compila**: ele recusa um `bin/gobsidian.exe` mais antigo que o código e manda rodar `build.ps1`. Sem essa guarda, um binário obsoleto passa nos cenários que não dependem do código novo e reprova nos que dependem, com uma mensagem que aponta para o lugar errado.
 
 </details>

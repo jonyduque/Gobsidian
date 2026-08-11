@@ -47,13 +47,25 @@ param(
     # verificados. Um gate cujo padrao cobre parte do que ele afirma e pior
     # que um gate ausente.
     [ValidateSet("stdin-eof", "parent-death", "signal", "daemon-idle", "all")]
-    [string]$Scenario = "all"
+    [string]$Scenario = "all",
+
+    # Teto de ciclos NAO MEDIDOS tolerados, em porcentagem de -Cycles.
+    #
+    # "Nao mediu" e diferente de "vazou orfao", e ate 2026-08-11 os dois
+    # reprovavam igual. Um ciclo que nao chegou a lancar o processo, ou cujo
+    # PID nao apareceu no prazo, nao OBSERVOU nada: nem sucesso nem
+    # vazamento. Reprovar por causa dele mede a carga do runner, nao o
+    # produto -- e um commit so de documentacao ja reprovou assim, com 1
+    # ciclo em 300 e os outros 299 limpos.
+    #
+    # O risco de tolerar e esconder degradacao progressiva, por isso o
+    # numero e pequeno, os ciclos perdidos sao SEMPRE impressos, e zero
+    # ciclos medidos continua reprovando qualquer que seja o teto. Use 0
+    # para exigir que todos os ciclos midam.
+    [ValidateRange(0, 100)]
+    [int]$MaxNaoMedidosPct = 2
 )
 
-# "all" delega a si mesmo, um cenario por vez, em vez de reestruturar o corpo
-# inteiro em laco. O corpo depende de $Scenario em uma duzia de pontos; um
-# laco por dentro exigiria zerar cada contador entre voltas, e um contador
-# esquecido daria verde somando ciclos do cenario anterior.
 # Binario mais velho que o codigo e recusado, em vez de exercitado em silencio.
 #
 # Este script NAO compila: ele roda o que estiver em bin\. Sem esta checagem,
@@ -85,6 +97,10 @@ if (Test-Path $BinarioDoGate) {
     }
 }
 
+# "all" delega a si mesmo, um cenario por vez, em vez de reestruturar o corpo
+# inteiro em laco. O corpo depende de $Scenario em uma duzia de pontos; um
+# laco por dentro exigiria zerar cada contador entre voltas, e um contador
+# esquecido daria verde somando ciclos do cenario anterior.
 if ($Scenario -eq "all") {
     $todos = @("stdin-eof", "parent-death", "signal", "daemon-idle")
     $falhou = @()
@@ -99,6 +115,7 @@ if ($Scenario -eq "all") {
             PidTimeoutMs = $PidTimeoutMs
             SettleMs     = $SettleMs
             Scenario     = $cen
+            MaxNaoMedidosPct = $MaxNaoMedidosPct
         }
         if ($VaultPath) { $argsFilho.VaultPath = $VaultPath }
         & $PSCommandPath @argsFilho
@@ -308,7 +325,18 @@ if ($Scenario -eq "daemon-idle") {
         Write-Warning "[!] FALHA: nenhum ciclo mediu nada - todos os $Cycles ciclo(s) falharam no lancamento"
     }
 
-    $Failed = ($Survivors -gt 0) -or ($LaunchFailures -gt 0) -or ($WrongReasonCycles -gt 0) -or ($MeasuredCycles -eq 0)
+    # Mesma regra do laco generico (ver o comentario de -MaxNaoMedidosPct):
+    # ciclo que nao lancou nao observou nada, e reprovar por causa dele mede a
+    # carga da maquina. A perda sai impressa de qualquer jeito.
+    $TetoNaoMedidos = [math]::Floor($Cycles * $MaxNaoMedidosPct / 100)
+    if ($LaunchFailures -gt 0) {
+        Write-Output "[i] $LaunchFailures de $Cycles ciclo(s) nao mediram nada (lancamento, prontidao ou conexao da ponte); teto tolerado: $TetoNaoMedidos"
+    }
+    if ($LaunchFailures -gt $TetoNaoMedidos) {
+        Write-Warning "[!] FALHA: $LaunchFailures de $Cycles ciclo(s) nao conseguiram medir nada, acima do teto de $TetoNaoMedidos"
+    }
+
+    $Failed = ($Survivors -gt 0) -or ($LaunchFailures -gt $TetoNaoMedidos) -or ($WrongReasonCycles -gt 0) -or ($MeasuredCycles -eq 0)
 
     if ($Failed) {
         Write-Output "[i] work dir preservado para inspecao: $WorkDir"
@@ -317,9 +345,6 @@ if ($Scenario -eq "daemon-idle") {
         Remove-Item -Path $WorkDir -Recurse -Force -ErrorAction SilentlyContinue
     }
 
-    if ($LaunchFailures -gt 0) {
-        Write-Warning "[!] FALHA: $LaunchFailures ciclo(s) nao conseguiram medir nada (lancamento, prontidao ou conexao da ponte)"
-    }
     if ($WrongReasonCycles -gt 0) {
         Write-Warning "[!] FALHA: $WrongReasonCycles de $MeasuredCycles ciclo(s) nao encerraram com reason=idle"
     }
@@ -692,7 +717,18 @@ if ($WrongReasonCycles -gt 0) {
     Write-Warning "[!] FALHA: $WrongReasonCycles de $MeasuredCycles ciclo(s) encerraram por um motivo diferente de '$ReasonEsperado' - o cenario '$Scenario' nao exercitou o mecanismo que nomeia"
 }
 
-$Failed = ($Survivors -gt 0) -or ($LaunchFailures -gt 0) -or ($KillFailures -gt 0) `
+# Teto de ciclos nao medidos. Piso zero quando -Cycles e pequeno: com 5
+# ciclos, um perdido e 20% da amostra e pode muito bem estar escondendo o
+# defeito que o cenario procura.
+$TetoNaoMedidos = [math]::Floor($Cycles * $MaxNaoMedidosPct / 100)
+
+# Impresso SEMPRE que houver perda, tolerada ou nao. Corte silencioso e o que
+# faz um gate parecer cobrir mais do que cobriu.
+if ($LaunchFailures -gt 0) {
+    Write-Output "[i] $LaunchFailures de $Cycles ciclo(s) nao mediram nada (lancamento ou PID indeterminado); teto tolerado: $TetoNaoMedidos"
+}
+
+$Failed = ($Survivors -gt 0) -or ($LaunchFailures -gt $TetoNaoMedidos) -or ($KillFailures -gt 0) `
     -or ($ReasonlessCycles -gt 0) -or ($HardLimitCycles -gt 0) -or ($MeasuredCycles -eq 0) `
     -or ($WrongReasonCycles -gt 0)
 
@@ -702,8 +738,8 @@ if ($Failed) {
     Remove-Item -Path $WorkDir -Recurse -Force -ErrorAction SilentlyContinue
 }
 
-if ($LaunchFailures -gt 0) {
-    Write-Warning "[!] FALHA: $LaunchFailures ciclo(s) nao conseguiram medir nada (lancamento ou PID indeterminado)"
+if ($LaunchFailures -gt $TetoNaoMedidos) {
+    Write-Warning "[!] FALHA: $LaunchFailures de $Cycles ciclo(s) nao conseguiram medir nada (lancamento ou PID indeterminado), acima do teto de $TetoNaoMedidos"
 }
 if ($KillFailures -gt 0) {
     Write-Warning "[!] FALHA: $KillFailures ciclo(s) em que o host nao pode ser morto"
