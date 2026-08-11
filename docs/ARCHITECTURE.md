@@ -487,11 +487,13 @@ Invalidação por mtime e tamanho por arquivo. Na carga, uma amostra é verifica
 
 | Campo | Muda quando |
 |---|---|
-| `format_version` | O layout serializado muda |
-| `parser_version` | O parser passa a produzir estrutura diferente para a mesma entrada |
-| `analyzer_version` | O analisador de busca muda tokenização, normalização ou redução |
+| `FormatVersion` | O layout serializado muda |
+| `ParserVersion` | O parser passa a produzir estrutura diferente para a mesma entrada |
+| `AnalyzerVersion` | O analisador de busca muda tokenização, normalização ou redução |
 
-Sem `parser_version`, corrigir um bug de parsing e reiniciar carregaria de volta o índice errado — mtime e tamanho dos arquivos não mudaram, então nada indicaria invalidação. O cache continuaria servindo o resultado do parser antigo, e o bug pareceria não corrigido. É a classe de falha mais confusa que um cache pode produzir, e custa três inteiros evitá-la.
+Os nomes são os do código (`internal/index/persist.go`), e não uma grafia separada por sublinhados: o cache não é JSON, é um codec binário próprio, e não existe chave serializada com outro nome.
+
+Sem `ParserVersion`, corrigir um bug de parsing e reiniciar carregaria de volta o índice errado — mtime e tamanho dos arquivos não mudaram, então nada indicaria invalidação. O cache continuaria servindo o resultado do parser antigo, e o bug pareceria não corrigido. É a classe de falha mais confusa que um cache pode produzir, e custa três inteiros evitá-la.
 
 Esses números são constantes no código, incrementadas à mão. Derivá-los de hash do código-fonte invalidaria o cache a cada recompilação, inclusive quando nada relevante mudou.
 

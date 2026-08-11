@@ -104,11 +104,42 @@ try {
     $PadraoSnake = '(?-i)^[a-z][a-z0-9]*(_[a-z0-9]+)+$'
     $PadraoCamelCall = '(?-i)^[A-Z][A-Za-z0-9]*\([^()]*\)$'
 
+    # ---------------------------------------------------------------------
+    # Tokens reconhecidos: nao sao artefato deste repositorio, e a doc esta
+    # certa ao cita-los. Cada um carrega o MOTIVO, porque uma lista de
+    # excecoes sem justificativa vira o lugar onde se esconde achado real.
+    #
+    # Eles continuam sendo IMPRESSOS no fim, so que separados e sem contar
+    # como achado. Suprimir em silencio trocaria um problema por outro: dez
+    # achados permanentes ensinam a ignorar a saida inteira -- que e como um
+    # binario obsoleto passou tres cenarios do gate de orfaos sem ninguem
+    # notar.
+    # ---------------------------------------------------------------------
+    $Reconhecidos = [ordered]@{
+        'helpers.go'          = 'a doc diz que NAO existe -- e a regra do projeto contra arquivo-categoria'
+        'utils.go'            = 'idem helpers.go'
+        'interfaces.go'       = 'exemplo de categoria sintatica que o projeto evita, nao arquivo real'
+        'snake_case.go'       = 'exemplo da convencao de nome, nao arquivo'
+        'backend_inotify.go'  = 'arquivo do fsnotify v1.10.1, dependencia externa'
+        'backend_windows.go'  = 'arquivo do fsnotify v1.10.1, dependencia externa'
+        'total_bytes'         = 'a propria linha afirma que este campo NAO existe no retorno'
+        'max_user_watches'    = 'sysctl do Linux (fs.inotify.max_user_watches), nome externo'
+        'node_modules'        = 'diretorio do Node, citado para dizer que o instalador nao cria um'
+    }
+
     $Achados = 0
+    $Vistos = [System.Collections.Generic.List[string]]::new()
+
     function Add-Achado {
         param([string]$Arquivo, [int]$Linha, [string]$Regra, [string]$Token)
-        $script:Achados++
         $Rel = $Arquivo.Replace($ProjectRoot, '').TrimStart('\', '/')
+
+        if ($Reconhecidos.Contains($Token)) {
+            $script:Vistos.Add(("  {0}:{1}: ``{2}`` -- {3}" -f $Rel, $Linha, $Token, $Reconhecidos[$Token]))
+            return
+        }
+
+        $script:Achados++
         Write-Output ("  {0}:{1}: [{2}] ``{3}``" -f $Rel, $Linha, $Regra, $Token)
     }
 
@@ -177,6 +208,15 @@ try {
                 }
             }
         }
+    }
+
+    # Os reconhecidos saem SEMPRE, com o motivo ao lado. Uma lista de excecoes
+    # que ninguem ve deixa de ser revisada, e um token que entrou nela por
+    # engano fica escondido para sempre.
+    if ($Vistos.Count -gt 0) {
+        Write-Output ""
+        Write-Output "[i] $($Vistos.Count) token(s) reconhecido(s) -- nao contam como achado:"
+        $Vistos | ForEach-Object { Write-Output $_ }
     }
 
     Write-Output ""
