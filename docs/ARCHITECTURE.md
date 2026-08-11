@@ -110,6 +110,14 @@ Transporte local entre a ponte (`cmd/gobsidian`) e o daemon (`internal/daemon`):
 
 Um `*mcpsrv.Server` compartilhado por N conexões sobre o socket de `internal/ipc`, para o mesmo cofre. Resolve a corrida de inicialização por arquivo de lock e sai por ociosidade reusando `internal/lifecycle`. Ver §7.5.
 
+### 2.13 `internal/console`
+
+Formata a saída dos comandos de CLI: os marcadores de estado, o realce do texto de ajuda do cobra, e a decisão de usar cor. Sem dependência de terceiros — o `SetConsoleMode` do Windows fica atrás de build tag, em `vt_windows.go`.
+
+Duas regras moldam o pacote. **Os marcadores continuam em ASCII** (`[OK]`, `[!]`, `[i]`, `[*]`, `[...]`) e a cor apenas os reforça, porque um console em CP-850 renderiza o resto como lixo e a informação não pode depender do que se perde. E **a decisão de cor sai do destino**, não de `os.Stdout` global: `doctor > relatorio.txt` grava um arquivo limpo enquanto os erros no `stderr` do terminal continuam coloridos.
+
+`serve` não passa por aqui. Seu stdout pertence ao JSON-RPC, e uma sequência ANSI ali corrompe a sessão do mesmo jeito que um `fmt.Println`.
+
 ---
 
 ## 3. Modelo de caminhos

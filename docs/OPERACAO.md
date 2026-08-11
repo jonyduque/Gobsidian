@@ -129,11 +129,13 @@ Enquanto isso, `vault_search` responde `INDEX_BUILDING`; as outras onze tools fu
 
 **Até 2026-08-03 este log enganava.** `index_ms` aparecia ao lado de "servidor pronto" e parecia ser o tempo de boot, mas o servidor só anunciava as tools depois de tokenizar o cofre inteiro — 219 s a mais num cofre de 109 MB. Quem lesse `index_ms=1275` concluiria que o boot levou 1,3 s.
 
-A do encerramento diz qual dos três mecanismos disparou:
+A do encerramento diz qual mecanismo disparou:
 
 ```
 time=2026-07-28T16:11:37.341-03:00 level=INFO msg="encerramento solicitado" reason=stdin-eof
 ```
+
+Os valores possíveis são `stdin-eof`, `signal` e `parent-gone` no servidor stdio, e `idle` no daemon — que não tem stdin de host nem pai vigiável, e por isso encerra por ociosidade.
 
 No boot, se escritas anteriores foram interrompidas por queda do processo, aparece:
 
@@ -191,7 +193,7 @@ num cofre de 7 notas.
 | **RNF-07** | RSS em repouso (≤ 60 MB) | 5.000 notas: **37,95–38,10 MB** com cache quente, **54,69–54,82 MB** a frio (2026-08-09). Era 67,08 / 112,96 MB | **Atingido** |
 | **RNF-08** | CPU em repouso (< 0,5 %) | **não medido** | — |
 | **RNF-09** | Escalabilidade linear até 20.000 notas | **não medido** (medido até 5.000) | — |
-| **RNF-10** | Zero órfãos em 100 ciclos de start/kill do host | **100/100 em três cenários** — `stdin-eof`, `parent-death`, `signal` —, cada um com o `reason=` do seu mecanismo | **Atingido** |
+| **RNF-10** | Zero órfãos em 100 ciclos de start/kill do host | **100/100 em quatro cenários** — `stdin-eof`, `parent-death`, `signal` e `daemon-idle` —, cada um com o `reason=` do seu mecanismo, 400 ciclos no total | **Atingido** |
 | **RNF-11** | Zero notas corrompidas em 1.000 crashes injetados | **0 / 1.000**, com 381 temporários órfãos varridos | **Atingido** |
 | **RNF-12** | Índice degradado nunca devolve resultado incorreto | **não medido**; verificado por teste (reconciliação por overflow, `internal/watcher`) | — |
 | **RNF-13** | Falha de tool não derruba o servidor | **não medido**; verificado por teste (`internal/mcpsrv`, erros como resultado MCP) | — |

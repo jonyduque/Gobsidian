@@ -109,6 +109,12 @@ gobsidian/
 │   │   ├── recover.go            middleware de recuperação de panic
 │   │   └── convert.go            erros de domínio → resultados MCP
 │   │
+│   ├── console/
+│   │   ├── console.go            marcadores e cores da saída de CLI; decide sobre cor por destino
+│   │   ├── cobra.go              template de ajuda realçado
+│   │   ├── vt_windows.go         habilita terminal virtual (build tag windows)
+│   │   └── vt_other.go           no-op documentado (build tag !windows)
+│   │
 │   ├── ipc/
 │   │   ├── ipc.go                transporte local: socket, saudação, handshake
 │   │   ├── ipc_windows.go        diretório de runtime e permissão (build tag windows)
