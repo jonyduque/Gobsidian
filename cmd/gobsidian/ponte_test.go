@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -183,20 +184,43 @@ func TestServePonteRemotaFazProxyDeBytes(t *testing.T) {
 	conn, outroLado := newDuplexPipe()
 	t.Cleanup(func() { _ = conn.Close() })
 
+	// O stdin do host e um pipe que este teste mantem ABERTO. Usar o
+	// os.Stdin do processo tornava este teste dependente do sistema: sob
+	// `go test` no Linux ele e /dev/null e devolve EOF imediatamente, a
+	// ponte encerrava por stdin-eof antes da escrita abaixo, e o teste
+	// falhava com "read/write on closed pipe" -- verde no Windows e no
+	// macOS, vermelho no ubuntu, no mesmo commit. Manter o pipe aberto faz
+	// a unica coisa que termina a ponte ser o fechamento do lado do daemon,
+	// que e justamente o que este teste quer provar.
+	stdinHost, _ := io.Pipe()
+	t.Cleanup(func() { _ = stdinHost.Close() })
+
+	// stdout do host num buffer proprio, para poder conferir os BYTES que
+	// atravessaram. E o unico jeito de afirmar que a ponte copia: a versao
+	// anterior escrevia no os.Stdout do processo de teste e so conseguia
+	// dizer que a leitura nao travava.
+	//
+	// Com mutex, e nao um bytes.Buffer cru: servePonteRemota pode retornar
+	// pelo lado do stdin enquanto a goroutine que copia daemon->host ainda
+	// escreve, e ai a leitura do buffer no fim compete com essa escrita. Em
+	// producao o destino e os.Stdout e o processo esta encerrando, entao nao
+	// e defeito de produto -- mas aqui e uma corrida de verdade, e o -race a
+	// acusa. Medido: com um stdin que devolve EOF na hora, "race detected".
+	stdoutHost := &escritorSeguro{}
+
 	log := slog.New(slog.NewTextHandler(io.Discard, nil))
 
 	done := make(chan error, 1)
 	go func() {
-		done <- servePonteRemota(context.Background(), conn, log)
+		done <- servePonteRemota(context.Background(), conn, stdinHost, stdoutHost, log)
 	}()
 
-	// outroLado faz o papel do daemon: escrever nele tem que aparecer do
-	// lado da ponte sem alteracao (ela copia para os.Stdout, mas o que este
-	// teste consegue observar diretamente e que a leitura nao trava e o
-	// fechamento propaga), e fecha-lo tem que terminar servePonteRemota --
-	// o equivalente, na ponte, ao serve loop de serveEmProcesso retornando
-	// quando o host desconecta.
-	if _, err := outroLado.Write([]byte("resposta do daemon")); err != nil {
+	// outroLado faz o papel do daemon: o que ele escreve tem que sair no
+	// stdout do host sem alteracao, e fecha-lo tem que terminar
+	// servePonteRemota -- o equivalente, na ponte, ao serve loop de
+	// serveEmProcesso retornando quando o host desconecta.
+	const resposta = "resposta do daemon"
+	if _, err := outroLado.Write([]byte(resposta)); err != nil {
 		t.Fatalf("escrevendo do lado do daemon: %v", err)
 	}
 	if err := outroLado.Close(); err != nil {
@@ -210,6 +234,10 @@ func TestServePonteRemotaFazProxyDeBytes(t *testing.T) {
 		}
 	case <-time.After(boundedWait):
 		t.Fatal("servePonteRemota nao retornou apos o daemon fechar a conexao")
+	}
+
+	if got := stdoutHost.String(); got != resposta {
+		t.Errorf("stdout do host = %q, quer %q -- a ponte nao copiou os bytes do daemon", got, resposta)
 	}
 }
 
@@ -240,4 +268,24 @@ func newDuplexPipe() (a, b duplexPipe) {
 	a = duplexPipe{r: br, w: aw, closeR: br.Close}
 	b = duplexPipe{r: ar, w: bw, closeR: ar.Close}
 	return a, b
+}
+
+// escritorSeguro e um buffer protegido por mutex. Ver o comentario em
+// TestServePonteRemotaFazProxyDeBytes: sem ele o -race acusa competicao entre
+// a goroutine de copia da ponte e a leitura do buffer no fim do teste.
+type escritorSeguro struct {
+	mu  sync.Mutex
+	buf bytes.Buffer
+}
+
+func (e *escritorSeguro) Write(p []byte) (int, error) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	return e.buf.Write(p)
+}
+
+func (e *escritorSeguro) String() string {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	return e.buf.String()
 }

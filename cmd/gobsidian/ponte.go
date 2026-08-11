@@ -82,7 +82,7 @@ func servePonte(ctx context.Context, cfg config.Config, log *slog.Logger) error 
 	conn, err := ipc.DialAndHandshake(ctx, cfg.VaultPath, cfg.ReadOnly, ipcDialTimeout)
 	if err == nil {
 		log.Info("conectado ao daemon via socket")
-		return servePonteRemota(ctx, conn, log)
+		return servePonteRemota(ctx, conn, os.Stdin, os.Stdout, log)
 	}
 	log.Info("socket do daemon indisponivel; tentando iniciar o daemon", "err", err)
 
@@ -98,7 +98,7 @@ func servePonte(ctx context.Context, cfg config.Config, log *slog.Logger) error 
 		return serveEmProcesso(ctx, cfg, log)
 	}
 	log.Info("conectado ao daemon recem-iniciado via socket")
-	return servePonteRemota(ctx, conn, log)
+	return servePonteRemota(ctx, conn, os.Stdin, os.Stdout, log)
 }
 
 // servePonteRemota copia bytes entre o stdio deste processo e o socket do
@@ -110,14 +110,26 @@ func servePonte(ctx context.Context, cfg config.Config, log *slog.Logger) error 
 // serveEmProcesso: lifecycle.New e o mesmo pacote, montado do mesmo jeito,
 // porque a garantia de nao deixar orfao nao pode depender de qual dos dois
 // caminhos serviu a sessao.
-func servePonteRemota(parent context.Context, conn ipc.Conn, log *slog.Logger) error {
+//
+// stdin e stdout sao parametros, e nao os.Stdin/os.Stdout lidos aqui dentro,
+// porque sem isso esta funcao nao e testavel de forma deterministica: sob
+// `go test` no Linux o stdin do processo e /dev/null e devolve EOF na hora,
+// entao a ponte encerrava antes de o teste conseguir escrever do lado do
+// daemon, e o teste falhava com "read/write on closed pipe" -- so no Linux,
+// porque no Windows o stdin de teste bloqueia. Medido: verde no Windows e no
+// macOS, vermelho no ubuntu, no MESMO commit.
+//
+// O ganho e maior que a estabilidade: com stdout injetavel, o teste passa a
+// conferir os BYTES que atravessaram a ponte, que e o que ela existe para
+// fazer. Antes ele so conseguia afirmar que a leitura nao travava.
+func servePonteRemota(parent context.Context, conn ipc.Conn, stdin io.Reader, stdout io.Writer, log *slog.Logger) error {
 	// O monitor de stdin do lifecycle consome bytes, e o stdin aqui pertence
 	// ao daemon do outro lado do socket. A saida e espelhar: a copia de
 	// verdade le do espelho, e o lifecycle observa so a copia. io.TeeReader
 	// nao serve — nao propaga EOF, copia bytes e EOF nao e byte — por isso
 	// mirrorReader, que faz dst.CloseWithError(err) (ver serve.go).
 	pr, pw := io.Pipe()
-	teed := &mirrorReader{src: os.Stdin, dst: pw}
+	teed := &mirrorReader{src: stdin, dst: pw}
 
 	ctx, lc := lifecycle.New(parent, lifecycle.Options{
 		Stdin:     pr,
@@ -139,7 +151,7 @@ func servePonteRemota(parent context.Context, conn ipc.Conn, log *slog.Logger) e
 
 	daemonParaHost := make(chan error, 1)
 	go func() {
-		_, err := io.Copy(os.Stdout, conn)
+		_, err := io.Copy(stdout, conn)
 		daemonParaHost <- err
 	}()
 
