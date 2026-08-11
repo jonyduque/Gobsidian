@@ -207,9 +207,9 @@ mcpsrv → service → {index, search, writer, vault, parser}
 
 ### Arquivos por operação, não por tipo
 
-Dentro de cada pacote, os arquivos correspondem a operações (`build.go`, `update.go`, `resolve.go`), não a categorias sintáticas (`types.go`, `interfaces.go`, `helpers.go`). A exceção é `types.go` em `parser/`, onde as estruturas de dados são o contrato central do pacote e ficam melhor concentradas.
+Dentro de cada pacote, os arquivos correspondem a operações (`build.go`, `update.go`, `resolve.go`), não a categorias sintáticas (`types.go`, `interfaces.go`, `helpers.go`). A exceção é `types.go` em `parser/`, onde as estruturas de dados são o contrato central do pacote e ficam melhor concentradas. <!-- check-doc-refs: ignore interfaces.go, helpers.go -- exemplos de categoria sintatica que o projeto evita, nao arquivos reais -->
 
-Um arquivo chamado `helpers.go` ou `utils.go` é sinal de que uma preocupação não foi nomeada. Não existem no projeto.
+Um arquivo chamado `helpers.go` ou `utils.go` é sinal de que uma preocupação não foi nomeada. Não existem no projeto. <!-- check-doc-refs: ignore helpers.go, utils.go -- a propria frase afirma que NAO existem; e a regra, nao uma referencia -->
 
 ### Separação por build tag para código de plataforma
 
@@ -255,7 +255,7 @@ Nomes de pacote em minúsculas, uma palavra, sem underscores. Sem `util`, sem `c
 
 Tipos exportados carregam o significado sem repetir o pacote: `index.Note`, não `index.IndexNote`.
 
-Nomes de arquivo em `snake_case.go`.
+Nomes de arquivo em `snake_case.go`. <!-- check-doc-refs: ignore snake_case.go -- exemplo da convencao de nome, nao arquivo -->
 
 ### Testes
 

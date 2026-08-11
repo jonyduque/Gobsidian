@@ -105,47 +105,102 @@ try {
     $PadraoCamelCall = '(?-i)^[A-Z][A-Za-z0-9]*\([^()]*\)$'
 
     # ---------------------------------------------------------------------
-    # Tokens reconhecidos: nao sao artefato deste repositorio, e a doc esta
-    # certa ao cita-los. Cada um carrega o MOTIVO, porque uma lista de
-    # excecoes sem justificativa vira o lugar onde se esconde achado real.
+    # Diretiva de dispensa, por linha:
     #
-    # Eles continuam sendo IMPRESSOS no fim, so que separados e sem contar
-    # como achado. Suprimir em silencio trocaria um problema por outro: dez
-    # achados permanentes ensinam a ignorar a saida inteira -- que e como um
-    # binario obsoleto passou tres cenarios do gate de orfaos sem ninguem
+    #     <!-- check-doc-refs: ignore helpers.go, utils.go -- a doc diz que
+    #          estes NAO existem, e essa e a regra -->
+    #
+    # Comentario HTML porque nao renderiza -- quem le a doc no GitHub nao ve
+    # nada. E fica POR LINHA, e nao numa lista global no topo deste script:
+    # uma lista global dispensaria `helpers.go` em TODO documento, inclusive
+    # num que passasse a afirmar, errado, que o arquivo existe. A dispensa
+    # tem de morar colada a afirmacao que a justifica.
+    #
+    # Escopo: se a linha tiver conteudo alem do comentario, vale para ela
+    # mesma (o jeito de dispensar sem quebrar um paragrafo em dois); se o
+    # comentario estiver sozinho na linha, vale para a proxima linha nao
+    # vazia.
+    #
+    # O MOTIVO depois de "--" e obrigatorio. Dispensa sem justificativa e
+    # exatamente o lugar onde achado real se esconde, e o script a trata como
+    # achado em vez de aceita-la.
+    #
+    # As dispensas usadas continuam sendo IMPRESSAS a cada rodada, so que
+    # separadas e sem contar. Suprimir em silencio trocaria um problema por
+    # outro: achado permanente ensina a ignorar a saida inteira -- que e como
+    # um binario obsoleto passou tres cenarios do gate de orfaos sem ninguem
     # notar.
     # ---------------------------------------------------------------------
-    $Reconhecidos = [ordered]@{
-        'helpers.go'          = 'a doc diz que NAO existe -- e a regra do projeto contra arquivo-categoria'
-        'utils.go'            = 'idem helpers.go'
-        'interfaces.go'       = 'exemplo de categoria sintatica que o projeto evita, nao arquivo real'
-        'snake_case.go'       = 'exemplo da convencao de nome, nao arquivo'
-        'backend_inotify.go'  = 'arquivo do fsnotify v1.10.1, dependencia externa'
-        'backend_windows.go'  = 'arquivo do fsnotify v1.10.1, dependencia externa'
-        'total_bytes'         = 'a propria linha afirma que este campo NAO existe no retorno'
-        'max_user_watches'    = 'sysctl do Linux (fs.inotify.max_user_watches), nome externo'
-        'node_modules'        = 'diretorio do Node, citado para dizer que o instalador nao cria um'
-    }
+    $PadraoDispensa = '(?i)<!--\s*check-doc-refs:\s*ignore\s+(.+?)\s+--\s+(.+?)\s*-->'
+    $PadraoDispensaSolta = '(?i)<!--\s*check-doc-refs:'
 
     $Achados = 0
     $Vistos = [System.Collections.Generic.List[string]]::new()
 
     function Add-Achado {
         param([string]$Arquivo, [int]$Linha, [string]$Regra, [string]$Token)
-        $Rel = $Arquivo.Replace($ProjectRoot, '').TrimStart('\', '/')
-
-        if ($Reconhecidos.Contains($Token)) {
-            $script:Vistos.Add(("  {0}:{1}: ``{2}`` -- {3}" -f $Rel, $Linha, $Token, $Reconhecidos[$Token]))
-            return
-        }
-
         $script:Achados++
+        $Rel = $Arquivo.Replace($ProjectRoot, '').TrimStart('\', '/')
         Write-Output ("  {0}:{1}: [{2}] ``{3}``" -f $Rel, $Linha, $Regra, $Token)
+    }
+
+    # Diretivas malformadas encontradas por Get-Dispensas, emitidas pelo
+    # chamador. NAO podem sair de dentro da funcao: em PowerShell tudo que uma
+    # funcao escreve entra no valor de RETORNO dela, entao um Write-Output ali
+    # faria $Dispensas virar um array [texto, mapa] em vez do mapa, e o acesso
+    # seguinte estourava com "Index was outside the bounds of the array".
+    # Medido: so acontecia quando havia diretiva malformada, isto e, so no
+    # caminho de erro -- que e onde ninguem olha ate precisar.
+    $Invalidas = [System.Collections.Generic.List[int]]::new()
+
+    # Le as diretivas de um documento e devolve: linha (base 1) -> { token -> motivo }.
+    function Get-Dispensas {
+        param([string[]]$Linhas)
+
+        $mapa = @{}
+        for ($i = 0; $i -lt $Linhas.Count; $i++) {
+            $L = $Linhas[$i]
+            if ($L -notmatch $PadraoDispensaSolta) { continue }
+
+            $m = [regex]::Match($L, $PadraoDispensa)
+            if (-not $m.Success) {
+                # Diretiva presente mas malformada -- quase sempre motivo
+                # ausente. Vira achado: uma dispensa que o script nao entende
+                # nao dispensa nada, e falhar em silencio aqui devolveria o
+                # achado sem explicar por que a diretiva nao pegou.
+                $script:Invalidas.Add($i + 1)
+                continue
+            }
+
+            $tokens = $m.Groups[1].Value -split '[,\s]+' | Where-Object { $_ }
+            $motivo = $m.Groups[2].Value.Trim()
+
+            # Onde a dispensa vale: nela mesma se houver conteudo em volta,
+            # senao na proxima linha nao vazia.
+            $resto = ($L -replace $PadraoDispensa, '').Trim()
+            $alvo = $i + 1
+            if ($resto.Length -eq 0) {
+                $j = $i + 1
+                while ($j -lt $Linhas.Count -and $Linhas[$j].Trim().Length -eq 0) { $j++ }
+                $alvo = $j + 1
+            }
+
+            if (-not $mapa.ContainsKey($alvo)) { $mapa[$alvo] = @{} }
+            foreach ($t in $tokens) { $mapa[$alvo][$t] = $motivo }
+        }
+        return $mapa
     }
 
     foreach ($Doc in $Docs) {
         $Linhas = @(Get-Content -Path $Doc.FullName -Encoding utf8)
         $DentroDeCerca = $false
+        $Rel = $Doc.FullName.Replace($ProjectRoot, '').TrimStart('\', '/')
+        $Invalidas.Clear()
+        $Dispensas = Get-Dispensas -Linhas $Linhas
+        foreach ($n in $Invalidas) {
+            Add-Achado -Arquivo $Doc.FullName -Linha $n -Regra 'DISPENSA-INVALIDA' `
+                -Token 'use: <!-- check-doc-refs: ignore <tokens> -- <motivo> -->'
+        }
 
         for ($i = 0; $i -lt $Linhas.Count; $i++) {
             $L = $Linhas[$i]
@@ -158,9 +213,16 @@ try {
             }
             if ($DentroDeCerca) { continue }
 
+            $DispensaDaLinha = $Dispensas[$i + 1]
+
             foreach ($m in [regex]::Matches($L, '`([^`]+)`')) {
                 $Token = $m.Groups[1].Value.Trim().Trim("`"'")
                 if ($Token.Length -eq 0) { continue }
+
+                if ($DispensaDaLinha -and $DispensaDaLinha.ContainsKey($Token)) {
+                    $Vistos.Add(("  {0}:{1}: ``{2}`` -- {3}" -f $Rel, ($i + 1), $Token, $DispensaDaLinha[$Token]))
+                    continue
+                }
 
                 $Regra = $null
                 $Ausente = $false
@@ -215,7 +277,7 @@ try {
     # engano fica escondido para sempre.
     if ($Vistos.Count -gt 0) {
         Write-Output ""
-        Write-Output "[i] $($Vistos.Count) token(s) reconhecido(s) -- nao contam como achado:"
+        Write-Output "[i] $($Vistos.Count) dispensa(s) em uso -- nao contam como achado:"
         $Vistos | ForEach-Object { Write-Output $_ }
     }
 

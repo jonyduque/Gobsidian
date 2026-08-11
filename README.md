@@ -68,7 +68,7 @@ Qualquer um dos instaladores baixa o binário da release, **confere o SHA-256 e 
 iex (irm https://raw.githubusercontent.com/jonyduque/Gobsidian/master/install.ps1)
 ```
 
-**Multiplataforma** — mesmo instalador em Node, sem `npm install` nem `node_modules`:
+**Multiplataforma** — mesmo instalador em Node, sem `npm install` nem `node_modules`: <!-- check-doc-refs: ignore node_modules -- diretorio do Node, citado para dizer que o instalador nao cria um -->
 
 ```powershell
 iex (irm https://raw.githubusercontent.com/jonyduque/Gobsidian/master/installer/install.ps1)

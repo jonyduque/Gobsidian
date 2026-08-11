@@ -92,7 +92,7 @@ Lê uma nota inteira, uma seção, ou um bloco — ou várias notas numa só cha
 
 **Retorno com `paths`.** `items`, uma lista na mesma ordem e do mesmo tamanho de `paths`. Cada item tem `path` e, ou os campos de sucesso (`content`, `hash`, `truncated`, `section`), ou `error` com `code` e `message` — uma nota que falha não derruba as demais e não desaparece da lista: o item aparece na posição de origem, com `error` preenchido. Corresponde a `service.ReadBatchResult`.
 
-> A linha acima já listou `path` e `total_bytes` no retorno de `path` único.
+> A linha acima já listou `path` e `total_bytes` no retorno de `path` único. <!-- check-doc-refs: ignore total_bytes -- este bloco existe para dizer que o campo NAO existe no retorno -->
 > Nenhum dos dois existe como campo do retorno em si: `note_read` devolve
 > `service.ReadResult`, que tem exatamente `Content`, `Hash`, `Section` e
 > `Truncated`. Achado por `scripts/check_doc_refs.ps1` na primeira execução
