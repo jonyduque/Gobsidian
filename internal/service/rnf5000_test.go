@@ -97,12 +97,48 @@ func TestScale5000_RNF01_RNF02_RNF07_RNF04(t *testing.T) {
 
 	// 4. RNF-04: Latência de vault_search p95 a 5.000 notas
 	//
+	// O serviço é montado com o índice VINDO DO CACHE, não com inv.
+	//
+	// Inverted.Postings tem dois ramos. Índice construído do zero (inv):
+	// base == nil, tudo vive no delta em mapas, e a função ORDENA. Índice
+	// carregado do cache: base != nil e delta vazio, e ela devolve a fatia do
+	// base sem ordenar. O servidor em produção sempre carrega do cache, e
+	// medido no mesmo cofre e na mesma consulta os dois ramos diferem por 4,4x
+	// (BenchmarkSearchLimit200 174.791.983 ns/op contra
+	// BenchmarkSearchLimit200Cache 39.565.533 ns/op). Até 2026-08-12 este bloco
+	// media inv, isto é, o ramo que o servidor não executa.
+	//
+	// Instância própria, viva até o fim do teste: a do laço de RNF-02 é
+	// fechada a cada volta de propósito (ver o comentário lá).
+	doCache, _, err := search.LoadInvertedCache(context.Background(), cacheDir, vaultDir)
+	if err != nil {
+		t.Fatalf("LoadInvertedCache para o RNF-04: %v", err)
+	}
+	defer func() { _ = doCache.Close() }()
+
+	// Guarda de ramo, no espírito da de bench_cache_test.go. Um cache recusado
+	// em silêncio — troca de formato, versão de analisador, caminho de cofre
+	// diferente — faria este bloco medir exatamente o ramo que ele existe para
+	// NÃO medir, e ninguém notaria.
+	//
+	// DocCount é o que a distingue de fora do pacote: as duas construções de
+	// LoadInvertedCache passam por newInvertedFromSoA, e a única maneira de sair
+	// dali com base == nil é a base ter vindo vazia — o que dá DocCount zero.
+	// Índice com 5.000 documentos vindo daqui tem base.
+	if doCache == nil {
+		t.Fatal("LoadInvertedCache devolveu cache nulo; sem base o RNF-04 mediria o ramo do delta")
+	}
+	if doCache.DocCount() < 5000 {
+		t.Fatalf("o indice vindo do cache tem %d documentos, quer >= 5000; "+
+			"o cache foi recusado e o RNF-04 mediria o ramo do delta", doCache.DocCount())
+	}
+
 	// Cache de trecho DESLIGADO: o laço abaixo repete cada consulta 30 vezes, e
 	// com o cache ligado 29 dessas 30 acertariam. O p95 cairia para o valor da
 	// consulta repetida, que nenhum usuário vê na primeira busca — seria um RNF
 	// declarado atingido por medir outra coisa.
-	svc := service.New(v, idx, inv, nil, service.Options{SnippetCacheEntries: &semCacheDeTrecho})
-	t.Logf("=== RNF-04 (Latencia vault_search p95 5.000 notas) ===")
+	svc := service.New(v, idx, doCache, nil, service.Options{SnippetCacheEntries: &semCacheDeTrecho})
+	t.Logf("=== RNF-04 (Latencia vault_search p95 5.000 notas, indice vindo do CACHE) ===")
 
 	queries := []struct {
 		nome string
