@@ -50,7 +50,12 @@ func createSearchService(t *testing.T, files map[string]string) (*service.Servic
 		}
 	}
 
-	svc := service.New(v, idx, inv, nil, service.Options{})
+	// Cache de trecho DESLIGADO. Os testes de RNF-04 daqui medem a MESMA
+	// consulta 30 vezes, e com o cache ligado 29 dessas 30 seriam acertos —
+	// o p95 passaria a descrever a consulta repetida, que e justamente o que
+	// uma medicao de latencia de busca nao pode descrever. Quem mede repeticao
+	// e BenchmarkSearchLimit200CacheTrechoRepetido, e o nome dele diz isso.
+	svc := service.New(v, idx, inv, nil, service.Options{SnippetCacheEntries: &semCacheDeTrecho})
 	return svc, v, idx, inv
 }
 

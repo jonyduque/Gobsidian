@@ -45,6 +45,23 @@ func benchVaultPath(b *testing.B) string {
 	return dir
 }
 
+// semCacheDeTrecho desliga o cache de trechos de vault_search.
+//
+// Todo benchmark E todo teste de latência de RNF-04 sai daqui — inclusive os de
+// search_test.go e rnf5000_test.go, que repetem cada consulta 30 vezes pelo
+// mesmo motivo que b.Loop repete.
+//
+// Não por gosto: quem repete a mesma consulta acerta o cache de trecho a partir
+// da segunda volta e produz um número que produção nunca vê na primeira busca.
+// Pior, a melhora apareceria contra docs/bench-baseline.json e contra o teto do
+// RNF-04 como se o caminho frio tivesse ficado rápido.
+// Quem mede repetição é BenchmarkSearchLimit200CacheTrechoRepetido, e o nome
+// dele diz isso.
+//
+// É ponteiro porque service.Options.SnippetCacheEntries distingue "omitido"
+// (usa o padrão) de "zero" (desligado) — num int os dois seriam o mesmo valor.
+var semCacheDeTrecho = 0
+
 // benchServico monta a pilha completa uma vez, fora do cronômetro.
 func benchServico(b *testing.B) *service.Service {
 	b.Helper()
@@ -69,7 +86,7 @@ func benchServico(b *testing.B) *service.Service {
 		b.Fatalf("o cofre de benchmark tem %d notas; o baseline foi medido com 5000, "+
 			"e comparar escalas diferentes nao mede regressao nenhuma", n)
 	}
-	return service.New(v, idx, inv, nil, service.Options{})
+	return service.New(v, idx, inv, nil, service.Options{SnippetCacheEntries: &semCacheDeTrecho})
 }
 
 func BenchmarkIndexBuild(b *testing.B) {

@@ -56,6 +56,14 @@ type Options struct {
 	// marcado em construcao por outro caminho, em segundo plano) e Search
 	// nunca dispara carga nenhuma.
 	CarregarBusca CarregadorBusca
+
+	// SnippetCacheEntries e o teto do cache de trechos de vault_search.
+	//
+	// E ponteiro pela mesma razao de config.ReadOnlySet existir: num int, zero
+	// e "omitido" e "desligado" ao mesmo tempo, e a diferenca importa. nil usa
+	// search.DefaultSnippetCacheEntries; um zero explicito DESLIGA o cache, e e
+	// assim que o benchmark mede o caminho frio, que e o que o RNF-04 cobra.
+	SnippetCacheEntries *int
 }
 
 // Service e a fachada unica sobre os subsistemas: cada tool MCP corresponde a um metodo daqui.
@@ -66,6 +74,7 @@ type Service struct {
 	watcher  WatchStats
 	opts     Options
 	locker   *writer.PathLocker
+	trechos  *search.SnippetCache
 
 	carregarBusca CarregadorBusca
 	cargaBusca    cargaUnica
@@ -73,6 +82,10 @@ type Service struct {
 
 // New monta o servico.
 func New(v *vault.Vault, idx Index, inv *search.Inverted, w WatchStats, opts Options) *Service {
+	entradasTrecho := search.DefaultSnippetCacheEntries
+	if opts.SnippetCacheEntries != nil {
+		entradasTrecho = *opts.SnippetCacheEntries
+	}
 	return &Service{
 		vault:         v,
 		index:         idx,
@@ -80,6 +93,7 @@ func New(v *vault.Vault, idx Index, inv *search.Inverted, w WatchStats, opts Opt
 		watcher:       w,
 		opts:          opts,
 		locker:        writer.NewPathLocker(),
+		trechos:       search.NewSnippetCache(entradasTrecho),
 		carregarBusca: opts.CarregarBusca,
 	}
 }

@@ -39,6 +39,34 @@ import (
 //
 // A primeira versão desta otimização usava 16 e mediu só o caso ocioso a 500
 // notas — o único regime em que a escolha não faz diferença.
+//
+// RE-AFERIDO EM 2026-08-12, e o registro de que o regime mudou é a informação
+// que importa. A varredura acima foi feita quando cada resultado custava ~1 ms
+// de CPU em Inverted.Postings, dentro de GenerateSnippet. Esse custo foi
+// apagado (Postings -> Positions, busca binária), e o trabalho por resultado
+// passou a ser quase só espera de vault.ReadRange — regime diferente, e regime
+// diferente pode escolher valor diferente. Não escolheu.
+//
+// BenchmarkSearchLimit200Cache (cofre de 5.000 notas, índice vindo do cache,
+// cache de trecho DESLIGADO), configurações INTERCALADAS uma por rodada porque
+// a máquina estava ruidosa, n=6 por braço, benchstat com base em 8:
+//
+//	workers   sec/op          vs 8
+//	      1   36,82m ± 312%   +80,29% (p=0,002)
+//	      4   22,52m ±  16%   ~       (p=0,132)
+//	      8   20,42m ±  60%   —
+//	     16   18,73m ±   7%   ~       (p=0,240)
+//	     24   19,55m ±  17%   ~       (p=0,699)
+//	     32   20,23m ±  21%   ~       (p=1,000)
+//
+// 16 foi o único candidato que chegou perto, então levou uma segunda passada
+// só contra 8, com a regra de decisão declarada antes de medir (muda se
+// p < 0,05, n=16 por braço): 18,92m ± 9% contra 17,97m ± 7%, ~ (p=0,254).
+//
+// Então o valor continua 8. Mudança sem ganho significativo é dívida pura, e
+// o que a varredura nova acrescenta é que a serialização (1 trabalhador) ficou
+// AINDA mais cara neste regime — sem o custo de CPU por resultado, o que sobra
+// é latência de abertura de arquivo, e ela só some com concorrência.
 const maxSnippetWorkers = 8
 
 // SearchOptions representa os parâmetros de consulta e filtragem da tool vault_search.
@@ -202,7 +230,7 @@ func (s *Service) Search(ctx context.Context, opts SearchOptions) (SearchResult,
 		if !ok {
 			return
 		}
-		snip, _ := search.GenerateSnippet(ctx, s.vault, s.inverted, idxImpl, h.Path, rawTerms, opts.SnippetChars)
+		snip, _ := search.GenerateSnippet(ctx, s.vault, s.inverted, idxImpl, h.Path, rawTerms, opts.SnippetChars, s.trechos)
 		var matchedHeadings []string
 		if snip.MatchedHeading != "" {
 			matchedHeadings = append(matchedHeadings, snip.MatchedHeading)

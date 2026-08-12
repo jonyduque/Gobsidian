@@ -24,7 +24,12 @@ type Snippet struct {
 }
 
 // GenerateSnippet recorta do disco o trecho em volta das ocorrências dos termos de busca.
-func GenerateSnippet(ctx context.Context, v *vault.Vault, ix *Inverted, idx *index.Index, path string, queryTerms []string, maxChars int) (Snippet, error) {
+//
+// cache pode ser nil, e nil é o caminho sem cache — é o que o benchmark frio
+// mede e o que o RNF-04 cobra. Só é cacheada a nota que está no índice de
+// metadados: sem o hash dela não existe chave de invalidação, e servir bytes
+// velhos com confiança é pior que reler o disco.
+func GenerateSnippet(ctx context.Context, v *vault.Vault, ix *Inverted, idx *index.Index, path string, queryTerms []string, maxChars int, cache *SnippetCache) (Snippet, error) {
 	if maxChars <= 0 {
 		maxChars = DefaultSnippetChars
 	}
@@ -35,8 +40,13 @@ func GenerateSnippet(ctx context.Context, v *vault.Vault, ix *Inverted, idx *ind
 	cPath := vault.CanonicalPath(path)
 
 	// 1. Arquivo somente-nuvem NUNCA é aberto para evitar downloads síncronos.
+	// O cache entra DEPOIS desta saída: um placeholder não pode ganhar entrada
+	// no cache, senão o caminho que existe para não abrir o arquivo passaria a
+	// depender de nunca ter aberto antes.
 	var noteHadBOM bool
 	var headings []parser.Heading
+	var noteHash uint64
+	var temHash bool
 	if idx != nil {
 		note, ok := idx.Get(cPath)
 		if ok {
@@ -45,6 +55,9 @@ func GenerateSnippet(ctx context.Context, v *vault.Vault, ix *Inverted, idx *ind
 			}
 			noteHadBOM = note.BOM
 			headings = note.Headings
+			// idx.Get já foi pago acima: o hash sai sem syscall de stat.
+			noteHash = note.Hash
+			temHash = true
 		}
 	}
 
@@ -70,19 +83,13 @@ func GenerateSnippet(ctx context.Context, v *vault.Vault, ix *Inverted, idx *ind
 			}
 
 			for _, t := range termsToSearch {
-				postings := ix.Postings(t)
-				for _, p := range postings {
-					if p.Path == string(cPath) && len(p.Positions) > 0 {
-						pos := p.Positions[0]
-						bestMatch = &matchPos{
-							term:  t,
-							start: pos.Start,
-							end:   pos.End,
-						}
-						break
+				posicoes := ix.Positions(t, string(cPath))
+				if len(posicoes) > 0 {
+					bestMatch = &matchPos{
+						term:  t,
+						start: posicoes[0].Start,
+						end:   posicoes[0].End,
 					}
-				}
-				if bestMatch != nil {
 					break
 				}
 			}
@@ -95,8 +102,29 @@ func GenerateSnippet(ctx context.Context, v *vault.Vault, ix *Inverted, idx *ind
 		}
 	}
 
+	// Nenhum termo ocorre na nota: nada foi lido do disco, e um trecho vazio não
+	// vale entrada no cache — despejaria trecho útil para guardar o que custa zero.
 	if bestMatch == nil {
 		return Snippet{}, nil
+	}
+
+	// 2.1. Consulta o cache. É aqui e não antes porque a chave inclui a
+	// ocorrência escolhida, e achá-la custa uma busca binária (Positions), não
+	// uma ida ao disco. O que o acerto pula é o par caro: ReadRange, que abre o
+	// arquivo, e adjustUTF8Highlight.
+	var chave chaveTrecho
+	cacheavel := cache != nil && temHash
+	if cacheavel {
+		chave = chaveTrecho{
+			path:     string(cPath),
+			hash:     noteHash,
+			start:    bestMatch.start,
+			end:      bestMatch.end,
+			maxChars: maxChars,
+		}
+		if trecho, ok := cache.Get(chave); ok {
+			return trecho, nil
+		}
 	}
 
 	// 3. Offset do BOM:
@@ -130,6 +158,8 @@ func GenerateSnippet(ctx context.Context, v *vault.Vault, ix *Inverted, idx *ind
 	if err != nil {
 		data, readErr := v.ReadAll(ctx, cPath)
 		if readErr != nil {
+			// Falha de leitura é transitória — cofre desmontado, arquivo em uso.
+			// Guardar o vazio aqui congelaria a falha até a nota mudar de hash.
 			return Snippet{}, nil
 		}
 		buf = data
@@ -139,12 +169,21 @@ func GenerateSnippet(ctx context.Context, v *vault.Vault, ix *Inverted, idx *ind
 	// Trima sequências UTF-8 parciais nas extremidades e calcula destaques relativos ao trecho
 	snippetText, relStart, relEnd := adjustUTF8Highlight(buf, winStart, diskMatchStart, diskMatchEnd)
 
-	return Snippet{
+	trecho := Snippet{
 		Text:           snippetText,
 		HighlightStart: relStart,
 		HighlightEnd:   relEnd,
 		MatchedHeading: matchedHeadingText,
-	}, nil
+	}
+
+	// Guarda o que foi REALMENTE produzido, inclusive quando o recorte veio da
+	// recuperação por ReadAll com winStart = 0: o conteúdo é o mesmo da chave, e
+	// gravar o valor do caminho feliz aqui guardaria um trecho que não existiu.
+	if cacheavel {
+		cache.Put(chave, trecho)
+	}
+
+	return trecho, nil
 }
 
 func adjustUTF8Highlight(buf []byte, winStart, matchStart, matchEnd int64) (string, int, int) {

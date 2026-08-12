@@ -15,7 +15,7 @@ import (
 
 func snippetPara(t *testing.T, v *vault.Vault, idx *index.Index, ix *search.Inverted, path string, term string, maxChars int) search.Snippet {
 	t.Helper()
-	s, err := search.GenerateSnippet(context.Background(), v, ix, idx, path, []string{term}, maxChars)
+	s, err := search.GenerateSnippet(context.Background(), v, ix, idx, path, []string{term}, maxChars, nil)
 	if err != nil {
 		t.Fatalf("GenerateSnippet: %v", err)
 	}

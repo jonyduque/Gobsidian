@@ -96,7 +96,12 @@ func TestScale5000_RNF01_RNF02_RNF07_RNF04(t *testing.T) {
 	t.Logf("  Alloc: %.2f MB, Sys: %.2f MB", float64(mem.Alloc)/1024/1024, float64(mem.Sys)/1024/1024)
 
 	// 4. RNF-04: Latência de vault_search p95 a 5.000 notas
-	svc := service.New(v, idx, inv, nil, service.Options{})
+	//
+	// Cache de trecho DESLIGADO: o laço abaixo repete cada consulta 30 vezes, e
+	// com o cache ligado 29 dessas 30 acertariam. O p95 cairia para o valor da
+	// consulta repetida, que nenhum usuário vê na primeira busca — seria um RNF
+	// declarado atingido por medir outra coisa.
+	svc := service.New(v, idx, inv, nil, service.Options{SnippetCacheEntries: &semCacheDeTrecho})
 	t.Logf("=== RNF-04 (Latencia vault_search p95 5.000 notas) ===")
 
 	queries := []struct {
