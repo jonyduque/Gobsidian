@@ -187,7 +187,7 @@ num cofre de 7 notas.
 | **RNF-01** | Indexação a frio (≤ 3 s) | 500,11 ms no cofre sintético; **1,1 s** num cofre real de 109 MB | **Atingido** |
 | **RNF-02** | Boot com cache válido (≤ 300 ms) | 208–282 ms no cofre sintético; **371–472 ms** num cofre real de 109 MB (2026-08-06, com `index_cache`) | **NÃO ATINGIDO** |
 | **RNF-03** | `note_read` p95 (≤ 15 ms) | p95 **344,97 µs**, mediana 206,47 µs (5.000 notas) | **Atingido** |
-| **RNF-04** | `vault_search` p95 (≤ 100 ms) | 500 notas: 8 de 8, 7–25 ms. 5.000 notas: 7 de 8; `limit: 200` em **119–123 ms** (2026-08-09, era 181,25 ms) | **Parcial** |
+| **RNF-04** | `vault_search` p95 (≤ 100 ms) | 5.000 notas: **8 de 8** (2026-08-12). `limit: 200` em **26,0 / 82,0 / 29,0 ms** em três rodadas; era 119–123 ms. Medido a frio — ver "Recorte de trecho" ao fim | **Atingido** |
 | **RNF-05** | `note_list` com filtro de metadados p95 (≤ 10 ms) | p95 **533,68 µs**, mediana 249,24 µs (5.000 notas) | **Atingido** |
 | **RNF-06** | Reindexação de arquivo único (≤ 20 ms) | mediana **334,87 µs**, p95 544,87 µs (5.000 notas, lote=20; Task 86, 2026-08-06). Era 20,35 ms | **Atingido** |
 | **RNF-07** | RSS em repouso (≤ 60 MB) | 5.000 notas: **37,95–38,10 MB** com cache quente, **54,69–54,82 MB** a frio (2026-08-09). Era 67,08 / 112,96 MB | **Atingido** |
@@ -1251,3 +1251,216 @@ Não observado em produção fora da condição de teste que a expôs. Se dois
 daemons chegarem a coexistir, o pior caso é dois processos com índice
 próprio competindo pelo mesmo socket — não corrupção do cofre, que continua
 protegida pelas escritas atômicas e pelo mutex por caminho (`internal/writer`).
+
+## Recorte de trecho: a busca que pedia a lista inteira de postings (2026-08-12)
+
+Três mudanças, medidas em sequência, no caminho de `vault_search`. A primeira
+respondeu por quase todo o ganho; as outras duas existem porque sem elas os
+números da primeira seriam lidos errado.
+
+### O que o perfil mostrou
+
+`GenerateSnippet` chamava `Inverted.Postings(termo)` — que materializa a lista
+inteira de postings do termo e, no índice construído do zero, ainda a **ordena**
+— e depois varria essa lista linearmente para achar **uma** nota. Uma vez por
+resultado, por termo. Com `limit: 200` num cofre de 5.000 notas isso são 200
+ordenações de milhares de elementos e uma varredura de 2 milhões de comparações
+de string, para extrair 200 offsets.
+
+Perfil de `BenchmarkSearchLimit200`, filtrado em `service.Search`:
+
+```
+search.(*Inverted).Postings          29,31 s   40,23% do CPU total
+└─ sort.Slice                        26,55 s   90,58% de Postings
+search.CalculateBM25                  0,53 s    0,73%
+vault.ReadRange                       1,25 s    1,72%
+
+alloc_space: Postings via GenerateSnippet   1.429,98 MB   79,63%
+```
+
+A pontuação BM25 custava menos de 1%. O gargalo era a montagem do trecho.
+
+`Inverted.Positions(termo, caminho)` já existia desde a Task 61, faz busca
+binária, e resolvia exatamente esta pergunta — mas tinha sido aplicada só ao
+casamento de frase, não ao recorte de trecho.
+
+### Medição de `Postings` para `Positions`
+
+`benchstat`, n=6 por braço (a linha `TermoAmploCache` deu `~` com a média
+subindo na primeira passada e foi remedida isolada com n=10 — era ruído):
+
+```
+                          antes           depois         delta
+sec/op
+SearchLimit200-12       175,43m ± 29%   22,89m ± 31%   -86,95% (p=0,002 n=6)
+SearchLimit200Cache-12   40,70m ±  8%   27,67m ± 32%   -32,02% (p=0,002 n=6)
+SearchTermoAmplo-12      30,46m ±  6%   17,85m ±  9%   -41,38% (p=0,002 n=6)
+SearchTermoAmploCache-12 16,26m ±  4%   14,98m ±  5%    -7,87% (p=0,003 n=10)
+
+B/op
+SearchLimit200-12       50,404Mi ± 0%   3,476Mi ± 0%   -93,10% (p=0,002 n=6)
+SearchTermoAmplo-12      7,820Mi ± 0%   3,126Mi ± 0%   -60,02% (p=0,002 n=6)
+```
+
+Depois da troca, o perfil do mesmo benchmark põe `Positions` em **0,01 s**, e o
+que sobra no recorte é `vault.ReadRange` com 97% do custo de `GenerateSnippet`
+— dos quais 68% em `vault.Open`, isto é, `CreateFile` do Windows.
+
+Uma alternativa mais ambiciosa foi **descartada por medição**: passar a âncora
+do trecho de dentro do BM25, eliminando a consulta ao índice. O que ela removeria
+custa 0,1% do perfil depois desta mudança. Mudança de assinatura pública por 0,1%
+é dívida.
+
+### O benchmark mirava o ramo que o servidor não executa
+
+`Inverted.Postings` tem dois ramos. Índice construído do zero: `base == nil`,
+tudo vive no delta em mapas, e a função **ordena**. Índice vindo do cache:
+`base != nil` e delta vazio, e ela devolve a fatia do base sem ordenar. O
+servidor em produção sempre carrega do cache.
+
+`benchServico` construía do zero. Medido no mesmo cofre, mesma consulta:
+
+```
+BenchmarkSearchLimit200-12        174.791.983 ns/op   (ramo delta)
+BenchmarkSearchLimit200Cache-12    39.565.533 ns/op   (ramo base)
+```
+
+**4,4 vezes entre os dois ramos.** `internal/service/bench_cache_test.go` entrou
+por causa disso: `BenchmarkSearchLimit200Cache` e `BenchmarkSearchTermoAmploCache`
+montam a pilha com o índice **carregado do cache**, e uma guarda reprova se o
+cache for recusado em silêncio — sem ela o benchmark novo mediria exatamente o
+ramo que ele existe para não medir.
+
+### Cache de trecho: paga na consulta repetida, não na primeira
+
+`internal/search/snippet_cache.go`. LRU por número de entradas, teto padrão de
+1.024, chave `{caminho, hash, início, fim, maxChars}`. O hash é o `index.Note.Hash`
+— xxhash do conteúdo bruto —, que `GenerateSnippet` já obtinha do `idx.Get` que
+ele fazia de qualquer jeito: a invalidação não custa syscall nenhum. Não há
+`Invalidate()`: nota editada muda de hash, logo muda de chave, e a entrada velha
+morre por LRU. Nota que não está no índice de metadados **não é cacheada**, porque
+sem hash não existe chave de invalidação.
+
+Medição própria, os dois braços numa invocação só de `go test -count=8`, o que os
+intercala:
+
+```
+                       frio (cache off)   quente (mesma consulta)   delta
+sec/op                 18,18m ± 7%        14,24m ± 10%              -21,63% (p=0,000 n=8)
+B/op                   3,479Mi ± 0%       3,289Mi ±  0%              -5,45% (p=0,000 n=8)
+allocs/op              13,45k ± 0%        11,88k ±  0%             -11,64% (p=0,000 n=8)
+```
+
+**O caminho frio não mudou** (`~`, e `B/op`/`allocs/op` idênticos — evidência mais
+forte que o `~`, porque são determinísticos). Quem melhorou o frio foi a troca de
+`Postings` por `Positions`, não o cache.
+
+Uma medição anterior desta mesma comparação, em máquina mais carregada, deu
+-30,37% (n=20, ±25% nos dois braços). Fica registrada a divergência: o número
+válido é o de cima, medido com ±7% e ±10%.
+
+**Todo harness que mede latência de busca desliga este cache**
+(`semCacheDeTrecho`, em `internal/service/bench_test.go`). Não é preferência:
+`b.Loop` e os laços de RNF-04 repetem a MESMA consulta 30 vezes, e com o cache
+ligado 29 dessas 30 são acertos — o p95 passaria a descrever a consulta repetida.
+Isso foi pego na revisão: a primeira medição de RNF-04 depois do cache deu
+21,49 ms para `limit: 200` e estava quente. Quem mede repetição é
+`BenchmarkSearchLimit200CacheTrechoRepetido`, e o nome dele diz isso.
+
+### `maxSnippetWorkers` re-aferido, e mantido em 8
+
+A varredura que escolheu 8 foi feita quando cada resultado custava ~1 ms de CPU
+em `Postings`. Com esse custo apagado, o trabalho por resultado virou quase só
+espera de abertura de arquivo — regime diferente. Remedido em
+`BenchmarkSearchLimit200Cache` com o cache de trecho desligado, seis configurações
+intercaladas, n=6 por braço, base 8:
+
+| workers | sec/op | vs 8 |
+|---|---|---|
+| 1 | 36,82m ± 312% | +80,29% (p=0,002) |
+| 4 | 22,52m ± 16% | ~ (p=0,132) |
+| 8 | 20,42m ± 60% | — |
+| 16 | 18,73m ± 7% | ~ (p=0,240) |
+| 24 | 19,55m ± 17% | ~ (p=0,699) |
+| 32 | 20,23m ± 21% | ~ (p=1,000) |
+
+16 foi o único candidato próximo e levou segunda passada só contra 8, com a regra
+de decisão declarada antes de medir (muda se p < 0,05, n=16 por braço): 18,92m ± 9%
+contra 17,97m ± 7%, `~ (p=0,254)`. **A constante fica em 8.** O que a varredura
+acrescenta é que serializar ficou *mais* caro neste regime: sem custo de CPU por
+resultado, o que sobra é latência de abertura de arquivo, e ela só some com
+concorrência. Esta varredura foi medida uma vez e não foi reproduzida de forma
+independente; ela sustenta a decisão de **não** mudar nada.
+
+### RNF-04 remedido, a frio, `TestScale5000_RNF01_RNF02_RNF07_RNF04`
+
+Mesmo teste e mesmo harness que registraram 119–123 ms, com o cache de trecho
+desligado. Três rodadas independentes, sem `-race`:
+
+| Formato | R1 p95 | R2 p95 | R3 p95 | Alvo ≤ 100 ms |
+|---|---|---|---|---|
+| termo amplo, limit default | 22,74 ms | 28,71 ms | 36,73 ms | Atingido |
+| dois termos | 11,54 ms | 25,94 ms | 13,98 ms | Atingido |
+| termo seletivo | 10,21 ms | 18,38 ms | 10,47 ms | Atingido |
+| filtro de pasta | 21,62 ms | 54,35 ms | 32,37 ms | Atingido |
+| filtro de tag | 28,19 ms | 47,22 ms | 23,25 ms | Atingido |
+| frase exata | 29,59 ms | 35,28 ms | 27,78 ms | Atingido |
+| trecho máximo | 15,14 ms | 20,67 ms | 11,86 ms | Atingido |
+| `limit: 200` | **25,98 ms** | **82,01 ms** | **29,04 ms** | Atingido |
+
+**Os oito formatos cabem no teto nas três rodadas, e `limit: 200` era o único que
+faltava desde 2026-08-01.** A rodada 2 saiu carregada — a mediana de `limit: 200`
+foi de 18,8 ms na R1 para 59,2 ms nela, sem mudança de código — e está registrada
+como saiu. A margem contra os 100 ms sobrevive à pior das três, que é o que
+autoriza a linha "Atingido"; se a folga fosse só na melhor rodada, a resposta
+seria "parcial".
+
+### Lacunas que continuam abertas
+
+- **`rnf5000_test.go` mede o ramo errado do índice.** Ele carrega o cache para o
+  RNF-02 e depois monta o serviço com `inv`, o índice construído do zero. Todos os
+  números de RNF-04 desta seção e das anteriores saem do ramo com `sort`, e o
+  servidor executa o outro — que mede 4,4 vezes mais rápido no benchmark
+  equivalente. A correção é uma linha e **não foi feita**: ela muda o que o
+  requisito mede, e isso é decisão de quem é dono do requisito, não efeito
+  colateral de uma tarefa de desempenho.
+- **`docs/bench-baseline.json` ficou obsoleto.** A referência de
+  `BenchmarkSearchLimit200` é 373.350.430 ns/op, medida no runner do CI antes
+  destas mudanças. O gate só reprova regressão, então nada quebra — mas uma
+  referência dez vezes acima do real deixa de pegar regressão. Precisa ser regerada
+  pelo `bench.yml` com `-UpdateBaseline`, no runner do CI; número local não é
+  comparável.
+- **Efeito do cache de trecho no RSS não foi medido** num servidor real. O teto
+  de cerca de 1,2 MB no comentário de `DefaultSnippetCacheEntries` é conta derivada
+  de `MaxSnippetChars`, não medição.
+
+### Achado fora do escopo: um placeholder do OneDrive derrubava a indexação
+
+Ao montar o teste que prova que o cache não abre arquivo somente-nuvem, o
+`index.Build` entrou em pânico:
+
+```
+panic: runtime error: invalid memory address or nil pointer dereference
+github.com/jonyd/gobsidian/internal/index.(*Index).insert(...)
+	internal/index/index.go:111
+github.com/jonyd/gobsidian/internal/index.(*Index).Build.func4()
+	internal/index/build.go:107
+```
+
+`build.go` manda placeholder de nuvem ao coletor com `parsed{entry: e}` e `note`
+**nil**, de propósito — ler o arquivo dispararia download síncrono. `insert`
+entrava no ramo `r.entry.IsNote` (verdadeiro: é `.md`) e desreferenciava
+`r.note.Title`. **Um único `.md` não hidratado do OneDrive derrubava a indexação
+inteira no boot**, e cofre em OneDrive é cenário suportado (`docs/WINDOWS.md`).
+
+Sobreviveu porque nenhum teste montava a condição: o único que tentava usa
+`FILE_ATTRIBUTE_RECALL_ON_DATA_ACCESS`, que não é gravável, e está pulado.
+`FILE_ATTRIBUTE_OFFLINE` é gravável por `SetFileAttributes` e `vault.IsCloudOnly`
+também o aceita — e é por isso que `TestBuildNotaSomenteNuvemNaoDerrubaIndexacao`
+consegue existir.
+
+**Divergência relacionada, não corrigida:** `Build` registra o placeholder como
+`Note` com `CloudOnly = true`; `index.Replace` (`update.go:60`) registra o mesmo
+arquivo como `Asset`, e aí `idx.Get` devolve `false`. As duas construções do
+índice respondem diferente para a mesma entrada — mesma família da divergência de
+chave do `byAlias`, que já custou um link resolvendo para nota deletada.
