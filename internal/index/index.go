@@ -106,25 +106,35 @@ func (ix *Index) insert(r parsed) {
 
 	if r.entry.IsNote {
 		n := &Note{
-			Path:        r.entry.Path,
-			Title:       r.note.Title,
-			TitleNorm:   normalizeTitleForNote(r.note.Title),
-			Size:        r.entry.Size,
-			ModTime:     r.entry.ModTime,
-			Hash:        r.hash,
-			EOL:         r.eol,
-			BOM:         r.bom,
-			CloudOnly:   r.entry.CloudOnly,
-			Frontmatter: r.note.Frontmatter,
-			Tags:        r.note.Tags,
-			Aliases:     r.note.Aliases,
-			Headings:    r.note.Headings,
-			Blocks:      r.note.Blocks,
-			Inline:      r.note.Inline,
+			Path:      r.entry.Path,
+			TitleNorm: normalizeTitleForNote(""),
+			Size:      r.entry.Size,
+			ModTime:   r.entry.ModTime,
+			Hash:      r.hash,
+			EOL:       r.eol,
+			BOM:       r.bom,
+			CloudOnly: r.entry.CloudOnly,
 		}
 
-		for _, l := range r.note.Links {
-			n.Links = append(n.Links, ResolvedLink{Link: l})
+		// r.note e nil quando build.go NAO leu o arquivo, e ele nao le de
+		// proposito no placeholder de nuvem: abrir dispara download sincrono.
+		// A nota entra so com o que a varredura de diretorio ja sabia, que e o
+		// que o comentario de Note.CloudOnly promete. Title vazio e o mesmo
+		// estado de uma nota sem frontmatter e sem H1 — o chamador cai no nome
+		// do arquivo.
+		if r.note != nil {
+			n.Title = r.note.Title
+			n.TitleNorm = normalizeTitleForNote(r.note.Title)
+			n.Frontmatter = r.note.Frontmatter
+			n.Tags = r.note.Tags
+			n.Aliases = r.note.Aliases
+			n.Headings = r.note.Headings
+			n.Blocks = r.note.Blocks
+			n.Inline = r.note.Inline
+
+			for _, l := range r.note.Links {
+				n.Links = append(n.Links, ResolvedLink{Link: l})
+			}
 		}
 
 		ix.publishNoteLocked(n)
