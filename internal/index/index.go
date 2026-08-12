@@ -104,48 +104,36 @@ func (ix *Index) insert(r parsed) {
 
 	atomic.AddUint64(&ix.generation, 1)
 
-	if r.entry.IsNote {
-		n := &Note{
-			Path:      r.entry.Path,
-			TitleNorm: normalizeTitleForNote(""),
-			Size:      r.entry.Size,
-			ModTime:   r.entry.ModTime,
-			Hash:      r.hash,
-			EOL:       r.eol,
-			BOM:       r.bom,
-			CloudOnly: r.entry.CloudOnly,
-		}
-
-		// r.note e nil quando build.go NAO leu o arquivo, e ele nao le de
-		// proposito no placeholder de nuvem: abrir dispara download sincrono.
-		// A nota entra so com o que a varredura de diretorio ja sabia, que e o
-		// que o comentario de Note.CloudOnly promete. Title vazio e o mesmo
-		// estado de uma nota sem frontmatter e sem H1 — o chamador cai no nome
-		// do arquivo.
-		if r.note != nil {
-			n.Title = r.note.Title
-			n.TitleNorm = normalizeTitleForNote(r.note.Title)
-			n.Frontmatter = r.note.Frontmatter
-			n.Tags = r.note.Tags
-			n.Aliases = r.note.Aliases
-			n.Headings = r.note.Headings
-			n.Blocks = r.note.Blocks
-			n.Inline = r.note.Inline
-
-			for _, l := range r.note.Links {
-				n.Links = append(n.Links, ResolvedLink{Link: l})
-			}
-		}
-
-		ix.publishNoteLocked(n)
-	} else {
-		a := &Asset{
-			Path:    r.entry.Path,
-			Size:    r.entry.Size,
-			ModTime: r.entry.ModTime,
-		}
-		ix.publishAssetLocked(a)
+	if classificar(r.entry) == classeAnexo {
+		ix.publishAssetLocked(anexoDaEntrada(r.entry))
+		return
 	}
+
+	n := notaSemLeitura(r.entry)
+
+	// r.note e nil quando build.go NAO leu o arquivo, e ele nao le de
+	// proposito no placeholder de nuvem: abrir dispara download sincrono. A
+	// nota entra so com o que a varredura de diretorio ja sabia, que e o que
+	// notaSemLeitura acabou de montar.
+	if r.note != nil {
+		n.Hash = r.hash
+		n.EOL = r.eol
+		n.BOM = r.bom
+		n.Title = r.note.Title
+		n.TitleNorm = normalizeTitleForNote(r.note.Title)
+		n.Frontmatter = r.note.Frontmatter
+		n.Tags = r.note.Tags
+		n.Aliases = r.note.Aliases
+		n.Headings = r.note.Headings
+		n.Blocks = r.note.Blocks
+		n.Inline = r.note.Inline
+
+		for _, l := range r.note.Links {
+			n.Links = append(n.Links, ResolvedLink{Link: l})
+		}
+	}
+
+	ix.publishNoteLocked(n)
 }
 
 // publishNoteLocked registra uma nota ja construida nos indices derivados:

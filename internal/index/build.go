@@ -56,8 +56,9 @@ func (ix *Index) Build(ctx context.Context, v *vault.Vault) error {
 
 				// Anexos e placeholders de nuvem nao sao lidos. Ler um
 				// placeholder dispararia download sincrono, e indexar o cofre
-				// inteiro assim trava por minutos.
-				if !e.IsNote || e.CloudOnly {
+				// inteiro assim trava por minutos. Quem decide e classificar,
+				// a mesma funcao que insert e Replace consultam.
+				if !classificar(e).precisaLer() {
 					select {
 					case results <- parsed{entry: e}:
 					case <-gctx.Done():

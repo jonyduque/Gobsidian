@@ -48,26 +48,29 @@ func (ix *Index) Replace(ctx context.Context, v *vault.Vault, path vault.Canonic
 		return err
 	}
 
-	isNote := strings.HasSuffix(strings.ToLower(abs), ".md")
+	// IsNote sai de vault.Classify, a mesma funcao que vault.Walk consulta na
+	// varredura. Derivar aqui por sufixo ".md" era uma segunda copia da regra,
+	// que discordava da primeira em nome de ruido do editor (`~$nota.md`).
 	entry := vault.Entry{
 		Path:      path,
 		Size:      info.Size(),
 		ModTime:   info.ModTime(),
-		IsNote:    isNote,
+		IsNote:    vault.Classify(path) == vault.ClassNote,
 		CloudOnly: vault.IsCloudOnly(abs),
 	}
 
-	if !entry.IsNote || entry.CloudOnly {
-		a := &Asset{
-			Path:    entry.Path,
-			Size:    entry.Size,
-			ModTime: entry.ModTime,
-		}
-		ix.assets[entry.Path] = a
-		lower := strings.ToLower(string(entry.Path))
-		ix.lowerPath[lower] = entry.Path
-		base := vault.CanonicalPath(filepath.ToSlash(filepath.Base(string(entry.Path))))
-		ix.byName[string(base)] = append(ix.byName[string(base)], entry.Path)
+	classificacao := classificar(entry)
+	if classificacao == classeAnexo {
+		ix.publishAssetLocked(anexoDaEntrada(entry))
+		ix.reprocessLinksDirigidoLocked(chaves)
+		return nil
+	}
+	if classificacao == classeNotaSemLeitura {
+		// Placeholder de nuvem: entra como NOTA, com o que a varredura de
+		// diretorio ja sabia, sem abrir o arquivo. Build sempre fez assim; era
+		// Replace que o registrava como Asset, de modo que idx.Get devolvia
+		// false para um `.md` conforme qual construcao tivesse rodado.
+		ix.publishNoteLocked(notaSemLeitura(entry))
 		ix.reprocessLinksDirigidoLocked(chaves)
 		return nil
 	}
