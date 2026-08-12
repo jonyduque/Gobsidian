@@ -14,8 +14,16 @@ import (
 // DefaultSnippetChars (240) fica em ~450 KB.
 //
 // O teto nao e conservadorismo gratuito: o RNF-07 cobra RSS <= 60 MB (alvo) /
-// 150 MB (degradado) e a medicao atual e 67 MB. Nao ha folga para um cache sem
-// teto.
+// 150 MB (degradado). Nao ha folga para um cache sem teto.
+//
+// A conta acima foi CONFERIDA POR MEDICAO na Task 96 (2026-08-12) e nao foi
+// contrariada: WorkingSet64 de pico do servidor real, cofre de 5.000 notas,
+// depois de uma carga que encheu o cache (4.574 chaves distintas contra teto de
+// 1.024), seis partidas por braco intercaladas. Mediana 64,31 MB com o cache
+// contra 63,45 MB sem ele — +0,86 MB, com U de Mann-Whitney 11 contra regiao
+// critica 5, ou seja NAO significativo. O custo esta em torno de 1 MB e abaixo
+// da resolucao do instrumento. Detalhe em docs/OPERACAO.md, secao "Custo do
+// cache de trecho no RSS".
 const DefaultSnippetCacheEntries = 1024
 
 // chaveTrecho identifica um trecho ja recortado.

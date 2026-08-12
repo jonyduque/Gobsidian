@@ -187,7 +187,7 @@ num cofre de 7 notas.
 | **RNF-01** | Indexação a frio (≤ 3 s) | 500,11 ms no cofre sintético; **1,1 s** num cofre real de 109 MB | **Atingido** |
 | **RNF-02** | Boot com cache válido (≤ 300 ms) | 208–282 ms no cofre sintético; **371–472 ms** num cofre real de 109 MB (2026-08-06, com `index_cache`) | **NÃO ATINGIDO** |
 | **RNF-03** | `note_read` p95 (≤ 15 ms) | p95 **344,97 µs**, mediana 206,47 µs (5.000 notas) | **Atingido** |
-| **RNF-04** | `vault_search` p95 (≤ 100 ms) | 5.000 notas: **8 de 8** (2026-08-12). `limit: 200` em **26,0 / 82,0 / 29,0 ms** em três rodadas; era 119–123 ms. Medido a frio — ver "Recorte de trecho" ao fim | **Atingido** |
+| **RNF-04** | `vault_search` p95 (≤ 100 ms) | 5.000 notas: **8 de 8** (2026-08-12, Task 94). `limit: 200` em **43,1 / 28,8 / 27,6 ms** em três rodadas; era 119–123 ms. Medido a frio e no índice **vindo do cache**, que é o ramo que o servidor executa — ver "Recorte de trecho" ao fim | **Atingido** |
 | **RNF-05** | `note_list` com filtro de metadados p95 (≤ 10 ms) | p95 **533,68 µs**, mediana 249,24 µs (5.000 notas) | **Atingido** |
 | **RNF-06** | Reindexação de arquivo único (≤ 20 ms) | mediana **334,87 µs**, p95 544,87 µs (5.000 notas, lote=20; Task 86, 2026-08-06). Era 20,35 ms | **Atingido** |
 | **RNF-07** | RSS em repouso (≤ 60 MB) | 5.000 notas: **37,95–38,10 MB** com cache quente, **54,69–54,82 MB** a frio (2026-08-09). Era 67,08 / 112,96 MB | **Atingido** |
@@ -1415,24 +1415,151 @@ como saiu. A margem contra os 100 ms sobrevive à pior das três, que é o que
 autoriza a linha "Atingido"; se a folga fosse só na melhor rodada, a resposta
 seria "parcial".
 
+**Estas três rodadas mediram o ramo do delta**, não o que o servidor executa. O
+harness carregava o cache para o RNF-02 e montava o serviço com o índice
+construído do zero. A Task 94 corrigiu isso; a tabela acima fica como registro
+do que foi medido, e a de baixo é a que vale.
+
+### RNF-04 no ramo que o servidor executa (Task 94, 2026-08-12)
+
+`internal/service/rnf5000_test.go` passou a montar o serviço com o índice
+**vindo de `LoadInvertedCache`**, não com o `inv` construído do zero.
+`Inverted.Postings` tem dois ramos, e o servidor em produção sempre carrega do
+cache; até aqui todos os números de RNF-04 do projeto saíam do outro.
+
+A correção carrega uma instância própria, viva até o fim do teste — a do laço
+de RNF-02 é fechada a cada volta de propósito, porque cinco mapeamentos abertos
+sobre o mesmo arquivo fazem o `t.TempDir()` recusar apagar no Windows. Junto
+entrou uma **guarda de ramo**, no espírito da de `bench_cache_test.go`: cache
+recusado em silêncio (troca de formato, versão de analisador, caminho de cofre
+diferente) faz o teste **reprovar**, não medir. Sem ela a correção poderia se
+desfazer sozinha numa mudança futura de formato e ninguém perceberia.
+
+Cache de trecho continua desligado (`semCacheDeTrecho`): os laços repetem a
+mesma consulta 30 vezes. Três rodadas independentes, sem `-race`:
+
+| Formato | R1 p95 | R2 p95 | R3 p95 | Alvo ≤ 100 ms |
+|---|---|---|---|---|
+| termo amplo, limit default | 21,84 ms | 23,59 ms | 25,83 ms | Atingido |
+| dois termos | 10,26 ms | 11,64 ms | 11,86 ms | Atingido |
+| termo seletivo | 9,17 ms | 9,98 ms | 9,88 ms | Atingido |
+| filtro de pasta | 28,36 ms | 24,86 ms | 26,49 ms | Atingido |
+| filtro de tag | 32,24 ms | 26,07 ms | 32,17 ms | Atingido |
+| frase exata | 35,45 ms | 29,44 ms | 28,78 ms | Atingido |
+| trecho máximo | 13,75 ms | 12,13 ms | 13,23 ms | Atingido |
+| `limit: 200` | **43,09 ms** | **28,79 ms** | **27,56 ms** | Atingido |
+
+**Os oito formatos cabem no teto nas três rodadas também neste ramo**, e a pior
+rodada de `limit: 200` (43,09 ms) deixa 57% de folga.
+
+O que a troca de ramo **não** produziu foi um salto de desempenho, e a razão
+está medida: os 4,4× entre os dois ramos foram medidos com `Postings`, e a
+troca por `Positions` desta mesma sessão apagou justamente o `sort` que os
+separava — depois dela, `SearchLimit200` deu 22,89m contra 27,67m de
+`SearchLimit200Cache`. Os dois ramos convergiram. **O valor da correção é o
+harness passar a exercitar o caminho do servidor**, não um número melhor; se
+os ramos voltarem a divergir, agora é este que aparece.
+
+**`TestRNF04VaultSearchLatencyP95` (500 notas, `internal/service/search_test.go`)
+tem o mesmo defeito, e não foi corrigido.** `createSearchService` monta o índice
+com `search.NewInverted()` mais `Add` por nota, nunca grava nem lê cache, então
+`base == nil` e toda leitura cai no ramo que ordena. Vale para todos os testes
+que passam por esse construtor, `TestRNF04SnippetConcurrencyLimit200` inclusive.
+500 notas é outra escala e a decisão é de quem é dono do requisito.
+
 ### Lacunas que continuam abertas
 
-- **`rnf5000_test.go` mede o ramo errado do índice.** Ele carrega o cache para o
-  RNF-02 e depois monta o serviço com `inv`, o índice construído do zero. Todos os
-  números de RNF-04 desta seção e das anteriores saem do ramo com `sort`, e o
-  servidor executa o outro — que mede 4,4 vezes mais rápido no benchmark
-  equivalente. A correção é uma linha e **não foi feita**: ela muda o que o
-  requisito mede, e isso é decisão de quem é dono do requisito, não efeito
-  colateral de uma tarefa de desempenho.
+- ~~**`rnf5000_test.go` mede o ramo errado do índice.**~~ **Fechada pela Task 94
+  em 2026-08-12.** O harness passou a montar o serviço com o índice vindo do
+  cache, com guarda de ramo que reprova se o cache for recusado em silêncio. A
+  medição anterior fica registrada acima: ela saiu do ramo do delta, e saber
+  disso é a informação que importa. Continua aberto o mesmo defeito em
+  `TestRNF04VaultSearchLatencyP95`, a 500 notas — relatado, não corrigido.
 - **`docs/bench-baseline.json` ficou obsoleto.** A referência de
   `BenchmarkSearchLimit200` é 373.350.430 ns/op, medida no runner do CI antes
   destas mudanças. O gate só reprova regressão, então nada quebra — mas uma
   referência dez vezes acima do real deixa de pegar regressão. Precisa ser regerada
   pelo `bench.yml` com `-UpdateBaseline`, no runner do CI; número local não é
   comparável.
-- **Efeito do cache de trecho no RSS não foi medido** num servidor real. O teto
-  de cerca de 1,2 MB no comentário de `DefaultSnippetCacheEntries` é conta derivada
-  de `MaxSnippetChars`, não medição.
+- ~~**Efeito do cache de trecho no RSS não foi medido**~~ **Medido pela Task 96
+  em 2026-08-12**, na seção abaixo. O custo fica em torno de 1 MB e **não é
+  distinguível do ruído do instrumento**; a conta de ~1,2 MB do comentário de
+  `DefaultSnippetCacheEntries` não é contrariada, e o padrão de 1.024 não ameaça
+  o RNF-07.
+
+### Custo do cache de trecho no RSS (Task 96, 2026-08-12)
+
+**O que foi medido:** `WorkingSet64` de pico do processo real, cofre sintético de
+5.000 notas (`vault_5000`), depois de uma carga de 33 consultas `limit: 200` que
+enche o cache de trecho. Dois braços: teto padrão (1.024 entradas) e desligado.
+Seis partidas por braço, **intercaladas** (A, B, A, B, …), mesmo diretório de
+cache quente para os dois, 15 s de acomodação e 8 amostras a 200 ms por partida.
+
+**O instrumento não foi `scripts/measure.ps1`**, e o motivo é o mesmo da seção de
+RNF-07 acima: ele mede repouso logo após o boot e não emite busca nenhuma, então
+o cache de trecho ficaria vazio nos dois braços e a comparação mediria zero. Foi
+usado um script local equivalente (mesma sequência de handshake MCP, mesmo
+"reporta o pico e não a última amostra"), com a fase de carga no meio, não
+commitado. Duas coisas que ele precisou fazer e que ficam registradas:
+
+- **`GOBSIDIAN_NO_DAEMON=1` é obrigatório.** Sem ela, `serve` encontrou um daemon
+  vivo para esse cofre e virou ponte — o `WorkingSet64` medido seria o da ponte,
+  não o do processo que guarda o índice e o cache. A primeira tentativa mediu
+  exatamente isso antes de o log `conectado ao daemon via socket` denunciar; o
+  script hoje **reprova** se essa linha aparecer.
+- **`StreamReader.ReadLine()` no stderr trava.** A primeira versão ficou pendurada
+  porque o prazo só é conferido entre linhas, e o servidor havia parado de
+  escrever. `ReadLineAsync` com `Wait` limitado, como já registrado para o harness
+  de órfãos.
+
+**Não existe flag de CLI para o teto do cache de trecho.** O braço desligado
+exigiu um segundo binário, compilado com `SnippetCacheEntries` apontando para
+zero em `cmd/gobsidian/servico.go`; a edição foi aplicada e revertida em bytes
+crus, com SHA-256 conferindo o restauro, e o arquivo versionado está intacto.
+
+**Como se sabe que o cache estava cheio.** A chave é
+`{caminho, hash, início, fim, maxChars}`, e dois pares `(caminho, texto)`
+distintos só podem vir de chaves distintas — logo o número de pares distintos nas
+respostas é um limite inferior das entradas postas. A carga produziu **4.574
+pares distintos** em todas as doze partidas, contra um teto de 1.024. Como
+`Len = min(chaves distintas, teto)`, o cache estava no teto.
+
+| Partida | A: padrão (1.024) | B: desligado (0) |
+|---|---|---|
+| 1 | 64,49 MB | 104,62 MB |
+| 2 | 64,45 MB | 62,80 MB |
+| 3 | 63,17 MB | 64,25 MB |
+| 4 | 63,68 MB | 64,01 MB |
+| 5 | 64,16 MB | 62,88 MB |
+| 6 | 65,20 MB | 62,45 MB |
+| **mediana** | **64,31 MB** | **63,45 MB** |
+
+**A diferença não é significativa.** U de Mann-Whitney com n=6 por braço dá
+U = 11, contra região crítica U ≤ 5 para α = 0,05 bicaudal: `~`. O ponto estimado
+é **+0,86 MB** para o braço com cache (+1,43 MB descartando a partida 1 de B), o
+que é compatível com a conta de ~1,2 MB do comentário de
+`DefaultSnippetCacheEntries` e não a contraria. **O cache custa cerca de 1 MB e
+esse 1 MB está abaixo da resolução deste instrumento**; dizer mais que isso seria
+escrever número que a medição não sustenta.
+
+A partida 1 do braço B deu 104,62 MB, e **o mesmo aconteceu numa bateria
+anterior de três partidas** (104,09 MB, também na primeira do braço B) — é a
+primeira execução daquele binário em cada bateria. A causa não foi identificada.
+Fica registrada como saiu; é por isso que a comparação usa mediana.
+
+O `alloc` do runtime, colhido por `vault_stats` com `include_runtime`, ficou em
+21,84 MB (mediana) no braço A contra 22,62 MB no B — **na direção oposta**, o que
+é a mesma conclusão dita de outro jeito: a variação entre partidas é maior que o
+efeito procurado. `alloc` não é colhido depois de um GC forçado, então ele também
+mede quando o coletor passou.
+
+**Nenhum dos dois braços ameaça o RNF-07, e o padrão fica em 1.024.** Vale
+registrar o que a tabela mostra e a de RNF-07 não: sob esta carga os dois braços
+ficam em 62–65 MB, acima do alvo de 60 MB — **mas RNF-07 cobra RSS em repouso**, e
+o número de repouso continua sendo 37,95–38,10 MB. O que empurra o RSS para além
+do alvo aqui é a carga de 6.600 resultados, presente igualmente nos dois braços,
+não o cache. Medir o repouso sob carga seria responder outra pergunta; medir o
+custo do cache sem carga mediria zero.
 
 ### Achado fora do escopo: um placeholder do OneDrive derrubava a indexação
 
@@ -1459,8 +1586,105 @@ Sobreviveu porque nenhum teste montava a condição: o único que tentava usa
 também o aceita — e é por isso que `TestBuildNotaSomenteNuvemNaoDerrubaIndexacao`
 consegue existir.
 
-**Divergência relacionada, não corrigida:** `Build` registra o placeholder como
-`Note` com `CloudOnly = true`; `index.Replace` (`update.go:60`) registra o mesmo
-arquivo como `Asset`, e aí `idx.Get` devolve `false`. As duas construções do
-índice respondem diferente para a mesma entrada — mesma família da divergência de
-chave do `byAlias`, que já custou um link resolvendo para nota deletada.
+**Divergência relacionada, corrigida pela Task 95 em 2026-08-12:** `Build`
+registrava o placeholder como `Note` com `CloudOnly = true` e `index.Replace` o
+registrava como `Asset`, com `idx.Get` devolvendo `false`. As duas construções do
+índice respondiam diferente para a mesma entrada — mesma família da divergência de
+chave do `byAlias`, que já custou um link resolvendo para nota deletada. Detalhe
+na seção seguinte.
+
+### Uma classificação só, e o que ela mudou nas tools (Task 95, 2026-08-12)
+
+`Note` com `CloudOnly = true` é o comportamento certo — um `.md` é uma nota, e
+não ser lido é outra coisa, que é o que o comentário de `Note.CloudOnly` já
+prometia. Quem estava errado era `Replace`.
+
+Consertar só `Replace` deixaria a próxima divergência nascer no mesmo lugar. A
+decisão que vira o que uma entrada é — Asset, Note lida, ou Note registrada sem
+abrir o arquivo — saiu para `classificar`, em `internal/index/classify.go`, e as
+**duas** construções passam por ela: `Build` (pelo worker de leitura e por
+`insert`) e `Replace`. É a disciplina de `aliasKey` e de `nomeChave`: não é para
+consertar o errado, é para tornar a próxima divergência impossível sem tocar
+naquela função. Junto saiu a derivação de `IsNote`, que `Replace` fazia por
+sufixo `".md"` enquanto `vault.Walk` usava `vault.Classify` — duas cópias da
+mesma regra, que discordavam em ruído de editor (`~$nota.md`).
+
+O teste que sustenta isso compara as **duas construções campo a campo**, por
+reflexão sobre `index.Note` e não por lista escrita à mão, de modo que campo
+novo entra na comparação sozinho. Não afirma valores: afirma igualdade. Um teste
+que conferisse valores em cada lado passaria com as duas erradas do mesmo jeito.
+
+**Mudança de comportamento das tools.** Antes, um evento do watcher sobre um
+`.md` somente-nuvem **rebaixava** a nota que o boot tinha indexado: ela virava
+`Asset` e sumia de `idx.Get`. O que muda para quem chama:
+
+| Tool | Antes do evento do watcher | Depois do evento, antes da Task 95 | Depois da Task 95 |
+|---|---|---|---|
+| `note_read` | `CLOUD_ONLY_FILE` | `NOTE_NOT_FOUND` | `CLOUD_ONLY_FILE` |
+| `note_metadata` | metadados, sem título | `NOTE_NOT_FOUND` | metadados, sem título |
+| `note_list` | presente | ausente | presente |
+| `link_graph` | nó presente | nó ausente | nó presente |
+| `[[nuvem]]` | resolve para a nota | **link quebrado** (`target_missing`) | resolve para a nota |
+| `vault_stats` | conta em `notes` | conta em `assets` | conta em `notes` |
+
+O `NOTE_NOT_FOUND` era falso: o arquivo existe. O link quebrado apareceu na
+própria prova de mutação — `comum.md` citando `[[nuvem]]` resolvia por `Build` e
+ficava `target_missing` depois de `Replace`.
+
+**Nenhuma tool passa a abrir o arquivo.** `note_read` sai em `CLOUD_ONLY_FILE`
+antes de qualquer leitura, `note_metadata` e `note_list` respondem do índice em
+memória, e `GenerateSnippet` já tinha a saída antecipada. Os testes seguram um
+handle exclusivo sobre o placeholder e conferem que o handle barra uma leitura
+**antes** de afirmar que nada foi aberto — a prova é mecânica, não inferida da
+ausência de conteúdo.
+
+**Achado que a Task 95 levantou e a Task 97 fechou:** `search.Inverted.Update`
+chamava `os.ReadFile` sem consultar `vault.IsCloudOnly`. Ver a seção seguinte —
+e ler ali por que "pré-existente" era o enquadramento errado.
+
+### O caminho que a correção do pânico tornou alcançável (Task 97, 2026-08-12)
+
+`Inverted.Update` abria o arquivo sem consultar `vault.IsCloudOnly`, e ela é
+chamada para **toda nota do cofre** por `buildInvertedIndex` no boot (via
+`idx.NotePaths()`), pelo watcher em `Apply` e pela reconciliação por overflow.
+
+A tentação é registrar isso como defeito antigo, e o registro estaria errado:
+**antes da correção do pânico desta mesma sessão, o caminho era inalcançável.**
+Um único `.md` não hidratado derrubava `index.Build`, e o processo morria antes
+de chegar a `NotePaths`. Consertar o pânico — que era um P0 — tornou o boot
+possível e, com ele, tornou alcançável um download síncrono de **todo**
+placeholder do cofre, em segundo plano, na primeira partida. Trocar um crash por
+uma violação da regra "placeholder de nuvem nunca é aberto" não é conserto
+completo; é a mesma armadilha já paga por este projeto, do outro lado. **Quem
+roda depois do guarda precisa do mesmo guarda.**
+
+**A guarda mora em `Inverted.Update`, não nos chamadores.** É a função que abre o
+arquivo; são três pontos de chamada hoje, e guarda em chamador é a próxima
+divergência esperando acontecer — a mesma lição de `aliasKey`, de `nomeChave` e
+da `classificar` da Task 95.
+
+**A nota entra coberta e vazia, não pulada.** `Add(path, nil)` registra
+`docLengths` com zero, sem postings, sem abrir o arquivo. Um `return` seco
+deixaria o caminho fora de `docLengths`, logo fora de `DocCount`, logo o
+cabeçalho do cache declararia menos notas do que o índice de metadados enxerga,
+logo `invertedCacheState` concluiria "cache parcial" em **todo** boot e
+regravaria o cache inteiro. É a armadilha que a nota sem token nenhum já custou —
+4 notas vazias em 3.152 custavam uma reconstrução e uma regravação por partida —
+e é por isso que `HasDoc` existe separada de `DocLength`: o laço de retomada de
+`buildInvertedIndex` conta por `HasDoc`, e uma nota de tamanho zero seria relida
+para sempre sem nunca passar a contar como coberta.
+
+Quatro testes, em `internal/search/cloudonly_update_windows_test.go`:
+
+- **Não abre o arquivo**, por prova mecânica: um handle exclusivo
+  (`GENERIC_READ|GENERIC_WRITE`) sobre o placeholder, com a guarda que confere
+  que ele barra um `os.ReadFile` **antes** de qualquer asserção depender disso.
+- **Entra coberta**: `HasDoc` verdadeiro, `DocLength` zero, e `Postings` vazio
+  para termos que só existem no conteúdo do disco.
+- **O boot não declara cache parcial**: compara `DocCount` do índice invertido
+  com `NoteCount` do índice de metadados, e depois `hdr.NoteCount` contra
+  `idx.NoteCount()` depois de uma ida ao disco — que é literalmente o que
+  `invertedCacheState` confronta. Conferir `DocLength == 0` não pega essa
+  regressão; comparar as duas contagens que o boot compara, pega.
+- **Ida e volta pelo cache**: índice recém-construído e índice recarregado
+  respondem igual, campo a campo, num cofre com placeholder.
