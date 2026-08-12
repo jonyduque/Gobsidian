@@ -434,6 +434,32 @@ func (ix *Inverted) Update(ctx context.Context, v *vault.Vault, path vault.Canon
 	}
 
 	abs := v.Abs(path)
+
+	// Placeholder de nuvem entra COBERTO E VAZIO, sem ser aberto.
+	//
+	// A guarda mora aqui, e nao nos chamadores, porque esta e a funcao que abre
+	// o arquivo. Sao tres pontos de chamada hoje — o laco de boot em
+	// buildInvertedIndex, o watcher em Apply e a reconciliacao por overflow — e
+	// guarda em chamador e a proxima divergencia esperando acontecer, que e a
+	// mesma licao de aliasKey e de index.classificar.
+	//
+	// Ate o pico de indexacao ser corrigido este caminho era INALCANCAVEL: um
+	// unico `.md` nao hidratado derrubava index.Build, e o boot morria antes de
+	// chegar a NotePaths. Com o pico consertado, o boot passaria a ler todo
+	// placeholder do cofre — trocando um crash por download sincrono em massa,
+	// que e justamente a regra que Note.CloudOnly existe para respeitar.
+	//
+	// Add(path, nil) e nao um return seco: a nota TEM de contar como coberta.
+	// Fora de docLengths ela nao entra em DocCount, o cabecalho do cache declara
+	// menos notas do que o indice de metadados enxerga, e invertedCacheState
+	// conclui "cache parcial" em TODO boot, regravando o cache inteiro. E a
+	// mesma armadilha que a nota sem token nenhum ja custou — ver o comentario
+	// de Add — e o motivo de HasDoc existir separada de DocLength.
+	if vault.IsCloudOnly(abs) {
+		ix.Add(string(path), nil)
+		return nil
+	}
+
 	data, err := os.ReadFile(abs)
 	if err != nil {
 		if os.IsNotExist(err) {
