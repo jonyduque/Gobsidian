@@ -267,6 +267,34 @@ Task 19-26: complete (commits 37fe3e1..3155eec, 11 commits). Revisadas depois:
     real do metadataCache do Obsidian foi verificada. A linha antiga dizia "SEM
     NENHUMA REVISAO" e ficou aqui depois de deixar de ser verdade, contradizendo
     o cabecalho de M1 completa quatro linhas acima. Corrigido em 2026-07-29.
+
+=== ESTE INDICE PARA NA TASK 26. O REGISTRO REAL SAO AS SECOES `## Task N`. ===
+
+    `scripts/sdd.ps1 status` imprime as linhas que comecam com "Task " ou
+    "===", e so. O indice acima deixou de ser mantido depois da Task 26: as
+    Tasks 27 a 93 existem no ledger apenas como secoes `## Task N`, que o
+    comando NAO imprime. Quem rodar o comando documentado e ler o resultado
+    como estado conclui que o projeto parou na Task 26 — ele esta na 97.
+    Descoberto em 2026-08-12, ao registrar as Tasks 94-97.
+
+    Nao reconstrui as linhas 27 a 93: sao 67 faixas de commits que eu teria de
+    afirmar sem ter conferido uma a uma, e ledger que parece preciso e pior que
+    ledger desatualizado. Ficam as quatro que eu de fato executei e conferi.
+
+Task 94: complete (commit 03199e4) — RNF-04 passa a medir o ramo do indice que
+    o servidor executa, com guarda de ramo que reprova cache recusado em
+    silencio. 8 de 8 formatos abaixo de 100 ms.
+Task 95: complete (commit fe99321) — uma classificacao so para placeholder de
+    nuvem; `Build` e `Replace` deixam de divergir. Evento do watcher nao
+    rebaixa mais a nota para Asset.
+Task 96: complete (commit 1041457) — custo do cache de trecho no RSS medido:
+    +0,86 MB, U de Mann-Whitney 11 contra regiao critica 5, nao significativo.
+    Teto de 1.024 mantido.
+Task 97: complete (commits cfffab8, 5ed7918) — guarda de placeholder de nuvem
+    em `Inverted.Update`. O caminho ficou alcancavel com a correcao do panico
+    de `index.Build` nesta mesma sessao: trocamos um crash por download
+    sincrono em massa. Instabilidade de teste observada, mitigada, causa raiz
+    NAO identificada.
   Revisao feita pelo modelo principal em 2026-07-28, depois do fato. Achados:
 
   CRITICAL corrigidos (commit 069f125):
