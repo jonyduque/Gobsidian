@@ -3039,3 +3039,333 @@ merecesse relato -- `docs/ESTRUTURA.md` tem a arvore de diretorios sem
 quando o formato atual e 6 (Task 89) -- fora do pedido explicito desta
 tarefa (so a redacao do RNF-30 em `ESTRUTURA.md`), relatado aqui em vez de
 consertado.
+
+## Trabalho exploratorio — desempenho de `vault_search` — 2026-08-12
+
+**Nao e tarefa numerada do plano.** Comecou como pedido de brainstorm sobre a
+performance de `vault_search` e virou codigo porque a medicao apontou um alvo
+unico e barato. Fica registrado aqui porque as Tasks 94 a 97 dependem dele e
+nao fazem sentido sem este contexto. Branch `perf/vault-search-snippet`.
+
+### Commits
+
+```
+$ git cat-file -t d33f6a8
+commit
+$ git cat-file -t 7ed3a34
+commit
+$ git cat-file -t b8f1636
+commit
+```
+
+- `d33f6a8` `fix(index): stop a cloud-only note from crashing the index build`
+- `7ed3a34` `perf(search): look up one note's positions instead of every posting`
+- `b8f1636` `docs: record the search measurements, and RNF-04 met in all eight formats`
+
+### O que o perfil apontou
+
+`GenerateSnippet` chamava `Inverted.Postings(termo)`, que materializa a lista
+inteira de postings do termo e a ordena, e depois varria essa lista
+linearmente para achar UMA nota — uma vez por resultado, por termo.
+
+```
+search.(*Inverted).Postings          29,31 s   40,23% do CPU
+└─ sort.Slice                        26,55 s   90,58% de Postings
+search.CalculateBM25                  0,53 s    0,73%
+alloc_space via GenerateSnippet   1.429,98 MB   79,63%
+```
+
+`Inverted.Positions(termo, caminho)` existia desde a Task 61 e responde a
+mesma pergunta com busca binaria; so tinha sido ligada ao casamento de frase.
+
+### Medicao — `benchstat`, n=6 por braco
+
+```
+                          antes           depois         delta
+SearchLimit200-12       175,43m ± 29%   22,89m ± 31%   -86,95% (p=0,002 n=6)
+SearchLimit200Cache-12   40,70m ±  8%   27,67m ± 32%   -32,02% (p=0,002 n=6)
+SearchTermoAmplo-12      30,46m ±  6%   17,85m ±  9%   -41,38% (p=0,002 n=6)
+SearchTermoAmploCache-12 16,26m ±  4%   14,98m ±  5%    -7,87% (p=0,003 n=10)
+B/op em limit 200      50,404Mi ± 0%   3,476Mi ± 0%   -93,10% (p=0,002 n=6)
+```
+
+`SearchTermoAmploCache` deu `~` na primeira passada com a media SUBINDO, e
+foi remedida isolada com n=10: era ruido da maquina, com processos do usuario
+vivos durante a medicao.
+
+Uma alternativa mais ambiciosa foi **descartada por medicao**: passar a ancora
+do trecho de dentro do BM25 removeria uma consulta que custa 0,01 s de 8,86 s
+depois desta mudanca. Mudanca de assinatura publica por 0,1% e divida.
+
+### Dois artefatos que existem para os numeros nao serem lidos errado
+
+`internal/service/bench_cache_test.go` monta a pilha com o indice **vindo do
+cache**. `Postings` tem dois ramos e o servidor sempre carrega do cache; o
+benchmark existente construia do zero. Mesma consulta, mesmo cofre: 174,79 ms
+contra 39,57 ms.
+
+`SnippetCache` (`internal/search/snippet_cache.go`), LRU com chave
+`{caminho, hash, inicio, fim, maxChars}`. O hash e `index.Note.Hash`, que
+`GenerateSnippet` ja obtinha do `idx.Get` que ele ja pagava. Medido frio
+contra quente numa invocacao intercalada de `go test -count=8`: **-21,63%
+(p=0,000)** na consulta repetida e `~` no caminho frio, com `B/op` e
+`allocs/op` identicos.
+
+### Defeito pego na propria revisao
+
+A primeira medicao de RNF-04 depois do cache deu 21,49 ms para `limit: 200` e
+**estava quente**: os lacos repetem a mesma consulta 30 vezes e
+`service.New(..., Options{})` liga o cache por padrao. Todo harness de
+latencia passou a desligar o cache por `semCacheDeTrecho`. O numero quente
+teria entrado na documentacao como "RNF-04 atingido" pelo motivo errado.
+
+### Prova de mutacao
+
+```
+[...] Mutando internal/search/snippet.go
+      - start: posicoes[0].Start,
+      + start: posicoes[0].Start + 1,
+--- FAIL: TestSnippetOffsetsAlignWithDiskBytesUnderBOM (0.01s)
+    snippet_test.go:58: destaque = "ntercorrente", quer "intercorrente"
+[OK] O teste REPROVOU com a regra mutada — a regra esta verificada.
+MUTATE_EXIT=0
+```
+
+### Achado fora do escopo
+
+`index.Build` entrava em **panico** com placeholder de nuvem: `build.go` manda
+`parsed{entry: e}` com `note` nil de proposito e `insert` desreferenciava
+`r.note.Title`. Um unico `.md` nao hidratado do OneDrive derrubava a
+indexacao no boot. Sobreviveu porque nenhum teste montava a condicao —
+`FILE_ATTRIBUTE_RECALL_ON_DATA_ACCESS` nao e gravavel e o teste que tentava
+esta pulado. `FILE_ATTRIBUTE_OFFLINE` e gravavel e `vault.IsCloudOnly` o
+aceita, e e assim que o caso passou a ser montavel em teste.
+
+---
+
+## Task 94 — RNF-04 passa a medir o ramo do indice que o servidor executa — 2026-08-12
+
+```
+$ git cat-file -t 03199e4
+commit
+```
+
+`03199e4` `test(service): measure RNF-04 on the index branch the server runs`
+
+`rnf5000_test.go` carregava o cache para cronometrar o RNF-02, fechava, e
+montava o servico com `inv` — o indice construido do zero. `Postings` tem dois
+ramos e o servidor sempre carrega do cache: **todo numero de RNF-04 ja
+registrado neste projeto saiu do ramo que o servidor nao executa.**
+
+O bloco de RNF-04 passou a carregar instancia propria, viva ate o fim, com
+`defer` e nao `t.Cleanup` — defers rodam antes dos cleanups, e o Windows
+recusa apagar `t.TempDir()` com mapeamento aberto. O laco do RNF-02 continua
+fechando o dele a cada volta, pelo motivo do comentario de la.
+
+**A guarda de ramo e o entregavel, nao a troca.** Cache recusado em silencio
+(formato, versao de analisador, caminho de cofre diferente) poria o bloco de
+volta no ramo do delta sem ninguem notar; `DocCount` abaixo do corpus reprova
+em vez de medir.
+
+Tres rodadas independentes, sem `-race`, cache de trecho desligado: **oito de
+oito** abaixo dos 100 ms, `limit: 200` em **43,09 / 28,79 / 27,56 ms**.
+
+**A troca nao produziu salto**, e a razao esta medida: os 4,4x entre os ramos
+foram medidos com `Postings`, e a troca por `Positions` apagou o `sort` que os
+separava. O valor da correcao e o harness exercitar o caminho do servidor.
+
+```
+[...] Mutando internal/service/rnf5000_test.go
+      - ...LoadInvertedCache(context.Background(), cacheDir, vaultDir)
+      + ...LoadInvertedCache(context.Background(), cacheDir, vaultDir+"_recusado")
+--- FAIL: TestScale5000_RNF01_RNF02_RNF07_RNF04 (19.31s)
+    rnf5000_test.go:115: LoadInvertedCache para o RNF-04: cache version mismatch
+[OK] O teste REPROVOU com a regra mutada — a regra esta verificada.
+A7 EXIT=0
+```
+
+**Aberto:** `TestRNF04VaultSearchLatencyP95` e `TestRNF04SnippetConcurrencyLimit200`
+(500 notas) tem o mesmo defeito, via `createSearchService`, que nunca grava
+nem le cache. Confirmado, registrado em `docs/OPERACAO.md`, **nao corrigido** —
+muda o que o requisito mede e e decisao de dono de requisito.
+
+---
+
+## Task 95 — uma classificacao so para placeholder de nuvem — 2026-08-12
+
+```
+$ git cat-file -t fe99321
+commit
+```
+
+`fe99321` `fix(index): give both index constructions one classification`
+
+`Build` registrava `.md` somente-nuvem como Note com `CloudOnly=true`;
+`Replace` registrava o mesmo arquivo como Asset. Como `Replace` e o caminho do
+watcher, **um evento sobre o arquivo rebaixava a nota que o boot tinha
+indexado certo**:
+
+| Tool | Antes do evento | Depois, pre-95 | Depois da 95 |
+|---|---|---|---|
+| `note_read` | `CLOUD_ONLY_FILE` | `NOTE_NOT_FOUND` | `CLOUD_ONLY_FILE` |
+| `note_metadata` | metadados | `NOTE_NOT_FOUND` | metadados |
+| `note_list` | presente | ausente | presente |
+| `link_graph` | no presente | no ausente | no presente |
+| `[[nuvem]]` | resolve | `target_missing` | resolve |
+| `vault_stats` | conta em `notes` | conta em `assets` | conta em `notes` |
+
+O `NOTE_NOT_FOUND` era falso: o arquivo existe.
+
+`classificar` em `internal/index/classify.go` e a unica funcao que decide, e as
+duas construcoes passam por ela — inclusive a que ja estava certa, mesma
+disciplina de `aliasKey` e `nomeChave`. `Replace` tambem parou de derivar
+`IsNote` por sufixo `.md` e pergunta a `vault.Classify`, que era o que
+`vault.Walk` ja usava.
+
+O teste percorre `index.Note` **por reflexao** e afirma IGUALDADE entre as duas
+construcoes, nao valores escritos a mao — campo novo entra sozinho. Valores a
+mao passariam felizes com os dois lados errados do mesmo jeito, e este bug era
+os dois lados certos de jeitos diferentes.
+
+A prova de "nao abriu" e mecanica: handle exclusivo, com guarda que confere que
+o handle **de fato barra** um `os.ReadFile` antes de qualquer assercao depender
+disso. Medido: handle so com `GENERIC_READ` nao barra o `os.Open` do
+`vault.ReadAll`; com `GENERIC_READ|GENERIC_WRITE`, barra.
+
+Tres provas de mutacao, reproduzidas pelo revisor, `EXIT=0` nas tres:
+`A1` (placeholder volta ao ramo de anexo) reprova nomeando `Get` true/false;
+`A2` (valor em `classificar`) reprova no teste de `Replace`;
+`A3` (mesmo ponto de chamada) reprova na tool nomeando `NOTE_NOT_FOUND`.
+`A6` prova que a comparacao campo a campo nao e tautologia: apagando `Title` do
+lado do `Replace`, ela reprova em tres notas.
+
+**Mutar `classificar` sozinha nao produz divergencia** — as duas construcoes
+passam por ela e erram juntas. E a propriedade que a tarefa comprou, e por isso
+as mutacoes atacam o ponto de chamada.
+
+---
+
+## Task 96 — custo do cache de trecho no RSS — 2026-08-12
+
+Sem commit de codigo proprio; a medicao entrou no comentario de
+`DefaultSnippetCacheEntries` e em `docs/OPERACAO.md` pelo commit `1041457`.
+
+```
+$ git cat-file -t 1041457
+commit
+```
+
+`WorkingSet64` de pico do servidor real, cofre de 5.000 notas, depois de uma
+carga de 33 consultas `limit: 200` que enche o cache. Seis partidas por braco,
+**intercaladas**.
+
+| | padrao (1.024) | desligado (0) |
+|---|---|---|
+| mediana | **64,31 MB** | **63,45 MB** |
+
+**Nao significativo.** U de Mann-Whitney n=6 por braco: **U = 11** contra
+regiao critica U <= 5 (alfa=0,05 bicaudal). Ponto estimado **+0,86 MB**,
+compativel com a conta de ~1,2 MB derivada de `MaxSnippetChars`, que **nao e
+contrariada**. Teto de 1.024 mantido.
+
+Que o cache estava cheio na amostra e afirmacao com base: 4.574 pares
+`(caminho, texto)` distintos nas doze partidas contra teto de 1.024, e
+`Len = min(chaves distintas, teto)`.
+
+`scripts/measure.ps1` **nao** foi o instrumento, e o motivo esta escrito: ele
+mede repouso logo apos o boot e nao emite busca nenhuma, entao o cache ficaria
+vazio nos dois bracos e a comparacao mediria zero. Script local equivalente,
+nao commitado — mesmo precedente da secao de RNF-07.
+
+Uma partida do braco desligado deu 104,62 MB, e o mesmo acontecera numa bateria
+anterior, tambem na primeira do mesmo braco. Causa nao identificada, registrada
+como saiu; por isso a comparacao usa mediana.
+
+---
+
+## Task 97 — guarda de placeholder de nuvem em `Inverted.Update` — 2026-08-12
+
+```
+$ git cat-file -t cfffab8
+commit
+```
+
+`cfffab8` `fix(search): stop the background index build from hydrating cloud placeholders`
+
+**Achado na revisao das Tasks 94-96, e a causa e o commit `d33f6a8` desta mesma
+sessao.** `Inverted.Update` fazia `os.ReadFile` sem guarda de nuvem;
+`buildInvertedIndex` itera `idx.NotePaths()` no boot e `watcher.Apply` chama
+`Update` depois de cada `Replace`. Um cofre em OneDrive **baixaria todo
+placeholder** em segundo plano, no primeiro boot.
+
+**Nao era pre-existente.** Ate o fix do panico, o caminho era INALCANCAVEL: um
+unico `.md` nao hidratado derrubava `index.Build` e o boot morria antes de
+chegar a `NotePaths`. Trocamos um crash por violacao da regra nao negociavel —
+e o crash ao menos era visivel.
+
+A guarda mora em `Update` e nao nos tres chamadores, porque e a funcao que abre
+o arquivo.
+
+**`Add(path, nil)` e nao `return` seco**, e e a parte que um conserto ingenuo
+erra: fora de `docLengths` a nota nao conta em `DocCount`, o cabecalho do cache
+declara menos notas do que o indice de metadados enxerga, e
+`invertedCacheState` conclui "cache parcial" em TODO boot, regravando o cache
+inteiro. Mesma armadilha que a nota vazia ja custou.
+
+Quatro testes: nao abre (handle exclusivo com guarda de que ele barra); entra
+coberta (`HasDoc` true, `DocLength` zero, `Postings` vazio para termos que so
+existem no disco do placeholder); `DocCount` bate com a contagem do indice de
+metadados e, pelo disco, com `hdr.NoteCount`, que e o que `invertedCacheState`
+confronta; e ida e volta pelo cache responde igual ao recem-construido.
+
+```
+[...] Mutando internal/search/inverted.go
+      - 	if vault.IsCloudOnly(abs) {
+      + 	if false && vault.IsCloudOnly(abs) {
+--- FAIL: TestUpdateNaoAbreNotaSomenteNuvem (0.01s)
+    ...The process cannot access the file because it is being used by another
+    process. — o arquivo foi ABERTO, e abrir um placeholder dispara download
+    sincrono
+A4 EXIT=0
+
+[...] Mutando internal/search/inverted.go
+      - 		ix.Add(string(path), nil)
+      + 		return nil
+--- FAIL: TestPlaceholderNaoFazOBootDeclararCacheParcial (0.01s)
+    DocCount do indice de busca = 2, notas no indice de metadados = 3; o boot
+    concluiria cache parcial e regravaria o cache inteiro a cada partida
+A5 EXIT=0
+```
+
+A segunda mutacao **e** o conserto ingenuo, e mede 2 contra 3 num cofre de tres
+notas.
+
+**Custo nao medido:** a guarda paga um `GetFileAttributes` por nota no caminho
+de construcao do indice de busca, alem do que `vault.Walk` ja paga na
+varredura. E em segundo plano e uma vez por cofre, mais uma por evento do
+watcher. **Nao medido** — nao ha benchmark que cubra `Inverted.Update` em lote.
+
+---
+
+## Verificacao do lote (94-97 e o trabalho exploratorio) — 2026-08-12
+
+Rodado pelo revisor, nao relatado por terceiro:
+
+- **Sete provas de mutacao reproduzidas**, `EXIT=0` em todas: A1 a A7.
+- `pwsh -File scripts/verify.ps1` — **12 de 12 `[OK]`**, `VERIFY4_EXIT=0`.
+- Sete SHAs conferidos com `git cat-file -t`: `d33f6a8`, `7ed3a34`, `b8f1636`,
+  `fe99321`, `cfffab8`, `03199e4`, `1041457`. Todos existem.
+- `docs/OPERACAO.md` e `CLAUDE.md` conferidos em UTF-8, LF puro.
+
+### Pendencias abertas do lote
+
+1. **`docs/bench-baseline.json` obsoleto.** A referencia de
+   `BenchmarkSearchLimit200` e 373.350.430 ns/op, medida no runner do CI antes
+   destas mudancas. O gate so reprova regressao, entao nada quebra — mas uma
+   referencia dez vezes acima do real para de pegar qualquer coisa.
+   **Bloqueada em CI**: so sai com `bench.yml` rodando `-UpdateBaseline` no
+   runner; numero local nao e comparavel. Nenhum agente pode fecha-la daqui.
+2. **RNF-04 a 500 notas mede o ramo errado** (`createSearchService`).
+   Confirmado, nao corrigido.
+3. **Custo da guarda de nuvem em `Inverted.Update` nao medido.**
+4. **Branch `perf/vault-search-snippet` nao integrado a `master`.**

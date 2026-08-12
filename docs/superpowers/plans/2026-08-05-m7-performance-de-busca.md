@@ -2004,3 +2004,192 @@ Esta tarefa **não tem prova de mutação**: não envia código.
 >   a ferramenta. Exigir os dois testes de queda.
 > - **92** — falha barata: dez pontes iniciando dez daemons. Exigir o teste.
 > - **93** — sem prova de mutação, e o relatório tem de dizer isso.
+
+---
+
+# Adendo pós-M7 — Tasks 94 a 97 (2026-08-12)
+
+**Estas quatro tarefas foram escritas DEPOIS de executadas**, e o adendo diz
+isso em vez de fingir o contrário. Elas não nasceram do plano: nasceram de um
+pedido de brainstorm sobre a performance de `vault_search` que virou medição, e
+de uma revisão que achou defeito em cima do próprio conserto. O plano registra o
+que ficou, para que ele e o código não divirjam.
+
+O trabalho que as antecede não tem número — perfil, `Postings` → `Positions`
+(−86,95% em `limit: 200`), os benchmarks do ramo do cache, o `SnippetCache` e a
+correção do pânico de `index.Build`. Está no ledger sob "Trabalho exploratório
+— desempenho de `vault_search`", com as medições.
+
+Todas as quatro estão **concluídas** no branch `perf/vault-search-snippet`.
+
+---
+
+# Task 94 — RNF-04 mede o ramo do índice que o servidor executa
+
+**Tier: modelo forte.** O entregável é uma medição e uma guarda, e o modo de
+falha de um modelo barato pedido a "remedir e registrar" é escrever o número
+que o revisor quer ver.
+
+#### Onde encaixa
+Corrige o harness, não o produto. Sem ela toda medição de RNF-04 daqui para a
+frente continua descrevendo um caminho que o servidor não executa.
+
+#### O que vincula esta tarefa
+- **Um teste que não pode falhar é pior que teste ausente.** A guarda de ramo é
+  o que separa "mediu o ramo certo" de "mediu e não sabe qual".
+- **Não escreva número que você não mediu.**
+- **Cache ligado no harness que mede latência transforma o requisito em outra
+  pergunta** — os laços repetem a mesma consulta 30 vezes.
+
+#### O que entregar
+- Serviço do bloco de RNF-04 montado com o índice vindo de `LoadInvertedCache`,
+  instância própria viva até o fim, fechada por `defer` — defers rodam antes dos
+  cleanups, e o Windows recusa apagar `t.TempDir()` com mapeamento aberto.
+- Guarda de ramo que **reprova** se o cache for recusado em silêncio.
+- Cache de trecho desligado por `semCacheDeTrecho`.
+- Três rodadas independentes, sem `-race`, e `docs/OPERACAO.md` atualizado sem
+  apagar a medição anterior.
+
+#### Verificações além dos passos
+Mutação que aponte o carregamento para um cofre inexistente tem de fazer a
+guarda disparar, não a medição prosseguir.
+
+#### Contrato de relatório
+As três rodadas inteiras, com os oito formatos. Se a troca de ramo **não**
+produzir ganho, dizer isso — o valor da tarefa é o harness exercitar o caminho
+do servidor, não um número melhor.
+
+**Entregue:** oito de oito abaixo de 100 ms, `limit: 200` em 43,09 / 28,79 /
+27,56 ms. A troca não produziu salto, e a razão está medida: `Positions` já
+tinha apagado o `sort` que separava os ramos.
+
+**Files:** `internal/service/rnf5000_test.go`, `docs/OPERACAO.md`
+**Commit:** `03199e4` `test(service): measure RNF-04 on the index branch the server runs`
+
+---
+
+# Task 95 — uma classificação só para placeholder de nuvem
+
+**Tier: modelo forte.** O entregável é uma extração que torna a próxima
+divergência impossível, e isso é projeto, não transcrição.
+
+#### Onde encaixa
+`internal/index`. Toca as duas construções do índice — a do boot e a do watcher.
+
+#### O que vincula esta tarefa
+- **Chave calculada em dois lugares diverge, e a divergência só aparece no
+  caminho menos usado.** É o mesmo defeito do `byAlias`: toda derivação passa
+  por **uma** função, e todo acesso passa por ela, inclusive os que já estavam
+  certos.
+- **Placeholder de nuvem nunca é aberto.** Regra não negociável.
+
+#### O que entregar
+- `classificar(vault.Entry) classe` como única decisão, com `Build` e `Replace`
+  passando por ela, e construtores compartilhados para que as duas produzam o
+  mesmo objeto campo a campo.
+- Teste que compara as **duas construções** por reflexão sobre `index.Note`.
+- Relato do efeito em cada tool que passa a enxergar a nota.
+
+#### Verificações além dos passos
+Mutar `classificar` sozinha **não** produz divergência — as duas construções
+erram juntas. É a propriedade que a tarefa compra, e por isso as mutações
+atacam o ponto de chamada.
+
+#### Contrato de relatório
+Se alguma tool passar a **abrir** o arquivo, é bloqueio, não nota de rodapé.
+
+**Entregue:** nenhuma tool abre. `note_read` deixou de mentir `NOTE_NOT_FOUND` e
+passou a `CLOUD_ONLY_FILE` depois de um evento do watcher — antes, o evento
+rebaixava a nota que o boot tinha indexado certo.
+
+**Files:** `internal/index/classify.go`, `build.go`, `index.go`, `update.go`,
+testes em `internal/index` e `internal/service`
+**Commit:** `fe99321` `fix(index): give both index constructions one classification`
+
+---
+
+# Task 96 — custo do cache de trecho no RSS
+
+**Tier: modelo forte.** O entregável é um número e uma decisão de manutenção; o
+modo de falha de um modelo barato pedido a medir RSS é reportar a última
+amostra como pico.
+
+#### Onde encaixa
+Não envia código de produto. Fecha o último "não medido" do lote anterior.
+
+#### O que vincula esta tarefa
+- **Não escreva número que você não mediu.**
+- **`GOGC` foi testado duas vezes e rejeitado** — o precedente de que medição
+  sem significância estatística é resultado, e o resultado é "não mexe".
+- Matar processo **por PID que você lançou**, nunca por nome.
+
+#### O que entregar
+Pico de `WorkingSet64` nos dois braços, com o cache comprovadamente cheio na
+amostra, e a decisão sobre o teto de 1.024.
+
+#### Verificações além dos passos
+Braços intercalados. `measure.ps1` não serve sem adaptação: ele mede repouso e
+não emite busca, então o cache ficaria vazio nos dois lados e a comparação
+mediria zero.
+
+#### Contrato de relatório
+Se o efeito não for distinguível do ruído, **dizer isso** — pode terminar em
+"medido, não compensa mexer".
+
+**Entregue:** mediana 64,31 MB contra 63,45 MB, U de Mann-Whitney 11 contra
+região crítica 5 → `~`. Teto mantido. Uma partida anômala de 104,62 MB
+registrada como saiu, causa não identificada.
+
+**Files:** `internal/search/snippet_cache.go` (comentário), `docs/OPERACAO.md`
+**Commit:** `1041457` `docs: record the cloud-only defects and the snippet cache's cost in RSS`
+
+---
+
+# Task 97 — guarda de placeholder de nuvem em `Inverted.Update`
+
+**Tier: modelo forte.** Achada na revisão das três anteriores, e a causa é o
+commit que consertou o pânico.
+
+#### Onde encaixa
+`internal/search`. É o par da Task 95 do lado do índice de busca.
+
+#### O que vincula esta tarefa
+- **Camada que roda depois do guarda precisa do mesmo guarda.** O irmão da
+  armadilha de `CorrelateRenames`, que abria anexo e placeholder antes de um
+  filtro que os respeitava.
+- **Nota sem token nenhum entra em `docLengths` com zero, e não fica de fora** —
+  medido: 4 notas vazias em 3.152 custavam uma reconstrução por partida.
+
+#### O que entregar
+Guarda em `Inverted.Update` — não nos três chamadores, porque é ela que abre o
+arquivo — com a nota entrando **coberta e vazia** via `Add(path, nil)`.
+
+#### Verificações além dos passos
+O teste que pega a regressão daqui a três meses não é o que confere
+`DocLength == 0`: é o que compara `DocCount` do índice de busca com a contagem
+do índice de metadados, que é o que `invertedCacheState` confronta no boot.
+
+#### Contrato de relatório
+Uma mutação tem de reprovar nomeando **a abertura do arquivo**; a outra,
+nomeando **a divergência de contagem**. A segunda é o conserto ingênuo
+(`return` seco), e mede 2 contra 3 num cofre de três notas.
+
+**Entregue:** as duas, `EXIT=0`, reproduzidas pelo revisor.
+
+**Files:** `internal/search/inverted.go`,
+`internal/search/cloudonly_update_windows_test.go`, `docs/OPERACAO.md`
+**Commit:** `cfffab8` `fix(search): stop the background index build from hydrating cloud placeholders`
+
+---
+
+## Pendências abertas do lote
+
+1. **`docs/bench-baseline.json` obsoleto** — bloqueada em CI. Só sai com
+   `bench.yml` rodando `-UpdateBaseline` no runner; número local não é
+   comparável, então nenhum agente pode fechá-la daqui.
+2. **RNF-04 a 500 notas mede o ramo errado**, via `createSearchService`, que
+   nunca grava nem lê cache. Confirmado, não corrigido: muda o que o requisito
+   mede.
+3. **Custo da guarda de nuvem não medido** — um `GetFileAttributes` por nota no
+   caminho de construção do índice de busca, além do que `vault.Walk` já paga.
+4. **Branch `perf/vault-search-snippet` não integrado a `master`.**
