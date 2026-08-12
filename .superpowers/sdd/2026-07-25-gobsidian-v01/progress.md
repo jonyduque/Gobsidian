@@ -3345,6 +3345,38 @@ de construcao do indice de busca, alem do que `vault.Walk` ja paga na
 varredura. E em segundo plano e uma vez por cofre, mais uma por evento do
 watcher. **Nao medido** — nao ha benchmark que cubra `Inverted.Update` em lote.
 
+### Instabilidade observada nos testes, causa NAO identificada
+
+Dois dos quatro testes reprovaram uma vez com `a nota nao ficou marcada
+CloudOnly; o atributo nao pegou`, depois de uma rodada em que os tres tinham
+passado. **Um relatorio chegou a afirmar que passavam sem que a estabilidade
+tivesse sido verificada** — e gate que reprova as vezes e o que ensina a
+re-rodar ate ficar verde, momento em que ele para de significar qualquer coisa.
+
+Duas sondas, sem palpite:
+
+- O atributo some sozinho depois de posto? **Nao.** 5 voltas com `Set` -> 150 ms
+  -> `Walk` com `d.Info()`: `OFFLINE(0x1000)` presente nas cinco.
+- Some na sequencia exata do teste? **Nao.** 400 voltas escrevendo as tres notas
+  e conferindo logo apos o `SetFileAttributes`: 0 falhas em 400.
+
+**A falha nao foi reproduzida em 45 execucoes** e a causa raiz **nao foi
+identificada**. Duas mitigacoes, ambas justificaveis independente da causa:
+
+1. Diagnostico separado por causa, com `IsCloudOnly` do disco impresso. Antes,
+   um `t.Fatal` unico culpava o atributo mesmo quando a causa fosse a nota nao
+   estar no indice — duas falhas diferentes, um diagnostico so.
+2. O fixture compartilhado passou a segurar handle exclusivo sobre o
+   placeholder durante o teste inteiro. Nenhum destes testes tem direito de
+   abrir o placeholder, entao com a trava uma regressao que o abrisse reprova
+   nos tres e nao so no dedicado.
+
+Medido pelo revisor sobre o estado commitado, em processos separados:
+**FALHAS=0 de 30**. Somado as 20 do implementador, 50 execucoes sem falha depois
+do endurecimento. **Isso nao e afirmacao de que a instabilidade foi corrigida** —
+sem reproducao nao ha como dizer isso. E o que foi medido, mais um diagnostico
+que nomeia a causa na proxima ocorrencia.
+
 ---
 
 ## Verificacao do lote (94-97 e o trabalho exploratorio) — 2026-08-12
