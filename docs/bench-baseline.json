@@ -1,15 +1,18 @@
 {
-  "runner": "ubuntu-latest (GitHub-hosted, 2 vCPU), go 1.25, GOMAXPROCS=2",
-  "commit": "580c0aa",
-  "nota": "mediana de 3 rodadas limpas do bench.yml (30761531229, 30761611392, 30761677179). Amostra unica nao serve neste runner: com ela, SearchFraseExata ficou a 0,7 ponto do gate em duas rodadas sem mudanca de codigo.",
+  "runner": "ubuntu-latest (GitHub-hosted, 4 vCPU), go 1.25, GOMAXPROCS=4",
+  "commit": "1b1b0e0",
+  "nota": "mediana de 3 rodadas limpas do bench.yml (31659039330, 31659158668, 31659210565), 2026-08-12. ATENCAO ao comparar com a referencia anterior (580c0aa): ela foi medida num runner de 2 vCPU com GOMAXPROCS=2, e o ubuntu-latest do GitHub passou a dar 4 vCPU -- os sufixos dos benchmarks mudaram de -2 para -4. Parte da queda entre as duas referencias e maquina, nao codigo, e nao da para separar as duas contribuicoes a posteriori. Amostra unica nao serve neste runner: com ela, SearchFraseExata ficou a 0,7 ponto do gate em duas rodadas sem mudanca de codigo.",
   "tolerancia_pct": 20,
   "unidade": "ns/op",
   "benchmarks": {
-    "BenchmarkIndexBuild": 244692285.0,
-    "BenchmarkInvertedLoad": 89720000.0,
-    "BenchmarkSearchTermoAmplo": 118947918.0,
-    "BenchmarkSearchDoisTermos": 21850238.0,
-    "BenchmarkSearchFraseExata": 78001305.0,
-    "BenchmarkSearchLimit200": 373350430.0
+    "BenchmarkIndexBuild": 154806452.0,
+    "BenchmarkInvertedLoad": 7103118.0,
+    "BenchmarkSearchTermoAmplo": 9969280.0,
+    "BenchmarkSearchDoisTermos": 3568100.0,
+    "BenchmarkSearchFraseExata": 10517084.0,
+    "BenchmarkSearchLimit200": 11341761.0,
+    "BenchmarkSearchLimit200Cache": 8408784.0,
+    "BenchmarkSearchTermoAmploCache": 7472361.0,
+    "BenchmarkSearchLimit200CacheTrechoRepetido": 7934854.0
   }
 }
