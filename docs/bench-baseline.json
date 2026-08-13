@@ -1,18 +1,18 @@
 {
   "runner": "ubuntu-latest (GitHub-hosted, 4 vCPU), go 1.25, GOMAXPROCS=4",
-  "commit": "0d913d3",
-  "nota": "PIOR de 4 rodadas limpas do bench.yml (31659039330, 31659158668, 31659210565, 31659316800), 2026-08-12 -- nao a mediana. A mediana de 3 foi tentada e o gate reprovou na rodada seguinte SEM mudanca de codigo: SearchDoisTermos saiu de 3.568.100 para 5.192.208 ns/op (+45,5%). Num benchmark de ~3,5 ms o ruido deste runner compartilhado e maior que a tolerancia de 20%, e gate que reprova aleatoriamente ensina a re-rodar ate ficar verde. Espalhamento medido entre as 4 rodadas: 50,6% em SearchDoisTermos, 29,8% em SearchLimit200, 3,2% em InvertedLoad -- quanto menor o tempo absoluto, maior o ruido relativo. Com o teto no pior caso o gate cobra max*1,2, que e o que ele sempre se propos a cobrar: regressao de ordem de grandeza, nao alguns por cento. ATENCAO ao comparar com a referencia de 580c0aa: aquela foi medida em 2 vCPU com GOMAXPROCS=2 e o runner passou a dar 4 -- parte da queda entre as duas e maquina, nao codigo.",
+  "commit": "2a14832",
+  "nota": "mediana de 5 amostras da rodada 31697933573 do bench.yml, 2026-08-13. As duas referencias anteriores saiam de amostra UNICA por rodada, e o gate reprovou duas vezes sem mudanca de codigo por causa disso: SearchDoisTermos +45,5% e depois SearchTermoAmploCache +39,1%. Nas duas o teto foi subido, o que tratou sintoma; a causa era a amostragem. bench.yml passou a rodar -count 5 e bench_compare.ps1 passou a usar a MEDIANA das amostras (antes a ultima vencia em silencio). Com mediana de 5 a comparacao ficou dentro de +-10% em 8 dos 9 benchmarks contra a referencia de pior-caso anterior. ATENCAO ao comparar com a referencia de 580c0aa: aquela foi medida em 2 vCPU com GOMAXPROCS=2 e o runner passou a dar 4 -- parte da queda entre as duas e maquina, nao codigo.",
   "tolerancia_pct": 20,
   "unidade": "ns/op",
   "benchmarks": {
-    "BenchmarkIndexBuild": 162847931.0,
-    "BenchmarkInvertedLoad": 7551829.0,
-    "BenchmarkSearchTermoAmplo": 9971050.0,
-    "BenchmarkSearchDoisTermos": 5192208.0,
-    "BenchmarkSearchFraseExata": 11135289.0,
-    "BenchmarkSearchLimit200": 11801909.0,
-    "BenchmarkSearchLimit200Cache": 8455572.0,
-    "BenchmarkSearchTermoAmploCache": 8139862.0,
-    "BenchmarkSearchLimit200CacheTrechoRepetido": 8517542.0
+    "BenchmarkIndexBuild": 147998738.0,
+    "BenchmarkInvertedLoad": 7402957.0,
+    "BenchmarkSearchTermoAmplo": 9629236.0,
+    "BenchmarkSearchDoisTermos": 3626841.0,
+    "BenchmarkSearchFraseExata": 10078101.0,
+    "BenchmarkSearchLimit200": 10554694.0,
+    "BenchmarkSearchLimit200Cache": 7936039.0,
+    "BenchmarkSearchTermoAmploCache": 7593989.0,
+    "BenchmarkSearchLimit200CacheTrechoRepetido": 7934389.0
   }
 }
