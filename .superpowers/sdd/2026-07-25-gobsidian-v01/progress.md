@@ -3217,8 +3217,30 @@ separava. O valor da correcao e o harness exercitar o caminho do servidor.
       + ...LoadInvertedCache(context.Background(), cacheDir, vaultDir+"_recusado")
 --- FAIL: TestScale5000_RNF01_RNF02_RNF07_RNF04 (19.31s)
     rnf5000_test.go:115: LoadInvertedCache para o RNF-04: cache version mismatch
-[OK] O teste REPROVOU com a regra mutada — a regra esta verificada.
 A7 EXIT=0
+```
+
+**CORRIGIDO EM 2026-08-13: a prova acima NAO prova a guarda.** Cofre diferente
+faz `LoadInvertedCache` devolver erro, e o teste morre no `t.Fatalf` da linha
+115 — a guarda esta na 132, dezesseis linhas adiante e nunca alcancada. Aquela
+mutacao verifica o tratamento de ERRO, nao a guarda de ramo que a tarefa
+declarou como entregavel. O revisor adversarial da Task 98 pegou isso; o
+implementador escreveu, e o revisor do lote (eu) REPRODUZIU a mesma mutacao e
+repetiu a mesma conclusao errada. Reproduzir uma prova falsa nao a torna
+verdadeira: o que faltou foi conferir QUAL linha reprovou.
+
+A guarda em si esta correta — `DocCount() < 5000` ancora no tamanho do corpus,
+que e externo ao indice. A prova que a alcanca, rodada em 2026-08-13:
+
+```
+[...] Mutando internal/service/rnf5000_test.go
+      - for _, p := range idx.NotePaths() {
+      + for _, p := range idx.NotePaths()[1:] {
+--- FAIL: TestScale5000_RNF01_RNF02_RNF07_RNF04 (8.53s)
+    rnf5000_test.go:132: o indice vindo do cache tem 4999 documentos, quer >= 5000;
+    o cache foi recusado e o RNF-04 mediria o ramo do delta
+[OK] O teste REPROVOU com a regra mutada — a regra esta verificada.
+MUT_GUARDA94_EXIT=0
 ```
 
 **Aberto:** `TestRNF04VaultSearchLatencyP95` e `TestRNF04SnippetConcurrencyLimit200`
@@ -3420,7 +3442,10 @@ que nomeia a causa na proxima ocorrencia.
 
 Rodado pelo revisor, nao relatado por terceiro:
 
-- **Sete provas de mutacao reproduzidas**, `EXIT=0` em todas: A1 a A7.
+- **Sete provas de mutacao reproduzidas**, `EXIT=0` em todas: A1 a A7. **A7 foi
+  reproduzida e lida errado** — ela reprova no `if err != nil`, nao na guarda de
+  ramo. Ver a correcao na secao da Task 94. `EXIT=0` diz que o teste reprovou;
+  nao diz POR QUE, e conferir a linha da falha e parte da prova.
 - `pwsh -File scripts/verify.ps1` — **12 de 12 `[OK]`**, `VERIFY4_EXIT=0`.
 - Sete SHAs conferidos com `git cat-file -t`: `d33f6a8`, `7ed3a34`, `b8f1636`,
   `fe99321`, `cfffab8`, `03199e4`, `1041457`. Todos existem.
