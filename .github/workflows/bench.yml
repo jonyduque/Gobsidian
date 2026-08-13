@@ -33,8 +33,15 @@ jobs:
         # os testes deste pacote levam minutos. -benchtime 5x fixa o numero de
         # iteracoes: o padrao e por tempo, e numero de iteracoes variavel entre
         # rodadas e mais uma fonte de ruido num runner compartilhado.
+        #
+        # -count 5 porque UMA amostra nao decide nada neste runner. Com amostra
+        # unica o gate reprovou duas vezes sem mudanca de codigo -- +45,5% em
+        # SearchDoisTermos e +39,1% em SearchTermoAmploCache --, e as duas vezes
+        # a resposta foi subir o teto, o que trata sintoma. bench_compare.ps1
+        # usa a MEDIANA das amostras; antes ele deixava a ultima vencer, entao
+        # -count sozinho teria dado falsa sensacao de robustez.
         run: |
-          go test -run '^$' -bench . -benchtime 5x ./internal/service/ | tee bench.txt
+          go test -run '^$' -bench . -benchtime 5x -count 5 ./internal/service/ | tee bench.txt
           # tee nao propaga a falha do go test; PIPESTATUS propaga.
           exit ${PIPESTATUS[0]}
 

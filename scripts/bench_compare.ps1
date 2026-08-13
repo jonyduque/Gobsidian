@@ -81,11 +81,31 @@ try {
 
     # Linha do go test: "BenchmarkNome-12   	     100	  12345678 ns/op".
     # O sufixo -N e GOMAXPROCS e nao faz parte do nome do benchmark.
-    $Medidos = [ordered]@{}
+    #
+    # MEDIANA das amostras, e nao a ultima. Esta linha ja foi
+    # `$Medidos[$nome] = $valor`, que com `-count > 1` deixava a ULTIMA amostra
+    # vencer em silencio -- o pior dos dois mundos, porque a rodada parecia mais
+    # robusta e continuava decidindo por uma amostra so. O gate reprovou duas
+    # vezes sem mudanca de codigo antes de a causa aparecer: SearchDoisTermos a
+    # +45,5% e SearchTermoAmploCache a +39,1%, os dois na casa dos poucos
+    # milissegundos, onde o ruido deste runner compartilhado e maior que a
+    # tolerancia. Subir o teto duas vezes tratou o sintoma; a amostragem e a
+    # causa.
+    $Amostras = [ordered]@{}
     foreach ($linha in Get-Content -Path $BenchOutput) {
         if ($linha -match '^(Benchmark[A-Za-z0-9_]+)(-\d+)?\s+\d+\s+([\d.]+)\s+ns/op') {
-            $Medidos[$Matches[1]] = [double]$Matches[3]
+            $nome = $Matches[1]
+            if (-not $Amostras.Contains($nome)) { $Amostras[$nome] = @() }
+            $Amostras[$nome] += [double]$Matches[3]
         }
+    }
+
+    $Medidos = [ordered]@{}
+    $MinAmostras = [int]::MaxValue
+    foreach ($nome in $Amostras.Keys) {
+        $ord = @($Amostras[$nome] | Sort-Object)
+        $Medidos[$nome] = [double]$ord[[int]([math]::Floor($ord.Count / 2))]
+        if ($ord.Count -lt $MinAmostras) { $MinAmostras = $ord.Count }
     }
 
     if ($Medidos.Count -eq 0) {
@@ -96,7 +116,13 @@ try {
         exit 1
     }
 
-    Write-Output "[i] $($Medidos.Count) benchmark(s) medido(s) em $BenchOutput."
+    Write-Output "[i] $($Medidos.Count) benchmark(s) medido(s) em $BenchOutput, mediana de $MinAmostras amostra(s)."
+    if ($MinAmostras -lt 3) {
+        # Aviso e nao erro: rodar `-count 1` na mao para uma olhada rapida e
+        # legitimo. O que nao pode e uma amostra so decidir um gate sem que
+        # ninguem veja que foi uma amostra so.
+        Write-Warning "[!] $MinAmostras amostra(s) por benchmark. Abaixo de 3 a mediana nao filtra ruido, e este gate ja reprovou duas vezes por isso."
+    }
 
     if ($UpdateBaseline) {
         if (-not $Runner) {
