@@ -513,9 +513,11 @@ func TestRNF04VaultSearchLatencyP95(t *testing.T) {
 // esta no codigo. O oposto — afrouxar o teto ate parar de piscar — apagaria
 // justamente o sinal que o teto existe para dar.
 //
-// Nao substitui folga real: `limit: 200` tem ~19% de folga sobre o teto, e
-// isso esta registrado em docs/OPERACAO.md como lacuna do RNF-04, nao como
-// alvo atingido com conforto.
+// Nao substitui folga real. Quando esta linha foi escrita, `limit: 200` tinha
+// ~19% de folga sobre o teto e o RNF-04 estava registrado como lacuna. As duas
+// coisas mudaram: o RNF-04 fechou nos oito formatos (Tasks 94 e 98) e o teto de
+// concorrencia foi reapertado ate voltar a discriminar. Repetir continua sendo
+// para separar pico de carga de regressao, e nao para comprar folga.
 const maxRodadas = 3
 
 // mediaFormato roda n consultas de um formato e devolve mediana e p95. A
@@ -550,17 +552,33 @@ func mediaFormato(t *testing.T, svc *service.Service, nome string, opts service.
 }
 
 // TestRNF04SnippetConcurrencyLimit200 cobra a meta da Task 72: p95 de
-// `limit: 200` abaixo de 60 ms em 500 notas, que é o teto sob o qual a
-// otimização de recorte concorrente está ativa. Sequencial, o mesmo caso mede
-// 82–113 ms.
+// `limit: 200` abaixo do teto em 500 notas, que é a condição sob a qual a
+// otimização de recorte concorrente está ativa.
 //
-// Usa mediaFormato e o mesmo laço de repetição de TestRNF04VaultSearchLatencyP95,
-// e pelo mesmo motivo: solo, a medição varia de 30 a 56 ms, e uma asserção de
-// tiro único a 60 ms reprova por carga transitória. Repetir NÃO cria folga —
-// carga passageira não sobrevive a três rodadas, regressão de código sobrevive
-// a todas. Afrouxar o teto apagaria o sinal que ele existe para dar.
+// O TETO FOI REAPERTADO DE 60 PARA 22 ms EM 2026-08-13, e o motivo não é folga
+// estética: a 60 ms ele tinha deixado de conseguir falhar. O sequencial media
+// 82–113 ms quando 60 foi escolhido; depois da troca Postings -> Positions ele
+// mede 27,6–32,4 ms (5 execuções com maxSnippetWorkers = 1), e **passaria**
+// num teto de 60. O teste continuava verde afirmando uma coisa que ele não
+// verificava mais.
+//
+// A banda que o teto tem de ocupar é estreita e foi medida dos dois lados:
+//
+//	concorrente   8,39 – 12,73 ms   (12 execuções limpas; pior já visto, 17,87)
+//	sequencial   27,60 – 32,36 ms   (5 execuções, maxSnippetWorkers = 1)
+//
+// 22 ms fica 1,2x acima do pior concorrente já observado e 20% abaixo do
+// MELHOR sequencial. Mais alto que isso e o sequencial começa a caber; mais
+// baixo e o teto passa a cobrar ruído. Quem absorve carga transitória é a
+// repetição de mediaFormato, não a altura do teto.
+//
+// Usa mediaFormato e o mesmo laço de repetição de TestRNF04VaultSearchLatencyP95.
+// Repetir NÃO cria folga — carga passageira não sobrevive a três rodadas,
+// regressão de código sobrevive a todas. Afrouxar o teto apagaria o sinal que
+// ele existe para dar, que foi exatamente o que aconteceu por omissão quando o
+// código ficou rápido e o teto ficou parado.
 func TestRNF04SnippetConcurrencyLimit200(t *testing.T) {
-	const teto = 60 * time.Millisecond
+	const teto = 22 * time.Millisecond
 	svc, _, _, _ := createSearchService(t, geraCorpusBusca(500))
 	opts := service.SearchOptions{Query: "prescricao", Limit: 200}
 

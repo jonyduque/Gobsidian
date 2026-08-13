@@ -1688,3 +1688,84 @@ Quatro testes, em `internal/search/cloudonly_update_windows_test.go`:
   regressão; comparar as duas contagens que o boot compara, pega.
 - **Ida e volta pelo cache**: índice recém-construído e índice recarregado
   respondem igual, campo a campo, num cofre com placeholder.
+
+## Teto de concorrência reapertado e custo da guarda de nuvem medido (2026-08-13)
+
+Duas lacunas que o lote anterior deixou escritas como abertas.
+
+### O teto de 60 ms tinha deixado de conseguir falhar
+
+`TestRNF04SnippetConcurrencyLimit200` existe para detectar uma coisa só: que o
+recorte concorrente de trechos **está ativo**. O teto de 60 ms foi escolhido
+quando o caminho sequencial media 82–113 ms.
+
+Depois da troca `Postings` → `Positions`, o sequencial mede outra coisa. Medido
+com `maxSnippetWorkers = 1`, cinco execuções, sem `-race`:
+
+```
+32,36  27,60  30,14  31,56  29,65 ms
+```
+
+**Desligar a concorrência passava num teto de 60 ms.** O teste continuava verde
+afirmando algo que ele não verificava mais — e ninguém tinha como notar, porque
+teste que passa não chama atenção. O código ficou rápido e o teto ficou parado.
+
+A banda foi medida dos dois lados antes de escolher o número:
+
+| | faixa | execuções |
+|---|---|---|
+| concorrente | 8,39 – 12,73 ms | 12 limpas (pior já visto na sessão: 17,87) |
+| sequencial | 27,60 – 32,36 ms | 5, com `maxSnippetWorkers = 1` |
+
+**Teto novo: 22 ms** — 1,2× acima do pior concorrente já observado e 20% abaixo
+do **melhor** sequencial. Mais alto e o sequencial começa a caber; mais baixo e
+o teto passa a cobrar ruído. Quem absorve carga transitória continua sendo a
+repetição de três rodadas, não a altura do teto.
+
+Verificado por mutação, e a prova exigiu `-NoRace`:
+
+```
+      - const maxSnippetWorkers = 8
+      + const maxSnippetWorkers = 1
+--- FAIL: TestRNF04SnippetConcurrencyLimit200 (3.04s)
+    rodada 1/3 estourou (32.9465ms > 22ms); repetindo
+    rodada 2/3 estourou (28.9213ms > 22ms); repetindo
+    p95 de limit: 200 = 27.5913ms excede o teto de 22ms em 3 rodadas seguidas
+MUT_TETO_EXIT=0
+```
+
+**Com `-race` a mutação sai `EXIT=1`, e isso não é falha do teto:** o teste tem
+`if raceEnabled || p95 <= teto`, então sob o detector ele passa sempre — a
+latência com `-race` é 2 a 6× maior e o número deixaria de ser comparável.
+`scripts/mutate.ps1 -NoRace` existe para este caso, e o comentário dele já
+citava a Task 72 pelo mesmo motivo.
+
+### Custo da guarda de placeholder de nuvem em `Inverted.Update`
+
+A Task 97 pôs `vault.IsCloudOnly(abs)` antes do `os.ReadFile`, e o custo ficou
+no ledger como **não medido** porque nenhum benchmark cobria `Update` em lote.
+Entrou `BenchmarkInvertedUpdateLote`, que percorre `index.NotePaths()` chamando
+`Update` — o mesmo laço de `buildInvertedIndex`.
+
+A/B com a guarda desligada por curto-circuito (`false && vault.IsCloudOnly(abs)`,
+que o compilador não chega a chamar), `benchstat`, n=8 por braço, cofre de 5.000
+notas:
+
+```
+                      sem guarda      com guarda      delta
+sec/op                2,071 ± 12%     2,305 ±  4%     +11,27% (p=0,038 n=8)
+B/op                108,3Mi ±  0%   109,1Mi ±  0%      +0,68% (p=0,000 n=8)
+allocs/op            542,4k ±  0%    547,4k ±  0%      +0,92% (p=0,000 n=8)
+```
+
+**+234 ms sobre 5.000 notas, ou ~47 µs por nota.** O `p=0,038` é marginal e o
+braço sem guarda tem ±12%, mas as alocações não deixam dúvida sobre o mecanismo:
+**+5,0 mil allocs, exatamente uma por nota** — a conversão UTF-16 do caminho que
+`vault.IsCloudOnly` faz antes do `GetFileAttributes`.
+
+**Nada a fazer, e a decisão é essa por medição.** São 234 ms uma vez por cofre,
+numa construção em segundo plano que já leva 2,3 s e cujo resultado é cacheado;
+as outras onze tools respondem desde o primeiro segundo. A alternativa óbvia —
+passar o `CloudOnly` que `vault.Walk` já calculou, em vez de reconsultar — moveria
+a guarda para os três chamadores, que é exatamente o que a Task 97 recusou. Um
+ganho de 234 ms por cofre não paga trocar guarda única por três cópias.
