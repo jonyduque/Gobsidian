@@ -1,18 +1,18 @@
 {
   "runner": "ubuntu-latest (GitHub-hosted, 4 vCPU), go 1.25, GOMAXPROCS=4",
-  "commit": "1b1b0e0",
-  "nota": "mediana de 3 rodadas limpas do bench.yml (31659039330, 31659158668, 31659210565), 2026-08-12. ATENCAO ao comparar com a referencia anterior (580c0aa): ela foi medida num runner de 2 vCPU com GOMAXPROCS=2, e o ubuntu-latest do GitHub passou a dar 4 vCPU -- os sufixos dos benchmarks mudaram de -2 para -4. Parte da queda entre as duas referencias e maquina, nao codigo, e nao da para separar as duas contribuicoes a posteriori. Amostra unica nao serve neste runner: com ela, SearchFraseExata ficou a 0,7 ponto do gate em duas rodadas sem mudanca de codigo.",
+  "commit": "0d913d3",
+  "nota": "PIOR de 4 rodadas limpas do bench.yml (31659039330, 31659158668, 31659210565, 31659316800), 2026-08-12 -- nao a mediana. A mediana de 3 foi tentada e o gate reprovou na rodada seguinte SEM mudanca de codigo: SearchDoisTermos saiu de 3.568.100 para 5.192.208 ns/op (+45,5%). Num benchmark de ~3,5 ms o ruido deste runner compartilhado e maior que a tolerancia de 20%, e gate que reprova aleatoriamente ensina a re-rodar ate ficar verde. Espalhamento medido entre as 4 rodadas: 50,6% em SearchDoisTermos, 29,8% em SearchLimit200, 3,2% em InvertedLoad -- quanto menor o tempo absoluto, maior o ruido relativo. Com o teto no pior caso o gate cobra max*1,2, que e o que ele sempre se propos a cobrar: regressao de ordem de grandeza, nao alguns por cento. ATENCAO ao comparar com a referencia de 580c0aa: aquela foi medida em 2 vCPU com GOMAXPROCS=2 e o runner passou a dar 4 -- parte da queda entre as duas e maquina, nao codigo.",
   "tolerancia_pct": 20,
   "unidade": "ns/op",
   "benchmarks": {
-    "BenchmarkIndexBuild": 154806452.0,
-    "BenchmarkInvertedLoad": 7103118.0,
-    "BenchmarkSearchTermoAmplo": 9969280.0,
-    "BenchmarkSearchDoisTermos": 3568100.0,
-    "BenchmarkSearchFraseExata": 10517084.0,
-    "BenchmarkSearchLimit200": 11341761.0,
-    "BenchmarkSearchLimit200Cache": 8408784.0,
-    "BenchmarkSearchTermoAmploCache": 7472361.0,
-    "BenchmarkSearchLimit200CacheTrechoRepetido": 7934854.0
+    "BenchmarkIndexBuild": 162847931.0,
+    "BenchmarkInvertedLoad": 7551829.0,
+    "BenchmarkSearchTermoAmplo": 9971050.0,
+    "BenchmarkSearchDoisTermos": 5192208.0,
+    "BenchmarkSearchFraseExata": 11135289.0,
+    "BenchmarkSearchLimit200": 11801909.0,
+    "BenchmarkSearchLimit200Cache": 8455572.0,
+    "BenchmarkSearchTermoAmploCache": 8139862.0,
+    "BenchmarkSearchLimit200CacheTrechoRepetido": 8517542.0
   }
 }
