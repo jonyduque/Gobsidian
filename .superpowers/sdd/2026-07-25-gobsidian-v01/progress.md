@@ -290,6 +290,9 @@ Task 95: complete (commit fe99321) — uma classificacao so para placeholder de
 Task 96: complete (commit 1041457) — custo do cache de trecho no RSS medido:
     +0,86 MB, U de Mann-Whitney 11 contra regiao critica 5, nao significativo.
     Teto de 1.024 mantido.
+Task 100: complete (commits 2a14832, e944d8c) — o gate de benchmark decidia por
+    UMA amostra. Duas correcoes de limiar antes de achar a causa; bench.yml passou
+    a -count 5 e o comparador a usar mediana. Tres validacoes verdes.
 Task 99: complete (commit 567a9a2) — teto de concorrencia reapertado de 60 para
     22 ms depois de medir que ele tinha deixado de conseguir falhar, e custo da
     guarda de nuvem medido: +11,27% na construcao em lote, sem acao.
@@ -3597,3 +3600,57 @@ guarda para os tres chamadores, que e o que a Task 97 recusou. 234 ms por cofre
 nao paga trocar guarda unica por tres copias.
 
 `verify.ps1`: 12 de 12 `[OK]`, `VERIFY_EXIT=0`.
+
+
+## Task 100 — o gate de benchmark decidia por uma amostra — 2026-08-13
+
+```
+$ git cat-file -t 2a14832
+commit
+$ git cat-file -t e944d8c
+commit
+```
+
+`2a14832` `fix(bench): decide the gate on a median of samples, not on one draw`
+`e944d8c` `chore(bench): rebase the reference on medians now that the gate takes five`
+
+**Registrado principalmente pelos dois erros, nao pelo conserto.** As duas
+correcoes erradas eram plausiveis e as duas trataram sintoma.
+
+1. Referencia dez vezes acima do real depois de `Postings` -> `Positions`.
+   Regravei da **mediana de 3 rodadas**, como a nota do proprio arquivo mandava.
+   **Reprovou no push seguinte, sem mudanca de codigo:** `SearchDoisTermos`
+   +45,5%.
+2. Medi o espalhamento de 4 rodadas do mesmo codigo — 50,6% em
+   `SearchDoisTermos`, 29,8% em `SearchLimit200` — e regravei no **pior caso**.
+   **Reprovou de novo no push seguinte:** `SearchTermoAmploCache` +39,1%, num
+   caminho que nenhum commit daquele push tocava.
+
+**A causa estava acima do limiar:** `bench.yml` tirava UMA amostra por
+benchmark. Num benchmark de poucos milissegundos, o ruido do runner
+compartilhado e maior que qualquer tolerancia util.
+
+**E o conserto obvio sozinho teria piorado.** `bench_compare.ps1` fazia
+`$Medidos[$nome] = $valor`: com `-count > 1` a ULTIMA amostra vencia em silencio.
+Cinco amostras decidindo pela quinta e pior que uma, porque parece robusto.
+
+Conserto nas duas metades: `-count 5` no workflow, **mediana** no comparador,
+com o numero de amostras impresso e **aviso abaixo de tres**. Parser conferido
+com entrada sintetica (100, 900, 300, 200, 500 -> 300 de 5 amostras; arquivo de
+amostra unica dispara o aviso).
+
+Referencia regravada da mediana de 5. **Tres rodadas de validacao, todas
+verdes**, e a primeira sem nenhum aviso de melhora: a comparacao caiu dentro de
++-20% nos nove benchmarks, o que nenhuma das duas referencias anteriores
+conseguiu.
+
+**Custo:** a etapa passou de ~45 s para ~3 min. E o preco de o gate significar
+alguma coisa.
+
+### A licao, que e mais geral que benchmark
+
+Quando um gate reprova sem mudanca de codigo, a resposta natural e mexer no
+limiar, e ela e quase sempre errada. Duas vezes seguidas mexendo no limiar e o
+sinal de que o problema esta na **medicao**, nao no numero. E vale conferir se o
+instrumento agrega as amostras como voce supoe: aqui ele descartava quatro de
+cinco em silencio, e ninguem teria notado por leitura do YAML.

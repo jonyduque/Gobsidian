@@ -1769,3 +1769,54 @@ as outras onze tools respondem desde o primeiro segundo. A alternativa óbvia �
 passar o `CloudOnly` que `vault.Walk` já calculou, em vez de reconsultar — moveria
 a guarda para os três chamadores, que é exatamente o que a Task 97 recusou. Um
 ganho de 234 ms por cofre não paga trocar guarda única por três cópias.
+
+### O gate de benchmark decidia por uma amostra (2026-08-13)
+
+Registrado porque errei duas vezes antes de achar a causa, e as duas correções
+erradas eram plausíveis.
+
+`docs/bench-baseline.json` estava dez vezes acima do real depois da troca
+`Postings` → `Positions`. Regenerei da **mediana de 3 rodadas**, como a nota
+antiga do arquivo mandava. **O gate reprovou no push seguinte, sem mudança de
+código:** `SearchDoisTermos` 3.568.100 → 5.192.208 ns/op, +45,5%.
+
+Medi o espalhamento de quatro rodadas do mesmo código e regravei a referência no
+**pior caso**, não na mediana:
+
+| benchmark | min | max | espalhamento |
+|---|---|---|---|
+| `SearchDoisTermos` | 3.446.682 | 5.192.208 | **50,6%** |
+| `SearchLimit200` | 9.093.936 | 11.801.909 | **29,8%** |
+| `IndexBuild` | 150.144.662 | 162.847.931 | 8,5% |
+
+**Reprovou de novo no push seguinte:** `SearchTermoAmploCache` +39,1%, num
+caminho que nenhum dos commits daquele push tocava.
+
+Duas correções, os dois sintomas, nenhuma causa. **A causa estava acima do
+limiar:** `bench.yml` tirava **uma amostra** por benchmark, e num benchmark de
+poucos milissegundos o ruído de runner compartilhado é maior que qualquer
+tolerância que valha a pena ter.
+
+E o conserto óbvio sozinho teria **piorado**: `bench_compare.ps1` fazia
+`$Medidos[$nome] = $valor`, então com `-count > 1` a **última** amostra vencia em
+silêncio. Cinco amostras decidindo pela quinta é pior que uma, porque parece
+robusto.
+
+As duas metades:
+
+- `bench.yml` roda `-count 5`.
+- `bench_compare.ps1` usa a **mediana** das amostras, imprime quantas
+  sustentaram cada uma, e **avisa abaixo de três** — gate decidido por uma
+  amostra sem ninguém ver que foi uma amostra é exatamente a falha consertada.
+
+Parser conferido com entrada sintética: amostras 100, 900, 300, 200, 500
+reportam 300 de cinco amostras; arquivo de amostra única dispara o aviso.
+
+Referência regravada da mediana de 5 (rodada 31697933573). **Três rodadas de
+validação depois, todas verdes**, e a primeira delas sem nenhum aviso de melhora
+— a comparação caiu dentro de ±20% nos nove benchmarks, o que nenhuma das duas
+referências anteriores conseguiu.
+
+**O que isto custa:** `-count 5` multiplicou a etapa por ~5 (de ~45 s para
+~3 min). É o preço de o gate significar alguma coisa. Gate que reprova
+aleatoriamente ensina a re-rodar até ficar verde, e aí ele para de valer.
