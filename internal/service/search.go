@@ -177,6 +177,11 @@ func (s *Service) Search(ctx context.Context, opts SearchOptions) (SearchResult,
 	// Executa pontuação BM25 sobre o índice invertido
 	rawHits := search.CalculateBM25(queryTokens, s.inverted, idxImpl)
 
+	// Uma vez, fora do laço: o filtro de frontmatter é o único que não se
+	// responde olhando só a nota, e resolvê-lo por hit fazia uma varredura do
+	// índice inteiro por resultado.
+	porFrontmatter := s.casamFrontmatter(opts)
+
 	// Filtra por pasta, tags, frontmatter e data de modificação
 	var filteredHits []search.Result
 	for _, hit := range rawHits {
@@ -185,7 +190,7 @@ func (s *Service) Search(ctx context.Context, opts SearchOptions) (SearchResult,
 			continue
 		}
 
-		if !s.matchesSearchFilters(note, opts) {
+		if !s.matchesSearchFilters(note, opts, porFrontmatter) {
 			continue
 		}
 
@@ -338,7 +343,7 @@ func (s *Service) searchMetadataOnly(opts SearchOptions) (SearchResult, error) {
 	}, nil
 }
 
-func (s *Service) matchesSearchFilters(note *index.Note, opts SearchOptions) bool {
+func (s *Service) matchesSearchFilters(note *index.Note, opts SearchOptions, porFrontmatter map[vault.CanonicalPath]bool) bool {
 	if opts.Folder != "" {
 		canonFolder := string(vault.CanonicalPath(opts.Folder))
 		if canonFolder != "" && !strings.HasPrefix(string(note.Path), canonFolder+"/") && string(note.Path) != canonFolder {
@@ -367,24 +372,40 @@ func (s *Service) matchesSearchFilters(note *index.Note, opts SearchOptions) boo
 		return false
 	}
 
-	if len(opts.Frontmatter) > 0 {
-		q := index.Query{
-			Frontmatter: opts.Frontmatter,
-		}
-		notes, _ := s.index.List(q)
-		matched := false
-		for _, n := range notes {
-			if n.Path == note.Path {
-				matched = true
-				break
-			}
-		}
-		if !matched {
+	// O conjunto chega pronto de quem chamou. Este ramo ja fez
+	// `s.index.List(q)` AQUI DENTRO, uma vez por resultado: com `limit: 200`
+	// eram 200 varreduras do indice inteiro para responder 200 vezes a mesma
+	// pergunta, que nao depende da nota. O filtro por frontmatter e o unico que
+	// nao se resolve olhando so a nota, e por isso e o unico que precisa do
+	// conjunto.
+	//
+	// nil significa "sem filtro de frontmatter", e nao "nenhuma nota casou" —
+	// os dois casos existem e confundi-los faria a busca devolver tudo quando
+	// deveria devolver nada. Ver casamFrontmatter.
+	if porFrontmatter != nil {
+		if !porFrontmatter[note.Path] {
 			return false
 		}
 	}
 
 	return true
+}
+
+// casamFrontmatter resolve o filtro de frontmatter UMA vez e devolve o conjunto
+// de caminhos que casam.
+//
+// Devolve nil quando nao ha filtro, o que o chamador le como "nao filtra por
+// isso". Conjunto vazio nao-nil e a outra resposta: filtro existe e nada casou.
+func (s *Service) casamFrontmatter(opts SearchOptions) map[vault.CanonicalPath]bool {
+	if len(opts.Frontmatter) == 0 {
+		return nil
+	}
+	notes, _ := s.index.List(index.Query{Frontmatter: opts.Frontmatter})
+	casam := make(map[vault.CanonicalPath]bool, len(notes))
+	for _, n := range notes {
+		casam[n.Path] = true
+	}
+	return casam
 }
 
 func (s *Service) matchPhraseInNote(path string, phraseTokens []search.Token) bool {

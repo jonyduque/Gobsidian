@@ -62,6 +62,14 @@ func benchServicoDeCacheCom(b *testing.B, entradasTrecho *int) *service.Service 
 
 	// Guarda de ramo. Sem ela, um cache recusado em silencio faria este
 	// benchmark medir exatamente o ramo que ele existe para NAO medir.
+	//
+	// Pergunta pelo RAMO com VindoDoCache, e nao por contagem: "veio do cache"
+	// estava sendo rederivado em tres lugares com tres criterios diferentes, e
+	// derivacao repetida foi o que produziu a divergencia de byAlias e a de
+	// index.classificar. Uma funcao so, e todos passam por ela.
+	if !doCache.VindoDoCache() {
+		b.Fatal("o indice nao veio do cache; este benchmark mediria o ramo do delta")
+	}
 	if doCache.DocCount() < 5000 {
 		b.Fatalf("o indice vindo do cache tem %d documentos, quer >= 5000", doCache.DocCount())
 	}
@@ -75,4 +83,25 @@ func BenchmarkSearchLimit200Cache(b *testing.B) {
 
 func BenchmarkSearchTermoAmploCache(b *testing.B) {
 	benchBusca(b, benchServicoDeCache(b), service.SearchOptions{Query: "nota"}, 10)
+}
+
+// BenchmarkSearchFiltroFrontmatter mede o formato que expunha um defeito de
+// complexidade: o filtro de frontmatter era resolvido DENTRO do laco de
+// filtragem, uma vez por resultado.
+//
+// Com limit: 200 isso eram 200 varreduras do indice inteiro para responder 200
+// vezes a mesma pergunta, que nao depende da nota. Nenhum benchmark cobria este
+// formato, e e por isso que o defeito atravessou o brainstorm de performance sem
+// aparecer em perfil nenhum.
+//
+// O valor do filtro casa uma nota so de proposito: o custo que interessa esta
+// no numero de RESULTADOS pontuados antes da filtragem, nao no tamanho da
+// resposta.
+func BenchmarkSearchFiltroFrontmatter(b *testing.B) {
+	svc := benchServicoDeCache(b)
+	benchBusca(b, svc, service.SearchOptions{
+		Query:       "nota",
+		Limit:       200,
+		Frontmatter: map[string]any{"title": "Nota Acentuada 1030 - Execucao"},
+	}, 1)
 }

@@ -75,10 +75,21 @@ func createSearchService(t *testing.T, files map[string]string) (*service.Servic
 	if doCache == nil {
 		t.Fatal("LoadInvertedCache devolveu cache nulo")
 	}
-	// Fecha a arena mapeada antes de os t.TempDir() serem removidos. Os dois
-	// TempDir foram pedidos ANTES deste Cleanup e os cleanups rodam em LIFO,
-	// entao este roda primeiro — o Windows recusa apagar arquivo que o processo
-	// ainda tem mapeado.
+	// Fecha a arena mapeada antes de o diretorio temporario ser removido — o
+	// Windows recusa apagar arquivo que o processo ainda tem mapeado.
+	//
+	// Funciona porque testing.makeTempDir registra UM unico Cleanup(removeAll),
+	// na PRIMEIRA chamada a t.TempDir(); as chamadas seguintes so criam
+	// subdiretorios (001, 002) e nao registram nada. Como este Cleanup e
+	// registrado depois daquela primeira chamada e cleanups rodam em LIFO, ele
+	// vem antes da remocao. NAO e "um Cleanup por TempDir" — a versao anterior
+	// deste comentario dizia isso, e quem fosse consolidar os dois TempDir
+	// acharia que estava mexendo em duas coisas.
+	//
+	// O segundo t.TempDir() tambem importa por outro motivo: as duas pastas sao
+	// IRMAS, entao dentroDoCofre(cacheDir, root) da falso e a arena chega a ser
+	// mapeada. Cache dentro do cofre nao mapeia (mmap.go), e ai este Cleanup
+	// nao teria o que fechar.
 	t.Cleanup(func() { _ = doCache.Close() })
 
 	// `inv` passa a APONTAR para o indice vindo do cache, e o construido do zero
@@ -160,6 +171,47 @@ func TestVaultSearchTags(t *testing.T) {
 }
 
 // 4. Parameter `frontmatter`
+// TestVaultSearchFrontmatterSemCasarNaoDevolveTudo cobre a distincao que o
+// conjunto pre-calculado introduz e que nao existia antes: nil significa "sem
+// filtro de frontmatter" e conjunto VAZIO significa "filtro existe e nada
+// casou".
+//
+// Confundir os dois e o modo de falha caro: a busca devolveria o cofre inteiro
+// exatamente quando o usuario pediu um filtro que nao casa nada, e o teste do
+// caminho feliz logo abaixo passaria do mesmo jeito. Este teste e o par dele.
+func TestVaultSearchFrontmatterSemCasarNaoDevolveTudo(t *testing.T) {
+	svc, _, _, _ := createSearchService(t, map[string]string{
+		"a.md": "---\nautor: Silva\n---\n# Prescricao\n\nTexto.\n",
+		"b.md": "---\nautor: Souza\n---\n# Prescricao\n\nTexto.\n",
+	})
+
+	// Guarda da montagem: sem esta consulta, um corpus que nao casasse a QUERY
+	// faria o teste passar por nao achar nada, e nao pelo filtro.
+	semFiltro, err := svc.Search(context.Background(), service.SearchOptions{Query: "prescricao"})
+	if err != nil {
+		t.Fatalf("Search: %v", err)
+	}
+	if len(semFiltro.Results) != 2 {
+		t.Fatalf("sem filtro a consulta casou %d notas, quer 2; o corpus nao sustenta o teste",
+			len(semFiltro.Results))
+	}
+
+	res, err := svc.Search(context.Background(), service.SearchOptions{
+		Query:       "prescricao",
+		Frontmatter: map[string]any{"autor": "NinguemComEsseNome"},
+	})
+	if err != nil {
+		t.Fatalf("Search: %v", err)
+	}
+	if len(res.Results) != 0 {
+		t.Fatalf("filtro que nao casa ninguem devolveu %d resultados: %+v — "+
+			"conjunto vazio foi lido como 'sem filtro'", len(res.Results), res.Results)
+	}
+	if res.Total != 0 {
+		t.Fatalf("Total = %d, quer 0", res.Total)
+	}
+}
+
 func TestVaultSearchFrontmatter(t *testing.T) {
 	svc, _, _, _ := createSearchService(t, map[string]string{
 		"a.md": "---\nautor: Silva\n---\n# Prescrição\n\nTexto.\n",
