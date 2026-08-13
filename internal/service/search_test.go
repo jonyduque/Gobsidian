@@ -50,6 +50,58 @@ func createSearchService(t *testing.T, files map[string]string) (*service.Servic
 		}
 	}
 
+	// O indice vai para o servico VINDO DO CACHE, e nao o `inv` recem-construido.
+	//
+	// Inverted.Postings tem dois ramos: construido do zero, base == nil e ele
+	// materializa o mapa do delta e ORDENA; vindo do cache, base != nil e ele
+	// devolve a fatia do array achatado sem ordenar. O servidor sempre carrega
+	// do cache, e ate 2026-08-13 os testes de RNF-04 daqui mediam o outro ramo.
+	// A Task 94 corrigiu o equivalente em rnf5000_test.go; esta e a mesma
+	// correcao a 500 notas.
+	//
+	// Uma construcao so, e nao uma variante usada apenas pelos testes de
+	// latencia: duas derivacoes da mesma coisa divergem, e a divergencia aparece
+	// no caminho menos usado. E a licao de aliasKey, de nomeChave e de
+	// index.classificar. De quebra, os testes funcionais passam a exercitar o
+	// caminho do SoA, que nenhum deles tocava.
+	cacheDir := t.TempDir()
+	if err := search.SaveInvertedCache(context.Background(), cacheDir, root, inv); err != nil {
+		t.Fatalf("SaveInvertedCache: %v", err)
+	}
+	doCache, _, err := search.LoadInvertedCache(context.Background(), cacheDir, root)
+	if err != nil {
+		t.Fatalf("LoadInvertedCache: %v", err)
+	}
+	if doCache == nil {
+		t.Fatal("LoadInvertedCache devolveu cache nulo")
+	}
+	// Fecha a arena mapeada antes de os t.TempDir() serem removidos. Os dois
+	// TempDir foram pedidos ANTES deste Cleanup e os cleanups rodam em LIFO,
+	// entao este roda primeiro — o Windows recusa apagar arquivo que o processo
+	// ainda tem mapeado.
+	t.Cleanup(func() { _ = doCache.Close() })
+
+	// `inv` passa a APONTAR para o indice vindo do cache, e o construido do zero
+	// deixa de existir para o resto da funcao. Nao e estilo: enquanto as duas
+	// variaveis coexistem, passar a errada para service.New compila, nao reprova
+	// teste nenhum — os dois ramos sao comportamentalmente identicos — e so
+	// aparece lendo o codigo. Com uma variavel so, reintroduzir o defeito exige
+	// recriar a segunda, que e uma edicao visivel, e a guarda abaixo pega.
+	inv = doCache
+
+	// Guarda de RAMO. Ela pergunta pelo ramo, e nao por DocCount: DocCount
+	// devolve o mesmo numero nos dois ramos, entao guarda escrita sobre ele
+	// passa verde exatamente no caso que deveria pegar. Sem esta linha, trocar
+	// doCache por inv abaixo nao reprovaria teste nenhum — os dois ramos sao
+	// comportamentalmente identicos, e a escolha ficaria inverificavel.
+	if !inv.VindoDoCache() {
+		t.Fatal("o indice nao veio do cache; os testes de latencia mediriam o ramo " +
+			"que o servidor nao executa")
+	}
+	if got := inv.DocCount(); got != len(idx.NotePaths()) {
+		t.Fatalf("o indice vindo do cache tem %d documentos, quer %d; cache parcial", got, len(idx.NotePaths()))
+	}
+
 	// Cache de trecho DESLIGADO. Os testes de RNF-04 daqui medem a MESMA
 	// consulta 30 vezes, e com o cache ligado 29 dessas 30 seriam acertos —
 	// o p95 passaria a descrever a consulta repetida, que e justamente o que

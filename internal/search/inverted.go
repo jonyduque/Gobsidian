@@ -342,6 +342,31 @@ func (ix *Inverted) TermCount() int {
 	return n
 }
 
+// VindoDoCache diz se este índice tem a camada base — isto é, se ele foi
+// carregado de um cache em disco em vez de construído do zero.
+//
+// Existe para TESTE, e para uma pergunta que nenhum outro método responde.
+// `Inverted.Postings` tem dois ramos: com base o resultado sai do array
+// achatado sem ordenar; sem base ele materializa o mapa do delta e ordena. O
+// servidor em producao sempre carrega do cache, e um harness que monta o
+// indice do zero mede o ramo que o servidor nao executa.
+//
+// `DocCount` NAO serve para essa guarda, e a tentacao de usa-lo e o motivo
+// deste comentario existir: ele devolve o mesmo numero nos dois ramos — 500
+// notas sao 500 notas vindas do cache ou construidas na hora. Guarda escrita
+// sobre ele detecta cache recusado ou parcial, que e outra pergunta, e passa
+// verde exatamente no caso que ela deveria pegar.
+//
+// Os dois ramos sao comportamentalmente identicos de proposito: mesma ordem,
+// mesmo DocLength, mesmos resultados. Justamente por isso nenhuma assercao
+// sobre RESULTADO consegue distingui-los, e sem este acessor a escolha de ramo
+// de um harness seria inverificavel pela suite.
+func (ix *Inverted) VindoDoCache() bool {
+	ix.mu.RLock()
+	defer ix.mu.RUnlock()
+	return ix.base != nil
+}
+
 // DocCount devolve o número de notas indexadas.
 //
 // Um caminho sombreado sai do base e, se foi reindexado, volta pelo delta —
