@@ -290,6 +290,9 @@ Task 95: complete (commit fe99321) — uma classificacao so para placeholder de
 Task 96: complete (commit 1041457) — custo do cache de trecho no RSS medido:
     +0,86 MB, U de Mann-Whitney 11 contra regiao critica 5, nao significativo.
     Teto de 1.024 mantido.
+Task 99: complete (commit 567a9a2) — teto de concorrencia reapertado de 60 para
+    22 ms depois de medir que ele tinha deixado de conseguir falhar, e custo da
+    guarda de nuvem medido: +11,27% na construcao em lote, sem acao.
 Task 98: complete (commit 99c6c58) — RNF-04 a 500 notas passa a medir o ramo do
     indice que o servidor executa. Revisao adversarial do plano achou que a
     verificacao era oca; os dois buracos foram fechados antes de implementar.
@@ -3513,3 +3516,84 @@ Tempo total da suite de `internal/service`: **29 s, sem mudanca**.
 O teto de 60 ms de `TestRNF04SnippetConcurrencyLimit200` foi calibrado no ramo
 do delta e ficou frouxo em termos relativos — a medicao usa no maximo 30% dele.
 Reapertar e decisao de dono de requisito, nao efeito colateral desta tarefa.
+
+
+## Task 99 — teto de concorrencia reapertado e custo da guarda medido — 2026-08-13
+
+```
+$ git cat-file -t 567a9a2
+commit
+```
+
+`567a9a2` `test(service): retighten the concurrency ceiling until it discriminates again`
+
+Fecha as duas ultimas lacunas do lote.
+
+### O teto de 60 ms tinha deixado de conseguir falhar
+
+`TestRNF04SnippetConcurrencyLimit200` detecta uma coisa so: que o recorte
+concorrente esta ativo. O teto de 60 ms foi escolhido quando o sequencial media
+82-113 ms. Depois de `Postings` -> `Positions` o sequencial mede **27,60-32,36
+ms** (5 execucoes com `maxSnippetWorkers = 1`), logo **desligar a concorrencia
+PASSAVA no teto de 60**.
+
+Teste verde afirmando o que nao verifica mais, e ninguem tinha como notar —
+teste que passa nao chama atencao. **O modo de falha nao foi alguem afrouxar o
+teto: foi o codigo ficar rapido e o teto ficar parado.**
+
+Banda medida dos dois lados antes de escolher:
+
+| | faixa | execucoes |
+|---|---|---|
+| concorrente | 8,39 - 12,73 ms | 12 limpas (pior da sessao: 17,87) |
+| sequencial | 27,60 - 32,36 ms | 5, com `maxSnippetWorkers = 1` |
+
+**Teto novo: 22 ms**, 1,2x acima do pior concorrente e 20% abaixo do MELHOR
+sequencial.
+
+```
+      - const maxSnippetWorkers = 8
+      + const maxSnippetWorkers = 1
+--- FAIL: TestRNF04SnippetConcurrencyLimit200 (3.04s)
+    rodada 1/3 estourou (32.9465ms > 22ms); repetindo
+    rodada 2/3 estourou (28.9213ms > 22ms); repetindo
+    p95 = 27.5913ms excede o teto de 22ms em 3 rodadas seguidas
+MUT_TETO_EXIT=0
+```
+
+**A primeira tentativa da prova saiu `EXIT=1`, e a leitura ingenua seria "regra
+nao verificada".** Nao era: `mutate.ps1` roda com `-race` por padrao e o teste
+tem `if raceEnabled || p95 <= teto`, entao sob o detector ele passa sempre. O
+switch `-NoRace` existe para exatamente isto e o comentario dele ja citava a
+Task 72. Fica registrado porque a proxima pessoa vai tropecar igual.
+
+Dois comentarios obsoletos corrigidos junto: o cabecalho afirmava que o
+sequencial mede 82-113 ms e que solo varia 30-56 ms; o de `maxRodadas` afirmava
+~19% de folga e RNF-04 como lacuna.
+
+### Custo da guarda de nuvem em `Inverted.Update`
+
+Entrou `BenchmarkInvertedUpdateLote` (percorre `index.NotePaths()` chamando
+`Update`, o mesmo laco de `buildInvertedIndex`) — nao existia benchmark que
+cobrisse `Update` em lote, e era por isso que o custo estava como "nao medido".
+
+A/B com a guarda desligada por curto-circuito, `benchstat`, n=8, cofre de 5.000
+notas:
+
+```
+                      sem guarda      com guarda      delta
+sec/op                2,071 +-12%     2,305 +- 4%     +11,27% (p=0,038 n=8)
+allocs/op            542,4k +- 0%    547,4k +- 0%      +0,92% (p=0,000 n=8)
+```
+
+**+234 ms sobre 5.000 notas, ~47 us por nota.** O `p=0,038` e marginal, mas as
+alocacoes sao deterministicas e fecham o mecanismo: **+5,0 mil allocs, uma por
+nota**, a conversao UTF-16 do caminho antes do `GetFileAttributes`.
+
+**Decisao: nada a fazer, por medicao.** 234 ms uma vez por cofre, numa
+construcao em segundo plano que ja leva 2,3 s e cujo resultado e cacheado. A
+alternativa — passar o `CloudOnly` que `vault.Walk` ja calculou — moveria a
+guarda para os tres chamadores, que e o que a Task 97 recusou. 234 ms por cofre
+nao paga trocar guarda unica por tres copias.
+
+`verify.ps1`: 12 de 12 `[OK]`, `VERIFY_EXIT=0`.
