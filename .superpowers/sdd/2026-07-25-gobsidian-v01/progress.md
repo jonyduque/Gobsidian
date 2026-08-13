@@ -290,6 +290,9 @@ Task 95: complete (commit fe99321) — uma classificacao so para placeholder de
 Task 96: complete (commit 1041457) — custo do cache de trecho no RSS medido:
     +0,86 MB, U de Mann-Whitney 11 contra regiao critica 5, nao significativo.
     Teto de 1.024 mantido.
+Task 98: complete (commit 99c6c58) — RNF-04 a 500 notas passa a medir o ramo do
+    indice que o servidor executa. Revisao adversarial do plano achou que a
+    verificacao era oca; os dois buracos foram fechados antes de implementar.
 Task 97: complete (commits cfffab8, 5ed7918) — guarda de placeholder de nuvem
     em `Inverted.Update`. O caminho ficou alcancavel com a correcao do panico
     de `index.Build` nesta mesma sessao: trocamos um crash por download
@@ -3429,3 +3432,84 @@ Rodado pelo revisor, nao relatado por terceiro:
    Confirmado, nao corrigido.
 3. **Custo da guarda de nuvem em `Inverted.Update` nao medido.**
 4. **Branch `perf/vault-search-snippet` nao integrado a `master`.**
+
+
+## Task 98 — RNF-04 a 500 notas mede o ramo que o servidor executa — 2026-08-13
+
+```
+$ git cat-file -t 99c6c58
+commit
+```
+
+`99c6c58` `test(service): measure RNF-04 at 500 notes on the branch the server runs`
+
+Fecha a lacuna que a Task 94 deixou aberta de proposito. `createSearchService`
+montava o indice do zero e nunca passava por cache, entao `base == nil` e os
+tres testes com teto — `TestRNF04VaultSearchLatencyP95` (100 ms por formato),
+`TestRNF04SnippetConcurrencyLimit200` (60 ms) e `TestRNF04SnippetParity` —
+mediam o ramo que o servidor nao executa.
+
+**Uma construcao so, e nao uma variante para os testes de latencia.** Os 16
+testes funcionais passaram a exercitar o caminho do SoA, que nenhum deles
+tocava; conferido que nenhum usa o indice devolvido nem afirma sobre
+`TermCount`, `DocPaths` ou `ExportForCache`.
+
+### A revisao adversarial do plano, e por que ela importou
+
+O subagente despachado para revisar **nao respondeu**, e a revisao foi feita
+pelo proprio autor do plano. **Isso vale menos que revisao independente e fica
+registrado como autorrevisao.** Ainda assim ela achou dois BLOQUEIA, e os dois
+eram reais:
+
+1. **A guarda proposta nao afirmava o que o plano dizia.** `DocCount` devolve o
+   mesmo numero nos dois ramos — 500 notas sao 500 vindas do cache ou
+   construidas na hora. Guarda escrita sobre ele detecta cache recusado ou
+   parcial, que e outra pergunta, e passa verde exatamente no caso que deveria
+   pegar. Entrou `Inverted.VindoDoCache()`, com o comentario dizendo por que
+   `DocCount` e a ferramenta errada — e o erro que a proxima pessoa vai tentar.
+
+2. **Nada conseguia pegar o servico recebendo o indice errado.** Os dois ramos
+   sao comportamentalmente identicos de proposito (mesma ordem, mesmo
+   `DocLength`, mesmos resultados), e a Task 94 ja tinha medido que a latencia
+   tambem nao os separa. Nenhuma assercao sobre resultado ou tempo distingue.
+   Do jeito planejado, a mudanca seria **inverificavel pela suite**.
+
+   Solucao: em vez de testar contra a variavel errada, **a variavel errada
+   deixou de existir** — `inv` passa a apontar para o indice carregado e o
+   construido do zero sai de escopo. Reintroduzir o defeito exige recriar a
+   segunda variavel, que e edicao visivel, e a guarda pega.
+
+Um terceiro achado (IMPORTANTE) dizia que a mutacao do `t.Cleanup` podia sair
+**inconclusiva** se um cofre de 3 notas nao mapeasse a arena. Foi **rodada em vez
+de afirmada**, e a preocupacao nao se materializou: mapeia.
+
+### Provas de mutacao, `EXIT=0` nas duas
+
+```
+      - inv = doCache
+      + _ = doCache
+--- FAIL: TestRNF04VaultSearchLatencyP95 (1.30s)
+MUT_A_EXIT=0
+
+      - t.Cleanup(func() { _ = doCache.Close() })
+      + _ = doCache
+--- FAIL: TestVaultSearchQuery (1.53s)
+    testing.go:1464: TempDir RemoveAll cleanup: unlinkat
+    C:\...\inverted_cache.gob: Access is denied.
+MUT_B_EXIT=0
+```
+
+### Medicao — tres rodadas, sem `-race`
+
+`limit: 200` em **21,1 / 9,5 / 9,7 ms** contra teto de 100 ms; `limit: 200`
+concorrente em **17,9 / 10,7 / 9,8 ms** contra teto de 60 ms. Os oito formatos
+ficaram entre 1,1 e 21,1 ms. A primeira rodada e sistematicamente a mais lenta.
+Tempo total da suite de `internal/service`: **29 s, sem mudanca**.
+
+`verify.ps1`: 12 de 12 `[OK]`, `VERIFY_EXIT=0`.
+
+### Aberto, relatado e nao mudado
+
+O teto de 60 ms de `TestRNF04SnippetConcurrencyLimit200` foi calibrado no ramo
+do delta e ficou frouxo em termos relativos — a medicao usa no maximo 30% dele.
+Reapertar e decisao de dono de requisito, nao efeito colateral desta tarefa.

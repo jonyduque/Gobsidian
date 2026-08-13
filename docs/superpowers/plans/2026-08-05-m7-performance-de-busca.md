@@ -2193,3 +2193,56 @@ nomeando **a divergência de contagem**. A segunda é o conserto ingênuo
 3. **Custo da guarda de nuvem não medido** — um `GetFileAttributes` por nota no
    caminho de construção do índice de busca, além do que `vault.Walk` já paga.
 4. **Branch `perf/vault-search-snippet` não integrado a `master`.**
+
+---
+
+# Task 98 — RNF-04 a 500 notas mede o ramo do índice que o servidor executa
+
+**Tier: modelo forte.** O entregável parece uma troca de construtor e não é: a
+parte cara foi descobrir que a verificação planejada era oca.
+
+#### Onde encaixa
+Fecha a lacuna que a Task 94 deixou aberta de propósito. `internal/service`.
+
+#### O que vincula esta tarefa
+- **Chave calculada em dois lugares diverge.** Uma construção só, não uma
+  variante para os testes de latência — lição de `aliasKey`, `nomeChave` e
+  `index.classificar`.
+- **Um teste que não pode falhar é pior que teste ausente.** É literalmente o
+  achado que a revisão adversarial trouxe.
+- Windows recusa apagar arquivo que o processo ainda tem mapeado.
+
+#### O que entregar
+`createSearchService` carrega do cache, com guarda que afirma o **ramo** e
+`t.Cleanup` fechando a arena antes dos `t.TempDir()`.
+
+#### Verificações além dos passos
+Duas armadilhas, e as duas custaram desenho:
+
+1. `DocCount` **não** distingue os ramos — devolve o mesmo número nos dois.
+   Guarda escrita sobre ele passa verde no caso que deveria pegar.
+2. Os dois ramos são comportamentalmente idênticos, então **nenhuma asserção
+   sobre resultado ou latência prova que o serviço recebeu o índice certo**.
+   A resposta não é testar contra a variável errada: é fazer a variável errada
+   deixar de existir.
+
+#### Contrato de relatório
+As duas mutações rodadas, não afirmadas — inclusive a do `t.Cleanup`, que podia
+sair inconclusiva se a arena não fosse mapeada num cofre pequeno.
+
+**Entregue:** os dois `EXIT=0`. Arena mapeia mesmo com 3 notas, conferido por
+execução. Oito formatos entre 1,1 e 21,1 ms contra teto de 100 ms; suíte no
+mesmo tempo.
+
+**Files:** `internal/search/inverted.go`, `internal/service/search_test.go`
+**Commit:** `99c6c58` `test(service): measure RNF-04 at 500 notes on the branch the server runs`
+
+---
+
+## Nota de processo
+
+A revisão adversarial desta tarefa foi **autorrevisão**: o subagente despachado
+para revisar não respondeu, e quem revisou o plano foi quem o escreveu. Vale
+menos que revisão independente e está registrado como tal no ledger. Ela ainda
+assim achou dois BLOQUEIA reais, o que diz mais sobre o plano original do que
+sobre o método.
