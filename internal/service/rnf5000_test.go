@@ -121,12 +121,16 @@ func TestScale5000_RNF01_RNF02_RNF07_RNF04(t *testing.T) {
 	// diferente — faria este bloco medir exatamente o ramo que ele existe para
 	// NÃO medir, e ninguém notaria.
 	//
-	// DocCount é o que a distingue de fora do pacote: as duas construções de
-	// LoadInvertedCache passam por newInvertedFromSoA, e a única maneira de sair
-	// dali com base == nil é a base ter vindo vazia — o que dá DocCount zero.
-	// Índice com 5.000 documentos vindo daqui tem base.
+	// Pergunta pelo RAMO com VindoDoCache, e nao por contagem. A versao anterior
+	// deste comentario argumentava que DocCount distinguia os ramos por deducao
+	// sobre newInvertedFromSoA — deducao correta e frágil, e que rederivava pela
+	// terceira vez uma resposta que agora tem uma funcao so. A contagem fica
+	// logo abaixo, medindo outra coisa: que o corpus veio inteiro.
 	if doCache == nil {
 		t.Fatal("LoadInvertedCache devolveu cache nulo; sem base o RNF-04 mediria o ramo do delta")
+	}
+	if !doCache.VindoDoCache() {
+		t.Fatal("o indice nao veio do cache; o RNF-04 mediria o ramo do delta")
 	}
 	if doCache.DocCount() < 5000 {
 		t.Fatalf("o indice vindo do cache tem %d documentos, quer >= 5000; "+

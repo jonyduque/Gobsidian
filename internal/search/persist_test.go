@@ -368,7 +368,36 @@ func TestBM25KernelLatency(t *testing.T) {
 	const numQueries = 500
 	const teto = 80 * time.Millisecond
 
-	_, idx, inv, _ := geraCorpus(t, corpusSize)
+	v, idx, construido, _ := geraCorpus(t, corpusSize)
+
+	// O kernel e medido sobre o indice VINDO DO CACHE, e nao sobre o construido
+	// do zero.
+	//
+	// CalculateBM25 e o unico consumidor de Inverted.Postings, que e exatamente
+	// onde os dois ramos divergem: com base != nil ele devolve a fatia do array
+	// achatado; sem base ele materializa o mapa do delta. O servidor sempre
+	// carrega do cache, e ate 2026-08-13 este teto de 80 ms cobrava o outro
+	// ramo. Mesmo defeito das Tasks 94 e 98, no terceiro teste com teto —
+	// achado pela revisao adversarial da 98, que reparou que ele roda na mesma
+	// etapa do verify.ps1 que os outros dois.
+	ctx := context.Background()
+	cacheDir := t.TempDir()
+	if err := search.SaveInvertedCache(ctx, cacheDir, v.Root(), construido); err != nil {
+		t.Fatalf("SaveInvertedCache: %v", err)
+	}
+	inv, _, err := search.LoadInvertedCache(ctx, cacheDir, v.Root())
+	if err != nil {
+		t.Fatalf("LoadInvertedCache: %v", err)
+	}
+	// Antes de qualquer assercao: t.Fatal com a arena mapeada faz o TempDir
+	// falhar por cima e soterra o motivo real sob "RemoveAll cleanup".
+	t.Cleanup(func() { _ = inv.Close() })
+	if inv == nil || !inv.VindoDoCache() {
+		t.Fatal("o indice nao veio do cache; o teto cobraria o ramo que o servidor nao executa")
+	}
+	if got := inv.DocCount(); got != corpusSize {
+		t.Fatalf("o indice vindo do cache tem %d documentos, quer %d", got, corpusSize)
+	}
 
 	// "prescricao" está em todas as notas de geraCorpus. Confirmado antes de
 	// medir: se o termo sumir do corpus, esta medição volta a ser sobre um
