@@ -590,6 +590,10 @@ próximo alvo de otimização se RNF-02 continuar sendo prioridade nesta escala.
 - **RNF-02 (Boot com cache):** `LoadInvertedCache` do disco levou **26,96 ms**. Reconstruir o índice invertido a partir do `index` de metadados na memória levou **106,58 ms**. A leitura do cache serializado do disco é ~4x mais rápida, economizando ~80 ms no boot frio.
 - **RNF-04 (Latência de busca p95):** **remedido em 2026-07-30 pela Task 61.** A medição passa por `service.Search`, com trecho ligado, e é **por formato de consulta** — não um p95 único sobre a mistura. 30 consultas por formato, 500 notas distintas, `TestRNF04VaultSearchLatencyP95`:
 
+  **Estes números foram medidos no ramo do DELTA** (índice construído do zero),
+  que é o que `createSearchService` produzia até a Task 98. Não são comparáveis
+  com medições posteriores a 2026-08-13, que saem do ramo do cache.
+
   | Formato | Mediana | p95 | Status RNF-04 |
   |---|---|---|---|
   | termo amplo, `limit` default | 10,3 ms | 12,9 ms | OK |
@@ -1460,8 +1464,11 @@ separava — depois dela, `SearchLimit200` deu 22,89m contra 27,67m de
 harness passar a exercitar o caminho do servidor**, não um número melhor; se
 os ramos voltarem a divergir, agora é este que aparece.
 
-**`TestRNF04VaultSearchLatencyP95` (500 notas, `internal/service/search_test.go`)
-tem o mesmo defeito, e não foi corrigido.** `createSearchService` monta o índice
+**~~`TestRNF04VaultSearchLatencyP95` (500 notas) tem o mesmo defeito, e não foi
+corrigido.~~ Fechado pela Task 98 em 2026-08-13**, junto com
+`TestRNF04SnippetConcurrencyLimit200` e, pela Task 101,
+`TestBM25KernelLatency` — os três que restavam. O texto abaixo fica como
+registro do que era verdade quando foi escrito.** `createSearchService` monta o índice
 com `search.NewInverted()` mais `Add` por nota, nunca grava nem lê cache, então
 `base == nil` e toda leitura cai no ramo que ordena. Vale para todos os testes
 que passam por esse construtor, `TestRNF04SnippetConcurrencyLimit200` inclusive.
@@ -1470,7 +1477,8 @@ que passam por esse construtor, `TestRNF04SnippetConcurrencyLimit200` inclusive.
 ### Lacunas que continuam abertas
 
 - ~~**`rnf5000_test.go` mede o ramo errado do índice.**~~ **Fechada pela Task 94
-  em 2026-08-12.** O harness passou a montar o serviço com o índice vindo do
+  em 2026-08-12**, e o resto a 500 notas pelas Tasks 98 e 101 em 2026-08-13.
+  **Nenhum teste com teto mede mais o ramo do delta.** O harness passou a montar o serviço com o índice vindo do
   cache, com guarda de ramo que reprova se o cache for recusado em silêncio. A
   medição anterior fica registrada acima: ela saiu do ramo do delta, e saber
   disso é a informação que importa. Continua aberto o mesmo defeito em
@@ -1820,3 +1828,60 @@ referências anteriores conseguiu.
 **O que isto custa:** `-count 5` multiplicou a etapa por ~5 (de ~45 s para
 ~3 min). É o preço de o gate significar alguma coisa. Gate que reprova
 aleatoriamente ensina a re-rodar até ficar verde, e aí ele para de valer.
+
+## `vault_search` com filtro de frontmatter travava por minutos (2026-08-13)
+
+Defeito de complexidade, não escolha de otimização. Identificado no brainstorm
+de performance como item 3, e ficou aberto por três lotes porque **nenhum
+benchmark cobria esse formato de consulta** — não aparecia em perfil nenhum.
+
+`matchesSearchFilters` resolvia o filtro de frontmatter chamando
+`s.index.List(q)` **dentro** do laço de filtragem. E o laço não percorre a
+página: percorre **todos** os `rawHits` que o BM25 pontuou. Para a consulta
+`nota` num cofre de 5.000 notas são ~5.000 hits, cada um disparando uma
+varredura do índice inteiro.
+
+Medido, `BenchmarkSearchFiltroFrontmatter`, cofre de 5.000 notas, `limit: 200`:
+
+```
+antes    192.800.034.800 ns/op   e   181.935.343.300 ns/op
+depois        53.936.180 ns/op   ...      48.035.000 ns/op
+```
+
+**192,8 s e 181,9 s por chamada.** Uma única `vault_search` com filtro de
+frontmatter levava mais de três minutos — 640× acima do limite **degradado** de
+300 ms que o PRD define para o RNF-04, e três ordens de grandeza acima do alvo.
+A terceira amostra do braço antigo foi morta por timeout de 8 minutos.
+
+O conserto resolve o filtro **uma vez**, em `casamFrontmatter`, e passa o
+conjunto para o laço.
+
+**A distinção que o conserto introduz é onde ele poderia estragar tudo:** `nil`
+significa "sem filtro de frontmatter" e conjunto **vazio** significa "filtro
+existe e nada casou". Confundir os dois faz a busca devolver o cofre inteiro
+exatamente quando o usuário pediu um filtro que não casa nada — e o teste do
+caminho feliz passaria igual. As duas direções estão fixadas por teste e
+provadas por mutação:
+
+```
+      - if len(opts.Frontmatter) == 0 { return nil }
+      + if len(opts.Frontmatter) == 0 { return map[vault.CanonicalPath]bool{} }
+--- FAIL: TestVaultSearchQuery — res = {Results:[] Total:0}
+MUT_NIL_EXIT=0
+
+      - if porFrontmatter != nil {
+      + if len(porFrontmatter) > 0 {
+--- FAIL: TestVaultSearchFrontmatterSemCasarNaoDevolveTudo
+    filtro que nao casa ninguem devolveu 2 resultados
+MUT_VAZIO_EXIT=0
+```
+
+A primeira tentativa de provar o caso `nil` usou `if false && ...` e saiu
+`EXIT=1`. **Não era regra não verificada:** curto-circuitar aquele `if` faz
+`List` receber filtro vazio e devolver tudo, o que é inócuo. Mutação que não
+muda comportamento não prova nada, e `EXIT=1` é o script dizendo isso
+corretamente.
+
+**Por que ficou escondido:** `TestVaultSearchFrontmatter` existe desde sempre e
+usa duas notas. Com N=2 o custo quadrático é invisível. Benchmark que não cobre
+um formato de consulta é um formato de consulta sem gate.

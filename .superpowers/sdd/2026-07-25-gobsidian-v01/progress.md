@@ -290,6 +290,9 @@ Task 95: complete (commit fe99321) — uma classificacao so para placeholder de
 Task 96: complete (commit 1041457) — custo do cache de trecho no RSS medido:
     +0,86 MB, U de Mann-Whitney 11 contra regiao critica 5, nao significativo.
     Teto de 1.024 mantido.
+Task 101: complete (commits 192e28c, 4e3444e) — filtro de frontmatter deixou de
+    ser O(N^2): 192,8 s por chamada viraram ~51 ms. Mais os cinco achados da
+    revisao adversarial da 98, que chegou depois de a 98 ter entrado.
 Task 100: complete (commits 2a14832, e944d8c) — o gate de benchmark decidia por
     UMA amostra. Duas correcoes de limiar antes de achar a causa; bench.yml passou
     a -count 5 e o comparador a usar mediana. Tres validacoes verdes.
@@ -3243,10 +3246,13 @@ que e externo ao indice. A prova que a alcanca, rodada em 2026-08-13:
 MUT_GUARDA94_EXIT=0
 ```
 
-**Aberto:** `TestRNF04VaultSearchLatencyP95` e `TestRNF04SnippetConcurrencyLimit200`
-(500 notas) tem o mesmo defeito, via `createSearchService`, que nunca grava
-nem le cache. Confirmado, registrado em `docs/OPERACAO.md`, **nao corrigido** —
-muda o que o requisito mede e e decisao de dono de requisito.
+**~~Aberto:~~ FECHADO em 2026-08-13.** `TestRNF04VaultSearchLatencyP95` e
+`TestRNF04SnippetConcurrencyLimit200` (500 notas) tinham o mesmo defeito, via
+`createSearchService`; a Task 98 os corrigiu e a Task 101 fechou o terceiro,
+`TestBM25KernelLatency`. **A decisao de dono de requisito foi dada pelo dono em
+2026-08-13**, no mesmo pedido que autorizou o plano da Task 98 — fica escrita
+aqui porque "autorizado em conversa e nao registrado" e indistinguivel de "nao
+autorizado" para quem ler depois.
 
 ---
 
@@ -3679,3 +3685,92 @@ limiar, e ela e quase sempre errada. Duas vezes seguidas mexendo no limiar e o
 sinal de que o problema esta na **medicao**, nao no numero. E vale conferir se o
 instrumento agrega as amostras como voce supoe: aqui ele descartava quatro de
 cinco em silencio, e ninguem teria notado por leitura do YAML.
+
+
+## Task 101 — filtro de frontmatter O(N^2), e os achados da revisao que chegou tarde — 2026-08-13
+
+```
+$ git cat-file -t 192e28c
+commit
+$ git cat-file -t 4e3444e
+commit
+```
+
+`192e28c` `fix(service): resolve the frontmatter filter once instead of once per hit`
+`4e3444e` `test(search): put the last ceiling test on the branch the server runs, and unify the predicate`
+
+### O defeito principal era um travamento, nao uma lentidao
+
+`matchesSearchFilters` chamava `s.index.List(q)` DENTRO do laco de filtragem, e
+o laco percorre TODOS os `rawHits` pontuados pelo BM25 — nao a pagina. Consulta
+`nota` em 5.000 notas sao ~5.000 hits, cada um disparando varredura do indice
+inteiro.
+
+```
+antes    192.800.034.800 ns/op   e   181.935.343.300 ns/op
+depois        53.936.180 ns/op   ...      48.035.000 ns/op
+```
+
+**192,8 s por chamada.** 640x acima do limite DEGRADADO de 300 ms do PRD para o
+RNF-04. A terceira amostra do braco antigo morreu por timeout de 8 minutos.
+
+**Por que atravessou tres lotes:** foi identificado no brainstorm de performance
+como item 3 e classificado como "O(N^2), prioridade alta" — mas **nenhum
+benchmark cobria o formato**, entao ele nao aparecia em perfil nenhum, e cada
+lote priorizou pelo perfil. `TestVaultSearchFrontmatter` existe desde sempre e
+usa DUAS notas: com N=2 o custo quadratico e invisivel. Benchmark que nao cobre
+um formato de consulta e um formato de consulta sem gate.
+
+**A armadilha que o conserto introduz:** `nil` = "sem filtro" e conjunto VAZIO =
+"filtro existe e nada casou". Confundir devolve o cofre inteiro exatamente
+quando o usuario pediu filtro que nao casa nada, e o teste do caminho feliz
+passa igual. As duas direcoes provadas por mutacao, `EXIT=0` nas duas.
+
+**Nota de metodo, e vale mais que o conserto:** a primeira mutacao do caso `nil`
+usou `if false && ...` e saiu `EXIT=1`. **Nao era regra nao verificada** —
+curto-circuitar aquele `if` faz `List` receber filtro vazio e devolver tudo,
+mudanca inocua. Mutacao que nao muda comportamento nao prova nada, e `EXIT=1`
+foi o script dizendo isso certo. Mesma familia do erro que a revisao pegou na
+Task 94: **`EXIT=0` diz que reprovou, nao diz por que.**
+
+### Os cinco achados da revisao adversarial da Task 98
+
+A revisao chegou DEPOIS de a Task 98 ter entrado — o subagente ficou ocioso e a
+tarefa foi implementada com autorrevisao. Ela achou treze itens; dois BLOQUEIA
+ja tinham sido fechados por acaso na autorrevisao (guarda ancorada em
+`idx.NotePaths()` e colapso para uma variavel). Os que sobraram:
+
+- **`TestBM25KernelLatency`** (`persist_test.go`, teto 80 ms) tinha o mesmo
+  defeito de ramo, e **importa mais que os outros dois**: chama `CalculateBM25`
+  direto, e `CalculateBM25` e o unico consumidor de `Inverted.Postings`, que e
+  onde os ramos divergem. Corrigido; a mutacao reprova NA GUARDA
+  (`persist_test.go:396`).
+- **"Veio do cache" era rederivado em tres lugares** com tres criterios. E a
+  licao do `aliasKey` sendo cometida enquanto era citada. Os tres passaram a
+  chamar `Inverted.VindoDoCache()`; as contagens ficam, medindo outra coisa.
+- **A justificativa do LIFO estava errada** (conclusao certa). `makeTempDir`
+  registra UM `Cleanup(removeAll)` na PRIMEIRA chamada; as seguintes so criam
+  subdiretorios. E o segundo `TempDir` importa por outro motivo, agora escrito:
+  as pastas sao IRMAS, entao `dentroDoCofre` da falso e a arena e mapeada.
+- **Documentos que viraram falsos** no instante da Task 98: as duas lacunas
+  declaradas abertas e a tabela de RNF-04 a 500 notas, medida no ramo do delta e
+  sem etiqueta. Corrigidos.
+- **Autorizacao do dono do requisito** registrada. A Task 94 dizia que mexer no
+  harness de 500 notas era decisao dele; ele autorizou em 2026-08-13, e
+  "autorizado em conversa e nao registrado" e indistinguivel de "nao
+  autorizado".
+
+### Estado dos testes com teto
+
+**Nenhum teste com teto mede mais o ramo do delta.** Eram quatro: `rnf5000`
+(Task 94), `TestRNF04VaultSearchLatencyP95` e
+`TestRNF04SnippetConcurrencyLimit200` (Task 98), `TestBM25KernelLatency`
+(esta).
+
+`verify.ps1`: 12 de 12 `[OK]`, `VERIFY_EXIT=0`.
+
+### Aberto
+
+`TestBM25KernelLatency` mede p95 de **1,43 ms** contra teto de **80 ms** — 56x
+de folga. E a mesma familia do teto de 60 ms que a Task 99 reapertou, e nao foi
+tocado aqui porque nao estava no pedido. Fica relatado.
