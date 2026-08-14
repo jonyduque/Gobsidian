@@ -86,6 +86,44 @@ function Test-Interactive {
     return [Environment]::UserInteractive -and -not [Console]::IsInputRedirected
 }
 
+function Remove-StaleLocks {
+    # Lock de inicializacao do daemon cujo PID ja morreu.
+    #
+    # internal/daemon.adquirirLock cria o arquivo com O_CREATE|O_EXCL e grava o
+    # PID dentro, mas NUNCA le esse PID de volta: se o arquivo existe, a ponte
+    # conclui "outra ja esta subindo o daemon" e so espera. O `defer liberar()`
+    # que deveria remove-lo nao roda quando o processo e MORTO -- e matar
+    # processos e exatamente o que este instalador faz logo acima.
+    #
+    # Resultado medido numa maquina real: um lock de 11/08 com PID morto deixou
+    # o daemon desligado por tres dias. Toda sessao MCP esperava 10 s em vao e
+    # depois construia o proprio indice, perdendo os -60% e -74% de memoria que
+    # o daemon existe para dar.
+    #
+    # Remove SO o que tem PID morto. Lock com processo vivo e uma ponte
+    # legitima subindo o daemon agora, e apaga-lo abriria a corrida que o lock
+    # existe para fechar.
+    $RunDir = Join-Path $env:LOCALAPPDATA "gobsidian\run"
+    if (-not (Test-Path $RunDir)) { return }
+
+    $Removidos = 0
+    foreach ($Lock in Get-ChildItem -Path $RunDir -Filter "*.lock" -ErrorAction SilentlyContinue) {
+        # $LockPid, e nao $Pid: $PID e variavel automatica do PowerShell (o
+        # PID do proprio processo), e sombrea-la e pedir um bug silencioso.
+        $LockPid = (Get-Content -Path $Lock.FullName -ErrorAction SilentlyContinue | Select-Object -First 1)
+        $LockPid = ($LockPid -as [int])
+        if ($LockPid -and (Get-Process -Id $LockPid -ErrorAction SilentlyContinue)) {
+            Write-Info "Lock $($Lock.Name) pertence ao PID $LockPid, que esta vivo; mantido."
+            continue
+        }
+        Remove-Item -Path $Lock.FullName -Force -ErrorAction SilentlyContinue
+        $Removidos++
+    }
+    if ($Removidos -gt 0) {
+        Write-Ok "$Removidos lock(s) obsoleto(s) do daemon removido(s)"
+    }
+}
+
 function Test-Admin {
     $id = [Security.Principal.WindowsIdentity]::GetCurrent()
     (New-Object Security.Principal.WindowsPrincipal($id)).IsInRole(
@@ -258,13 +296,45 @@ try {
 
     # Um gobsidian.exe em execucao mantem o arquivo travado, e o host MCP
     # costuma estar com um aberto. Encerra so os que apontam para ESTE destino.
-    $EmUso = @(Get-Process -Name "gobsidian" -ErrorAction SilentlyContinue |
-        Where-Object { $_.Path -eq $Destino })
+    #
+    # Filtrar por caminho, e nunca por nome: `Stop-Process -Name gobsidian` ja
+    # matou a sessao de Claude de um usuario neste projeto, e um cofre servido
+    # por um binario instalado em outro lugar nao tem nada a ver com esta
+    # instalacao.
+    #
+    # E PERGUNTA antes de matar. Quem esta rodando gobsidian esta com sessoes de
+    # MCP abertas; encerrar sem avisar derruba trabalho em curso, e o usuario
+    # nao tem como saber que foi o instalador. -Yes ou ambiente nao interativo
+    # seguem sem perguntar, que e a semantica que o resto do script ja usa.
+    $EmUso = @(Get-CimInstance Win32_Process -Filter "Name='gobsidian.exe'" -ErrorAction SilentlyContinue |
+        Where-Object { $_.ExecutablePath -eq $Destino })
     if ($EmUso.Count -gt 0) {
-        Write-Warn "$($EmUso.Count) processo(s) gobsidian em execucao a partir de $Destino; encerrando"
-        $EmUso | Stop-Process -Force -ErrorAction SilentlyContinue
+        Write-Warn "$($EmUso.Count) processo(s) gobsidian rodando a partir de ${Destino}:"
+        foreach ($p in $EmUso) {
+            $Cofre = "(cofre nao identificado)"
+            if ($p.CommandLine -match '--vault\s+"([^"]+)"') { $Cofre = $Matches[1] }
+            elseif ($p.CommandLine -match '--vault\s+(\S+)') { $Cofre = $Matches[1] }
+            Write-Info "    PID $($p.ProcessId)  $Cofre"
+        }
+        Write-Info "  O binario nao pode ser substituido enquanto eles estiverem abertos."
+
+        $Encerrar = $true
+        if (Test-Interactive) {
+            $R = Read-Host "  Encerrar esses processos e continuar? [s/N]"
+            $Encerrar = ($R -match '^[sSyY]')
+        }
+
+        if (-not $Encerrar) {
+            Write-Err "Instalacao cancelada: os processos acima continuam rodando."
+            Write-Info "Feche o host MCP (Claude Desktop, Claude Code) e rode o instalador de novo."
+            exit 1
+        }
+
+        foreach ($p in $EmUso) { Stop-Process -Id $p.ProcessId -Force -ErrorAction SilentlyContinue }
         Start-Sleep -Milliseconds 500
     }
+
+    Remove-StaleLocks
 
     Write-Step "Instalando em $InstallDir"
     if (-not (Test-Path $InstallDir)) { New-Item -ItemType Directory -Path $InstallDir -Force | Out-Null }

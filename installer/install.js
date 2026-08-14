@@ -393,20 +393,110 @@ function defaultInstallDir(admin) {
   return path.join(os.homedir(), ".local", "share", "gobsidian");
 }
 
-function killRunning(destino) {
+// Processos rodando A PARTIR DESTE destino, com o cofre de cada um.
+//
+// Por caminho, nunca por nome: matar por nome ja derrubou a sessao de Claude de
+// um usuario neste projeto, e um gobsidian instalado em outro lugar nao tem
+// nada a ver com esta instalacao.
+function listarEmUso(destino) {
   try {
     if (IS_WIN) {
-      // Encerra so processos gobsidian.exe cujo caminho bate com o destino.
-      const ps = `Get-CimInstance Win32_Process -Filter "Name='gobsidian.exe'" | Where-Object { $_.ExecutablePath -eq '${destino.replace(/'/g, "''")}' } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force }`;
-      spawnSync("powershell", ["-NoProfile", "-Command", ps], { stdio: "ignore" });
-    } else {
-      const r = spawnSync("pgrep", ["-f", destino], { encoding: "utf8" });
-      const pids = (r.stdout || "").split("\n").map((s) => s.trim()).filter(Boolean);
-      for (const pid of pids) spawnSync("kill", ["-9", pid], { stdio: "ignore" });
+      const ps = `Get-CimInstance Win32_Process -Filter "Name='gobsidian.exe'" | Where-Object { $_.ExecutablePath -eq '${destino.replace(/'/g, "''")}' } | ForEach-Object { "$($_.ProcessId)|$($_.CommandLine)" }`;
+      const r = spawnSync("powershell", ["-NoProfile", "-Command", ps], { encoding: "utf8" });
+      return separarLinhas(r.stdout).map((linha) => {
+        const i = linha.indexOf("|");
+        return { pid: linha.slice(0, i), cmd: linha.slice(i + 1) };
+      });
     }
+    const r = spawnSync("pgrep", ["-af", destino], { encoding: "utf8" });
+    return separarLinhas(r.stdout).map((linha) => {
+      const i = linha.indexOf(" ");
+      return { pid: linha.slice(0, i), cmd: linha.slice(i + 1) };
+    });
   } catch {
-    /* melhor esforco -- se falhar, a copia adiante e que vai acusar o erro */
+    return [];
   }
+}
+
+function separarLinhas(saida) {
+  return String(saida || "").split(/\r?\n/).map((s) => s.trim()).filter(Boolean);
+}
+
+function cofreDe(cmd) {
+  const m = cmd.match(/--vault\s+"([^"]+)"/) || cmd.match(/--vault\s+(\S+)/);
+  return m ? m[1] : "(cofre nao identificado)";
+}
+
+function matar(pid) {
+  if (IS_WIN) {
+    const ps = `Stop-Process -Id ${pid} -Force -ErrorAction SilentlyContinue`;
+    spawnSync("powershell", ["-NoProfile", "-Command", ps], { stdio: "ignore" });
+  } else {
+    spawnSync("kill", ["-9", String(pid)], { stdio: "ignore" });
+  }
+}
+
+// Diretorio de runtime do daemon, o MESMO que internal/ipc.runtimeDir calcula.
+function runtimeDir() {
+  if (IS_WIN) return path.join(process.env.LOCALAPPDATA || "", "gobsidian", "run");
+  if (process.env.XDG_RUNTIME_DIR) return path.join(process.env.XDG_RUNTIME_DIR, "gobsidian");
+  const uid = typeof process.getuid === "function" ? process.getuid() : 0;
+  return path.join(os.tmpdir(), `gobsidian-${uid}`);
+}
+
+function pidVivo(pid) {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (e) {
+    // EPERM: o processo existe e e de outro usuario. ESRCH: nao existe.
+    return e.code === "EPERM";
+  }
+}
+
+// Remove lock de inicializacao do daemon cujo PID ja morreu.
+//
+// internal/daemon.adquirirLock cria o arquivo com O_CREATE|O_EXCL e grava o PID
+// dentro, mas NUNCA le esse PID de volta: se o arquivo existe, a ponte conclui
+// "outra ja esta subindo o daemon" e so espera. O `defer liberar()` que deveria
+// remove-lo nao roda quando o processo e MORTO -- e matar processos e
+// exatamente o que este instalador faz logo acima.
+//
+// Medido numa maquina real: um lock com PID morto deixou o daemon desligado por
+// tres dias. Toda sessao MCP esperava 10 s em vao e depois construia o proprio
+// indice, perdendo os -60% e -74% de memoria que o daemon existe para dar.
+//
+// Remove SO o que tem PID morto: lock com processo vivo e uma ponte legitima
+// subindo o daemon agora, e apaga-lo abriria a corrida que o lock fecha.
+function removerLocksObsoletos() {
+  const dir = runtimeDir();
+  let entradas;
+  try {
+    entradas = fs.readdirSync(dir).filter((f) => f.endsWith(".lock"));
+  } catch {
+    return;
+  }
+  let removidos = 0;
+  for (const nome of entradas) {
+    const alvo = path.join(dir, nome);
+    let pid = 0;
+    try {
+      pid = parseInt(String(fs.readFileSync(alvo, "utf8")).trim(), 10);
+    } catch {
+      continue;
+    }
+    if (pid && pidVivo(pid)) {
+      log.info(`Lock ${nome} pertence ao PID ${pid}, que esta vivo; mantido.`);
+      continue;
+    }
+    try {
+      fs.rmSync(alvo, { force: true });
+      removidos++;
+    } catch {
+      /* melhor esforco */
+    }
+  }
+  if (removidos > 0) log.ok(`${removidos} lock(s) obsoleto(s) do daemon removido(s)`);
 }
 
 // -----------------------------------------------------------------------
@@ -746,7 +836,31 @@ async function main() {
       log.ok(`SHA-256 confere (${esperado.slice(0, 16)}...)`);
 
       destino = path.join(installDir, EXE_NAME);
-      killRunning(destino);
+
+      // PERGUNTA antes de matar. Quem esta rodando gobsidian esta com sessoes
+      // MCP abertas; encerrar sem avisar derruba trabalho em curso e o usuario
+      // nao tem como saber que foi o instalador. --yes ou ambiente nao
+      // interativo seguem sem perguntar, que e a semantica do resto do script.
+      const emUso = listarEmUso(destino);
+      if (emUso.length > 0) {
+        log.warn(`${emUso.length} processo(s) gobsidian rodando a partir de ${destino}:`);
+        for (const p of emUso) log.info(`    PID ${p.pid}  ${cofreDe(p.cmd)}`);
+        log.info("  O binario nao pode ser substituido enquanto eles estiverem abertos.");
+        let encerrar = true;
+        if (isInteractive(opts)) {
+          const r = await ask("  Encerrar esses processos e continuar? [s/N] ");
+          encerrar = /^[sy]/i.test(r);
+        }
+        if (!encerrar) {
+          log.err("Instalacao cancelada: os processos acima continuam rodando.");
+          log.info("Feche o host MCP (Claude Desktop, Claude Code) e rode o instalador de novo.");
+          process.exitCode = 1;
+          return;
+        }
+        for (const p of emUso) matar(p.pid);
+      }
+
+      removerLocksObsoletos();
 
       log.step(`Instalando em ${installDir}`);
       fs.mkdirSync(installDir, { recursive: true });
