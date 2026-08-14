@@ -290,6 +290,9 @@ Task 95: complete (commit fe99321) — uma classificacao so para placeholder de
 Task 96: complete (commit 1041457) — custo do cache de trecho no RSS medido:
     +0,86 MB, U de Mann-Whitney 11 contra regiao critica 5, nao significativo.
     Teto de 1.024 mantido.
+Task 102: complete — lock de inicializacao do daemon com PID morto desligou o
+    daemon por tres dias numa maquina real. Instaladores passaram a perguntar
+    antes de matar e a remover lock obsoleto. Causa raiz no Go NAO corrigida.
 Task 101: complete (commits 192e28c, 4e3444e) — filtro de frontmatter deixou de
     ser O(N^2): 192,8 s por chamada viraram ~51 ms. Mais os cinco achados da
     revisao adversarial da 98, que chegou depois de a 98 ter entrado.
@@ -3774,3 +3777,93 @@ ja tinham sido fechados por acaso na autorrevisao (guarda ancorada em
 `TestBM25KernelLatency` mede p95 de **1,43 ms** contra teto de **80 ms** — 56x
 de folga. E a mesma familia do teto de 60 ms que a Task 99 reapertou, e nao foi
 tocado aqui porque nao estava no pedido. Fica relatado.
+
+
+## Task 102 — o lock do daemon desligou o daemon por tres dias — 2026-08-13
+
+Diagnosticado testando o servidor MCP contra o cofre real do usuario: 6.037
+notas, 1,37 GB, dentro do OneDrive.
+
+### O que estava acontecendo
+
+Tres processos `serve` para o mesmo cofre, um com **1.378 MB** de working set,
+cada um com o proprio indice. O daemon sai ligado por padrao desde a v1.1.0 e
+nao estava em uso.
+
+`adquirirLock` usa `O_CREATE|O_EXCL`, **grava o PID no arquivo e nunca o le de
+volta**. Um lock de 11/08 com PID 18240 — morto — fazia toda ponte concluir
+"outra ja esta subindo o daemon", esperar 10 s e servir em processo. Para
+sempre.
+
+O `defer liberar()` que deveria remover o arquivo **nao roda quando o processo
+e morto**, e matar processos `gobsidian` e exatamente o que o instalador faz
+para substituir o binario. O comentario do proprio `adquirirLock` ja antecipava
+o risco e apostava no `defer`.
+
+### O que a investigacao ensinou sobre ler log
+
+O log dizia `socket do daemon nao respondeu em 10s`, e **nao**
+`nao foi possivel iniciar o daemon`. As duas mensagens saem de ramos diferentes
+de `servePonte`, e a diferenca entre elas e o diagnostico inteiro: a primeira
+significa que `iniciar()` devolveu nil, o que so acontece se ele **nao foi
+chamado**. Sem reparar em qual das duas mensagens era, a hipotese natural teria
+sido "o spawn falha", e ela e falsa — o spawn nunca acontece.
+
+Duas hipoteses foram levantadas e **descartadas por experimento**, nao por
+leitura: `--debounce-ms 0` (a config recusa 0, e `SpawnDetached` sempre passa a
+flag explicita — mas `config.Load` resolve o padrao 250 antes) e stdin no
+dispositivo nulo matando o daemon pela vigilia de EOF (o daemon sobrevive com
+`< /dev/null`, testado).
+
+### O custo
+
+Desde 11/08, toda sessao MCP esperava 10 s em vao e construia o indice so para
+si. **A Parte II do M7 inteira (Tasks 88-93), com -60% e -74% de memoria
+medidos, estava desligada em producao sem ninguem perceber** — o fallback em
+processo e silencioso por desenho.
+
+### O que foi feito
+
+`install.ps1` e `installer/install.js` passaram a **perguntar antes de matar**,
+listando PID e cofre de cada processo e abortando se o usuario recusar, e a
+**remover locks obsoletos** — so os de PID morto, porque lock com processo vivo
+e uma ponte legitima subindo o daemon agora.
+
+Verificado nos dois, com PID morto e PID vivo no mesmo diretorio:
+
+```
+--- antes: morto.sock.lock, vivo.sock.lock
+[i] Lock vivo.sock.lock pertence ao PID 16092, que esta vivo; mantido.
+[OK] 1 lock(s) obsoleto(s) do daemon removido(s)
+--- depois: vivo.sock.lock
+```
+
+**Um erro do proprio teste, registrado porque quase passou:** a primeira rodada
+do harness em Node apagou os dois locks, e a leitura obvia seria "a guarda de
+PID vivo nao funciona". Nao era: o lock "vivo" tinha sido escrito com o PID de
+um `node -e` que ja havia terminado. **Montagem errada da fixture produz o mesmo
+sintoma que codigo errado**, e a diferenca so aparece conferindo se a condicao
+que o teste pretende montar existe de fato.
+
+### ABERTO — a causa raiz nao foi corrigida
+
+O instalador **mitiga no momento da instalacao**. Uma ponte morta entre duas
+instalacoes recria o problema, e o usuario volta a perder o daemon sem sinal.
+
+O conserto e `adquirirLock` ler o PID que ele mesmo grava e, se o dono estiver
+morto, remover o arquivo e tentar de novo — lock obsoleto classico. O teste que
+prova isso mata a ponte durante a inicializacao e exige que a seguinte suba o
+daemon.
+
+### Outras observacoes da mesma sessao de teste, nao corrigidas
+
+- **A primeira `vault_search` depois de todo reinicio bloqueia** ate o indice de
+  texto ficar pronto — mais de dois minutos neste cofre. `garanteIndiceDeBusca`
+  espera a carga terminar, e o `CodeIndexBuilding`, que existe para responder
+  "ainda estou construindo", fica do lado de fora desse caminho.
+- **`buildInvertedIndex` e sequencial.** `index.Build` (metadados) usa
+  `runtime.NumCPU()` workers; o de busca e um `for` chamando `inv.Update`. Doze
+  nucleos, um usado.
+- **`title` vem vazio em 24 de 200 resultados** de busca. O codigo documenta que
+  titulo vazio e estado previsto e que "o chamador cai no nome do arquivo", mas
+  a API devolve `""` e ninguem faz esse fallback.

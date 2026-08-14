@@ -1885,3 +1885,68 @@ corretamente.
 **Por que ficou escondido:** `TestVaultSearchFrontmatter` existe desde sempre e
 usa duas notas. Com N=2 o custo quadrático é invisível. Benchmark que não cobre
 um formato de consulta é um formato de consulta sem gate.
+
+## O lock de inicialização do daemon desligou o daemon por três dias (2026-08-13)
+
+Diagnosticado numa máquina real, testando o servidor MCP contra um cofre de
+6.037 notas e 1,37 GB dentro do OneDrive.
+
+### O sintoma
+
+Três processos `serve` para o mesmo cofre, um deles com **1.378 MB** de working
+set, cada um com o próprio índice. O daemon — que existe desde a v1.1.0 e sai
+ligado por padrão — não estava em uso.
+
+### A cadeia, cada elo verificado
+
+1. Config MCP limpa: `serve --vault`, sem `GOBSIDIAN_NO_DAEMON`, `env` vazio.
+2. O daemon **funciona** quando lançado à mão: indexa, serve e encerra por
+   ociosidade.
+3. Nenhum processo de daemon aparece quando o `serve` tenta — **zero em oito
+   amostragens** ao longo dos 10 s de espera.
+4. O log diz `socket do daemon nao respondeu em 10s`, e **não**
+   `nao foi possivel iniciar o daemon`. Ou seja: `iniciar()` devolveu nil sem
+   ter sido chamado.
+5. `EnsureStarted` só pula o spawn num caso — `adquiriu == false`, o ramo
+   "outra ponte já está subindo, só espero".
+6. `adquirirLock` usa `O_CREATE|O_EXCL`, grava o PID no arquivo e **nunca o lê
+   de volta**. Não há checagem de obsolescência.
+7. O lock era de **11/08 09:14**, PID **18240**, e esse PID estava **morto**. A
+   primeira falha no log é de 11/08 09:16.
+
+A única proteção prevista é o `defer liberar()`, e o comentário do próprio
+código já antecipa o risco: *"um lock que sobrevive a uma tentativa fracassada
+de iniciar o daemon travaria toda ponte seguinte atrás de um arquivo que ninguém
+mais vai liberar."* Mas `defer` **não roda quando o processo é morto** — e matar
+processos `gobsidian` é exatamente o que o instalador faz para poder substituir o
+binário.
+
+### O custo
+
+Desde 11/08, toda sessão MCP esperava 10 s em vão e depois construía o índice
+inteiro só para si. A Parte II do M7 (Tasks 88–93), com −60% e −74% de memória
+medidos para três e cinco sessões, estava **desligada em produção sem ninguém
+perceber** — o fallback em processo é silencioso por desenho, e o log que explica
+está em `INFO` no stderr do servidor.
+
+### O que foi feito, e o que NÃO foi
+
+Os dois instaladores (`install.ps1` e `installer/install.js`) passaram a:
+
+- **perguntar antes de matar**, listando PID e cofre de cada processo, e abortar
+  a instalação se o usuário recusar — encerrar sessão MCP sem avisar derruba
+  trabalho em curso e o usuário não tem como saber que foi o instalador;
+- **remover locks obsoletos**, e **só** os que têm PID morto. Lock com processo
+  vivo é uma ponte legítima subindo o daemon agora, e apagá-lo abriria a corrida
+  que o lock existe para fechar. A limpeza roda mesmo quando não há processo
+  algum — que era exatamente o caso desta máquina.
+
+Verificado nos dois, com PID morto e PID vivo no mesmo diretório: o morto é
+removido, o vivo é mantido com a mensagem dizendo por quê.
+
+**A causa raiz continua no código Go e não foi corrigida.** O instalador
+mitiga no momento da instalação; uma ponte morta entre duas instalações recria o
+problema. O conserto é `adquirirLock` ler o PID que ele mesmo grava e, se o dono
+estiver morto, remover o arquivo e tentar de novo — lock obsoleto clássico. O
+teste que prova isso mata a ponte durante a inicialização e exige que a seguinte
+suba o daemon.
