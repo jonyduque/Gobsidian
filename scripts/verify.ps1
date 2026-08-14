@@ -157,6 +157,23 @@ if (-not $SkipLint) {
         }
         golangci-lint run @Alvos
     }
+
+    # Segunda passada com GOOS=linux, pelo MESMO motivo que o CI tem um job
+    # `lint-windows` separado: o linter so analisa os arquivos que a build tag
+    # do alvo atual inclui. Rodando so no Windows, todo arquivo `//go:build
+    # !windows` fica sem analise -- e foi assim que `err == syscall.EPERM` em
+    # internal/daemon/pidvivo_unix.go passou verde aqui e reprovou o job `lint`
+    # do CI, com o master ja empurrado.
+    #
+    # Uma passada de linux cobre os dois arquivos que faltavam: `!windows` pega
+    # tanto linux quanto darwin. Nao ha terceira passada porque `//go:build
+    # darwin` nao existe neste repositorio -- se passar a existir, esta lista
+    # cresce junto.
+    Invoke-Step "golangci-lint (linux)" {
+        $env:GOOS = "linux"
+        try { golangci-lint run @Alvos }
+        finally { Remove-Item Env:GOOS -ErrorAction SilentlyContinue }
+    }
 }
 else {
     Write-Output "[i] lint pulado (-SkipLint)"

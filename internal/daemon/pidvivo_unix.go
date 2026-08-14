@@ -3,6 +3,7 @@
 package daemon
 
 import (
+	"errors"
 	"os"
 	"syscall"
 )
@@ -27,5 +28,8 @@ func pidVivo(pid int) bool {
 	if err == nil {
 		return true
 	}
-	return err == syscall.EPERM
+	// errors.Is, e nao ==: proc.Signal pode devolver o errno embrulhado, e a
+	// comparacao direta erraria o caso — que aqui significaria tratar um
+	// processo VIVO de outro usuario como morto, e roubar o lock dele.
+	return errors.Is(err, syscall.EPERM)
 }
