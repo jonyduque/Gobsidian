@@ -290,6 +290,9 @@ Task 95: complete (commit fe99321) — uma classificacao so para placeholder de
 Task 96: complete (commit 1041457) — custo do cache de trecho no RSS medido:
     +0,86 MB, U de Mann-Whitney 11 contra regiao critica 5, nao significativo.
     Teto de 1.024 mantido.
+Task 103: complete (commit d8ff710) — adquirirLock passou a ler o PID que grava
+    e a recuperar lock de dono morto. A regra do exitTime no Windows quase ficou
+    escrita sem estar verificada; a primeira mutacao dela PASSOU.
 Task 102: complete — lock de inicializacao do daemon com PID morto desligou o
     daemon por tres dias numa maquina real. Instaladores passaram a perguntar
     antes de matar e a remover lock obsoleto. Causa raiz no Go NAO corrigida.
@@ -3867,3 +3870,70 @@ daemon.
 - **`title` vem vazio em 24 de 200 resultados** de busca. O codigo documenta que
   titulo vazio e estado previsto e que "o chamador cai no nome do arquivo", mas
   a API devolve `""` e ninguem faz esse fallback.
+
+
+## Task 103 — adquirirLock recupera lock de dono morto — 2026-08-14
+
+```
+$ git cat-file -t d8ff710
+commit
+```
+
+`d8ff710` `fix(daemon): reclaim a startup lock whose owner is dead`
+
+Fecha a causa raiz que a Task 102 deixou aberta de proposito. O PID sempre foi
+gravado no arquivo de lock; o que faltava era le-lo de volta.
+
+### As duas decisoes do conserto
+
+- **Ilegivel ou vazio conta como OBSOLETO.** O processo pode morrer entre o
+  `O_EXCL` e o `Fprintf`, deixando arquivo de zero byte para sempre.
+- **PID reciclado conta como VIVO**, conservador: para esse caso a ponte espera,
+  que e o comportamento anterior. Degradar para o estado antigo e aceitavel;
+  roubar lock de dono legitimo nao e.
+
+Janela residual nomeada em vez de escondida: entre ler o arquivo e remove-lo,
+outra ponte pode ter criado um lock legitimo. Microssegundos, e a consequencia ja
+tem anteparo — `EnsureStarted` disca de novo depois de adquirir.
+
+### A regra do Windows quase ficou escrita sem estar verificada
+
+`MUT3` da primeira rodada saiu **`EXIT=1`**: apagar a checagem de `exitTime` nao
+reprovava teste nenhum.
+
+**Nao era a regra que estava errada — era a montagem do teste.** Ele chamava
+`cmd.Wait()`, e o `Wait` faz o Go FECHAR o handle do processo; sem handle aberto,
+o Windows libera o PID, `OpenProcess` falha sozinha e `pidVivo` devolvia false
+pelo motivo errado. A condicao que a regra existe para tratar — processo morto
+que AINDA responde a `OpenProcess` — nunca era montada.
+
+O teste novo adia o `Wait`, espera o termino num handle proprio, e **confere que
+a condicao se montou** (reabre o processo e pula se o PID ja tiver sido liberado)
+antes de afirmar qualquer coisa. Com ele, a mesma mutacao reprova:
+
+```
+      - return exit.HighDateTime == 0 && exit.LowDateTime == 0
+      + return true
+--- FAIL: TestPidVivoDetectaMorteComHandleAberto (0.05s)
+    pidVivo(8856) = true para um processo JA MORTO que ainda responde a OpenProcess
+MUT_EXITTIME_EXIT=0
+```
+
+E a terceira vez nesta sequencia de tarefas que `EXIT` sozinho enganaria: na
+Task 94 um `EXIT=0` provou o ramo errado, na Task 101 um `EXIT=1` era mutacao
+inocua, e aqui um `EXIT=1` era fixture mal montada. **O codigo de saida diz o que
+aconteceu com o teste, nunca por que.**
+
+### Provas
+
+Tres mutacoes, `EXIT=0` nas tres: todo lock vivo reprova a recuperacao; todo lock
+obsoleto reprova o respeito ao vivo; sem `exitTime` reprova o teste do Windows.
+
+Uma delas saiu `EXIT=2` na primeira tentativa (`return true` deixava `pid` sem
+uso e quebrava o build). **Falha de compilacao nao e cobertura**; trocada por
+`return !pidVivo(pid) || true`, que compila.
+
+Ponta a ponta, com lock de PID morto plantado no disco e a ponte real:
+`msg="conectado ao daemon recem-iniciado via socket"`.
+
+`verify.ps1`: 12 de 12, `VERIFY_EXIT=0`.

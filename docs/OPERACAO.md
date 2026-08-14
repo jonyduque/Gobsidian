@@ -1944,9 +1944,25 @@ Os dois instaladores (`install.ps1` e `installer/install.js`) passaram a:
 Verificado nos dois, com PID morto e PID vivo no mesmo diretório: o morto é
 removido, o vivo é mantido com a mensagem dizendo por quê.
 
-**A causa raiz continua no código Go e não foi corrigida.** O instalador
-mitiga no momento da instalação; uma ponte morta entre duas instalações recria o
-problema. O conserto é `adquirirLock` ler o PID que ele mesmo grava e, se o dono
-estiver morto, remover o arquivo e tentar de novo — lock obsoleto clássico. O
-teste que prova isso mata a ponte durante a inicialização e exige que a seguinte
-suba o daemon.
+**~~A causa raiz continua no código Go e não foi corrigida.~~ Corrigida em
+2026-08-14** (`d8ff710`, v1.2.1). `adquirirLock` passou a ler o PID que ele mesmo
+grava e a recuperar o lock quando o dono está morto. O instalador continua
+limpando no momento da instalação, e as duas camadas não são redundância inútil:
+o instalador cobre binários antigos já espalhados, que continuam com o defeito.
+
+Duas decisões do conserto, ambas comentadas onde vivem:
+
+- **Conteúdo ilegível ou vazio conta como obsoleto.** O processo pode morrer
+  entre o `O_EXCL` e a escrita do PID, deixando um arquivo de zero byte para
+  sempre; tratá-lo como vivo devolveria o travamento permanente.
+- **PID reciclado conta como vivo**, conservador de propósito: para esse caso a
+  ponte espera, que é o comportamento de hoje. Degradar para o estado anterior é
+  aceitável; roubar o lock de um dono legítimo não é.
+
+**A regra do Windows quase ficou escrita sem estar verificada.** A primeira
+versão do teste chamava `cmd.Wait()`, o que faz o Go fechar o handle do
+processo; o PID some, `OpenProcess` falha sozinho e `pidVivo` devolvia false
+pelo motivo errado. A mutação que apagava a checagem de `exitTime` **passou**. O
+teste passou a adiar o `Wait` e a esperar num handle próprio, montando a
+condição real — processo morto que ainda responde a `OpenProcess` — e a conferir
+que ela se montou antes de afirmar.
