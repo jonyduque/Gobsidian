@@ -11,12 +11,17 @@ import (
 	"strings"
 	"time"
 
+	"github.com/cespare/xxhash/v2"
 	"github.com/jonyd/gobsidian/internal/index"
 	"github.com/jonyd/gobsidian/internal/parser"
 	"github.com/jonyd/gobsidian/internal/vault"
 	"github.com/jonyd/gobsidian/internal/writer"
 	"gopkg.in/yaml.v3"
 )
+
+func hashDoConteudo(data []byte) string {
+	return fmt.Sprintf("%016x", xxhash.Sum64(data))
+}
 
 // CreateNoteRequest carrega os parametros para note_create.
 type CreateNoteRequest struct {
@@ -32,6 +37,7 @@ type CreateNoteResult struct {
 	Path    string `json:"path"`
 	Diff    string `json:"diff,omitempty"`
 	Created bool   `json:"created"`
+	Hash    string `json:"hash,omitempty"`
 }
 
 // AppendNoteRequest carrega os parametros para note_append.
@@ -51,6 +57,7 @@ type AppendNoteResult struct {
 	Path     string `json:"path"`
 	Diff     string `json:"diff,omitempty"`
 	Appended bool   `json:"appended"`
+	Hash     string `json:"hash,omitempty"`
 }
 
 // PatchNoteRequest carrega os parametros para note_patch.
@@ -70,6 +77,7 @@ type PatchNoteResult struct {
 	Path    string `json:"path"`
 	Diff    string `json:"diff,omitempty"`
 	Patched bool   `json:"patched"`
+	Hash    string `json:"hash,omitempty"`
 }
 
 func (s *Service) checkWriteAllowed(path string) error {
@@ -128,14 +136,14 @@ func (s *Service) CreateNote(_ context.Context, req CreateNoteRequest) (CreateNo
 
 	if req.DryRun {
 		diff := writer.UnifiedDiff(req.Path, req.Path, "", fullContent, 3)
-		return CreateNoteResult{Path: req.Path, Diff: diff, Created: false}, nil
+		return CreateNoteResult{Path: req.Path, Diff: diff, Created: false, Hash: hashDoConteudo([]byte(fullContent))}, nil
 	}
 
 	if err := writer.WriteAtomic(absPath, []byte(fullContent)); err != nil {
 		return CreateNoteResult{}, Errorf(CodeInternal, "escrevendo nota %q: %v", req.Path, err)
 	}
 
-	return CreateNoteResult{Path: req.Path, Diff: "", Created: true}, nil
+	return CreateNoteResult{Path: req.Path, Diff: "", Created: true, Hash: hashDoConteudo([]byte(fullContent))}, nil
 }
 
 // AppendNote anexa conteudo a uma nota ou secao existente.
@@ -169,7 +177,7 @@ func (s *Service) AppendNote(_ context.Context, req AppendNoteRequest) (AppendNo
 		return AppendNoteResult{}, Errorf(CodeInternal, "lendo nota %q: %v", req.Path, err)
 	}
 
-	currentHash := fmt.Sprintf("%016x", note.Hash)
+	currentHash := hashDoConteudo(raw)
 	if req.ExpectedHash != "" && currentHash != req.ExpectedHash {
 		return AppendNoteResult{}, Errorf(CodeHashMismatch, "hash esperado %q nao confere com hash atual %q", req.ExpectedHash, currentHash)
 	}
@@ -230,14 +238,14 @@ func (s *Service) AppendNote(_ context.Context, req AppendNoteRequest) (AppendNo
 
 	if req.DryRun {
 		diff := writer.UnifiedDiff(req.Path, req.Path, string(raw), string(proposed), 3)
-		return AppendNoteResult{Path: req.Path, Diff: diff, Appended: false}, nil
+		return AppendNoteResult{Path: req.Path, Diff: diff, Appended: false, Hash: hashDoConteudo(proposed)}, nil
 	}
 
 	if err := writer.WriteAtomic(absPath, proposed); err != nil {
 		return AppendNoteResult{}, Errorf(CodeInternal, "escrevendo nota %q: %v", req.Path, err)
 	}
 
-	return AppendNoteResult{Path: req.Path, Diff: "", Appended: true}, nil
+	return AppendNoteResult{Path: req.Path, Diff: "", Appended: true, Hash: hashDoConteudo(proposed)}, nil
 }
 
 // PatchNote substitui uma secao, cabeçalho ou bloco de uma nota.
@@ -275,7 +283,7 @@ func (s *Service) PatchNote(_ context.Context, req PatchNoteRequest) (PatchNoteR
 		return PatchNoteResult{}, Errorf(CodeInternal, "lendo nota %q: %v", req.Path, err)
 	}
 
-	currentHash := fmt.Sprintf("%016x", note.Hash)
+	currentHash := hashDoConteudo(raw)
 	if req.ExpectedHash != "" && currentHash != req.ExpectedHash {
 		return PatchNoteResult{}, Errorf(CodeHashMismatch, "hash esperado %q nao confere com hash atual %q", req.ExpectedHash, currentHash)
 	}
@@ -359,14 +367,14 @@ func (s *Service) PatchNote(_ context.Context, req PatchNoteRequest) (PatchNoteR
 
 	if req.DryRun {
 		diff := writer.UnifiedDiff(req.Path, req.Path, string(raw), string(proposed), 3)
-		return PatchNoteResult{Path: req.Path, Diff: diff, Patched: false}, nil
+		return PatchNoteResult{Path: req.Path, Diff: diff, Patched: false, Hash: hashDoConteudo(proposed)}, nil
 	}
 
 	if err := writer.WriteAtomic(absPath, proposed); err != nil {
 		return PatchNoteResult{}, Errorf(CodeInternal, "escrevendo nota %q: %v", req.Path, err)
 	}
 
-	return PatchNoteResult{Path: req.Path, Diff: "", Patched: true}, nil
+	return PatchNoteResult{Path: req.Path, Diff: "", Patched: true, Hash: hashDoConteudo(proposed)}, nil
 }
 
 // MoveNoteRequest carrega os parametros para note_move.
