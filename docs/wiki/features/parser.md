@@ -1,0 +1,115 @@
+---
+title: Parser
+type: feature
+status: active
+description: Markdown do Obsidian — frontmatter, headings com offsets e quatro extensões goldmark.
+source_paths:
+  - internal/parser/parser.go
+  - internal/parser/frontmatter.go
+  - internal/parser/headings.go
+  - internal/parser/ext_wikilink.go
+  - internal/parser/ext_blockid.go
+  - internal/parser/ext_tag.go
+  - internal/parser/ext_inline_field.go
+  - internal/parser/slug.go
+source_commit: b2be492
+tags: [parser, goldmark, markdown]
+language: pt-BR
+updated_at: '2026-08-16'
+---
+
+# Parser
+
+Transforma bytes de uma nota em `ParsedNote`. **É puro**: sem I/O, sem estado, sem
+conhecimento do índice ou do cofre. Isso o torna trivialmente testável por golden
+file e trivialmente paralelizável — o worker pool de `index.Build` depende disso.
+
+O `goldmark.Markdown` é construído **uma vez** como variável de pacote; ele é
+seguro para uso concorrente após a construção.
+
+## O que sai
+
+```go
+type ParsedNote struct {
+    Title, FrontmatterErr string
+    Frontmatter           map[string]any
+    Tags, Aliases         []string
+    Headings              []Heading
+    Blocks                []Block
+    Links                 []Link
+    Inline                map[string][]string
+}
+```
+
+## Frontmatter
+
+`SplitFrontmatter` separa o bloco YAML e devolve **o offset em que o corpo
+começa** — é ele que mantém os offsets de heading e de bloco corretos em relação
+ao início do buffer.
+
+> Exige entrada **já sem BOM**. Quem produz essa garantia é `vault.StripBOM`. Sem
+> ela, `\xEF\xBB\xBF---` não bate com o prefixo `---`: o frontmatter não fica
+> malformado, fica **invisível** — sem `FrontmatterErr`, com tags, aliases e
+> título sumindo em silêncio.
+
+Frontmatter quebrado **não invalida a nota**: o corpo continua tendo headings e
+links úteis. O erro vai para `FrontmatterErr`.
+
+## Headings
+
+`ExtractHeadings` faz varredura própria em vez de usar a AST do goldmark, porque
+precisa do **offset de fim de seção** — que é propriedade da hierarquia, não do
+nó: o fim de uma seção é o início do próximo heading de nível menor ou igual.
+
+Três offsets por heading, e a distinção importa:
+
+| campo | aponta para |
+|---|---|
+| `Start` | o início da **linha** do heading (não do `#` — a indentação conta) |
+| `BodyStart` | logo após a linha do heading — é o que `replace_section` usa |
+| `End` | o início do próximo heading de nível ≤, ou o fim do buffer |
+
+Blocos de código cercados são respeitados: um `#` dentro de uma cerca não é
+heading. E a cerca de fechamento precisa ter pelo menos o tamanho da de abertura —
+tratar qualquer linha de crases como indiferente faz uma cerca de quatro ser
+fechada por uma de três, e dali em diante toda a hierarquia sai errada.
+
+**Só ATX (`#`).** Setext (`Título` + `====`) e título em negrito não são
+reconhecidos — ver [Achados em aberto](../notes/achados-abertos.md).
+
+## As quatro extensões goldmark
+
+| Extensão | Sintaxe | Observação |
+|---|---|---|
+| `WikilinkExtension` | `[[nota]]`, `[[nota#âncora\|alias]]`, `![[embed]]` | três `LinkKind` distintos |
+| `BlockIDExtension` | `^id` no fim de linha | `Start` é o do **bloco pai**, não do `^` |
+| `TagExtension` | `#tag`, `#tag/aninhada` | precisa não casar `#` de heading nem de URL |
+| `InlineFieldExtension` | `campo:: valor` (Dataview) | **não pode consumir o span do valor** |
+
+A última carrega uma lição: o campo inline consumia o span do valor, e
+`fonte:: [[STJ]]` deixava de produzir link nenhum — links que o commit anterior já
+coletava. **Feature P1 não tem direito de apagar dado P0.**
+
+## `Slug`
+
+Normaliza um heading para comparação com a âncora de um wikilink: minúsculas, sem
+acento, sem pontuação, espaços colapsados. Reproduz o casamento permissivo do
+Obsidian, que faz `[[nota#Capitulo 118]]` encontrar `## Capítulo 118`.
+
+Pontuação vira **nada**, não espaço: `Art. 1.234` precisa virar `art 1234`, não
+`art 1 234`.
+
+O valor é pré-computado em `Heading.Slug` e persistido no cache — mas nenhum
+leitor o usa hoje.
+
+## Golden files
+
+48 arquivos congelam o parser e as quatro extensões, mais uma verificação de
+paridade contra um dump real do `metadataCache` do Obsidian.
+
+> **`-update` grava o que o código produz, não o que está certo.** Depois de
+> gerar, leia cada arquivo e confira contra o que você esperava **antes** de rodar.
+
+## Ver também
+
+- [Nota e caminho](../entities/note-e-caminho.md) · [Busca](busca.md)

@@ -49,6 +49,47 @@ O `sdd.ps1` embrulha os scripts do plugin superpowers, cujo caminho embute a ver
 
 **`golangci-lint` local verde não significa CI verde.** O `go.mod` declara `go 1.25.0`, e um binário compilado com Go mais antigo recusa o config antes de analisar linha nenhuma: `can't load config: the Go language version (go1.24) used to build golangci-lint is lower than the targeted Go version (1.25.0)`. O CI fixa `v2.12.2` de propósito — com a versão flutuando, os dois lados resolvem binários diferentes e a checagem local para de dizer qualquer coisa sobre o pipeline. Confira `golangci-lint version` antes de confiar num zero.
 
+## Wiki do codebase (`docs/wiki`)
+
+Camada derivada que explica **o código**. A fonte da verdade continua sendo o repositório, e a especificação normativa continua em `docs/` — `PRD.md`, `ARCHITECTURE.md`, `TOOLS.md`, `ESTRUTURA.md`, `WINDOWS.md`, `OPERACAO.md`. **O wiki cita esses documentos; não os recopia.** Duas cópias do mesmo fato divergem, e a menos consultada é a que fica errada — é a mesma lição de `byAlias` e de `nomeChave`, aplicada a texto.
+
+### Para usar
+
+Entrada é `docs/wiki/Home.md`, que responde oito perguntas na ordem em que um recém-chegado as faz. Antes de mexer num subsistema, leia a página dele; antes de commitar, releia `risks/regras-nao-negociaveis.md`.
+
+Ao responder algo sobre o projeto a partir do wiki, **cite a página e o caminho de código** (`internal/service/write.go:79`), e verifique no código quando a página estiver `status: stale`. Página defasada é ponto de partida, não resposta.
+
+`notes/achados-abertos.md` indexa os defeitos que a revisão de 2026-08-15 encontrou e que **ainda não foram corrigidos**. Confira contra o `git log` antes de agir: pode ter sido consertado depois.
+
+### Para atualizar
+
+Depois de qualquer mudança de código que altere comportamento, estrutura ou uma regra:
+
+```powershell
+# o que mudou desde o ultimo ingest, e que paginas declaram esses arquivos
+python <skill>/scripts/wiki_scan.py changes . --wiki docs/wiki
+
+# criar pagina nova (nunca cole frontmatter a mao)
+python <skill>/scripts/wiki_new.py . --type feature --title "X" --source internal/x/y.go --apply
+
+# fechar o ciclo: carimbo -> indice -> cobertura -> doctor -> checkpoint
+<skill>/scripts/wiki-pipeline.ps1 post-ingest -Repo . -AdvanceCheckpoint
+
+# saude, incluindo referencias a codigo que nao resolvem
+<skill>/scripts/wiki-pipeline.ps1 lint -Repo .
+```
+
+`<skill>` é `~/.claude/skills/codebase-wiki`. A skill `codebase-wiki` carrega sozinha nos gatilhos ("atualizar o wiki", "documentar o codebase").
+
+Quatro regras que valem aqui:
+
+- **Toda página declara `source_paths`.** É o que liga arquivo alterado a página a reescrever. Sem isso o wiki vira prosa solta e o drift deixa de ser detectável.
+- **Não preencha `source_commit` à mão** — o `post-ingest` carimba o que estiver vazio, e nunca sobrescreve o que já tem valor.
+- **Não recopie `docs/`.** Página que só resumiria um documento normativo não deve existir; ponha um link no `Home.md`.
+- **Símbolo citado entre crases tem de existir no código.** `wiki_doctor.py refs` confere, e é a checagem que pega a página que continua "fresca" pelo commit e cita um nome já renomeado. Falso positivo se dispensa **na própria linha, com motivo obrigatório**: `<!-- wiki-refs: ignore <tokens> -- <motivo> -->`.
+
+O wiki **não** entra no `verify.ps1` nem no CI: ele documenta, não gateia. Quem o mantém alinhado é o `post-ingest` rodado junto da mudança que o tornou desatualizado.
+
 ## Dependências
 
 **Nunca rode `go mod tidy`.** Várias deps fixadas mas sem importador ainda — `goldmark`, `yaml.v3`, `x/text` só ganham um em M1 e M3. `tidy` removeria elas, junto com pin do SDK MCP, que é decisão fechada (PRD D6).

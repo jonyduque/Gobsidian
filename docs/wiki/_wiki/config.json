@@ -1,0 +1,9 @@
+{
+  "_leia_me": "exclude aceita globs de caminho relativo, ALEM das listas padrao (harness, dependencias, build). size_targets sobrepoe o alvo de palavras de prosa por 'type' de pagina.",
+  "exclude": [
+    "agent"
+  ],
+  "size_targets": {},
+  "language": "pt-BR",
+  "hooks_notice": "off"
+}
