@@ -3955,3 +3955,9 @@ Ponta a ponta, com lock de PID morto plantado no disco e a ponte real:
 `msg="conectado ao daemon recem-iniciado via socket"`.
 
 `verify.ps1`: 12 de 12, `VERIFY_EXIT=0`.
+
+
+Task 116: complete (commit f76eeaf, validate expected_hash against disk bytes instead of index, review Approved)
+  - internal/service/write.go: currentHash deriva de hashDoConteudo(raw) (xxhash.Sum64(raw)), e AppendNoteResult/PatchNoteResult/CreateNoteResult passam a devolver o Hash atualizado do conteudo gravado.
+  - internal/service/expected_hash_test.go: criado com TestExpectedHashPegaEdicaoExternaAindaNaoIndexada e TestExpectedHashCorretoAindaPassa.
+  - Prova de mutacao em AppendNote e PatchNote: MUT_EXIT=0 nas duas regras, com expected_hash_test.go:79 reprovando pelo nome e linha.
