@@ -290,6 +290,24 @@ Task 95: complete (commit fe99321) — uma classificacao so para placeholder de
 Task 96: complete (commit 1041457) — custo do cache de trecho no RSS medido:
     +0,86 MB, U de Mann-Whitney 11 contra regiao critica 5, nao significativo.
     Teto de 1.024 mantido.
+Task 104: complete (reworked, sem commit) — check_tool_params.ps1 reescrito com
+    escopo estrito por handler ($pVar.$NomeGo, -cmatch), sem disjunto de nome nu,
+    HANDLER-NAO-RESOLVIDO como achado com exit 1 em vez de fallback para o pacote
+    inteiro, e propagacao ate o dominio por acesso .Campo em internal/.
+    No HEAD o gate sai 1 com DOIS campos: tagListInput.Sort e
+    tagListInput.Hierarchical. Os tres campos que aparecem no relatorio da
+    tarefa sao o estado SOB MUTACAO, nao o HEAD — a distincao importa porque
+    "3 no HEAD" faria a Task 120 procurar um campo que nao existe.
+    Revisao (2026-08-17) re-executou quatro mutacoes proprias, todas com SHA-256
+    identico antes/depois: noteListInput.Sort 2->3; moveInput.UpdateLinks 2->3;
+    dominio parando de ler MetadataRequest.Include -> noteMetadataInput.Include
+    acusado; handler de tag_list recebendo ponteiro -> HANDLER-NAO-RESOLVIDO nos
+    quatro campos. verify.ps1 12 de 13, reprovando SO em check_tool_params, que
+    e o esperado ate a Task 120. O teto de latencia que reprovou no relatorio
+    passa limpo em maquina sem carga concorrente (-count=2).
+    Pendencia: o nivel 2 casa .Campo em qualquer lugar de internal/, sem escopo
+    da struct de destino. Nao distingue TagRequest.Sort de ListRequest.Sort, e
+    esse limite nao esta escrito no cabecalho do script.
 Task 103: complete (commit d8ff710) — adquirirLock passou a ler o PID que grava
     e a recuperar lock de dono morto. A regra do exitTime no Windows quase ficou
     escrita sem estar verificada; a primeira mutacao dela PASSOU.
