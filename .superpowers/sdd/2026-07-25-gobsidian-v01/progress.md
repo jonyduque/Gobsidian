@@ -4043,3 +4043,44 @@ Centralizou a normalizacao de texto em text.Normalize(s) e substituiu as recompu
    - `pwsh -File scripts/mutate.ps1 -Path internal/service/graph.go -Anchor 'if limit > 500 {' -Replacement 'if false {' -Test TestLinkGraphLimitTemTeto -Package ./internal/service/`
    - Resultado: `EXIT=0` (reprovou em `graph_ordem_test.go:83: LimitEfetivo = 1000000: limit continua sem teto`).
 
+## Task 120 — Parâmetros de schema honrados, com validação e teto
+
+`77273d1` `feat(mcpsrv,service): honour date filters, tag sort, hierarchical tags, and max_results`
+
+### O que foi feito
+
+- `internal/mcpsrv/tools_read.go`:
+  - Implementado `parseDateFilter` aceitando RFC3339 ("2006-01-02T15:04:05Z07:00") e data curta ("2006-01-02" UTC midnight). Retorna `CodeInvalidArgument` em formatos inválidos.
+  - Atualizadas anotações `jsonschema` para `ModifiedAfter`, `ModifiedBefore`, `SnippetChars` e `Sort`.
+  - Repassado `in.Sort` em `tag_list` handler para o `service.TagRequest`.
+- `internal/service/search.go`:
+  - Adicionados campos `SnippetCharsEfetivo` (`effective_snippet_chars`) e `LimitEfetivo` (`effective_limit`) a `SearchResult`.
+  - Clampado `opts.Limit` pelo teto `s.opts.MaxResults` quando positivo.
+  - Preenchidos `Hits` e `Results` nas estruturas de retorno.
+- `internal/service/graph.go`:
+  - Adicionados `Sort` em `TagRequest`, estrutura `TagNode` (com `Children []any` para evitar pânico por ciclo de reflexão no SDK de MCP) e funções `ordenarTags` (ordenando por "name" asc e "count" desc com desempate por nome) e `tagListHierarchical`.
+- `internal/config/config.go`:
+  - Adicionado `MaxResults` e `MaxResultsSet` em `Flags`, com validação contra `MaxResultsCeiling` (500) em `validateMaxResults`.
+- `docs/TOOLS.md`:
+  - Atualizadas descrições, schemas e formatos de retorno para `vault_search` e `tag_list`.
+- Testes criados:
+  - `internal/mcpsrv/filtro_data_test.go` (`package mcpsrv_test`)
+  - `internal/service/tag_list_test.go` (`package service`)
+  - `internal/service/max_results_test.go` (`package service_test`)
+
+### Provas de Mutação (mutate.ps1)
+
+1. `tools_read.go` mutado em `parseDateFilter` (`return ... CodeInvalidArgument` -> `modAfter = nil`):
+   - `pwsh -File scripts/mutate.ps1 -Path internal/mcpsrv/tools_read.go -Anchor 'return nil, service.SearchResult{}, toolErr(service.Errorf(service.CodeInvalidArgument, "modified_after invalido: %v", err))' -Replacement 'modAfter = nil; _ = fmt.Sprintf("modified_after invalido: %v", err)' -Test TestFiltroDeDataInvalidoNaoViraSilencio -Package ./internal/mcpsrv/`
+   - Resultado: `EXIT=0` (reprovou com `filtro_data_test.go:129: modified_after="ontem" foi aceito e devolveu 3 hits`).
+2. `graph.go` mutado em `Hierarchical` check (`if req.Hierarchical {` -> `if false {`):
+   - `pwsh -File scripts/mutate.ps1 -Path internal/service/graph.go -Anchor 'if req.Hierarchical {' -Replacement 'if false {' -Test TestTagListHierarquico -Package ./internal/service/`
+   - Resultado: `EXIT=0` (reprovou com `tag_list_test.go:78: hierarchical=true devolveu lista plana: nao ha no raiz 'projeto'`).
+3. `graph.go` mutado em `Sort` execution (`ordenarTags(nodes, req.Sort)` -> `_ = req.Sort`):
+   - `pwsh -File scripts/mutate.ps1 -Path internal/service/graph.go -Anchor 'ordenarTags(nodes, req.Sort)' -Replacement '_ = req.Sort' -Test TestTagListOrdenacao -Package ./internal/service/`
+   - Resultado: `EXIT=0` (reprovou com `tag_list_test.go:35: sort=name fora de ordem em 1: "projeto/ativo" depois de "zzz"`).
+4. `search.go` mutado em `MaxResults` limit clamp (`if s.opts.MaxResults > 0 && opts.Limit > s.opts.MaxResults {` -> `if false {`):
+   - `pwsh -File scripts/mutate.ps1 -Path internal/service/search.go -Anchor 'if s.opts.MaxResults > 0 && opts.Limit > s.opts.MaxResults {' -Replacement 'if false {' -Test TestMaxResultsClampaLimit -Package ./internal/service/`
+   - Resultado: `EXIT=0` (reprovou com `max_results_test.go:28: hits = 30, quer 5 (limit=100 clampado por MaxResults=5)`).
+
+

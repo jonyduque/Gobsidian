@@ -31,6 +31,8 @@ type Flags struct {
 	ReadOnlySet   bool
 	DebounceMS    int
 	DebounceMSSet bool
+	MaxResults    int
+	MaxResultsSet bool
 	CacheDir      string
 	// EagerSearch nao tem par de variavel de ambiente, entao nao precisa do
 	// companheiro *Set: sem uma segunda fonte para desempatar, o valor zero
@@ -105,6 +107,20 @@ func Load(f Flags) (Config, error) {
 		cfg.DebounceMS = f.DebounceMS
 	}
 
+	if v := os.Getenv("GOBSIDIAN_MAX_RESULTS"); v != "" {
+		n, err := parseMaxResults(v)
+		if err != nil {
+			return Config{}, fmt.Errorf("GOBSIDIAN_MAX_RESULTS: %w", err)
+		}
+		cfg.MaxResults = n
+	}
+	if f.MaxResultsSet {
+		if err := validateMaxResults(f.MaxResults); err != nil {
+			return Config{}, fmt.Errorf("--max-results: %w", err)
+		}
+		cfg.MaxResults = f.MaxResults
+	}
+
 	cfg.CacheDir = f.CacheDir
 	if cfg.CacheDir == "" {
 		cfg.CacheDir = defaultCacheDir(cfg.VaultPath)
@@ -167,6 +183,24 @@ func parseDebounceMS(v string) (int, error) {
 func validateDebounceMS(n int) error {
 	if n < 1 {
 		return fmt.Errorf("valor invalido %d (use um inteiro >= 1)", n)
+	}
+	return nil
+}
+
+func parseMaxResults(v string) (int, error) {
+	n, err := strconv.Atoi(v)
+	if err != nil {
+		return 0, fmt.Errorf("valor invalido %q (use um inteiro de 1 a %d): %w", v, MaxResultsCeiling, err)
+	}
+	if err := validateMaxResults(n); err != nil {
+		return 0, err
+	}
+	return n, nil
+}
+
+func validateMaxResults(n int) error {
+	if n < 1 || n > MaxResultsCeiling {
+		return fmt.Errorf("valor invalido %d (deve ser entre 1 e %d)", n, MaxResultsCeiling)
 	}
 	return nil
 }

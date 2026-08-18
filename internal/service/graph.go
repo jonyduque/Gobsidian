@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"runtime"
 	"slices"
+	"strings"
 	"time"
 
 	"github.com/jonyd/gobsidian/internal/index"
@@ -187,12 +188,49 @@ func (s *Service) LinkGraph(_ context.Context, req GraphRequest) (GraphResult, e
 type TagRequest struct {
 	Prefix       string `json:"prefix"`
 	MinCount     int    `json:"min_count"`
+	Sort         string `json:"sort"`
 	Hierarchical bool   `json:"hierarchical"`
+}
+
+// TagNode e um no na arvore de tags ou um item da lista plana.
+type TagNode struct {
+	Tag      string `json:"tag"`
+	Count    int    `json:"count"`
+	Children []any  `json:"children,omitempty"`
 }
 
 // TagResult e o retorno de tag_list, com a contagem por tag.
 type TagResult struct {
-	Tags []index.TagCount `json:"tags"`
+	Tags []TagNode `json:"tags"`
+}
+
+func ordenarTags(tags []TagNode, sortMode string) {
+	if sortMode == "count" {
+		slices.SortStableFunc(tags, func(a, b TagNode) int {
+			if c := cmp.Compare(b.Count, a.Count); c != 0 {
+				return c
+			}
+			return cmp.Compare(a.Tag, b.Tag)
+		})
+	} else {
+		slices.SortStableFunc(tags, func(a, b TagNode) int {
+			return cmp.Compare(a.Tag, b.Tag)
+		})
+	}
+	for i := range tags {
+		if len(tags[i].Children) > 0 {
+			childList := make([]TagNode, len(tags[i].Children))
+			for j, ch := range tags[i].Children {
+				if node, ok := ch.(TagNode); ok {
+					childList[j] = node
+				}
+			}
+			ordenarTags(childList, sortMode)
+			for j, node := range childList {
+				tags[i].Children[j] = node
+			}
+		}
+	}
 }
 
 // TagList devolve as tags do cofre com suas contagens.
@@ -202,8 +240,110 @@ func (s *Service) TagList(_ context.Context, req TagRequest) (TagResult, error) 
 	if s.index == nil {
 		return TagResult{}, fmt.Errorf("index not available")
 	}
+	if req.Hierarchical {
+		return s.tagListHierarchical(req), nil
+	}
 	tags := s.index.Tags(req.Prefix, req.MinCount)
-	return TagResult{Tags: tags}, nil
+	nodes := make([]TagNode, len(tags))
+	for i, t := range tags {
+		nodes[i] = TagNode{Tag: t.Tag, Count: t.Count}
+	}
+	ordenarTags(nodes, req.Sort)
+	return TagResult{Tags: nodes}, nil
+}
+
+type tempTagNode struct {
+	segment  string
+	fullTag  string
+	count    int
+	children map[string]*tempTagNode
+}
+
+func (s *Service) tagListHierarchical(req TagRequest) TagResult {
+	noteSets := make(map[string]map[vault.CanonicalPath]bool)
+
+	for _, p := range s.index.NotePaths() {
+		n, ok := s.index.Get(p)
+		if !ok {
+			continue
+		}
+		for _, tag := range n.Tags {
+			tagClean := strings.TrimPrefix(tag, "#")
+			parts := strings.Split(tagClean, "/")
+			curr := ""
+			for i, part := range parts {
+				if i == 0 {
+					curr = part
+				} else {
+					curr = curr + "/" + part
+				}
+				if noteSets[curr] == nil {
+					noteSets[curr] = make(map[vault.CanonicalPath]bool)
+				}
+				noteSets[curr][p] = true
+			}
+		}
+	}
+
+	prefixLower := strings.ToLower(req.Prefix)
+	rootNodes := make(map[string]*tempTagNode)
+
+	for fullTag, paths := range noteSets {
+		count := len(paths)
+		if count < req.MinCount {
+			continue
+		}
+		if prefixLower != "" && !strings.HasPrefix(strings.ToLower(fullTag), prefixLower) {
+			continue
+		}
+
+		parts := strings.Split(fullTag, "/")
+		currentMap := rootNodes
+		currPath := ""
+		for i, part := range parts {
+			if i == 0 {
+				currPath = part
+			} else {
+				currPath = currPath + "/" + part
+			}
+			node, exists := currentMap[part]
+			if !exists {
+				node = &tempTagNode{
+					segment:  part,
+					fullTag:  currPath,
+					count:    len(noteSets[currPath]),
+					children: make(map[string]*tempTagNode),
+				}
+				currentMap[part] = node
+			}
+			currentMap = node.children
+		}
+	}
+
+	var convert func(m map[string]*tempTagNode) []TagNode
+	convert = func(m map[string]*tempTagNode) []TagNode {
+		res := make([]TagNode, 0, len(m))
+		for _, tn := range m {
+			childList := convert(tn.children)
+			var anyChildren []any
+			if len(childList) > 0 {
+				anyChildren = make([]any, len(childList))
+				for i, ch := range childList {
+					anyChildren[i] = ch
+				}
+			}
+			res = append(res, TagNode{
+				Tag:      tn.fullTag,
+				Count:    tn.count,
+				Children: anyChildren,
+			})
+		}
+		return res
+	}
+
+	resNodes := convert(rootNodes)
+	ordenarTags(resNodes, req.Sort)
+	return TagResult{Tags: resNodes}
 }
 
 // ListRequest sao os parametros de note_list.

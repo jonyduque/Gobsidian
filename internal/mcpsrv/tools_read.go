@@ -39,14 +39,18 @@ func (s *Server) registerReadToolsInternal() {
 
 				var modAfter, modBefore *time.Time
 				if in.ModifiedAfter != "" {
-					if t, err := time.Parse(time.RFC3339, in.ModifiedAfter); err == nil {
-						modAfter = &t
+					t, err := parseDateFilter(in.ModifiedAfter)
+					if err != nil {
+						return nil, service.SearchResult{}, toolErr(service.Errorf(service.CodeInvalidArgument, "modified_after invalido: %v", err))
 					}
+					modAfter = &t
 				}
 				if in.ModifiedBefore != "" {
-					if t, err := time.Parse(time.RFC3339, in.ModifiedBefore); err == nil {
-						modBefore = &t
+					t, err := parseDateFilter(in.ModifiedBefore)
+					if err != nil {
+						return nil, service.SearchResult{}, toolErr(service.Errorf(service.CodeInvalidArgument, "modified_before invalido: %v", err))
 					}
+					modBefore = &t
 				}
 
 				out, err := s.svc.Search(ctx, service.SearchOptions{
@@ -249,6 +253,7 @@ func (s *Server) registerReadToolsInternal() {
 				out, err := s.svc.TagList(ctx, service.TagRequest{
 					Prefix:       in.Prefix,
 					MinCount:     minCount,
+					Sort:         in.Sort,
 					Hierarchical: in.Hierarchical,
 				})
 				if err != nil {
@@ -259,14 +264,24 @@ func (s *Server) registerReadToolsInternal() {
 	)
 }
 
+func parseDateFilter(s string) (time.Time, error) {
+	if t, err := time.Parse(time.RFC3339, s); err == nil {
+		return t, nil
+	}
+	if t, err := time.Parse("2006-01-02", s); err == nil {
+		return t.UTC(), nil
+	}
+	return time.Time{}, fmt.Errorf("formato invalido: %q (esperado RFC3339 ou YYYY-MM-DD)", s)
+}
+
 type vaultSearchInput struct {
 	Query          string                 `json:"query,omitempty" jsonschema:"Termos de busca. Aspas duplas delimitam frase exata."`
 	Folder         string                 `json:"folder,omitempty" jsonschema:"Restringe a uma pasta e suas subpastas."`
 	Tags           []string               `json:"tags,omitempty" jsonschema:"Notas que contenham TODAS as tags."`
 	Frontmatter    map[string]interface{} `json:"frontmatter,omitempty" jsonschema:"Pares chave/valor que devem casar no frontmatter."`
-	ModifiedAfter  string                 `json:"modified_after,omitempty"`
-	ModifiedBefore string                 `json:"modified_before,omitempty"`
-	SnippetChars   *int                   `json:"snippet_chars,omitempty"`
+	ModifiedAfter  string                 `json:"modified_after,omitempty" jsonschema:"Data mínima de modificação. Aceita RFC3339 ('2006-01-02T15:04:05Z07:00') ou data curta ('2006-01-02')."`
+	ModifiedBefore string                 `json:"modified_before,omitempty" jsonschema:"Data máxima de modificação. Aceita RFC3339 ('2006-01-02T15:04:05Z07:00') ou data curta ('2006-01-02')."`
+	SnippetChars   *int                   `json:"snippet_chars,omitempty" jsonschema:"Tamanho máximo do trecho em caracteres. Teto máximo: 1000."`
 	Limit          *int                   `json:"limit,omitempty"`
 	Offset         *int                   `json:"offset,omitempty"`
 }
@@ -325,6 +340,6 @@ type linkGraphInput struct {
 type tagListInput struct {
 	Prefix       string `json:"prefix,omitempty" jsonschema:"Restringe a uma subárvore, ex.: 'civil/'"`
 	MinCount     *int   `json:"min_count,omitempty"`
-	Sort         string `json:"sort,omitempty"`
+	Sort         string `json:"sort,omitempty" jsonschema:"Ordenação: 'name' (crescente por nome) ou 'count' (decrescente por contagem, desempate por nome). Padrão: 'name'."`
 	Hierarchical bool   `json:"hierarchical,omitempty" jsonschema:"Retorna árvore em vez de lista plana."`
 }

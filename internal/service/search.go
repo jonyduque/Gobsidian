@@ -94,9 +94,12 @@ type SearchHit struct {
 
 // SearchResult representa o retorno consolidado da tool vault_search.
 type SearchResult struct {
-	Results   []SearchHit `json:"results"`
-	Total     int         `json:"total"`
-	Truncated bool        `json:"truncated"`
+	Hits                []SearchHit `json:"hits,omitempty"`
+	Results             []SearchHit `json:"results"`
+	Total               int         `json:"total"`
+	Truncated           bool        `json:"truncated"`
+	SnippetCharsEfetivo int         `json:"effective_snippet_chars"`
+	LimitEfetivo        int         `json:"effective_limit"`
 }
 
 // Search executa a busca full-text com ranking BM25 e filtros de metadados.
@@ -128,6 +131,9 @@ func (s *Service) Search(ctx context.Context, opts SearchOptions) (SearchResult,
 	}
 	if opts.Limit > 200 {
 		opts.Limit = 200
+	}
+	if s.opts.MaxResults > 0 && opts.Limit > s.opts.MaxResults {
+		opts.Limit = s.opts.MaxResults
 	}
 	if opts.Offset < 0 {
 		opts.Offset = 0
@@ -166,7 +172,14 @@ func (s *Service) Search(ctx context.Context, opts SearchOptions) (SearchResult,
 	}
 
 	if len(queryTokens) == 0 {
-		return SearchResult{Results: []SearchHit{}, Total: 0, Truncated: false}, nil
+		return SearchResult{
+			Hits:                []SearchHit{},
+			Results:             []SearchHit{},
+			Total:               0,
+			Truncated:           false,
+			SnippetCharsEfetivo: opts.SnippetChars,
+			LimitEfetivo:        opts.Limit,
+		}, nil
 	}
 
 	var idxImpl *index.Index
@@ -203,7 +216,14 @@ func (s *Service) Search(ctx context.Context, opts SearchOptions) (SearchResult,
 
 	total := len(filteredHits)
 	if opts.Offset >= total {
-		return SearchResult{Results: []SearchHit{}, Total: total, Truncated: false}, nil
+		return SearchResult{
+			Hits:                []SearchHit{},
+			Results:             []SearchHit{},
+			Total:               total,
+			Truncated:           false,
+			SnippetCharsEfetivo: opts.SnippetChars,
+			LimitEfetivo:        opts.Limit,
+		}, nil
 	}
 
 	end := opts.Offset + opts.Limit
@@ -292,9 +312,12 @@ func (s *Service) Search(ctx context.Context, opts SearchOptions) (SearchResult,
 	}
 
 	return SearchResult{
-		Results:   results,
-		Total:     total,
-		Truncated: truncated,
+		Hits:                results,
+		Results:             results,
+		Total:               total,
+		Truncated:           truncated,
+		SnippetCharsEfetivo: opts.SnippetChars,
+		LimitEfetivo:        opts.Limit,
 	}, nil
 }
 
@@ -311,7 +334,14 @@ func (s *Service) searchMetadataOnly(opts SearchOptions) (SearchResult, error) {
 
 	notes, total := s.index.List(q)
 	if opts.Offset >= total {
-		return SearchResult{Results: []SearchHit{}, Total: total, Truncated: false}, nil
+		return SearchResult{
+			Hits:                []SearchHit{},
+			Results:             []SearchHit{},
+			Total:               total,
+			Truncated:           false,
+			SnippetCharsEfetivo: opts.SnippetChars,
+			LimitEfetivo:        opts.Limit,
+		}, nil
 	}
 
 	end := opts.Offset + opts.Limit
@@ -337,9 +367,12 @@ func (s *Service) searchMetadataOnly(opts SearchOptions) (SearchResult, error) {
 	}
 
 	return SearchResult{
-		Results:   results,
-		Total:     total,
-		Truncated: truncated,
+		Hits:                results,
+		Results:             results,
+		Total:               total,
+		Truncated:           truncated,
+		SnippetCharsEfetivo: opts.SnippetChars,
+		LimitEfetivo:        opts.Limit,
 	}, nil
 }
 

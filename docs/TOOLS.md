@@ -49,9 +49,9 @@ Busca full-text com ranking, combinável com filtros de metadados.
     "folder":       { "type": "string", "description": "Restringe a uma pasta e suas subpastas." },
     "tags":         { "type": "array", "items": { "type": "string" }, "description": "Notas que contenham TODAS as tags." },
     "frontmatter":  { "type": "object", "description": "Pares chave/valor que devem casar no frontmatter." },
-    "modified_after":  { "type": "string", "format": "date-time" },
-    "modified_before": { "type": "string", "format": "date-time" },
-    "snippet_chars": { "type": "integer", "default": 240, "maximum": 1000 },
+    "modified_after":  { "type": "string", "description": "Data mínima de modificação. Aceita RFC3339 ('2006-01-02T15:04:05Z07:00') ou data curta ('2006-01-02')." },
+    "modified_before": { "type": "string", "description": "Data máxima de modificação. Aceita RFC3339 ('2006-01-02T15:04:05Z07:00') ou data curta ('2006-01-02')." },
+    "snippet_chars":   { "type": "integer", "default": 240, "maximum": 1000, "description": "Tamanho máximo do trecho em caracteres. Teto máximo: 1000." },
     "limit":  { "type": "integer", "default": 20, "maximum": 200 },
     "offset": { "type": "integer", "default": 0 }
   },
@@ -59,7 +59,7 @@ Busca full-text com ranking, combinável com filtros de metadados.
 }
 ```
 
-**Retorno.** Lista de resultados ordenada por score BM25 decrescente, cada um com `path`, `title`, `score`, `snippet` (com os termos casados marcados), `matched_headings` e `modified`.
+**Retorno.** Objeto contendo `results` (e `hits`), `total`, `truncated`, mais `effective_snippet_chars` (valor efetivo de `snippet_chars`) e `effective_limit` (valor efetivo de `limit` clampado pelo teto `max_results`). Cada item traz `path`, `title`, `score`, `snippet`, `matched_headings` e `modified`. <!-- check-doc-refs: ignore max_results -- flag de CLI da configuracao que define o teto maximo do limit -->
 
 **Notas.** A consulta é normalizada: sem acentos, sem distinção de maiúsculas, com stemming leve para português. Buscar `usucapiao` encontra `usucapião`. Não há remoção de stopwords — em corpus técnico, palavras frequentes costumam ser termos de arte.
 
@@ -216,13 +216,15 @@ Todas as tags do cofre.
 {
   "type": "object",
   "properties": {
-    "prefix":    { "type": "string", "description": "Restringe a uma subárvore, ex.: 'civil/'" },
-    "min_count": { "type": "integer", "default": 1 },
-    "sort":      { "type": "string", "enum": ["name", "count"], "default": "count" },
+    "prefix":       { "type": "string", "description": "Restringe a uma subárvore, ex.: 'civil/'" },
+    "min_count":    { "type": "integer", "default": 1 },
+    "sort":         { "type": "string", "enum": ["name", "count"], "default": "name", "description": "Ordenação: 'name' (crescente por nome) ou 'count' (decrescente por contagem, desempate por nome)." },
     "hierarchical": { "type": "boolean", "default": false, "description": "Retorna árvore em vez de lista plana." }
   }
 }
 ```
+
+**Retorno.** Objeto contendo a lista ou árvore de nós em `tags`, onde cada nó possui `tag`, `count` e opcionalmente `children` (quando `hierarchical: true`).
 
 ---
 
