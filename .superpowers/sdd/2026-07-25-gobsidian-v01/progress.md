@@ -4021,3 +4021,25 @@ Centralizou a normalizacao de texto em text.Normalize(s) e substituiu as recompu
    - Resultado: `EXIT=0` (reprovou com `build_descarte_test.go:68: o arquivo ilegivel sumiu do indice sem deixar registro`).
 4. Paridade do cache:
    - `go test ./internal/index -run TestSaveAndLoadIndexCache` passou sem divergencias.
+
+## Task 122 — `link_graph` determinístico, com teto
+
+`feat(service): sort link_graph nodes and edges deterministically and enforce limit cap`
+
+### O que foi feito
+
+- Adicionado campo `LimitEfetivo int `json:"effective_limit"`` a `GraphResult` em `internal/service/graph.go`.
+- Imposto teto maximo `limit = 500` em `LinkGraph` se `limit > 500`, preenchendo `res.LimitEfetivo = limit`.
+- Ordenados `res.Nodes` por `path` via `slices.SortFunc` e `cmp.Compare`.
+- Ordenadas `res.Edges` pela tripla `(source, target, kind)` via `slices.SortFunc` e `cmp.Compare`.
+- Criado teste `internal/service/graph_ordem_test.go` com `TestLinkGraphOrdemEstavel` (50 iteracoes) e `TestLinkGraphLimitTemTeto`.
+
+### Provas de Mutacao (mutate.ps1)
+
+1. `graph.go` mutado em `Nodes` sort (`return cmp.Compare(a.Path, b.Path)` -> `return 0`):
+   - `pwsh -File scripts/mutate.ps1 -Path internal/service/graph.go -Anchor 'return cmp.Compare(a.Path, b.Path)' -Replacement 'return 0' -Test TestLinkGraphOrdemEstavel -Package ./internal/service/`
+   - Resultado: `EXIT=0` (reprovou em `graph_ordem_test.go:76: volta 1 devolveu ordem diferente`).
+2. `graph.go` mutado em `LimitEfetivo` cap (`if limit > 500 {` -> `if false {`):
+   - `pwsh -File scripts/mutate.ps1 -Path internal/service/graph.go -Anchor 'if limit > 500 {' -Replacement 'if false {' -Test TestLinkGraphLimitTemTeto -Package ./internal/service/`
+   - Resultado: `EXIT=0` (reprovou em `graph_ordem_test.go:83: LimitEfetivo = 1000000: limit continua sem teto`).
+

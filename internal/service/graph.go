@@ -1,9 +1,11 @@
 package service
 
 import (
+	"cmp"
 	"context"
 	"fmt"
 	"runtime"
+	"slices"
 	"time"
 
 	"github.com/jonyd/gobsidian/internal/index"
@@ -37,8 +39,9 @@ type GraphEdge struct {
 
 // GraphResult e o retorno de link_graph.
 type GraphResult struct {
-	Nodes []GraphNode `json:"nodes"`
-	Edges []GraphEdge `json:"edges"`
+	Nodes        []GraphNode `json:"nodes"`
+	Edges        []GraphEdge `json:"edges"`
+	LimitEfetivo int         `json:"effective_limit"`
 }
 
 // LinkGraph percorre o grafo a partir de uma nota, ate a profundidade pedida.
@@ -58,6 +61,9 @@ func (s *Service) LinkGraph(_ context.Context, req GraphRequest) (GraphResult, e
 	limit := req.Limit
 	if limit <= 0 {
 		limit = 100
+	}
+	if limit > 500 {
+		limit = 500
 	}
 
 	direction := req.Direction
@@ -148,8 +154,9 @@ func (s *Service) LinkGraph(_ context.Context, req GraphRequest) (GraphResult, e
 	}
 
 	res := GraphResult{
-		Nodes: make([]GraphNode, 0, len(nodesMap)),
-		Edges: make([]GraphEdge, 0, len(edgesMap)),
+		Nodes:        make([]GraphNode, 0, len(nodesMap)),
+		Edges:        make([]GraphEdge, 0, len(edgesMap)),
+		LimitEfetivo: limit,
 	}
 
 	for _, v := range nodesMap {
@@ -158,6 +165,20 @@ func (s *Service) LinkGraph(_ context.Context, req GraphRequest) (GraphResult, e
 	for _, e := range edgesMap {
 		res.Edges = append(res.Edges, e)
 	}
+
+	slices.SortFunc(res.Nodes, func(a, b GraphNode) int {
+		return cmp.Compare(a.Path, b.Path)
+	})
+
+	slices.SortFunc(res.Edges, func(a, b GraphEdge) int {
+		if c := cmp.Compare(a.Source, b.Source); c != 0 {
+			return c
+		}
+		if c := cmp.Compare(a.Target, b.Target); c != 0 {
+			return c
+		}
+		return cmp.Compare(a.Kind, b.Kind)
+	})
 
 	return res, nil
 }
