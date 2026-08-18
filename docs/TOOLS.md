@@ -276,6 +276,8 @@ Todas aceitam `dry_run`. Todas preservam o estilo de fim de linha do arquivo. Ne
 
 **Notas.** Falha se o caminho já existir. Não há sobrescrita silenciosa; para substituir, use `note_patch` ou exclua explicitamente.
 
+O retorno traz `hash`, o xxhash do conteúdo **gravado** — é o valor a passar como `expected_hash` na próxima escrita, sem esperar o índice atualizar. Em `dry_run` ele descreve o conteúdo proposto, que não foi para o disco.
+
 ---
 
 ## `note_append`
@@ -300,6 +302,8 @@ Todas aceitam `dry_run`. Todas preservam o estilo de fim de linha do arquivo. Ne
 **Notas.** "Fim da seção" é imediatamente antes do próximo heading de nível igual ou superior — não o fim do arquivo. Anexar sob `## Capítulo 117` insere antes de `## Capítulo 118`, não depois de tudo.
 
 `create_if_missing` é falso por padrão, deliberadamente. Um heading errado deve produzir erro, não uma seção nova em lugar inesperado.
+
+O retorno traz `hash`, o xxhash do conteúdo **gravado** — é o valor a passar como `expected_hash` na próxima escrita, sem esperar o índice atualizar. Em `dry_run` ele descreve o conteúdo proposto, que não foi para o disco.
 
 ---
 

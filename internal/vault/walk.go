@@ -136,10 +136,10 @@ func (v *Vault) Walk(ctx context.Context, fn func(Entry) error) error {
 			// Um diretorio ilegivel nao derruba a varredura inteira. O cofre
 			// e do usuario, e uma pasta com ACL estranha e problema local.
 			if d.IsDir() {
-				v.recordSkip(abs, err)
+				v.RecordSkip(abs, err)
 				return fs.SkipDir
 			}
-			v.recordSkip(abs, err)
+			v.RecordSkip(abs, err)
 			return nil
 		}
 		if ctxErr := ctx.Err(); ctxErr != nil {
@@ -160,7 +160,7 @@ func (v *Vault) Walk(ctx context.Context, fn func(Entry) error) error {
 
 		canon, cErr := Canonicalize(v.walkRoot, abs)
 		if cErr != nil {
-			v.recordSkip(abs, cErr)
+			v.RecordSkip(abs, cErr)
 			return nil
 		}
 
@@ -173,7 +173,7 @@ func (v *Vault) Walk(ctx context.Context, fn func(Entry) error) error {
 
 		info, iErr := d.Info()
 		if iErr != nil {
-			v.recordSkip(abs, iErr)
+			v.RecordSkip(abs, iErr)
 			return nil
 		}
 

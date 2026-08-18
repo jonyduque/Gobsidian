@@ -62,10 +62,6 @@ func (v *Vault) RecordSkip(abs string, cause error) {
 	}
 }
 
-func (v *Vault) recordSkip(abs string, cause error) {
-	v.RecordSkip(abs, cause)
-}
-
 // SkippedEntries devolve quantas entradas foram descartadas e uma amostra dos
 // motivos. Exposto em vault_stats, e o que transforma "sumiu uma nota" em um
 // diagnostico.

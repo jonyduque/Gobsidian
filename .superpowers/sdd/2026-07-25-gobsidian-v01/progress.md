@@ -309,8 +309,9 @@ Task 104: complete (reworked, commit 8de4390) — check_tool_params.ps1 reescrit
     e o esperado ate a Task 120. O teto de latencia que reprovou no relatorio
     passa limpo em maquina sem carga concorrente (-count=2).
     Pendencia: o nivel 2 casa .Campo em qualquer lugar de internal/, sem escopo
-    da struct de destino. Nao distingue TagRequest.Sort de ListRequest.Sort, e
-    esse limite nao esta escrito no cabecalho do script.
+    da struct de destino. Nao distingue TagRequest.Sort de ListRequest.Sort. O
+    limite esta declarado no cabecalho do script; fecha-lo exige seguir o campo
+    ate o tipo de destino, e nao e desta tarefa.
 Task 103: complete (commit d8ff710) — adquirirLock passou a ler o PID que grava
     e a recuperar lock de dono morto. A regra do exitTime no Windows quase ficou
     escrita sem estar verificada; a primeira mutacao dela PASSOU.

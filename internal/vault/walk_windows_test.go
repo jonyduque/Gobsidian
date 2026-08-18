@@ -13,7 +13,7 @@ import (
 )
 
 // TestWalkRecordsSkipOnCanonicalizeRejection is the permanent regression test
-// for Finding 2 (fix pass 2): the recordSkip-on-Canonicalize-rejection path
+// for Finding 2 (fix pass 2): the RecordSkip-on-Canonicalize-rejection path
 // was previously verified only with a throwaway test file, deleted after the
 // run. Nothing in the committed suite caught a regression to a silent drop.
 //
