@@ -122,6 +122,7 @@ func (ix *Index) insert(r parsed) {
 		n.Title = r.note.Title
 		n.TitleNorm = normalizeTitleForNote(r.note.Title)
 		n.Frontmatter = r.note.Frontmatter
+		n.FrontmatterErr = r.note.FrontmatterErr
 		n.Tags = r.note.Tags
 		n.Aliases = r.note.Aliases
 		n.Headings = r.note.Headings

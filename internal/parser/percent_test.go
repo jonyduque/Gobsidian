@@ -51,10 +51,7 @@ func TestPercentDecode(t *testing.T) {
 // E Raw fica byte-exato nos dois casos: note_move reescreve a partir dele, e
 // normalizar ali trocaria o texto que o usuario escreveu.
 func TestPercentDecodeAppliesOnlyToMarkdownTargets(t *testing.T) {
-	note, err := Parse([]byte("[texto](Civil/PONTO%2003.md) e [[Civil/PONTO%2003]]\n"))
-	if err != nil {
-		t.Fatalf("Parse: %v", err)
-	}
+	note := Parse([]byte("[texto](Civil/PONTO%2003.md) e [[Civil/PONTO%2003]]\n"))
 	if len(note.Links) != 2 {
 		t.Fatalf("links = %d, quer 2: %+v", len(note.Links), note.Links)
 	}

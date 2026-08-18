@@ -81,30 +81,28 @@ func (ix *Index) Replace(ctx context.Context, v *vault.Vault, path vault.Canonic
 	}
 
 	body, hadBOM := vault.StripBOM(data)
-	note, err := parser.Parse(body)
-	if err != nil {
-		return err
-	}
+	note := parser.Parse(body)
 	if hadBOM {
 		note.ShiftOffsets(int64(vault.BOMLen))
 	}
 
 	n := &Note{
-		Path:        entry.Path,
-		Title:       note.Title,
-		TitleNorm:   normalizeTitleForNote(note.Title),
-		Size:        entry.Size,
-		ModTime:     entry.ModTime,
-		Hash:        xxhash.Sum64(data),
-		EOL:         vault.DetectEOL(data),
-		BOM:         hadBOM,
-		CloudOnly:   entry.CloudOnly,
-		Frontmatter: note.Frontmatter,
-		Tags:        note.Tags,
-		Aliases:     note.Aliases,
-		Headings:    note.Headings,
-		Blocks:      note.Blocks,
-		Inline:      note.Inline,
+		Path:           entry.Path,
+		Title:          note.Title,
+		TitleNorm:      normalizeTitleForNote(note.Title),
+		Size:           entry.Size,
+		ModTime:        entry.ModTime,
+		Hash:           xxhash.Sum64(data),
+		EOL:            vault.DetectEOL(data),
+		BOM:            hadBOM,
+		CloudOnly:      entry.CloudOnly,
+		Frontmatter:    note.Frontmatter,
+		FrontmatterErr: note.FrontmatterErr,
+		Tags:           note.Tags,
+		Aliases:        note.Aliases,
+		Headings:       note.Headings,
+		Blocks:         note.Blocks,
+		Inline:         note.Inline,
 	}
 
 	for _, l := range note.Links {

@@ -9,10 +9,7 @@ import (
 func TestBlockIDExtraction(t *testing.T) {
 	src := "Primeiro paragrafo. ^abc123\n\nSegundo paragrafo.\n\nTerceiro. ^def456\n"
 
-	note, err := parser.Parse([]byte(src))
-	if err != nil {
-		t.Fatalf("Parse: %v", err)
-	}
+	note := parser.Parse([]byte(src))
 	if len(note.Blocks) != 2 {
 		t.Fatalf("blocos = %d, quer 2: %+v", len(note.Blocks), note.Blocks)
 	}
@@ -38,10 +35,7 @@ func TestBlockIDRejectsNonTerminal(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			note, err := parser.Parse([]byte(tt.in))
-			if err != nil {
-				t.Fatalf("Parse: %v", err)
-			}
+			note := parser.Parse([]byte(tt.in))
 			if len(note.Blocks) != 0 {
 				t.Errorf("blocos = %+v, quer nenhum", note.Blocks)
 			}
@@ -56,10 +50,7 @@ func TestBlockIDListItem(t *testing.T) {
 	src := "- primeiro item ^item1\n" +
 		"  - filho aninhado ^filho1\n"
 
-	note, err := parser.Parse([]byte(src))
-	if err != nil {
-		t.Fatalf("Parse: %v", err)
-	}
+	note := parser.Parse([]byte(src))
 	if len(note.Blocks) != 2 {
 		t.Fatalf("blocos = %d, quer 2: %+v", len(note.Blocks), note.Blocks)
 	}
@@ -86,10 +77,7 @@ func TestBlockIDListItem(t *testing.T) {
 func TestBlockIDBlockquote(t *testing.T) {
 	src := "> uma citacao ^cite1\n"
 
-	note, err := parser.Parse([]byte(src))
-	if err != nil {
-		t.Fatalf("Parse: %v", err)
-	}
+	note := parser.Parse([]byte(src))
 	if len(note.Blocks) != 1 {
 		t.Fatalf("blocos = %d, quer 1: %+v", len(note.Blocks), note.Blocks)
 	}
@@ -109,10 +97,7 @@ func TestBlockIDBlockquote(t *testing.T) {
 func TestBlockIDMultiplePerParagraph(t *testing.T) {
 	src := "primeira linha ^um\nsegunda linha ^dois\n"
 
-	note, err := parser.Parse([]byte(src))
-	if err != nil {
-		t.Fatalf("Parse: %v", err)
-	}
+	note := parser.Parse([]byte(src))
 	if len(note.Blocks) != 1 {
 		t.Fatalf("blocos = %d, quer 1 (so o marcador da ultima linha do paragrafo conta): %+v", len(note.Blocks), note.Blocks)
 	}
@@ -132,10 +117,7 @@ func TestBlockIDMultiplePerParagraph(t *testing.T) {
 func TestBlockIDThreeLineParagraphOnlyLastMarkerCounts(t *testing.T) {
 	src := "linha um\nlinha dois ^b\nlinha tres ^c\n"
 
-	note, err := parser.Parse([]byte(src))
-	if err != nil {
-		t.Fatalf("Parse: %v", err)
-	}
+	note := parser.Parse([]byte(src))
 	if len(note.Blocks) != 1 {
 		t.Fatalf("blocos = %d, quer 1: %+v", len(note.Blocks), note.Blocks)
 	}
@@ -158,10 +140,7 @@ func TestBlockIDThreeLineParagraphOnlyLastMarkerCounts(t *testing.T) {
 func TestBlockIDMultilineBlockquotePrefixAsymmetry(t *testing.T) {
 	src := "> linha um\n> linha dois ^abc\n"
 
-	note, err := parser.Parse([]byte(src))
-	if err != nil {
-		t.Fatalf("Parse: %v", err)
-	}
+	note := parser.Parse([]byte(src))
 	if len(note.Blocks) != 1 {
 		t.Fatalf("blocos = %d, quer 1: %+v", len(note.Blocks), note.Blocks)
 	}
@@ -178,10 +157,7 @@ func TestBlockIDMultilineBlockquotePrefixAsymmetry(t *testing.T) {
 func TestBlockIDMultilineListItemPrefixAsymmetry(t *testing.T) {
 	src := "- linha um\n  linha dois ^abc\n"
 
-	note, err := parser.Parse([]byte(src))
-	if err != nil {
-		t.Fatalf("Parse: %v", err)
-	}
+	note := parser.Parse([]byte(src))
 	if len(note.Blocks) != 1 {
 		t.Fatalf("blocos = %d, quer 1: %+v", len(note.Blocks), note.Blocks)
 	}
@@ -198,10 +174,7 @@ func TestBlockIDMultilineListItemPrefixAsymmetry(t *testing.T) {
 func TestBlockIDDuplicateAcrossNote(t *testing.T) {
 	src := "primeiro ^dup\n\nsegundo ^dup\n"
 
-	note, err := parser.Parse([]byte(src))
-	if err != nil {
-		t.Fatalf("Parse: %v", err)
-	}
+	note := parser.Parse([]byte(src))
 	if len(note.Blocks) != 2 {
 		t.Fatalf("blocos = %d, quer 2: %+v", len(note.Blocks), note.Blocks)
 	}
@@ -219,10 +192,7 @@ func TestBlockIDDuplicateAcrossNote(t *testing.T) {
 func TestBlockIDMultilineParagraph(t *testing.T) {
 	src := "linha um\nlinha dois\nlinha tres ^abc\n"
 
-	note, err := parser.Parse([]byte(src))
-	if err != nil {
-		t.Fatalf("Parse: %v", err)
-	}
+	note := parser.Parse([]byte(src))
 	if len(note.Blocks) != 1 {
 		t.Fatalf("blocos = %d, quer 1: %+v", len(note.Blocks), note.Blocks)
 	}
@@ -238,10 +208,7 @@ func TestBlockIDMultilineParagraph(t *testing.T) {
 func TestBlockIDTrailingSpaces(t *testing.T) {
 	src := "paragrafo com espacos ^abc123   \n"
 
-	note, err := parser.Parse([]byte(src))
-	if err != nil {
-		t.Fatalf("Parse: %v", err)
-	}
+	note := parser.Parse([]byte(src))
 	if len(note.Blocks) != 1 {
 		t.Fatalf("blocos = %d, quer 1: %+v", len(note.Blocks), note.Blocks)
 	}
@@ -268,10 +235,7 @@ func TestBlockIDCharset(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			note, err := parser.Parse([]byte(tt.in))
-			if err != nil {
-				t.Fatalf("Parse: %v", err)
-			}
+			note := parser.Parse([]byte(tt.in))
 			if len(note.Blocks) != 1 {
 				t.Fatalf("blocos = %d, quer 1: %+v", len(note.Blocks), note.Blocks)
 			}
@@ -288,10 +252,7 @@ func TestBlockIDCharset(t *testing.T) {
 func TestBlockIDCaretAtLineStart(t *testing.T) {
 	src := "^soleiro\n"
 
-	note, err := parser.Parse([]byte(src))
-	if err != nil {
-		t.Fatalf("Parse: %v", err)
-	}
+	note := parser.Parse([]byte(src))
 	if len(note.Blocks) != 1 {
 		t.Fatalf("blocos = %d, quer 1: %+v", len(note.Blocks), note.Blocks)
 	}
@@ -310,10 +271,7 @@ func TestBlockIDCaretAtLineStart(t *testing.T) {
 func TestBlockIDInlineCodeSpan(t *testing.T) {
 	src := "texto `codigo ^abc123`\n"
 
-	note, err := parser.Parse([]byte(src))
-	if err != nil {
-		t.Fatalf("Parse: %v", err)
-	}
+	note := parser.Parse([]byte(src))
 	if len(note.Blocks) != 0 {
 		t.Errorf("blocos = %+v, quer nenhum", note.Blocks)
 	}

@@ -70,14 +70,12 @@ func (ix *Index) Build(ctx context.Context, v *vault.Vault) error {
 				data, err := v.ReadAll(gctx, e.Path)
 				if err != nil {
 					// Um arquivo ilegivel nao derruba a indexacao inteira.
+					v.RecordSkip(string(e.Path), err)
 					continue
 				}
 
 				body, hadBOM := vault.StripBOM(data)
-				note, err := parser.Parse(body)
-				if err != nil {
-					continue
-				}
+				note := parser.Parse(body)
 				if hadBOM {
 					note.ShiftOffsets(int64(vault.BOMLen))
 				}

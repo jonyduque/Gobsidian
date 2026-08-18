@@ -183,7 +183,7 @@ func (s *Service) AppendNote(_ context.Context, req AppendNoteRequest) (AppendNo
 	}
 
 	cleaned, hadBOM := vault.StripBOM(raw)
-	parsed, _ := parser.Parse(cleaned)
+	parsed := parser.Parse(cleaned)
 	if hadBOM {
 		parsed.ShiftOffsets(int64(vault.BOMLen))
 	}
@@ -289,7 +289,7 @@ func (s *Service) PatchNote(_ context.Context, req PatchNoteRequest) (PatchNoteR
 	}
 
 	cleaned, hadBOM := vault.StripBOM(raw)
-	parsed, _ := parser.Parse(cleaned)
+	parsed := parser.Parse(cleaned)
 	if hadBOM {
 		parsed.ShiftOffsets(int64(vault.BOMLen))
 	}

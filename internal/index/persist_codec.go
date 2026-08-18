@@ -41,7 +41,7 @@ import (
 // qualquer campo ser interpretado.
 const (
 	indexCacheMagic     = "GIC1"
-	indexCacheCodecVers = 1
+	indexCacheCodecVers = 2
 )
 
 // Tags do codec de valor genérico de frontmatter. Frontmatter vem do YAML
@@ -319,6 +319,7 @@ func (e *escritor) note(n *Note) {
 	e.boolean(n.BOM)
 	e.boolean(n.CloudOnly)
 	e.value(n.Frontmatter)
+	e.str(n.FrontmatterErr)
 	e.strSlice(n.Tags)
 	e.strSlice(n.Aliases)
 	e.headings(n.Headings)
@@ -671,6 +672,7 @@ func (l *leitor) note() *Note {
 		l.falha("%w: frontmatter da nota %q nao decodificou como mapa (tipo %T)",
 			ErrIndexCacheCorrupted, path, fmVal)
 	}
+	fmErr := l.str("note frontmatterErr")
 
 	tags := l.strSlice("note tags")
 	aliases := l.strSlice("note aliases")
@@ -684,22 +686,23 @@ func (l *leitor) note() *Note {
 	}
 
 	return &Note{
-		Path:        vault.CanonicalPath(path),
-		Title:       title,
-		TitleNorm:   normalizeTitleForNote(title),
-		Size:        size,
-		ModTime:     modTime,
-		Hash:        hash,
-		EOL:         eol,
-		BOM:         bom,
-		CloudOnly:   cloudOnly,
-		Frontmatter: fm,
-		Tags:        tags,
-		Aliases:     aliases,
-		Headings:    headings,
-		Blocks:      blocks,
-		Links:       links,
-		Inline:      inline,
+		Path:           vault.CanonicalPath(path),
+		Title:          title,
+		TitleNorm:      normalizeTitleForNote(title),
+		Size:           size,
+		ModTime:        modTime,
+		Hash:           hash,
+		EOL:            eol,
+		BOM:            bom,
+		CloudOnly:      cloudOnly,
+		Frontmatter:    fm,
+		FrontmatterErr: fmErr,
+		Tags:           tags,
+		Aliases:        aliases,
+		Headings:       headings,
+		Blocks:         blocks,
+		Links:          links,
+		Inline:         inline,
 	}
 }
 

@@ -54,10 +54,7 @@ func TestLinkMarkdownOffsets(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			raw := []byte(tt.input)
-			note, err := parser.Parse(raw)
-			if err != nil {
-				t.Fatalf("Parse: %v", err)
-			}
+			note := parser.Parse(raw)
 
 			var found *parser.Link
 			for i := range note.Links {

@@ -51,7 +51,8 @@ const maxSkippedSamples = 50
 // no disco.
 const maxReadRangeBytes = 64 << 20 // 64 MiB
 
-func (v *Vault) recordSkip(abs string, cause error) {
+// RecordSkip registra uma falha de leitura ou descarte durante a indexacao.
+func (v *Vault) RecordSkip(abs string, cause error) {
 	v.skipped.Add(1)
 
 	v.skippedMu.Lock()
@@ -59,6 +60,10 @@ func (v *Vault) recordSkip(abs string, cause error) {
 	if len(v.skippedSamples) < maxSkippedSamples {
 		v.skippedSamples = append(v.skippedSamples, fmt.Sprintf("%s: %v", abs, cause))
 	}
+}
+
+func (v *Vault) recordSkip(abs string, cause error) {
+	v.RecordSkip(abs, cause)
 }
 
 // SkippedEntries devolve quantas entradas foram descartadas e uma amostra dos

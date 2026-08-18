@@ -9,10 +9,7 @@ import (
 func TestInlineTags(t *testing.T) {
 	src := "Nota sobre #civil e #civil/obrigacoes e #proc-civil.\n"
 
-	note, err := parser.Parse([]byte(src))
-	if err != nil {
-		t.Fatalf("Parse: %v", err)
-	}
+	note := parser.Parse([]byte(src))
 
 	want := []string{"civil", "civil/obrigacoes", "proc-civil"}
 	if len(note.Tags) != len(want) {
@@ -37,10 +34,7 @@ func TestTagRejections(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			note, err := parser.Parse([]byte(tt.in))
-			if err != nil {
-				t.Fatalf("Parse: %v", err)
-			}
+			note := parser.Parse([]byte(tt.in))
 			if len(note.Tags) != 0 {
 				t.Errorf("tags = %v, quer nenhuma", note.Tags)
 			}
@@ -51,10 +45,7 @@ func TestTagRejections(t *testing.T) {
 func TestTagsFromFrontmatterMerge(t *testing.T) {
 	src := "---\ntags:\n  - civil\n  - penal\n---\nTexto com #civil e #tributario.\n"
 
-	note, err := parser.Parse([]byte(src))
-	if err != nil {
-		t.Fatalf("Parse: %v", err)
-	}
+	note := parser.Parse([]byte(src))
 
 	// civil aparece nas duas fontes e conta uma vez so.
 	want := map[string]bool{"civil": true, "penal": true, "tributario": true}
@@ -78,10 +69,7 @@ func TestTagPunctuationBoundary(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			note, err := parser.Parse([]byte(tt.in))
-			if err != nil {
-				t.Fatalf("Parse: %v", err)
-			}
+			note := parser.Parse([]byte(tt.in))
 			if len(note.Tags) != 1 || note.Tags[0] != tt.want {
 				t.Errorf("tags = %v, quer [%q]", note.Tags, tt.want)
 			}
@@ -92,10 +80,7 @@ func TestTagPunctuationBoundary(t *testing.T) {
 // TestTagTrailingSlash confirma que uma barra no fim nao produz um segmento
 // de hierarquia vazio: "#tag/" e a tag "tag", nao "tag/".
 func TestTagTrailingSlash(t *testing.T) {
-	note, err := parser.Parse([]byte("veja #tag/ depois\n"))
-	if err != nil {
-		t.Fatalf("Parse: %v", err)
-	}
+	note := parser.Parse([]byte("veja #tag/ depois\n"))
 	if len(note.Tags) != 1 || note.Tags[0] != "tag" {
 		t.Errorf("tags = %v, quer [tag]", note.Tags)
 	}
@@ -115,10 +100,7 @@ func TestTagEmptyHierarchySegments(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			note, err := parser.Parse([]byte(tt.in))
-			if err != nil {
-				t.Fatalf("Parse: %v", err)
-			}
+			note := parser.Parse([]byte(tt.in))
 			if len(note.Tags) != 1 || note.Tags[0] != tt.want {
 				t.Errorf("tags = %v, quer [%q]", note.Tags, tt.want)
 			}
@@ -138,10 +120,7 @@ func TestTagCharset(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			note, err := parser.Parse([]byte(tt.in))
-			if err != nil {
-				t.Fatalf("Parse: %v", err)
-			}
+			note := parser.Parse([]byte(tt.in))
 			if len(note.Tags) != 1 || note.Tags[0] != tt.want {
 				t.Errorf("tags = %v, quer [%q]", note.Tags, tt.want)
 			}
@@ -162,10 +141,7 @@ func TestTagOpeningPunctuation(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			note, err := parser.Parse([]byte(tt.in))
-			if err != nil {
-				t.Fatalf("Parse: %v", err)
-			}
+			note := parser.Parse([]byte(tt.in))
 			if len(note.Tags) != 1 || note.Tags[0] != tt.want {
 				t.Errorf("tags = %v, quer [%q]", note.Tags, tt.want)
 			}
@@ -176,10 +152,7 @@ func TestTagOpeningPunctuation(t *testing.T) {
 // TestTagAdjacentHash confirma que "#tag#outra" produz uma unica tag: a
 // segunda cerquilha e precedida por uma letra, o que a regra 1 recusa.
 func TestTagAdjacentHash(t *testing.T) {
-	note, err := parser.Parse([]byte("#tag#outra\n"))
-	if err != nil {
-		t.Fatalf("Parse: %v", err)
-	}
+	note := parser.Parse([]byte("#tag#outra\n"))
 	if len(note.Tags) != 1 || note.Tags[0] != "tag" {
 		t.Errorf("tags = %v, quer [tag]", note.Tags)
 	}
@@ -190,10 +163,7 @@ func TestTagAdjacentHash(t *testing.T) {
 // pertence ao alfabeto), e a segunda e precedida por uma cerquilha, que nao
 // e inicio de linha, espaco, nem pontuacao de abertura.
 func TestTagDoubleHash(t *testing.T) {
-	note, err := parser.Parse([]byte("##tag\n"))
-	if err != nil {
-		t.Fatalf("Parse: %v", err)
-	}
+	note := parser.Parse([]byte("##tag\n"))
 	if len(note.Tags) != 0 {
 		t.Errorf("tags = %v, quer nenhuma", note.Tags)
 	}
@@ -208,10 +178,7 @@ func TestTagLoneHash(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			note, err := parser.Parse([]byte(tt.in))
-			if err != nil {
-				t.Fatalf("Parse: %v", err)
-			}
+			note := parser.Parse([]byte(tt.in))
 			if len(note.Tags) != 0 {
 				t.Errorf("tags = %v, quer nenhuma", note.Tags)
 			}
@@ -223,10 +190,7 @@ func TestTagLoneHash(t *testing.T) {
 // wikilink nao e extraida como tag independente: o parser de wikilink ja
 // consumiu o intervalo inteiro antes do parser de tag ver o '#'.
 func TestTagInsideWikilinkAlias(t *testing.T) {
-	note, err := parser.Parse([]byte("[[nota|#tag]]\n"))
-	if err != nil {
-		t.Fatalf("Parse: %v", err)
-	}
+	note := parser.Parse([]byte("[[nota|#tag]]\n"))
 	if len(note.Tags) != 0 {
 		t.Errorf("tags = %v, quer nenhuma (a tag esta dentro do wikilink)", note.Tags)
 	}
@@ -239,10 +203,7 @@ func TestTagInsideWikilinkAlias(t *testing.T) {
 // extraida normalmente: o goldmark analisa o texto do heading como inline
 // igual a qualquer paragrafo.
 func TestTagInHeading(t *testing.T) {
-	note, err := parser.Parse([]byte("## Titulo #tag\n"))
-	if err != nil {
-		t.Fatalf("Parse: %v", err)
-	}
+	note := parser.Parse([]byte("## Titulo #tag\n"))
 	if len(note.Tags) != 1 || note.Tags[0] != "tag" {
 		t.Errorf("tags = %v, quer [tag]", note.Tags)
 	}
@@ -271,10 +232,7 @@ func TestTagAdjacentToEmphasisMarkers(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			note, err := parser.Parse([]byte(tt.in))
-			if err != nil {
-				t.Fatalf("Parse: %v", err)
-			}
+			note := parser.Parse([]byte(tt.in))
 			if len(note.Tags) != 1 || note.Tags[0] != tt.want {
 				t.Errorf("tags = %v, quer [%q]", note.Tags, tt.want)
 			}
@@ -292,10 +250,7 @@ func TestTagRealURLs(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			note, err := parser.Parse([]byte(tt.in))
-			if err != nil {
-				t.Fatalf("Parse: %v", err)
-			}
+			note := parser.Parse([]byte(tt.in))
 			if len(note.Tags) != 0 {
 				t.Errorf("tags = %v, quer nenhuma", note.Tags)
 			}

@@ -9,10 +9,7 @@ import (
 func TestInlineFields(t *testing.T) {
 	src := "autor:: Fulano\nano:: 2026\n\n[status:: revisado]\n\nnao e campo: valor\n"
 
-	note, err := parser.Parse([]byte(src))
-	if err != nil {
-		t.Fatalf("Parse: %v", err)
-	}
+	note := parser.Parse([]byte(src))
 
 	if got := note.Inline["autor"]; len(got) != 1 || got[0] != "Fulano" {
 		t.Errorf("autor = %v, quer [Fulano]", got)
@@ -31,20 +28,14 @@ func TestInlineFields(t *testing.T) {
 func TestInlineFieldRepeatedKey(t *testing.T) {
 	src := "tema:: prescricao\ntema:: decadencia\n"
 
-	note, err := parser.Parse([]byte(src))
-	if err != nil {
-		t.Fatalf("Parse: %v", err)
-	}
+	note := parser.Parse([]byte(src))
 	if got := note.Inline["tema"]; len(got) != 2 {
 		t.Fatalf("tema = %v, quer duas ocorrencias", got)
 	}
 }
 
 func TestInlineFieldNotInCode(t *testing.T) {
-	note, err := parser.Parse([]byte("```\nautor:: Fulano\n```\n"))
-	if err != nil {
-		t.Fatalf("Parse: %v", err)
-	}
+	note := parser.Parse([]byte("```\nautor:: Fulano\n```\n"))
 	if len(note.Inline) != 0 {
 		t.Errorf("inline = %v, quer vazio", note.Inline)
 	}
@@ -62,10 +53,7 @@ func TestInlineFieldSingleColonRejected(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			note, err := parser.Parse([]byte(tt.in))
-			if err != nil {
-				t.Fatalf("Parse: %v", err)
-			}
+			note := parser.Parse([]byte(tt.in))
 			if len(note.Inline) != 0 {
 				t.Errorf("inline = %v, quer vazio", note.Inline)
 			}
@@ -76,10 +64,7 @@ func TestInlineFieldSingleColonRejected(t *testing.T) {
 // TestInlineFieldTripleColonRejected confirma que tres ':' seguidos nao
 // produzem campo — a regra pede EXATAMENTE dois.
 func TestInlineFieldTripleColonRejected(t *testing.T) {
-	note, err := parser.Parse([]byte("chave:::valor\n"))
-	if err != nil {
-		t.Fatalf("Parse: %v", err)
-	}
+	note := parser.Parse([]byte("chave:::valor\n"))
 	if len(note.Inline) != 0 {
 		t.Errorf("inline = %v, quer vazio", note.Inline)
 	}
@@ -88,10 +73,7 @@ func TestInlineFieldTripleColonRejected(t *testing.T) {
 // TestInlineFieldNoSpaceAfterColons confirma que "chave::valor", sem espaco
 // depois dos dois pontos, ainda produz o campo.
 func TestInlineFieldNoSpaceAfterColons(t *testing.T) {
-	note, err := parser.Parse([]byte("chave::valor\n"))
-	if err != nil {
-		t.Fatalf("Parse: %v", err)
-	}
+	note := parser.Parse([]byte("chave::valor\n"))
 	if got := note.Inline["chave"]; len(got) != 1 || got[0] != "valor" {
 		t.Errorf("chave = %v, quer [valor]", got)
 	}
@@ -100,10 +82,7 @@ func TestInlineFieldNoSpaceAfterColons(t *testing.T) {
 // TestInlineFieldEmptyValue confirma que "chave::" sem nada depois ainda
 // registra o campo, com valor vazio.
 func TestInlineFieldEmptyValue(t *testing.T) {
-	note, err := parser.Parse([]byte("chave::\n"))
-	if err != nil {
-		t.Fatalf("Parse: %v", err)
-	}
+	note := parser.Parse([]byte("chave::\n"))
 	got, ok := note.Inline["chave"]
 	if !ok || len(got) != 1 || got[0] != "" {
 		t.Errorf("chave = %v (ok=%v), quer [\"\"]", got, ok)
@@ -113,10 +92,7 @@ func TestInlineFieldEmptyValue(t *testing.T) {
 // TestInlineFieldNoKeyRejected confirma que "::" sem nada a esquerda (nem
 // letra, nem espaco, nem inicio de bloco entre colchetes) nao produz campo.
 func TestInlineFieldNoKeyRejected(t *testing.T) {
-	note, err := parser.Parse([]byte(":: valor\n"))
-	if err != nil {
-		t.Fatalf("Parse: %v", err)
-	}
+	note := parser.Parse([]byte(":: valor\n"))
 	if len(note.Inline) != 0 {
 		t.Errorf("inline = %v, quer vazio", note.Inline)
 	}
@@ -125,10 +101,7 @@ func TestInlineFieldNoKeyRejected(t *testing.T) {
 // TestInlineFieldKeyWithSpace confirma que uma chave com espaco interno
 // ("data de leitura") e aceita por inteiro.
 func TestInlineFieldKeyWithSpace(t *testing.T) {
-	note, err := parser.Parse([]byte("data de leitura:: 2026-01-01\n"))
-	if err != nil {
-		t.Fatalf("Parse: %v", err)
-	}
+	note := parser.Parse([]byte("data de leitura:: 2026-01-01\n"))
 	if got := note.Inline["data de leitura"]; len(got) != 1 || got[0] != "2026-01-01" {
 		t.Errorf("data de leitura = %v, quer [2026-01-01]", got)
 	}
@@ -139,10 +112,7 @@ func TestInlineFieldKeyWithSpace(t *testing.T) {
 // podemos confirmar isso pelo campo em si, ja que o parser nao expoe texto
 // solto.
 func TestInlineFieldBracketedTrailingText(t *testing.T) {
-	note, err := parser.Parse([]byte("[chave:: valor] texto depois\n"))
-	if err != nil {
-		t.Fatalf("Parse: %v", err)
-	}
+	note := parser.Parse([]byte("[chave:: valor] texto depois\n"))
 	if got := note.Inline["chave"]; len(got) != 1 || got[0] != "valor" {
 		t.Errorf("chave = %v, quer [valor]", got)
 	}
@@ -165,10 +135,7 @@ func TestInlineFieldBracketedTrailingText(t *testing.T) {
 // TestInlineFieldBracketedTwoPerLine para a forma que SUPORTA mais de um
 // campo por linha de proposito.
 func TestInlineFieldTwoPerLine(t *testing.T) {
-	note, err := parser.Parse([]byte("a:: 1 b:: 2\n"))
-	if err != nil {
-		t.Fatalf("Parse: %v", err)
-	}
+	note := parser.Parse([]byte("a:: 1 b:: 2\n"))
 	if got := note.Inline["a"]; len(got) != 1 || got[0] != "1 b:: 2" {
 		t.Errorf("a = %v, quer [\"1 b:: 2\"]", got)
 	}
@@ -189,10 +156,7 @@ func TestInlineFieldTwoPerLine(t *testing.T) {
 // linha — o '#' esta antes dele. A tag em si continua sendo extraida
 // normalmente pelo TagExtension; este teste olha so para note.Inline.
 func TestInlineFieldAfterTagNotField(t *testing.T) {
-	note, err := parser.Parse([]byte("#tag::valor\n"))
-	if err != nil {
-		t.Fatalf("Parse: %v", err)
-	}
+	note := parser.Parse([]byte("#tag::valor\n"))
 	if len(note.Inline) != 0 {
 		t.Errorf("inline = %v, quer vazio (\"tag\" nao pode virar chave de campo)", note.Inline)
 	}
@@ -205,10 +169,7 @@ func TestInlineFieldAfterTagNotField(t *testing.T) {
 // SIM suporta varios campos na mesma linha, porque cada um tem seu proprio
 // terminador ']'.
 func TestInlineFieldBracketedTwoPerLine(t *testing.T) {
-	note, err := parser.Parse([]byte("[a:: 1] [b:: 2]\n"))
-	if err != nil {
-		t.Fatalf("Parse: %v", err)
-	}
+	note := parser.Parse([]byte("[a:: 1] [b:: 2]\n"))
 	if got := note.Inline["a"]; len(got) != 1 || got[0] != "1" {
 		t.Errorf("a = %v, quer [1]", got)
 	}
@@ -222,10 +183,7 @@ func TestInlineFieldBracketedTwoPerLine(t *testing.T) {
 // '-' do marcador (que pertence ao alfabeto de chave) contaminaria "autor"
 // virando "- autor".
 func TestInlineFieldInListItem(t *testing.T) {
-	note, err := parser.Parse([]byte("- autor:: Fulano\n"))
-	if err != nil {
-		t.Fatalf("Parse: %v", err)
-	}
+	note := parser.Parse([]byte("- autor:: Fulano\n"))
 	if got := note.Inline["autor"]; len(got) != 1 || got[0] != "Fulano" {
 		t.Errorf("autor = %v, quer [Fulano]", got)
 	}
@@ -234,10 +192,7 @@ func TestInlineFieldInListItem(t *testing.T) {
 // TestInlineFieldInBlockquote confirma o mesmo para blockquote: o prefixo
 // "> " nao entra na chave.
 func TestInlineFieldInBlockquote(t *testing.T) {
-	note, err := parser.Parse([]byte("> autor:: Fulano\n"))
-	if err != nil {
-		t.Fatalf("Parse: %v", err)
-	}
+	note := parser.Parse([]byte("> autor:: Fulano\n"))
 	if got := note.Inline["autor"]; len(got) != 1 || got[0] != "Fulano" {
 		t.Errorf("autor = %v, quer [Fulano]", got)
 	}
@@ -251,10 +206,7 @@ func TestInlineFieldInBlockquote(t *testing.T) {
 // Task 17 ja coletava — Dataview field guardando link e idioma comum de
 // cofre.
 func TestInlineFieldValueWithWikilink(t *testing.T) {
-	note, err := parser.Parse([]byte("fonte:: [[STJ]]\n"))
-	if err != nil {
-		t.Fatalf("Parse: %v", err)
-	}
+	note := parser.Parse([]byte("fonte:: [[STJ]]\n"))
 	if got := note.Inline["fonte"]; len(got) != 1 || got[0] != "[[STJ]]" {
 		t.Errorf("fonte = %v, quer [\"[[STJ]]\"]", got)
 	}
@@ -266,10 +218,7 @@ func TestInlineFieldValueWithWikilink(t *testing.T) {
 // TestInlineFieldValueWithEmbed e o mesmo que
 // TestInlineFieldValueWithWikilink, para a forma de embed ("![[...]]").
 func TestInlineFieldValueWithEmbed(t *testing.T) {
-	note, err := parser.Parse([]byte("capa:: ![[img.png]]\n"))
-	if err != nil {
-		t.Fatalf("Parse: %v", err)
-	}
+	note := parser.Parse([]byte("capa:: ![[img.png]]\n"))
 	if got := note.Inline["capa"]; len(got) != 1 || got[0] != "![[img.png]]" {
 		t.Errorf("capa = %v, quer [\"![[img.png]]\"]", got)
 	}
@@ -281,10 +230,7 @@ func TestInlineFieldValueWithEmbed(t *testing.T) {
 // TestInlineFieldValueWithMarkdownLink e o mesmo, para a grafia Markdown de
 // link ("[texto](destino)").
 func TestInlineFieldValueWithMarkdownLink(t *testing.T) {
-	note, err := parser.Parse([]byte("fonte:: [STJ](stj.md)\n"))
-	if err != nil {
-		t.Fatalf("Parse: %v", err)
-	}
+	note := parser.Parse([]byte("fonte:: [STJ](stj.md)\n"))
 	if got := note.Inline["fonte"]; len(got) != 1 || got[0] != "[STJ](stj.md)" {
 		t.Errorf("fonte = %v, quer [\"[STJ](stj.md)\"]", got)
 	}
@@ -304,10 +250,7 @@ func TestInlineFieldValueWithMarkdownLink(t *testing.T) {
 // primeiro ']' (que pertence ao wikilink): o rastreamento de profundidade
 // encontra o ']' que fecha o CAMPO, nao o do wikilink aninhado.
 func TestInlineFieldBracketedNestedWikilinkValue(t *testing.T) {
-	note, err := parser.Parse([]byte("[fonte:: [[STJ]]]\n"))
-	if err != nil {
-		t.Fatalf("Parse: %v", err)
-	}
+	note := parser.Parse([]byte("[fonte:: [[STJ]]]\n"))
 	if got := note.Inline["fonte"]; len(got) != 1 || got[0] != "[[STJ]]" {
 		t.Errorf("fonte = %v, quer [\"[[STJ]]\"]", got)
 	}
@@ -319,10 +262,7 @@ func TestInlineFieldBracketedNestedWikilinkValue(t *testing.T) {
 // (130) vem antes do parser de link do CommonMark (~200), entao sem esta
 // recusa "destino.md" nunca seria interpretado como link.
 func TestInlineFieldBracketedDeclinesBeforeMarkdownLink(t *testing.T) {
-	note, err := parser.Parse([]byte("[Nota:: veja](destino.md)\n"))
-	if err != nil {
-		t.Fatalf("Parse: %v", err)
-	}
+	note := parser.Parse([]byte("[Nota:: veja](destino.md)\n"))
 	found := false
 	for _, l := range note.Links {
 		if l.Target == "destino.md" && l.Kind == parser.LinkMarkdown {
@@ -337,10 +277,7 @@ func TestInlineFieldBracketedDeclinesBeforeMarkdownLink(t *testing.T) {
 // TestInlineFieldInlineCodeSpan confirma que "::" dentro de um span de
 // codigo inline nao produz campo — o goldmark ja suprime parsers inline ali.
 func TestInlineFieldInlineCodeSpan(t *testing.T) {
-	note, err := parser.Parse([]byte("texto `autor:: Fulano` fim\n"))
-	if err != nil {
-		t.Fatalf("Parse: %v", err)
-	}
+	note := parser.Parse([]byte("texto `autor:: Fulano` fim\n"))
 	if len(note.Inline) != 0 {
 		t.Errorf("inline = %v, quer vazio", note.Inline)
 	}
