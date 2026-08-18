@@ -16,7 +16,7 @@ import (
 
 func parseNoteForTest(raw []byte) *parser.ParsedNote {
 	cleaned, hadBOM := vault.StripBOM(raw)
-	note, _ := parser.Parse(cleaned)
+	note := parser.Parse(cleaned)
 	if hadBOM {
 		note.ShiftOffsets(int64(vault.BOMLen))
 	}

@@ -159,10 +159,7 @@ func TestDecodeFrontmatterMalformedReturnsError(t *testing.T) {
 func TestFrontmatterClosingDelimiterWithTrailingSpace(t *testing.T) {
 	raw := []byte("---\ntitle: Prescricao\ntags: [civil]\n--- \n\n# Corpo\n\ntexto\n")
 
-	note, err := parser.Parse(raw)
-	if err != nil {
-		t.Fatalf("Parse: %v", err)
-	}
+	note := parser.Parse(raw)
 
 	if len(note.Tags) != 1 || note.Tags[0] != "civil" {
 		t.Fatalf("tags = %v, quer [civil] — o bloco YAML virou corpo", note.Tags)
@@ -181,10 +178,7 @@ func TestFrontmatterClosingDelimiterWithTrailingSpace(t *testing.T) {
 
 func TestFrontmatterOpeningDelimiterWithTrailingSpace(t *testing.T) {
 	raw := []byte("--- \ntitle: Abastecimento\n---\n# Corpo\n")
-	note, err := parser.Parse(raw)
-	if err != nil {
-		t.Fatalf("Parse: %v", err)
-	}
+	note := parser.Parse(raw)
 	if note.Frontmatter == nil || note.Frontmatter["title"] != "Abastecimento" {
 		t.Errorf("frontmatter = %v, quer title=Abastecimento", note.Frontmatter)
 	}
@@ -192,10 +186,7 @@ func TestFrontmatterOpeningDelimiterWithTrailingSpace(t *testing.T) {
 
 func TestFrontmatterDelimiterWithTrailingTabs(t *testing.T) {
 	raw := []byte("---\t\ntitle: Tabulacao\n---\t\n# Corpo\n")
-	note, err := parser.Parse(raw)
-	if err != nil {
-		t.Fatalf("Parse: %v", err)
-	}
+	note := parser.Parse(raw)
 	if note.Frontmatter == nil || note.Frontmatter["title"] != "Tabulacao" {
 		t.Errorf("frontmatter = %v, quer title=Tabulacao", note.Frontmatter)
 	}

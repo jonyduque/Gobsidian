@@ -32,10 +32,7 @@ func TestWikilinkForms(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			note, err := parser.Parse([]byte("texto " + tt.in + " texto\n"))
-			if err != nil {
-				t.Fatalf("Parse: %v", err)
-			}
+			note := parser.Parse([]byte("texto " + tt.in + " texto\n"))
 			if len(note.Links) != 1 {
 				t.Fatalf("links = %d, quer 1: %+v", len(note.Links), note.Links)
 			}
@@ -91,10 +88,7 @@ func TestWikilinkSuppressedInCode(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			note, err := parser.Parse([]byte(tt.in))
-			if err != nil {
-				t.Fatalf("Parse: %v", err)
-			}
+			note := parser.Parse([]byte(tt.in))
 			if len(note.Links) != 0 {
 				t.Errorf("links = %+v, quer nenhum", note.Links)
 			}
@@ -105,10 +99,7 @@ func TestWikilinkSuppressedInCode(t *testing.T) {
 func TestWikilinkOffsetsPointAtSource(t *testing.T) {
 	src := "abc [[nota]] def\n"
 
-	note, err := parser.Parse([]byte(src))
-	if err != nil {
-		t.Fatalf("Parse: %v", err)
-	}
+	note := parser.Parse([]byte(src))
 	if len(note.Links) != 1 {
 		t.Fatalf("links = %d, quer 1", len(note.Links))
 	}
@@ -125,10 +116,7 @@ func TestWikilinkOffsetsPointAtSource(t *testing.T) {
 func TestWikilinkOffsetsWithFrontmatter(t *testing.T) {
 	src := "---\ntitle: x\n---\nabc [[nota]] def\n"
 
-	note, err := parser.Parse([]byte(src))
-	if err != nil {
-		t.Fatalf("Parse: %v", err)
-	}
+	note := parser.Parse([]byte(src))
 	if len(note.Links) != 1 {
 		t.Fatalf("links = %d, quer 1", len(note.Links))
 	}

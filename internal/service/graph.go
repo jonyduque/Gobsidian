@@ -278,16 +278,17 @@ type MetadataRequest struct {
 
 // MetadataResult e tudo o que o indice sabe de uma nota sem ler o disco.
 type MetadataResult struct {
-	Path        string               `json:"path"`
-	Title       string               `json:"title"`
-	Hash        string               `json:"hash"`
-	Frontmatter map[string]any       `json:"frontmatter,omitempty"`
-	Tags        []string             `json:"tags,omitempty"`
-	Aliases     []string             `json:"aliases,omitempty"`
-	Headings    []string             `json:"headings,omitempty"`
-	Blocks      []string             `json:"blocks,omitempty"`
-	Links       []index.ResolvedLink `json:"links,omitempty"`
-	Backlinks   []index.Backlink     `json:"backlinks,omitempty"`
+	Path           string               `json:"path"`
+	Title          string               `json:"title"`
+	Hash           string               `json:"hash"`
+	Frontmatter    map[string]any       `json:"frontmatter,omitempty"`
+	FrontmatterErr string               `json:"frontmatter_err,omitempty"`
+	Tags           []string             `json:"tags,omitempty"`
+	Aliases        []string             `json:"aliases,omitempty"`
+	Headings       []string             `json:"headings,omitempty"`
+	Blocks         []string             `json:"blocks,omitempty"`
+	Links          []index.ResolvedLink `json:"links,omitempty"`
+	Backlinks      []index.Backlink     `json:"backlinks,omitempty"`
 }
 
 // NoteMetadata devolve tudo o que o indice sabe de uma nota sem abrir o
@@ -326,6 +327,7 @@ func (s *Service) NoteMetadata(_ context.Context, req MetadataRequest) (Metadata
 
 	if includeSet["frontmatter"] {
 		res.Frontmatter = n.Frontmatter
+		res.FrontmatterErr = n.FrontmatterErr
 		res.Aliases = n.Aliases
 	}
 	if includeSet["tags"] {
@@ -389,13 +391,14 @@ type StatsResult struct {
 	//
 	// nil  = nao pedido (include_health false)
 	// &0   = pedido, e nao ha nenhum
-	Orphans      *int           `json:"orphans,omitempty"`
-	BrokenLinks  *int           `json:"broken_links,omitempty"`
-	BrokenAnchor *int           `json:"broken_anchors,omitempty"`
-	Collisions   int            `json:"alias_collisions"`
-	Generation   uint64         `json:"generation"`
-	Runtime      *RuntimeStats  `json:"runtime,omitempty"`
-	Watcher      *WatchCounters `json:"watcher,omitempty"`
+	Orphans           *int           `json:"orphans,omitempty"`
+	BrokenLinks       *int           `json:"broken_links,omitempty"`
+	BrokenAnchor      *int           `json:"broken_anchors,omitempty"`
+	FrontmatterErrors *int           `json:"frontmatter_errors,omitempty"`
+	Collisions        int            `json:"alias_collisions"`
+	Generation        uint64         `json:"generation"`
+	Runtime           *RuntimeStats  `json:"runtime,omitempty"`
+	Watcher           *WatchCounters `json:"watcher,omitempty"`
 }
 
 // VaultStats was relocated from service.go
@@ -421,13 +424,16 @@ func (s *Service) VaultStats(ctx context.Context, req StatsRequest) (StatsResult
 	// IncludeHealth era declarado aqui e em docs/TOOLS.md e NUNCA lido: a
 	// varredura rodava sempre, e o parametro nao fazia nada. E o defeito do
 	// note_list.fields — o schema e justamente o que o chamador le para decidir.
-	var orphans, brokenLinks, brokenAnchors int
+	var orphans, brokenLinks, brokenAnchors, frontmatterErrors int
 
 	if req.IncludeHealth {
 		// NotePaths, nao Paths: Paths inclui anexos, que Get nao resolve.
 		for _, p := range s.index.NotePaths() {
 			n, ok := s.index.Get(p)
 			if ok {
+				if n.FrontmatterErr != "" {
+					frontmatterErrors++
+				}
 				bl := s.index.Backlinks(p)
 				if len(bl) == 0 {
 					orphans++
@@ -461,6 +467,7 @@ func (s *Service) VaultStats(ctx context.Context, req StatsRequest) (StatsResult
 		res.Orphans = &orphans
 		res.BrokenLinks = &brokenLinks
 		res.BrokenAnchor = &brokenAnchors
+		res.FrontmatterErrors = &frontmatterErrors
 	}
 
 	if req.IncludeRuntime {

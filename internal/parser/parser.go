@@ -18,7 +18,7 @@ var md = goldmark.New(
 
 // Parse transforma os bytes de uma nota em ParsedNote. Puro: nao toca disco,
 // nao guarda estado, nao conhece o caminho do arquivo.
-func Parse(data []byte) (*ParsedNote, error) {
+func Parse(data []byte) *ParsedNote {
 	fm, body, bodyOffset := SplitFrontmatter(data)
 
 	note := &ParsedNote{}
@@ -48,7 +48,7 @@ func Parse(data []byte) (*ParsedNote, error) {
 	collect(doc, body, bodyOffset, note)
 
 	dedupeTags(note)
-	return note, nil
+	return note
 }
 
 func firstH1(hs []Heading) string {

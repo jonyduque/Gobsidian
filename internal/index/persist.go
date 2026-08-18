@@ -19,7 +19,7 @@ import (
 // lacuna; ela é fechada junto com este arquivo.
 const (
 	// IndexCacheFormatVersion muda quando o layout serializado muda.
-	IndexCacheFormatVersion = 1
+	IndexCacheFormatVersion = 2
 	// IndexCacheParserVersion muda quando o parser passa a produzir
 	// estrutura diferente para a mesma entrada. Sem isto, corrigir um bug de
 	// parsing e reiniciar carregaria de volta o índice errado: mtime e

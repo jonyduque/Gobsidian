@@ -106,13 +106,14 @@ type Note struct {
 	// diretorio, sem leitura de conteudo.
 	CloudOnly bool
 
-	Frontmatter map[string]any
-	Tags        []string
-	Aliases     []string
-	Headings    []parser.Heading
-	Blocks      []parser.Block
-	Links       []ResolvedLink
-	Inline      map[string][]string
+	Frontmatter    map[string]any
+	FrontmatterErr string
+	Tags           []string
+	Aliases        []string
+	Headings       []parser.Heading
+	Blocks         []parser.Block
+	Links          []ResolvedLink
+	Inline         map[string][]string
 }
 
 // Asset e um anexo. Nao tem hash nem conteudo: ele e indexado por nome e

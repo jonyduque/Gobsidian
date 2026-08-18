@@ -47,10 +47,7 @@ func TestGolden(t *testing.T) {
 				t.Fatalf("lendo entrada: %v", err)
 			}
 
-			note, err := parser.Parse(src)
-			if err != nil {
-				t.Fatalf("Parse: %v", err)
-			}
+			note := parser.Parse(src)
 
 			got, err := json.MarshalIndent(note, "", "  ")
 			if err != nil {

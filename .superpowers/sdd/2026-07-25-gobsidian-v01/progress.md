@@ -3955,3 +3955,32 @@ Ponta a ponta, com lock de PID morto plantado no disco e a ponte real:
 `msg="conectado ao daemon recem-iniciado via socket"`.
 
 `verify.ps1`: 12 de 12, `VERIFY_EXIT=0`.
+
+## Task 121 — Propagacao de FrontmatterErr e SkippedEntries em Build
+
+`de7ef8b` `feat(index): propagate frontmatter errors and record build skips`
+
+### O que foi feito
+
+- Adicionado campo `FrontmatterErr string` a `index.Note` (`internal/index/note.go`).
+- Propagado `FrontmatterErr` tanto no boot via `insert` (`internal/index/index.go`) quanto no watcher via `Replace` (`internal/index/update.go`).
+- Modificado `index.Build` (`internal/index/build.go`) para registrar erros de leitura de arquivos em `v.RecordSkip(...)` em vez de descartar silenciosamente.
+- Exportado `RecordSkip` com comentario revive em `*vault.Vault` (`internal/vault/vault.go`).
+- Removido o retorno redundante `error` de `parser.Parse` em `internal/parser/parser.go`, atualizando todos os chamadores.
+- Incrementada a versao de formato do cache de metadados `IndexCacheFormatVersion = 2` e `indexCacheCodecVers = 2` em `persist.go` e `persist_codec.go`. A versao do parser `IndexCacheParserVersion` foi mantida em `1` (D-R-6).
+- Exposto `FrontmatterErr` em `MetadataResult` (`note_metadata`) e contagem `FrontmatterErrors` em `StatsResult` (`vault_stats` quando `IncludeHealth` e verdadeiro) em `internal/service/graph.go`.
+- Criados os testes `internal/service/frontmatter_err_test.go` e `internal/index/build_descarte_test.go` (com separacao de tags de build de plataforma `build_descarte_windows_test.go` e `build_descarte_unix_test.go`).
+
+### Provas de Mutacao (mutate.ps1)
+
+1. `update.go` mutado (`FrontmatterErr: ""`):
+   - `pwsh -File scripts/mutate.ps1 -Path internal/index/update.go -Anchor "FrontmatterErr: note.FrontmatterErr," -Replacement "FrontmatterErr: ""," -Test TestNotaComFrontmatterQuebradoNaoSomeEmSilencio -Package ./internal/service/`
+   - Resultado: `EXIT=0` (reprovou com `frontmatter_err_test.go:67: frontmatter malformado nao chegou a note_metadata apos Replace`).
+2. `index.go` mutado (`n.FrontmatterErr = ""`):
+   - `pwsh -File scripts/mutate.ps1 -Path internal/index/index.go -Anchor "n.FrontmatterErr = r.note.FrontmatterErr" -Replacement "n.FrontmatterErr = """ -Test TestNotaComFrontmatterQuebradoNaoSomeEmSilencio -Package ./internal/service/`
+   - Resultado: `EXIT=0` (reprovou com `frontmatter_err_test.go:31: frontmatter malformado nao chegou a note_metadata`).
+3. `build.go` mutado (`v.RecordSkip` comentado):
+   - `pwsh -File scripts/mutate.ps1 -Path internal/index/build.go -Anchor "v.RecordSkip(string(e.Path), err)" -Replacement "/* v.RecordSkip(string(e.Path), err) */" -Test TestBuildRegistraArquivoIlegivel -Package ./internal/index/`
+   - Resultado: `EXIT=0` (reprovou com `build_descarte_test.go:68: o arquivo ilegivel sumiu do indice sem deixar registro`).
+4. Paridade do cache:
+   - `go test ./internal/index -run TestSaveAndLoadIndexCache` passou sem divergencias.

@@ -12,10 +12,7 @@ func TestRewriteLinks_PreservesAliasAndAnchor(t *testing.T) {
 	input := "Veja [[Civil/PONTO 03|Ponto 3 — Obrigações]] e [[a#Seção]] e [[a#^bloco]]."
 	src := []byte(input)
 
-	note, err := parser.Parse(src)
-	if err != nil {
-		t.Fatalf("parser.Parse: %v", err)
-	}
+	note := parser.Parse(src)
 
 	if len(note.Links) != 3 {
 		t.Fatalf("esperado 3 links, obtido %d", len(note.Links))
@@ -42,10 +39,7 @@ func TestRewriteLinks_PreservesSyntaxAndEmbed(t *testing.T) {
 	input := "Markdown: [texto](antigo.md)\nEmbed: ![[imagem_antiga.png]]"
 	src := []byte(input)
 
-	note, err := parser.Parse(src)
-	if err != nil {
-		t.Fatalf("parser.Parse: %v", err)
-	}
+	note := parser.Parse(src)
 
 	if len(note.Links) != 2 {
 		t.Fatalf("esperado 2 links, obtido %d", len(note.Links))
@@ -71,10 +65,7 @@ func TestRewriteLinks_MultipleOccurrencesInSameNote(t *testing.T) {
 	input := "Primeiro [[nota_antiga]], segundo [[nota_antiga]] e terceiro [texto](nota_antiga.md)."
 	src := []byte(input)
 
-	note, err := parser.Parse(src)
-	if err != nil {
-		t.Fatalf("parser.Parse: %v", err)
-	}
+	note := parser.Parse(src)
 
 	if len(note.Links) != 3 {
 		t.Fatalf("esperado 3 links, obtido %d", len(note.Links))
@@ -122,10 +113,7 @@ func TestRewriteLinks_PreservesBOMAndEOL(t *testing.T) {
 	input := "\xef\xbb\xbfLinha 1\r\nVeja [[antigo]]\r\nLinha 3\r\n"
 	src := []byte(input)
 
-	note, err := parser.Parse(src)
-	if err != nil {
-		t.Fatalf("parser.Parse: %v", err)
-	}
+	note := parser.Parse(src)
 
 	if len(note.Links) != 1 {
 		t.Fatalf("esperado 1 link, obtido %d", len(note.Links))
