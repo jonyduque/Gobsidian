@@ -4047,6 +4047,12 @@ Centralizou a normalizacao de texto em text.Normalize(s) e substituiu as recompu
 
 `77273d1` `feat(mcpsrv,service): honour date filters, tag sort, hierarchical tags, and max_results`
 
+### Task 122: link_graph determinístico, com teto | base fa764dd | commit fa4d959
+
+Ordene Edges pela TRIPLA (source, target, kind), use slices.SortFunc, e preencha LimitEfetivo com teto max 500.
+
+### Task 120: schema honesto: data, teto de trecho, tag_list, max_results | base 77273d1 | commit 331abba
+
 ### O que foi feito
 
 - `internal/mcpsrv/tools_read.go`:
