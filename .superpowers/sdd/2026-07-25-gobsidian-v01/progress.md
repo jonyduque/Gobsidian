@@ -4024,7 +4024,7 @@ Centralizou a normalizacao de texto em text.Normalize(s) e substituiu as recompu
 
 ## Task 122 — `link_graph` determinístico, com teto
 
-`feat(service): sort link_graph nodes and edges deterministically and enforce limit cap`
+`fa4d959` `feat(service): sort link_graph nodes and edges deterministically and enforce limit cap`
 
 ### O que foi feito
 
