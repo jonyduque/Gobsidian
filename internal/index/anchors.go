@@ -28,7 +28,7 @@ func (ix *Index) resolveAnchor(link *ResolvedLink) {
 		// Heading
 		targetSlug := parser.Slug(link.Anchor)
 		for _, h := range targetNote.Headings {
-			if parser.Slug(h.Text) == targetSlug {
+			if h.Slug == targetSlug {
 				return
 			}
 		}

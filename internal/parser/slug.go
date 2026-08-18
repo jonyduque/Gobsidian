@@ -4,9 +4,7 @@ import (
 	"strings"
 	"unicode"
 
-	"golang.org/x/text/runes"
-	"golang.org/x/text/transform"
-	"golang.org/x/text/unicode/norm"
+	"github.com/jonyd/gobsidian/internal/text"
 )
 
 // Slug normaliza um heading para comparacao com a ancora de um wikilink:
@@ -15,14 +13,8 @@ import (
 // O Obsidian casa ancora de forma mais permissiva do que igualdade textual,
 // e reproduzir isso e o que faz [[nota#Capitulo 118]] encontrar
 // "## Capítulo 118" escrito com acento.
-func Slug(text string) string {
-	stripped, _, err := transform.String(
-		transform.Chain(norm.NFD, runes.Remove(runes.In(unicode.Mn)), norm.NFC),
-		text,
-	)
-	if err != nil {
-		stripped = text
-	}
+func Slug(s string) string {
+	stripped := text.RemoveAccents(s)
 
 	var b strings.Builder
 	b.Grow(len(stripped))

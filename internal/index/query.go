@@ -7,12 +7,9 @@ import (
 	"slices"
 	"strings"
 	"time"
-	"unicode"
 
+	"github.com/jonyd/gobsidian/internal/text"
 	"github.com/jonyd/gobsidian/internal/vault"
-	"golang.org/x/text/runes"
-	"golang.org/x/text/transform"
-	"golang.org/x/text/unicode/norm"
 )
 
 // Query e o filtro de note_list: pasta, tags, campos de frontmatter,
@@ -38,15 +35,8 @@ type TagCount struct {
 	Count int
 }
 
-func normalizeString(text string) string {
-	stripped, _, err := transform.String(
-		transform.Chain(norm.NFD, runes.Remove(runes.In(unicode.Mn)), norm.NFC),
-		text,
-	)
-	if err != nil {
-		stripped = text
-	}
-	return strings.ToLower(stripped)
+func normalizeString(s string) string {
+	return text.Normalize(s)
 }
 
 func getNestedValue(m map[string]any, key string) (any, bool) {
