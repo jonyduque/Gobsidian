@@ -53,6 +53,23 @@ jobs:
         shell: pwsh
         run: ./scripts/check_net.ps1
 
+  checagens:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.25'
+      - name: referencias a codigo em documentos
+        shell: pwsh
+        run: ./scripts/check_doc_refs.ps1
+      - name: ancoras do README resolvidas e secoes alcancaveis
+        shell: pwsh
+        run: ./scripts/check_readme_anchors.ps1
+      - name: parametros de tools declarados e lidos
+        shell: pwsh
+        run: ./scripts/check_tool_params.ps1
+
   lint:
     runs-on: ubuntu-latest
     steps:
@@ -131,3 +148,6 @@ jobs:
       - name: 100 ciclos - sinal, com stdin aberto e pai vivo
         shell: pwsh
         run: ./scripts/test_orphans.ps1 -Cycles 100 -Scenario signal
+      - name: 100 ciclos - daemon ocioso
+        shell: pwsh
+        run: ./scripts/test_orphans.ps1 -Cycles 100 -Scenario daemon-idle
