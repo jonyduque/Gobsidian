@@ -19,7 +19,7 @@ gates existiam e passaram verdes por cima deles**.
 
 | Defeito | Gate que deveria pegar | O que aconteceu |
 |---|---|---|
-| `tag_list.sort`, `tag_list.hierarchical`, `max_results` declarados e mortos (item 7) | `scripts/check_tool_params.ps1`, em `verify.ps1:189` | **Verde.** `[OK] todo parametro declarado e lido em algum lugar` sobre 69 parâmetros |
+| `tag_list.sort` e `tag_list.hierarchical` declarados e mortos (item 7) | `scripts/check_tool_params.ps1`, em `verify.ps1:189` | **Verde.** `[OK] todo parametro declarado e lido em algum lugar` sobre 69 parâmetros |
 | Boot do índice de busca abre placeholder de nuvem (item 2) | `TestUpdateNaoAbreNotaSomenteNuvem` + helper `construirComoOBoot` | **Verde.** O helper chama `inv.Update`; a produção não chama |
 | `daemon-idle` nunca roda no CI (item 20) | `.github/workflows/ci.yml` | Chama três cenários por nome; o quarto não está lá |
 | `check_doc_refs`, `check_readme_anchors`, `check_tool_params` | CI | **Nenhum dos três está no CI.** Só existem dentro de `verify.ps1`, que nenhum job invoca |
@@ -95,6 +95,7 @@ que o incidente terminou.
 **D-R-5. Campo de schema é implementado ou removido, na mesma tarefa.**
 Não existe "fica para depois" para um campo que o modelo do outro lado lê para
 decidir. Isso vale para `tag_list.sort`, `tag_list.hierarchical`, `max_results`
+(que não é campo de schema — ver a Task 104)
 e para todo campo que estas tarefas acrescentarem.
 
 **D-R-6. `IndexCacheParserVersion` não sobe neste lote.** Nenhuma tarefa de 104
@@ -268,7 +269,7 @@ tem helper; a Task 118 escreve o dela com
 **Tier: modelo principal.** O entregável é projetar a checagem, não transcrevê-la.
 
 #### Onde encaixa
-Primeira tarefa do lote. A Task 120 corrige os três campos mortos; esta corrige
+Primeira tarefa do lote. A Task 120 corrige os campos mortos; esta corrige
 o instrumento que os deixou passar. Nesta ordem, e não na inversa.
 
 #### O que vincula esta tarefa
@@ -381,7 +382,9 @@ ser revisada; lista de cobertura que ninguém vê é a mesma coisa.
    registre e decida.
 3. Acrescentar o segundo nível (mcpsrv → service).
 4. Imprimir a tabela de cobertura.
-5. Rodar contra o HEAD atual e **exigir que ele reprove com os três campos**.
+5. Rodar contra o HEAD atual e **exigir que ele reprove com os dois campos de
+   schema** — `tagListInput.Sort` e `tagListInput.Hierarchical`. Três é o estado
+   **sob mutação**, e `max_results` está fora do alcance do instrumento.
 
 #### O que prova esta tarefa
 
@@ -432,7 +435,7 @@ contra o HEAD.)
 
 #### Contrato de relatório
 Saída do script antes (EXIT=0, verde) e depois (EXIT=1, três campos nomeados),
-literais. A tabela de cobertura impressa, ao menos as linhas dos três campos.
+literais. A tabela de cobertura impressa, ao menos as linhas dos dois campos.
 Se o segundo nível ficou de fora, diga isso na primeira linha do relatório.
 
 ---

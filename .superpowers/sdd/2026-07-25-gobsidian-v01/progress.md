@@ -290,7 +290,7 @@ Task 95: complete (commit fe99321) — uma classificacao so para placeholder de
 Task 96: complete (commit 1041457) — custo do cache de trecho no RSS medido:
     +0,86 MB, U de Mann-Whitney 11 contra regiao critica 5, nao significativo.
     Teto de 1.024 mantido.
-Task 104: complete (reworked, sem commit) — check_tool_params.ps1 reescrito com
+Task 104: complete (reworked, commit 8de4390) — check_tool_params.ps1 reescrito com
     escopo estrito por handler ($pVar.$NomeGo, -cmatch), sem disjunto de nome nu,
     HANDLER-NAO-RESOLVIDO como achado com exit 1 em vez de fallback para o pacote
     inteiro, e propagacao ate o dominio por acesso .Campo em internal/.
