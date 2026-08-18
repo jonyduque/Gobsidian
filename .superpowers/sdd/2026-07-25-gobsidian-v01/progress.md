@@ -3955,3 +3955,33 @@ Ponta a ponta, com lock de PID morto plantado no disco e a ponte real:
 `msg="conectado ao daemon recem-iniciado via socket"`.
 
 `verify.ps1`: 12 de 12, `VERIFY_EXIT=0`.
+
+
+---
+
+## Task 118 — normalizacao de texto centralizada e reuso de Heading.Slug pre-calculado — 2026-08-17
+
+Centralizou a normalizacao de texto em text.Normalize(s) e substituiu as recomputacoes redundantes de parser.Slug(h.Text) pelo campo pre-calculado h.Slug nos pontos de busca e edicao de secoes.
+
+- internal/index/anchors.go: Reutilizou h.Slug pre-calculado em resolucao de ancoras de wikilink.
+- internal/service/read.go: Reutilizou h.Slug pre-calculado no handler de leitura com filtro por cabecalho (note_read).
+- internal/writer/section.go: Reutilizou h.Slug pre-calculado na busca de secoes de cabecalho (note_append/note_patch).
+- internal/index/query.go: Refatorou normalizeString para delegar diretamente a text.Normalize(s).
+- internal/text/normalize.go: Adicionou funcao exportada RemoveAccents(s string) string utilizando o transformerPool e refatorou Normalize para strings.ToLower(RemoveAccents(s)).
+- internal/parser/slug.go: Refatorou Slug(s string) para usar text.RemoveAccents(s) em vez de reinstanciar a cadeia de transformacao a cada chamada.
+- internal/index/slug_persistido_test.go: Testou que h.Slug gravado no indice bate com parser.Slug(h.Text) em Build, cache recarregado e Replace.
+- internal/index/normalizacao_equivalente_test.go: Testou a equivalencia exata de normalizeString e text.Normalize sobre corpus com acentos, caixa, NFC/NFD, espacos, emojis e strings vazias.
+
+```
+[...] Mutando internal/parser/headings.go
+      - Slug:      Slug(title),
+      + Slug:      ""
+
+[...] go test -race -run TestSlugPersistidoBateComORecomputado ./internal/index/
+--- FAIL: TestSlugPersistidoBateComORecomputado (0.15s)
+    --- FAIL: TestSlugPersistidoBateComORecomputado/Build (0.00s)
+        slug_persistido_test.go:85: a.md: heading "Capitulo 118" tem Slug "", recomputado da "capitulo 118"
+        slug_persistido_test.go:89: a.md: heading "Capitulo 118" tem Slug vazio
+[OK] internal/parser/headings.go restaurado byte a byte (SHA-256 confere).
+[OK] O teste REPROVOU com a regra mutada — a regra esta verificada.
+```

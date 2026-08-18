@@ -170,7 +170,7 @@ func (s *Service) ReadNote(ctx context.Context, req ReadRequest) (ReadResult, er
 		var matches []parser.Heading
 
 		for _, h := range note.Headings {
-			if parser.Slug(h.Text) == targetSlug {
+			if h.Slug == targetSlug {
 				if req.HeadingLevel == 0 || h.Level == req.HeadingLevel {
 					matches = append(matches, h)
 				}

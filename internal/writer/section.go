@@ -56,7 +56,7 @@ func FindHeading(headings []parser.Heading, headingQuery string) (*parser.Headin
 	var matches []parser.Heading
 
 	for _, h := range headings {
-		if parser.Slug(h.Text) == targetSlug || strings.EqualFold(h.Text, headingQuery) {
+		if h.Slug == targetSlug || strings.EqualFold(h.Text, headingQuery) {
 			matches = append(matches, h)
 		}
 	}
