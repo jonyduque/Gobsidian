@@ -1,0 +1,395 @@
+# Review package: 8de4390ae43d9b985ef03da9c4f4328943c9243b..HEAD
+
+## Commits
+b253b15 docs(ledger): record completion of Task 116
+f76eeaf fix(service): validate expected_hash against disk bytes instead of index
+
+## Files changed
+ .../sdd/2026-07-25-gobsidian-v01/progress.md       |   6 ++
+ .../sdd/2026-08-16-revisao-fixes/task-116-base.txt |   1 +
+ internal/service/expected_hash_test.go             | 115 +++++++++++++++++++++
+ internal/service/write.go                          |  24 +++--
+ 4 files changed, 138 insertions(+), 8 deletions(-)
+
+## Diff
+diff --git a/.superpowers/sdd/2026-07-25-gobsidian-v01/progress.md b/.superpowers/sdd/2026-07-25-gobsidian-v01/progress.md
+index 470635b..9d86497 100644
+--- a/.superpowers/sdd/2026-07-25-gobsidian-v01/progress.md
++++ b/.superpowers/sdd/2026-07-25-gobsidian-v01/progress.md
+@@ -3948,10 +3948,16 @@ Tres mutacoes, `EXIT=0` nas tres: todo lock vivo reprova a recuperacao; todo loc
+ obsoleto reprova o respeito ao vivo; sem `exitTime` reprova o teste do Windows.
+ 
+ Uma delas saiu `EXIT=2` na primeira tentativa (`return true` deixava `pid` sem
+ uso e quebrava o build). **Falha de compilacao nao e cobertura**; trocada por
+ `return !pidVivo(pid) || true`, que compila.
+ 
+ Ponta a ponta, com lock de PID morto plantado no disco e a ponte real:
+ `msg="conectado ao daemon recem-iniciado via socket"`.
+ 
+ `verify.ps1`: 12 de 12, `VERIFY_EXIT=0`.
++
++
++Task 116: complete (commit f76eeaf, validate expected_hash against disk bytes instead of index, review Approved)
++  - internal/service/write.go: currentHash deriva de hashDoConteudo(raw) (xxhash.Sum64(raw)), e AppendNoteResult/PatchNoteResult/CreateNoteResult passam a devolver o Hash atualizado do conteudo gravado.
++  - internal/service/expected_hash_test.go: criado com TestExpectedHashPegaEdicaoExternaAindaNaoIndexada e TestExpectedHashCorretoAindaPassa.
++  - Prova de mutacao em AppendNote e PatchNote: MUT_EXIT=0 nas duas regras, com expected_hash_test.go:79 reprovando pelo nome e linha.
+diff --git a/.superpowers/sdd/2026-08-16-revisao-fixes/task-116-base.txt b/.superpowers/sdd/2026-08-16-revisao-fixes/task-116-base.txt
+new file mode 100644
+index 0000000..104d942
+--- /dev/null
++++ b/.superpowers/sdd/2026-08-16-revisao-fixes/task-116-base.txt
+@@ -0,0 +1 @@
++8de4390ae43d9b985ef03da9c4f4328943c9243b
+\ No newline at end of file
+diff --git a/internal/service/expected_hash_test.go b/internal/service/expected_hash_test.go
+new file mode 100644
+index 0000000..53bdce1
+--- /dev/null
++++ b/internal/service/expected_hash_test.go
+@@ -0,0 +1,115 @@
++package service
++
++import (
++	"context"
++	"os"
++	"path/filepath"
++	"testing"
++)
++
++// TestExpectedHashPegaEdicaoExternaAindaNaoIndexada e o cenario para o qual o
++// campo foi escrito, e o unico que os testes de hoje nao cobrem.
++//
++// O truque e NAO deixar o indice ver a edicao: escrever no disco por baixo e nao
++// reindexar. Um teste que reindexa antes de chamar a escrita mede o caso facil,
++// em que disco e indice concordam — e esse ja passava com o codigo defeituoso.
++func TestExpectedHashPegaEdicaoExternaAindaNaoIndexada(t *testing.T) {
++	casos := []struct {
++		nome    string
++		chamada func(svc *Service, hash string) error
++	}{
++		{
++			nome: "note_append",
++			chamada: func(svc *Service, hash string) error {
++				_, err := svc.AppendNote(context.Background(), AppendNoteRequest{
++					Path: "nota.md", Content: "acrescentado\n", ExpectedHash: hash,
++				})
++				return err
++			},
++		},
++		{
++			nome: "note_patch",
++			chamada: func(svc *Service, hash string) error {
++				_, err := svc.PatchNote(context.Background(), PatchNoteRequest{
++					Path: "nota.md", Heading: "Secao", Mode: "replace_section",
++					Content: "trocado\n", ExpectedHash: hash,
++				})
++				return err
++			},
++		},
++	}
++
++	for _, c := range casos {
++		t.Run(c.nome, func(t *testing.T) {
++			root := t.TempDir()
++			writeFile(t, root, "nota.md", "# Secao\n\noriginal\n")
++			svc := newTestService(t, root)
++
++			// O hash que o cliente teria em maos: o do estado indexado.
++			antes, err := svc.ReadNote(context.Background(), ReadRequest{Path: "nota.md"})
++			if err != nil {
++				t.Fatalf("ReadNote inicial: %v", err)
++			}
++			hashDoCliente := antes.Hash
++			if hashDoCliente == "" {
++				t.Fatal("ReadNote devolveu Hash vazio; o teste nao tem o que comparar")
++			}
++
++			// Edicao externa DIRETO no disco, sem reindexar. E a janela do debounce.
++			const editado = "# Secao\n\neditado por fora\n"
++			abs := filepath.Join(root, "nota.md")
++			if err := os.WriteFile(abs, []byte(editado), 0644); err != nil {
++				t.Fatalf("escrevendo por fora: %v", err)
++			}
++
++			// Confere que a CONDICAO se montou: o indice ainda tem o hash velho.
++			// Sem esta guarda, um teste que reindexou por acidente passaria por
++			// engano — a licao da Task 103.
++			depois, err := svc.ReadNote(context.Background(), ReadRequest{Path: "nota.md"})
++			if err != nil {
++				t.Fatalf("ReadNote apos edicao externa: %v", err)
++			}
++			if depois.Hash != hashDoCliente {
++				t.Fatalf("o indice ja absorveu a edicao (%s -> %s); a condicao "+
++					"deste teste nao se montou", hashDoCliente, depois.Hash)
++			}
++
++			err = c.chamada(svc, hashDoCliente)
++			if err == nil {
++				t.Fatal("a escrita aceitou expected_hash obsoleto e sobrescreveu a " +
++					"edicao externa — o controle otimista falhou no seu unico caso")
++			}
++			if got := CodeOf(err); got != CodeHashMismatch {
++				t.Fatalf("codigo = %v, quer %v", got, CodeHashMismatch)
++			}
++
++			// A prova de que nada foi gravado. Sem ela, um erro devolvido DEPOIS
++			// da escrita passaria.
++			atual, err := os.ReadFile(abs)
++			if err != nil {
++				t.Fatalf("relendo: %v", err)
++			}
++			if string(atual) != editado {
++				t.Fatalf("o arquivo foi alterado apesar do erro:\n%q", atual)
++			}
++		})
++	}
++}
++
++// TestExpectedHashCorretoAindaPassa e o controle. Sem ele, uma implementacao que
++// recusasse TODA escrita com expected_hash passaria no teste acima.
++func TestExpectedHashCorretoAindaPassa(t *testing.T) {
++	root := t.TempDir()
++	writeFile(t, root, "nota.md", "# Secao\n\noriginal\n")
++	svc := newTestService(t, root)
++
++	res, err := svc.ReadNote(context.Background(), ReadRequest{Path: "nota.md"})
++	if err != nil {
++		t.Fatalf("ReadNote: %v", err)
++	}
++	if _, err := svc.AppendNote(context.Background(), AppendNoteRequest{
++		Path: "nota.md", Content: "acrescentado\n", ExpectedHash: res.Hash,
++	}); err != nil {
++		t.Fatalf("AppendNote com expected_hash CORRETO foi recusado: %v", err)
++	}
++}
+diff --git a/internal/service/write.go b/internal/service/write.go
+index d3bc7f8..c4822c2 100644
+--- a/internal/service/write.go
++++ b/internal/service/write.go
+@@ -4,79 +4,87 @@ import (
+ 	"bytes"
+ 	"context"
+ 	"errors"
+ 	"fmt"
+ 	"os"
+ 	"path/filepath"
+ 	"sort"
+ 	"strings"
+ 	"time"
+ 
++	"github.com/cespare/xxhash/v2"
+ 	"github.com/jonyd/gobsidian/internal/index"
+ 	"github.com/jonyd/gobsidian/internal/parser"
+ 	"github.com/jonyd/gobsidian/internal/vault"
+ 	"github.com/jonyd/gobsidian/internal/writer"
+ 	"gopkg.in/yaml.v3"
+ )
+ 
++func hashDoConteudo(data []byte) string {
++	return fmt.Sprintf("%016x", xxhash.Sum64(data))
++}
++
+ // CreateNoteRequest carrega os parametros para note_create.
+ type CreateNoteRequest struct {
+ 	Path          string         `json:"path"`
+ 	Content       string         `json:"content"`
+ 	Frontmatter   map[string]any `json:"frontmatter,omitempty"`
+ 	CreateFolders bool           `json:"create_folders"`
+ 	DryRun        bool           `json:"dry_run"`
+ }
+ 
+ // CreateNoteResult e o retorno de note_create.
+ type CreateNoteResult struct {
+ 	Path    string `json:"path"`
+ 	Diff    string `json:"diff,omitempty"`
+ 	Created bool   `json:"created"`
++	Hash    string `json:"hash,omitempty"`
+ }
+ 
+ // AppendNoteRequest carrega os parametros para note_append.
+ type AppendNoteRequest struct {
+ 	Path            string `json:"path"`
+ 	Content         string `json:"content"`
+ 	Heading         string `json:"heading,omitempty"`
+ 	HeadingLevel    int    `json:"heading_level,omitempty"`
+ 	CreateIfMissing bool   `json:"create_if_missing"`
+ 	EnsureBlankLine bool   `json:"ensure_blank_line"`
+ 	ExpectedHash    string `json:"expected_hash,omitempty"`
+ 	DryRun          bool   `json:"dry_run"`
+ }
+ 
+ // AppendNoteResult e o retorno de note_append.
+ type AppendNoteResult struct {
+ 	Path     string `json:"path"`
+ 	Diff     string `json:"diff,omitempty"`
+ 	Appended bool   `json:"appended"`
++	Hash     string `json:"hash,omitempty"`
+ }
+ 
+ // PatchNoteRequest carrega os parametros para note_patch.
+ type PatchNoteRequest struct {
+ 	Path         string `json:"path"`
+ 	Content      string `json:"content"`
+ 	Heading      string `json:"heading,omitempty"`
+ 	HeadingLevel int    `json:"heading_level,omitempty"`
+ 	BlockID      string `json:"block_id,omitempty"`
+ 	Mode         string `json:"mode,omitempty"`
+ 	ExpectedHash string `json:"expected_hash,omitempty"`
+ 	DryRun       bool   `json:"dry_run"`
+ }
+ 
+ // PatchNoteResult e o retorno de note_patch.
+ type PatchNoteResult struct {
+ 	Path    string `json:"path"`
+ 	Diff    string `json:"diff,omitempty"`
+ 	Patched bool   `json:"patched"`
++	Hash    string `json:"hash,omitempty"`
+ }
+ 
+ func (s *Service) checkWriteAllowed(path string) error {
+ 	if s.opts.ReadOnly {
+ 		return Errorf(CodeReadOnlyMode, "servidor em modo somente leitura (--read-only)")
+ 	}
+ 	if strings.Contains(path, "../") || strings.HasPrefix(path, "/") || (len(path) > 1 && path[1] == ':') {
+ 		return Errorf(CodePathOutsideVault, "caminho %q fora do cofre", path)
+ 	}
+ 	return nil
+@@ -121,28 +129,28 @@ func (s *Service) CreateNote(_ context.Context, req CreateNoteRequest) (CreateNo
+ 		}
+ 		bodyBuilder.WriteString("---\n")
+ 		bodyBuilder.Write(fmBytes)
+ 		bodyBuilder.WriteString("---\n\n")
+ 	}
+ 	bodyBuilder.WriteString(req.Content)
+ 	fullContent := bodyBuilder.String()
+ 
+ 	if req.DryRun {
+ 		diff := writer.UnifiedDiff(req.Path, req.Path, "", fullContent, 3)
+-		return CreateNoteResult{Path: req.Path, Diff: diff, Created: false}, nil
++		return CreateNoteResult{Path: req.Path, Diff: diff, Created: false, Hash: hashDoConteudo([]byte(fullContent))}, nil
+ 	}
+ 
+ 	if err := writer.WriteAtomic(absPath, []byte(fullContent)); err != nil {
+ 		return CreateNoteResult{}, Errorf(CodeInternal, "escrevendo nota %q: %v", req.Path, err)
+ 	}
+ 
+-	return CreateNoteResult{Path: req.Path, Diff: "", Created: true}, nil
++	return CreateNoteResult{Path: req.Path, Diff: "", Created: true, Hash: hashDoConteudo([]byte(fullContent))}, nil
+ }
+ 
+ // AppendNote anexa conteudo a uma nota ou secao existente.
+ func (s *Service) AppendNote(_ context.Context, req AppendNoteRequest) (AppendNoteResult, error) {
+ 	if err := s.checkWriteAllowed(req.Path); err != nil {
+ 		return AppendNoteResult{}, err
+ 	}
+ 
+ 	canonical, err := s.index.ResolvePath(req.Path)
+ 	if err != nil {
+@@ -162,21 +170,21 @@ func (s *Service) AppendNote(_ context.Context, req AppendNoteRequest) (AppendNo
+ 
+ 	unlock := s.locker.Lock(canonical)
+ 	defer unlock()
+ 
+ 	absPath := s.vault.Abs(canonical)
+ 	raw, err := os.ReadFile(absPath)
+ 	if err != nil {
+ 		return AppendNoteResult{}, Errorf(CodeInternal, "lendo nota %q: %v", req.Path, err)
+ 	}
+ 
+-	currentHash := fmt.Sprintf("%016x", note.Hash)
++	currentHash := hashDoConteudo(raw)
+ 	if req.ExpectedHash != "" && currentHash != req.ExpectedHash {
+ 		return AppendNoteResult{}, Errorf(CodeHashMismatch, "hash esperado %q nao confere com hash atual %q", req.ExpectedHash, currentHash)
+ 	}
+ 
+ 	cleaned, hadBOM := vault.StripBOM(raw)
+ 	parsed, _ := parser.Parse(cleaned)
+ 	if hadBOM {
+ 		parsed.ShiftOffsets(int64(vault.BOMLen))
+ 	}
+ 
+@@ -223,28 +231,28 @@ func (s *Service) AppendNote(_ context.Context, req AppendNoteRequest) (AppendNo
+ 		}
+ 		headingLine := fmt.Sprintf("%s %s%s", strings.Repeat("#", level), req.Heading, eol)
+ 		appended := writer.AppendSectionContent(raw, nil, headingLine+conteudo)
+ 		proposed = appended
+ 	} else {
+ 		proposed = writer.AppendSectionContent(raw, targetH, conteudo)
+ 	}
+ 
+ 	if req.DryRun {
+ 		diff := writer.UnifiedDiff(req.Path, req.Path, string(raw), string(proposed), 3)
+-		return AppendNoteResult{Path: req.Path, Diff: diff, Appended: false}, nil
++		return AppendNoteResult{Path: req.Path, Diff: diff, Appended: false, Hash: hashDoConteudo(proposed)}, nil
+ 	}
+ 
+ 	if err := writer.WriteAtomic(absPath, proposed); err != nil {
+ 		return AppendNoteResult{}, Errorf(CodeInternal, "escrevendo nota %q: %v", req.Path, err)
+ 	}
+ 
+-	return AppendNoteResult{Path: req.Path, Diff: "", Appended: true}, nil
++	return AppendNoteResult{Path: req.Path, Diff: "", Appended: true, Hash: hashDoConteudo(proposed)}, nil
+ }
+ 
+ // PatchNote substitui uma secao, cabeçalho ou bloco de uma nota.
+ func (s *Service) PatchNote(_ context.Context, req PatchNoteRequest) (PatchNoteResult, error) {
+ 	if err := s.checkWriteAllowed(req.Path); err != nil {
+ 		return PatchNoteResult{}, err
+ 	}
+ 
+ 	if req.Heading != "" && req.BlockID != "" {
+ 		return PatchNoteResult{}, Errorf(CodeInternal, "heading e block_id sao mutuamente exclusivos em note_patch")
+@@ -268,21 +276,21 @@ func (s *Service) PatchNote(_ context.Context, req PatchNoteRequest) (PatchNoteR
+ 
+ 	unlock := s.locker.Lock(canonical)
+ 	defer unlock()
+ 
+ 	absPath := s.vault.Abs(canonical)
+ 	raw, err := os.ReadFile(absPath)
+ 	if err != nil {
+ 		return PatchNoteResult{}, Errorf(CodeInternal, "lendo nota %q: %v", req.Path, err)
+ 	}
+ 
+-	currentHash := fmt.Sprintf("%016x", note.Hash)
++	currentHash := hashDoConteudo(raw)
+ 	if req.ExpectedHash != "" && currentHash != req.ExpectedHash {
+ 		return PatchNoteResult{}, Errorf(CodeHashMismatch, "hash esperado %q nao confere com hash atual %q", req.ExpectedHash, currentHash)
+ 	}
+ 
+ 	cleaned, hadBOM := vault.StripBOM(raw)
+ 	parsed, _ := parser.Parse(cleaned)
+ 	if hadBOM {
+ 		parsed.ShiftOffsets(int64(vault.BOMLen))
+ 	}
+ 
+@@ -352,28 +360,28 @@ func (s *Service) PatchNote(_ context.Context, req PatchNoteRequest) (PatchNoteR
+ 			return PatchNoteResult{}, Errorf(CodeHeadingNotFound, "heading %q nao encontrado", req.Heading)
+ 		}
+ 		proposed = writer.PatchSectionContent(raw, *h, req.Content)
+ 
+ 	default:
+ 		return PatchNoteResult{}, Errorf(CodeInternal, "modo de patch %q invalido", req.Mode)
+ 	}
+ 
+ 	if req.DryRun {
+ 		diff := writer.UnifiedDiff(req.Path, req.Path, string(raw), string(proposed), 3)
+-		return PatchNoteResult{Path: req.Path, Diff: diff, Patched: false}, nil
++		return PatchNoteResult{Path: req.Path, Diff: diff, Patched: false, Hash: hashDoConteudo(proposed)}, nil
+ 	}
+ 
+ 	if err := writer.WriteAtomic(absPath, proposed); err != nil {
+ 		return PatchNoteResult{}, Errorf(CodeInternal, "escrevendo nota %q: %v", req.Path, err)
+ 	}
+ 
+-	return PatchNoteResult{Path: req.Path, Diff: "", Patched: true}, nil
++	return PatchNoteResult{Path: req.Path, Diff: "", Patched: true, Hash: hashDoConteudo(proposed)}, nil
+ }
+ 
+ // MoveNoteRequest carrega os parametros para note_move.
+ type MoveNoteRequest struct {
+ 	From          string `json:"from"`
+ 	To            string `json:"to"`
+ 	UpdateLinks   bool   `json:"update_links"`
+ 	CreateFolders bool   `json:"create_folders"`
+ 	DryRun        bool   `json:"dry_run"`
+ }
