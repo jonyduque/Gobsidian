@@ -4103,3 +4103,20 @@ e a mensagem citava algo que nao existia. Registrada nos seis subcomandos com
    - Resultado: `EXIT=0` (reprovou com `max_results_test.go:28: hits = 30, quer 5 (limit=100 clampado por MaxResults=5)`).
 
 
+
+
+## Task 106 — `note_read` com `offset`, `next_offset` e `total_size` — 2026-08-19
+
+Adicionados `offset`, `total_size` e `next_offset` a `note_read`, `ReadRequest`, `ReadResult`, `ReadBatchRequest`, `ReadNoteItem` e `noteReadInput`. Commit `13cb363`.
+
+- **Exclusão Mútua & Limites:** `offset` (relativo ao byte 0) é mutuamente exclusivo com `heading` e `block_id` (`CodeInvalidArgument`). `offset` negativo ou maior que `note.Size` devolve `CodeInvalidArgument`.
+- **Precedência & Frontmatter:** com `offset` presente, `include_frontmatter` é ignorado.
+- **Continuação & Truncamento:** `total_size` é sempre `note.Size`. `next_offset` é o byte seguinte quando há mais conteúdo e `nil` quando a leitura atinge o final da nota. `Truncated` é atribuído exclusivamente na linha de clamp por `max_bytes`.
+- **Contrato MCP & Docs:** `jsonschema` de `noteReadInput` e `docs/TOOLS.md` atualizados.
+- **Testes:** transcritos `TestReadNoteTruncatedNaoMenteQuandoAFaixaMedeExatamenteMaxBytes` e `TestReadNoteOffsetPaginaDoInicioAoFim`, mais testes de validação de `offset`.
+
+Provas de Mutação (`mutate.ps1`):
+1. `-Anchor 'truncou = true'` -> `-Replacement 'truncou = false'` em `TestReadNoteTruncatedNaoMenteQuandoAFaixaMedeExatamenteMaxBytes` (`EXIT=0`, falhou em `read_test.go:308`).
+2. `-Anchor 'res.NextOffset = &end'` -> `-Replacement '_ = end'` em `TestReadNoteOffsetPaginaDoInicioAoFim` (`EXIT=0`, falhou em `read_test.go:343`).
+
+`pwsh -File scripts/verify.ps1`: 13 de 13 [OK]. `golangci-lint`: v2.12.2.
