@@ -80,30 +80,37 @@ type PatchNoteResult struct {
 	Hash    string `json:"hash,omitempty"`
 }
 
-func (s *Service) checkWriteAllowed(path string) error {
+func mapVaultErr(err error) *Error {
+	if errors.Is(err, vault.ErrOutsideVault) || errors.Is(err, vault.ErrAbsolutePath) {
+		return Errorf(CodePathOutsideVault, "%v", err)
+	}
+	if errors.Is(err, vault.ErrEmptyPath) || errors.Is(err, vault.ErrInvalidPath) {
+		return Errorf(CodeInvalidArgument, "%v", err)
+	}
+	return Errorf(CodeInternal, "%v", err)
+}
+
+func (s *Service) checkWritable() error {
 	if s.opts.ReadOnly {
 		return Errorf(CodeReadOnlyMode, "servidor em modo somente leitura (--read-only)")
-	}
-	if strings.Contains(path, "../") || strings.HasPrefix(path, "/") || (len(path) > 1 && path[1] == ':') {
-		return Errorf(CodePathOutsideVault, "caminho %q fora do cofre", path)
 	}
 	return nil
 }
 
 // CreateNote cria uma nova nota no cofre. Falha se a nota ja existir.
 func (s *Service) CreateNote(_ context.Context, req CreateNoteRequest) (CreateNoteResult, error) {
-	if err := s.checkWriteAllowed(req.Path); err != nil {
+	if err := s.checkWritable(); err != nil {
 		return CreateNoteResult{}, err
 	}
 
-	cleanPath := filepath.ToSlash(filepath.Clean(req.Path))
-	canonical := vault.CanonicalPath(cleanPath)
+	absPath, canonical, err := vault.Resolve(s.vault.Root(), req.Path)
+	if err != nil {
+		return CreateNoteResult{}, mapVaultErr(err)
+	}
 
 	if _, ok := s.index.Get(canonical); ok {
 		return CreateNoteResult{}, Errorf(CodeNoteExists, "nota %q ja existe no cofre", req.Path)
 	}
-
-	absPath := s.vault.Abs(canonical)
 	if _, err := os.Stat(absPath); err == nil {
 		return CreateNoteResult{}, Errorf(CodeNoteExists, "nota %q ja existe no cofre", req.Path)
 	}
@@ -148,7 +155,7 @@ func (s *Service) CreateNote(_ context.Context, req CreateNoteRequest) (CreateNo
 
 // AppendNote anexa conteudo a uma nota ou secao existente.
 func (s *Service) AppendNote(_ context.Context, req AppendNoteRequest) (AppendNoteResult, error) {
-	if err := s.checkWriteAllowed(req.Path); err != nil {
+	if err := s.checkWritable(); err != nil {
 		return AppendNoteResult{}, err
 	}
 
@@ -250,7 +257,7 @@ func (s *Service) AppendNote(_ context.Context, req AppendNoteRequest) (AppendNo
 
 // PatchNote substitui uma secao, cabeçalho ou bloco de uma nota.
 func (s *Service) PatchNote(_ context.Context, req PatchNoteRequest) (PatchNoteResult, error) {
-	if err := s.checkWriteAllowed(req.Path); err != nil {
+	if err := s.checkWritable(); err != nil {
 		return PatchNoteResult{}, err
 	}
 
@@ -406,10 +413,7 @@ type MoveNoteResult struct {
 
 // MoveNote renomeia ou move uma nota e reescreve os links que apontam para ela.
 func (s *Service) MoveNote(_ context.Context, req MoveNoteRequest) (MoveNoteResult, error) {
-	if err := s.checkWriteAllowed(req.From); err != nil {
-		return MoveNoteResult{}, err
-	}
-	if err := s.checkWriteAllowed(req.To); err != nil {
+	if err := s.checkWritable(); err != nil {
 		return MoveNoteResult{}, err
 	}
 
@@ -421,17 +425,23 @@ func (s *Service) MoveNote(_ context.Context, req MoveNoteRequest) (MoveNoteResu
 		return MoveNoteResult{}, Errorf(CodeNoteNotFound, "nota de origem %q nao encontrada", req.From)
 	}
 
-	cleanTo := filepath.ToSlash(filepath.Clean(req.To))
-	if !strings.HasSuffix(cleanTo, ".md") {
-		cleanTo += ".md"
+	_, _, err = vault.Resolve(s.vault.Root(), req.To)
+	if err != nil {
+		return MoveNoteResult{}, mapVaultErr(err)
 	}
-	canonicalTo := vault.CanonicalPath(cleanTo)
+
+	toInput := req.To
+	if !strings.HasSuffix(toInput, ".md") {
+		toInput += ".md"
+	}
+	absTo, canonicalTo, err := vault.Resolve(s.vault.Root(), toInput)
+	if err != nil {
+		return MoveNoteResult{}, mapVaultErr(err)
+	}
 
 	if _, ok := s.index.Get(canonicalTo); ok {
 		return MoveNoteResult{}, Errorf(CodeNoteExists, "destino %q ja existe no cofre", req.To)
 	}
-
-	absTo := s.vault.Abs(canonicalTo)
 	if _, err := os.Stat(absTo); err == nil {
 		return MoveNoteResult{}, Errorf(CodeNoteExists, "destino %q ja existe no cofre", req.To)
 	}
@@ -655,7 +665,7 @@ type DeleteNoteResult struct {
 
 // DeleteNote exclui uma nota do cofre (por padrao movendo para a lixeira .trash/).
 func (s *Service) DeleteNote(_ context.Context, req DeleteNoteRequest) (DeleteNoteResult, error) {
-	if err := s.checkWriteAllowed(req.Path); err != nil {
+	if err := s.checkWritable(); err != nil {
 		return DeleteNoteResult{}, err
 	}
 
@@ -717,7 +727,10 @@ func (s *Service) DeleteNote(_ context.Context, req DeleteNoteRequest) (DeleteNo
 	if req.ToTrash {
 		baseName := filepath.Base(string(canonical))
 		trashRel := filepath.ToSlash(filepath.Join(".trash", baseName))
-		absTrash := s.vault.Abs(vault.CanonicalPath(trashRel))
+		absTrash, _, err := vault.Resolve(s.vault.Root(), trashRel)
+		if err != nil {
+			return DeleteNoteResult{}, mapVaultErr(err)
+		}
 
 		// Resolve colisoes de nome na lixeira adicionando timestamp
 		if _, err := os.Stat(absTrash); err == nil {
@@ -725,7 +738,10 @@ func (s *Service) DeleteNote(_ context.Context, req DeleteNoteRequest) (DeleteNo
 			stem := strings.TrimSuffix(baseName, ext)
 			uniqueName := fmt.Sprintf("%s_%d%s", stem, time.Now().UnixNano(), ext)
 			trashRel = filepath.ToSlash(filepath.Join(".trash", uniqueName))
-			absTrash = s.vault.Abs(vault.CanonicalPath(trashRel))
+			absTrash, _, err = vault.Resolve(s.vault.Root(), trashRel)
+			if err != nil {
+				return DeleteNoteResult{}, mapVaultErr(err)
+			}
 		}
 
 		trashDir := filepath.Dir(absTrash)
