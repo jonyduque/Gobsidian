@@ -4053,6 +4053,19 @@ Ordene Edges pela TRIPLA (source, target, kind), use slices.SortFunc, e preencha
 
 ### Task 120: schema honesto: data, teto de trecho, tag_list, max_results | base 77273d1 | commit 331abba
 
+**Revisao de 2026-08-17.** Quatro mutacoes re-executadas pelo revisor, EXIT=0 nas
+quatro — filtro de data, tag_list.sort, tag_list.hierarchical e o teto de limit —
+mais a da Task 122 (ordenacao dos nos do grafo). `verify.ps1` **13 de 13**, a
+primeira rodada limpa desta batelada, e `check_tool_params` saiu de 1 para 0 sem
+que o gate fosse tocado (conferido: `git diff scripts/` vazio) e com os dois
+campos ainda no schema, agora lidos.
+
+Corrigido no lugar pelo revisor (commit b0cf7be): `--max-results` tinha ramo em
+`config.Load`, companheiro `MaxResultsSet` e mensagem de erro com o nome da flag,
+mas **a flag nunca foi registrada em subcomando nenhum** — o ramo era inalcancavel
+e a mensagem citava algo que nao existia. Registrada nos seis subcomandos com
+`Changed()` em cada um, e o teto documentado em `docs/TOOLS.md`.
+
 ### O que foi feito
 
 - `internal/mcpsrv/tools_read.go`:
