@@ -103,6 +103,7 @@ func (s *Server) registerReadToolsInternal() {
 						Heading:            req.Heading,
 						HeadingLevel:       req.HeadingLevel,
 						BlockID:            req.BlockID,
+						Offset:             req.Offset,
 						IncludeFrontmatter: includeFrontmatter,
 						MaxBytes:           maxBytes,
 					})
@@ -114,6 +115,7 @@ func (s *Server) registerReadToolsInternal() {
 					Heading:            req.Heading,
 					HeadingLevel:       req.HeadingLevel,
 					BlockID:            req.BlockID,
+					Offset:             req.Offset,
 					IncludeFrontmatter: includeFrontmatter,
 					MaxBytes:           maxBytes,
 				})
@@ -292,6 +294,7 @@ type noteReadInput struct {
 	Heading            string   `json:"heading,omitempty" jsonschema:"Texto do heading. Lê a seção até o próximo heading de nível igual ou superior."`
 	HeadingLevel       int      `json:"heading_level,omitempty" jsonschema:"Desambigua quando o mesmo texto aparece em níveis diferentes."`
 	BlockID            string   `json:"block_id,omitempty" jsonschema:"Identificador de bloco, sem o circunflexo."`
+	Offset             *int64   `json:"offset,omitempty" jsonschema:"Offset de byte a partir do inicio da nota (byte 0). Mutuamente exclusivo com heading e block_id. Ignora include_frontmatter."`
 	IncludeFrontmatter *bool    `json:"include_frontmatter,omitempty"`
 	MaxBytes           *int     `json:"max_bytes,omitempty" jsonschema:"Aplica-se por nota, não ao lote inteiro."`
 }

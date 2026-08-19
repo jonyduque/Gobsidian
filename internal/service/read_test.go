@@ -278,3 +278,104 @@ func TestReadNotesMaxBytesPerNote(t *testing.T) {
 		}
 	}
 }
+
+func TestReadNoteTruncatedNaoMenteQuandoAFaixaMedeExatamenteMaxBytes(t *testing.T) {
+	root := t.TempDir()
+	corpo := strings.Repeat("a", 512)
+	writeFile(t, root, "n.md", corpo)
+	svc := newTestService(t, root)
+
+	res, err := svc.ReadNote(context.Background(), ReadRequest{Path: "n.md", MaxBytes: 512})
+	if err != nil {
+		t.Fatalf("ReadNote: %v", err)
+	}
+	if res.Truncated {
+		t.Fatalf("Truncated=true para faixa de %d bytes com max_bytes=%d: "+
+			"nada foi cortado", len(res.Content), 512)
+	}
+	if res.NextOffset != nil {
+		t.Fatalf("NextOffset=%d com o arquivo inteiro devolvido", *res.NextOffset)
+	}
+
+	// E o par: com max_bytes MENOR, truncated tem de ser verdadeiro e
+	// next_offset tem de apontar para o byte seguinte.
+	res2, err := svc.ReadNote(context.Background(), ReadRequest{Path: "n.md", MaxBytes: 511})
+	if err != nil {
+		t.Fatalf("ReadNote: %v", err)
+	}
+	if !res2.Truncated {
+		t.Fatal("Truncated=false com 511 de 512 bytes devolvidos")
+	}
+	if res2.NextOffset == nil || *res2.NextOffset != 511 {
+		t.Fatalf("NextOffset = %v, quer 511", res2.NextOffset)
+	}
+	if res2.TotalSize != 512 {
+		t.Fatalf("TotalSize = %d, quer 512 (o arquivo, nao a faixa)", res2.TotalSize)
+	}
+}
+
+func TestReadNoteOffsetPaginaDoInicioAoFim(t *testing.T) {
+	root := t.TempDir()
+	conteudo := strings.Repeat("linha de texto qualquer\n", 1000) // 24.000 bytes
+	writeFile(t, root, "grande.md", conteudo)
+	svc := newTestService(t, root)
+
+	var montado strings.Builder
+	off := int64(0)
+	for volta := 0; ; volta++ {
+		if volta > 100 {
+			t.Fatal("paginacao nao terminou em 100 voltas")
+		}
+		res, err := svc.ReadNote(context.Background(), ReadRequest{
+			Path: "grande.md", Offset: &off, MaxBytes: 1000,
+		})
+		if err != nil {
+			t.Fatalf("ReadNote(offset=%d): %v", off, err)
+		}
+		montado.WriteString(res.Content)
+		if res.NextOffset == nil {
+			break
+		}
+		off = *res.NextOffset
+	}
+	if montado.String() != conteudo {
+		t.Fatalf("concatenacao dos pedacos difere do arquivo: %d bytes contra %d",
+			montado.Len(), len(conteudo))
+	}
+}
+
+func TestReadNoteOffsetMutualExclusion(t *testing.T) {
+	root := t.TempDir()
+	writeFile(t, root, "n.md", "# Heading\ntext\n")
+	svc := newTestService(t, root)
+
+	off := int64(0)
+	_, err := svc.ReadNote(context.Background(), ReadRequest{
+		Path: "n.md", Offset: &off, Heading: "Heading",
+	})
+	if err == nil || CodeOf(err) != CodeInvalidArgument {
+		t.Fatalf("expected CodeInvalidArgument for offset + heading, got %v", err)
+	}
+}
+
+func TestReadNoteOffsetOutOfBounds(t *testing.T) {
+	root := t.TempDir()
+	writeFile(t, root, "n.md", "hello")
+	svc := newTestService(t, root)
+
+	negOff := int64(-1)
+	_, err := svc.ReadNote(context.Background(), ReadRequest{
+		Path: "n.md", Offset: &negOff,
+	})
+	if err == nil || CodeOf(err) != CodeInvalidArgument {
+		t.Fatalf("expected CodeInvalidArgument for negative offset, got %v", err)
+	}
+
+	largeOff := int64(100)
+	_, err = svc.ReadNote(context.Background(), ReadRequest{
+		Path: "n.md", Offset: &largeOff,
+	})
+	if err == nil || CodeOf(err) != CodeInvalidArgument {
+		t.Fatalf("expected CodeInvalidArgument for offset > size, got %v", err)
+	}
+}
