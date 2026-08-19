@@ -82,15 +82,16 @@ Lê uma nota inteira, uma seção, ou um bloco — ou várias notas numa só cha
     "heading":  { "type": "string", "description": "Texto do heading. Lê a seção até o próximo heading de nível igual ou superior." },
     "heading_level": { "type": "integer", "minimum": 1, "maximum": 6, "description": "Desambigua quando o mesmo texto aparece em níveis diferentes." },
     "block_id": { "type": "string", "description": "Identificador de bloco, sem o circunflexo." },
+    "offset":   { "type": "integer", "minimum": 0, "description": "Offset de byte a partir do início da nota (byte 0). Mutuamente exclusivo com heading e block_id. Ignora include_frontmatter." },
     "include_frontmatter": { "type": "boolean", "default": true },
     "max_bytes": { "type": "integer", "default": 100000, "description": "Aplica-se por nota, não ao lote inteiro." }
   }
 }
 ```
 
-**Retorno com `path`.** `content`, `hash`, `truncated`, e — quando `heading` foi usado — `section` com nível, texto e faixa de offsets. Corresponde a `service.ReadResult`.
+**Retorno com `path`.** `content`, `hash`, `total_size`, `next_offset` (quando houver mais conteúdo), `truncated`, e — quando `heading` foi usado — `section` com nível, texto e faixa de offsets. Corresponde a `service.ReadResult`.
 
-**Retorno com `paths`.** `items`, uma lista na mesma ordem e do mesmo tamanho de `paths`. Cada item tem `path` e, ou os campos de sucesso (`content`, `hash`, `truncated`, `section`), ou `error` com `code` e `message` — uma nota que falha não derruba as demais e não desaparece da lista: o item aparece na posição de origem, com `error` preenchido. Corresponde a `service.ReadBatchResult`.
+**Retorno com `paths`.** `items`, uma lista na mesma ordem e do mesmo tamanho de `paths`. Cada item tem `path` e, ou os campos de sucesso (`content`, `hash`, `total_size`, `next_offset`, `truncated`, `section`), ou `error` com `code` e `message` — uma nota que falha não derruba as demais e não desaparece da lista: o item aparece na posição de origem, com `error` preenchido. Corresponde a `service.ReadBatchResult`.
 
 > A linha acima já listou `path` e `total_bytes` no retorno de `path` único. <!-- check-doc-refs: ignore total_bytes -- este bloco existe para dizer que o campo NAO existe no retorno -->
 > Nenhum dos dois existe como campo do retorno em si: `note_read` devolve
