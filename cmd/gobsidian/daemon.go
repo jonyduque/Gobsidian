@@ -33,6 +33,7 @@ func newDaemonCmd() *cobra.Command {
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			flags.ReadOnlySet = cmd.Flags().Changed("read-only")
 			flags.DebounceMSSet = cmd.Flags().Changed("debounce-ms")
+			flags.MaxResultsSet = cmd.Flags().Changed("max-results")
 
 			cfg, err := config.Load(flags)
 			if err != nil {
@@ -56,6 +57,7 @@ func newDaemonCmd() *cobra.Command {
 	cmd.Flags().StringVar(&flags.LogLevel, "log-level", "", "debug, info, warn ou error")
 	cmd.Flags().BoolVar(&flags.ReadOnly, "read-only", false, "desabilita toda a superficie de escrita")
 	cmd.Flags().IntVar(&flags.DebounceMS, "debounce-ms", 0, "janela de coalescencia de eventos do watcher")
+	cmd.Flags().IntVar(&flags.MaxResults, "max-results", 0, "teto de resultados por consulta")
 	cmd.Flags().StringVar(&flags.CacheDir, "cache-dir", "", "diretorio do cache de indice")
 	cmd.Flags().BoolVar(&flags.EagerSearch, "eager-search", false,
 		"carrega o indice de busca no boot em vez de esperar a primeira vault_search")

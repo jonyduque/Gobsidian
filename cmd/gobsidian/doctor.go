@@ -22,6 +22,7 @@ func newDoctorCmd() *cobra.Command {
 			// companheiros das flags que o comando expoe.
 			flags.ReadOnlySet = cmd.Flags().Changed("read-only")
 			flags.DebounceMSSet = cmd.Flags().Changed("debounce-ms")
+			flags.MaxResultsSet = cmd.Flags().Changed("max-results")
 
 			cfg, err := config.Load(flags)
 			if err != nil {
@@ -66,6 +67,7 @@ func newDoctorCmd() *cobra.Command {
 	cmd.Flags().StringVar(&flags.VaultPath, "vault", "", "caminho da raiz do cofre (obrigatorio)")
 	cmd.Flags().BoolVar(&flags.ReadOnly, "read-only", false, "nao verifica permissao de escrita")
 	cmd.Flags().IntVar(&flags.DebounceMS, "debounce-ms", 0, "janela de coalescencia de eventos do watcher")
+	cmd.Flags().IntVar(&flags.MaxResults, "max-results", 0, "teto de resultados por consulta")
 
 	return cmd
 }

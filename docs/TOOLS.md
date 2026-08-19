@@ -59,7 +59,7 @@ Busca full-text com ranking, combinável com filtros de metadados.
 }
 ```
 
-**Retorno.** Objeto contendo `results` (e `hits`), `total`, `truncated`, mais `effective_snippet_chars` (valor efetivo de `snippet_chars`) e `effective_limit` (valor efetivo de `limit` clampado pelo teto `max_results`). Cada item traz `path`, `title`, `score`, `snippet`, `matched_headings` e `modified`. <!-- check-doc-refs: ignore max_results -- flag de CLI da configuracao que define o teto maximo do limit -->
+**Retorno.** Objeto contendo `results` (e `hits`), `total`, `truncated`, mais `effective_snippet_chars` (valor efetivo de `snippet_chars`) e `effective_limit` (valor efetivo de `limit` clampado pelo teto `max_results`). O teto vem de `--max-results` ou de `GOBSIDIAN_MAX_RESULTS`, aceita de 1 a 500 (`MaxResultsCeiling`), e o padrão é 50. Os dois campos existem porque um clamp silencioso não se parece com um controle: quem pediu 200 e recebeu 50 precisa saber que o pedido foi reduzido, e por qual teto. Cada item traz `path`, `title`, `score`, `snippet`, `matched_headings` e `modified`. <!-- check-doc-refs: ignore max_results -- flag de CLI da configuracao que define o teto maximo do limit -->
 
 **Notas.** A consulta é normalizada: sem acentos, sem distinção de maiúsculas, com stemming leve para português. Buscar `usucapiao` encontra `usucapião`. Não há remoção de stopwords — em corpus técnico, palavras frequentes costumam ser termos de arte.
 

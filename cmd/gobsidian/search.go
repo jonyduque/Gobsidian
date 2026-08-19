@@ -25,6 +25,7 @@ func newSearchCmd() *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			flags.ReadOnlySet = cmd.Flags().Changed("read-only")
 			flags.DebounceMSSet = cmd.Flags().Changed("debounce-ms")
+			flags.MaxResultsSet = cmd.Flags().Changed("max-results")
 
 			cfg, err := config.Load(flags)
 			if err != nil {
@@ -91,6 +92,7 @@ func newSearchCmd() *cobra.Command {
 	cmd.Flags().IntVar(&limit, "limit", 20, "limite maximo de resultados")
 	cmd.Flags().BoolVar(&flags.ReadOnly, "read-only", false, "desabilita verificacoes de escrita")
 	cmd.Flags().IntVar(&flags.DebounceMS, "debounce-ms", 0, "janela de coalescencia de eventos do watcher")
+	cmd.Flags().IntVar(&flags.MaxResults, "max-results", 0, "teto de resultados por consulta")
 
 	return cmd
 }
