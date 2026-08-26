@@ -4239,3 +4239,78 @@ regressão visível. Reabrir exige caso novo — um vetor que a guarda `Lstat` n
 pegue. Diff e benchmarks preservados no scratchpad da sessão.
 
 `pwsh -File scripts/verify.ps1`: **14 de 14 [OK]**.
+
+
+## Tasks 130-133 — quatro dos oito altos da auditoria — 2026-08-26
+
+Ordem de execução recomendada em `docs/SUGESTOES.md` e aprovada pelo dono.
+Relatórios em `.superpowers/sdd/task-13{0,1,2,3}-report.md`.
+
+**Task 130 — A7** (`539d25c`). O atalho de mtime/tamanho do `Apply` consultava
+só `idx.Get`; `overflow.go:58` já exigia `inv.HasDoc`. Duas cópias de uma regra,
+com a errada no caminho mais usado. Um `searchInv.Update` falho (só `log.Warn`)
+deixava metadados em dia e posting ausente, e todo evento seguinte com
+mtime/tamanho iguais caía no `continue` — e o OneDrive re-emite evento de
+arquivo intocado como rotina. RED: `skipped=1`. Mutação restaura a condição
+antiga literal (`EXIT=0`). Contrapeso fixa que o atalho continua pulando quando
+tudo está em dia.
+
+**Task 131 — A1 + B5 + B17 + B6** (`539d25c`). `MoveNote` descartava o erro do
+remove e reescrevia citantes antes de mover o corpo. Reproduzido com condição
+real do SO, não dublê — e qual trava produz qual efeito foi MEDIDO:
+`GENERIC_READ + share=0` bloqueia só o remove; `GENERIC_READ|WRITE` bloqueia
+leitura e remove. RED mostrou `Rewritten:[citante.md]` com sucesso e a nota nos
+dois lugares, e `citante = "ver [[destino]] aqui."` com a nota nunca movida.
+- **Contrato invertido de propósito.** O corpo passa a mover primeiro. Numa
+  falha parcial, agora sobra link obsoleto (visível, recuperável) em vez de nota
+  duplicada (silenciosa). `TestNoteMovePartialFailureReportsWhatWasApplied`
+  guardava a garantia antiga e foi reescrito para a nova, com o motivo no lugar.
+  A troca foi apresentada como o preço da Alternativa 1 e escolhida antes de
+  qualquer código.
+- **Duas regressões minhas foram pegas pela suíte EXISTENTE, não pelos meus
+  testes novos**: a criação do diretório de destino ficou depois do move, e o
+  contrato acima.
+- Uma âncora de mutação saiu `EXIT=2` por ocorrer 2× — ampliada até ficar única.
+
+**Task 132 — A2 + A3 + M7** (`66fef5c`). `Replace` em duas fases: I/O sem lock,
+mutação sob lock. Nada é removido enquanto a leitura não deu certo, então a
+janela do A3 deixa de existir por construção. A janela nova tem política
+explícita: a fase 2 re-`Stat`a antes de mutar, porque um `Remove` concorrente
+pega o mesmo lock e republicar ressuscitaria nota deletada.
+- **M7 veio junto, e revelou TRÊS contas de `byAlias`**: `buildAliasMap` no fim
+  do Build, `Replace` inline, e `publishNoteLocked` não publicando. Agora mora
+  em `publishNoteLocked`; `buildAliasMap` e seus dois chamadores sumiram.
+- **Uma mutação saiu `EXIT=1` e a MUTAÇÃO estava errada, não a regra**: pus a
+  remoção no caminho de sucesso enquanto o teste exercita o de falha. A correta
+  restaura a ordem antiga (`EXIT=0`).
+- **A contenção do A2 não foi medida**, nem antes nem depois. Não há número
+  sobre A2 no relatório, de propósito.
+
+**Task 133 — A5 + A4** (`570d556`). Prova de órfão antes de desvincular, e
+`acceptLoop` com recuo e TETO de falhas consecutivas — sem o teto, trocaria
+daemon surdo por daemon girando. O teste do A4 injeta o listener falho em
+`daemon.New`, exercitando o laço de produção.
+- **Corrige a prescrição do item 11 da Fase 4**: o critério não é
+  `ECONNREFUSED`. Medido: arquivo comum, socket órfão e caminho inexistente dão
+  os três `10061`; diretório dá `10022`. O critério é handshake/dial, nunca
+  errno.
+- **`check_net` reprovou `net.DialTimeout`** — só `net.Dial` e `net.Listen` são
+  aceitos, por nome. A garantia do RNF-30 funcionando; trocado sem perda.
+- **O gate de órfãos escondia o próprio A5.** `daemon-idle` reprovou 15/15
+  porque os três cenários anteriores rodam `serve`, que spawna daemon com
+  ociosidade PADRÃO de 900 s, e esse daemon segura o socket. Antes, o
+  `daemon-idle` roubava o socket dele — A5 dentro do gate do projeto, sem
+  ninguém ver. Precondição acrescentada ao cenário (encerra por PID, só do
+  próprio cofre). Depois: quatro cenários verdes, 15 ciclos cada.
+- **Regressão minha da Task 129, corrigida aqui.** A guarda de symlink rodava
+  DUAS vezes por leitura (`ReadRange` guarda e chama `Open`, que guardava):
+  400 `os.Lstat` extras por busca com `limit=200`, e o teto do RNF-04 estourou
+  (p95 28,5 ms contra 22 ms). Medido contra o baseline da sessão: 18,68 →
+  26,55 ms (+42%), allocs +15,5% (p=0,000). As medições intermediárias foram
+  NÃO-MONOTÔNICAS ao remover guardas — ruído, não sinal —, e a conclusão veio da
+  leitura do código. Uma guarda por caminho de leitura; teto voltou a passar.
+
+`pwsh -File scripts/verify.ps1`: **14 de 14 [OK]** em cada um dos três commits.
+
+**Ainda abertos dos altos:** A6 (espera cancelável com orçamento) e A8 (+B11, que
+tem de ir junto porque o bump de formato é o que torna o B11 perigoso).
