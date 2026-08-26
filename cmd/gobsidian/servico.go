@@ -105,6 +105,17 @@ func construirServico(ctx context.Context, cfg config.Config, log *slog.Logger) 
 	// Quem consulta a busca nesse intervalo recebe INDEX_BUILDING, e nao
 	// zero resultados: cofre sem a palavra e indice ainda sem a palavra
 	// nao podem produzir a mesma resposta.
+	//
+	// Este paragrafo descrevia SO o modo eager ate 2026-08-26, e a
+	// auditoria acusou a lacuna (A6). No modo preguicoso — o padrao — o
+	// indice tambem chega vazio, mas a carga so dispara na primeira
+	// vault_search. Ate entao quem chegava durante ela esperava num mutex
+	// PURO, sem prazo: com cache frio a tokenizacao do cofre inteiro roda
+	// por minutos sem resposta e sem erro. Hoje a espera e uma porta com
+	// select em ctx.Done() (ver cargaUnica em internal/service), quem
+	// desiste recebe INDEX_BUILDING, e a carga segue em segundo plano —
+	// amarra-la ao primeiro chamador faria a busca seguinte recomecar do
+	// zero.
 	inv := search.NewInverted()
 	inv.MarkBuilding()
 
