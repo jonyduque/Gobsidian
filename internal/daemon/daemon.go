@@ -142,6 +142,10 @@ func (d *Daemon) acceptLoop(ctx context.Context, wg *sync.WaitGroup) {
 		_ = d.ln.Close()
 	}()
 
+	// falhasSeguidas conta erros CONSECUTIVOS de Accept; qualquer sucesso
+	// zera. Ver o ramo de erro abaixo para o motivo do teto.
+	var falhasSeguidas int
+
 	for {
 		conn, err := d.ln.Accept()
 		if err != nil {
@@ -149,9 +153,39 @@ func (d *Daemon) acceptLoop(ctx context.Context, wg *sync.WaitGroup) {
 				// Encerramento normal: fechamos ln de proposito acima.
 				return
 			}
-			d.log.Warn("aceitar conexao no socket do daemon falhou", "err", err)
-			return
+			// Erro de Accept nao mata o daemon na primeira vez.
+			//
+			// Ate 2026-08-26 este ramo fazia log.Warn e return. O processo
+			// seguia vivo — socket bound, ticker de ociosidade rodando — e
+			// nenhuma conexao era aceita nunca mais: os dials conectam no
+			// backlog do SO e ninguem atende. A ponte pendura a sessao, o probe
+			// do EnsureStarted estoura o prazo, e sobra um daemon surdo que so
+			// reinicio resolve. EMFILE/ENFILE e o caso classico, e e
+			// transitorio por definicao: o teto de descritores volta a subir
+			// assim que qualquer conexao fecha.
+			//
+			// O TETO existe porque insistir sem limite troca um defeito por
+			// outro. Um erro PERMANENTE nao classificado — listener corrompido,
+			// socket removido debaixo do processo — viraria laco quente
+			// consumindo CPU para sempre, em vez de morrer. Falhas
+			// CONSECUTIVAS contam; qualquer accept bem-sucedido zera.
+			falhasSeguidas++
+			d.log.Warn("aceitar conexao no socket do daemon falhou",
+				"err", err, "falhas_seguidas", falhasSeguidas, "teto", maxFalhasSeguidasDeAccept)
+			if falhasSeguidas >= maxFalhasSeguidasDeAccept {
+				d.log.Error("Accept falhou seguidamente ate o teto; encerrando o daemon",
+					"falhas_seguidas", falhasSeguidas, "ultimo_erro", err)
+				return
+			}
+			// Recuo curto: sem ele, um erro que reaparece na hora gira o laco.
+			select {
+			case <-ctx.Done():
+				return
+			case <-time.After(recuoDeAccept):
+			}
+			continue
 		}
+		falhasSeguidas = 0
 
 		d.mu.Lock()
 		d.conexoesAtivas++
@@ -165,6 +199,17 @@ func (d *Daemon) acceptLoop(ctx context.Context, wg *sync.WaitGroup) {
 		}()
 	}
 }
+
+// maxFalhasSeguidasDeAccept e o teto de erros CONSECUTIVOS antes de o daemon
+// desistir. Cinco e folgado para o caso transitorio que motiva o recuo
+// (EMFILE/ENFILE, que se resolve assim que uma conexao fecha) e curto o
+// bastante para um erro permanente nao virar laco quente por muito tempo.
+const maxFalhasSeguidasDeAccept = 5
+
+// recuoDeAccept espaca as tentativas. Curto: um erro transitorio de descritor
+// se resolve em milissegundos, e esperar mais so atrasa a ponte que ja esta
+// discando do outro lado.
+const recuoDeAccept = 50 * time.Millisecond
 
 // handleConn serve UMA conexao. Uma sessao que quebra no meio de uma
 // chamada -- erro de I/O, ou um panic em algo que guard() (internal/mcpsrv,

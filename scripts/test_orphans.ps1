@@ -182,6 +182,35 @@ if ($Scenario -eq "daemon-idle") {
     $MeasuredCycles = 0
     $LaunchedDaemonPids = @()
 
+    # PRECONDICAO: nenhum daemon vivo neste cofre.
+    #
+    # Os tres cenarios anteriores rodam `serve`, e `serve` SPAWNA um daemon --
+    # com a ociosidade PADRAO de 900 s, nao a curta que este cenario usa. Esse
+    # daemon sobrevive ao cenario que o criou e segura o socket do cofre.
+    #
+    # Ate 2026-08-26 isso passava despercebido porque ipc.Listen ROUBAVA o
+    # socket do daemon vivo: o daemon novo bindava por cima, e o de 900 s
+    # ficava vivo e inalcancavel, com indice em memoria, ate expirar. Era o
+    # defeito A5 acontecendo dentro do proprio gate, sem ninguem ver. Com a
+    # prova de orfao no lugar, o daemon deste cenario recusa subir -- e a
+    # recusa esta certa; o que faltava era a precondicao.
+    #
+    # Encerra por PID e so o que casa ESTE cofre. Matar por nome ja destruiu a
+    # sessao real do usuario uma vez (ver docs/ARMADILHAS.md).
+    $Pendentes = @(Get-CimInstance Win32_Process -Filter "Name='gobsidian.exe'" -ErrorAction SilentlyContinue |
+        Where-Object { $_.CommandLine -match ' daemon ' -and $_.CommandLine -match [regex]::Escape($VaultPath) })
+    if ($Pendentes.Count -gt 0) {
+        Write-Output "[i] encerrando $($Pendentes.Count) daemon(s) deixado(s) pelos cenarios anteriores neste cofre"
+        $Pendentes | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
+        $Limite = [DateTime]::UtcNow.AddSeconds(10)
+        while ([DateTime]::UtcNow -lt $Limite) {
+            $Restantes = @(Get-CimInstance Win32_Process -Filter "Name='gobsidian.exe'" -ErrorAction SilentlyContinue |
+                Where-Object { $_.CommandLine -match ' daemon ' -and $_.CommandLine -match [regex]::Escape($VaultPath) })
+            if ($Restantes.Count -eq 0) { break }
+            Start-Sleep -Milliseconds 100
+        }
+    }
+
     for ($i = 1; $i -le $Cycles; $i++) {
         $DaemonLog = Join-Path $WorkDir "cycle_$i.daemon.log"
 

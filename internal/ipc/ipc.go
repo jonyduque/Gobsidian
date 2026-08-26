@@ -101,6 +101,33 @@ func Listen(vaultPath string) (net.Listener, string, error) {
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return nil, "", fmt.Errorf("criando diretorio do socket: %w", err)
 	}
+	// Provar que o socket e ORFAO antes de remove-lo.
+	//
+	// Ate 2026-08-26 o cleanup era incondicional, e um segundo daemon removia
+	// o arquivo do primeiro e bindava no mesmo nome. O daemon vivo ficava
+	// inalcancavel — com memoria e watcher rodando — e as duas instancias
+	// passavam a gravar concorrentemente no MESMO cache de busca, corrompendo
+	// por escrita intercalada.
+	//
+	// O criterio e COMPORTAMENTAL, nunca o errno. Medido em 2026-08-26 com
+	// net.Dial("unix", ...) no Windows:
+	//
+	//	10061 ECONNREFUSED  arquivo comum, socket orfao E caminho inexistente
+	//	10022 EINVAL        diretorio no lugar do socket
+	//
+	// Errnos diferentes descrevem o mesmo estado e o mesmo errno descreve
+	// estados diferentes; classificar por numero decide certo nos casos ja
+	// conhecidos e erra em silencio no que aparecer depois. A pergunta que
+	// vale e a unica que o proprio protocolo responde: alguem aceita conexao
+	// nesse socket?
+	//
+	// dial, e nao handshake completo: aqui basta saber se ha um ouvinte vivo.
+	// O handshake carrega checagem de versao e de config, e recusaria um
+	// daemon vivo de outra versao — que e justamente o caso em que NAO se pode
+	// roubar o socket dele.
+	if alguemEscuta(path) {
+		return nil, "", fmt.Errorf("ja ha um daemon ativo em %s", path)
+	}
 	if err := cleanupSocketFile(path); err != nil {
 		return nil, "", fmt.Errorf("limpando socket anterior: %w", err)
 	}
@@ -115,6 +142,26 @@ func Listen(vaultPath string) (net.Listener, string, error) {
 		return nil, "", fmt.Errorf("restringindo permissao do socket: %w", err)
 	}
 	return ln, path, nil
+}
+
+// alguemEscuta diz se ha um ouvinte vivo no socket.
+//
+// Nao interpreta o erro: qualquer falha de dial — recusa, argumento invalido,
+// caminho ausente — significa "nao esta servindo". Ver o comentario em Listen
+// para a medicao que sustenta essa escolha.
+//
+// net.Dial, e nao net.DialTimeout: tools/netcheck aceita apenas net.Dial e
+// net.Listen, por NOME, e reprovou a primeira versao desta funcao — a garantia
+// do RNF-30 funcionando. Nao ha perda: connect() num socket de dominio Unix
+// resolve na hora, sem a espera de rede que faz um dial TCP precisar de prazo.
+// Um socket sem ouvinte devolve recusa imediatamente.
+func alguemEscuta(path string) bool {
+	c, err := net.Dial("unix", path)
+	if err != nil {
+		return false
+	}
+	_ = c.Close()
+	return true
 }
 
 // HandshakeConfig e o que o handshake confere ALEM da versao: os campos que

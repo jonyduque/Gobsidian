@@ -170,6 +170,14 @@ func (v *Vault) Abs(p CanonicalPath) string {
 // e a prova de que o confinamento ja rodou, e nao ha caminho para chegar
 // aqui sem passar por ele.
 func (v *Vault) Open(p CanonicalPath) (*os.File, error) {
+	// UMA guarda por caminho de leitura, nunca duas.
+	//
+	// ReadRange chama Open, entao guardar nos dois fazia DOIS os.Lstat por
+	// leitura — e GenerateSnippet le um arquivo por hit, 200 por busca com
+	// limit=200. Medido em 2026-08-26: a versao com guarda dupla ficou 42%
+	// acima do baseline da sessao, e estourou o teto do RNF-04.
+	//
+	// ReadAll nao passa por aqui (usa os.ReadFile), e por isso tem a sua.
 	if err := v.recusaSymlink(p); err != nil {
 		return nil, err
 	}
@@ -184,9 +192,6 @@ func (v *Vault) Open(p CanonicalPath) (*os.File, error) {
 // custa 2 KB — e a razao de o indice guardar offsets em vez de conteudo.
 func (v *Vault) ReadRange(ctx context.Context, p CanonicalPath, start, end int64) ([]byte, error) {
 	if err := ctx.Err(); err != nil {
-		return nil, err
-	}
-	if err := v.recusaSymlink(p); err != nil {
 		return nil, err
 	}
 	// start negativo precisa ser rejeitado antes de qualquer subtracao.
