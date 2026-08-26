@@ -14,14 +14,3 @@ import "strings"
 // por aqui: o boot indexava minusculo e Replace indexava cru, e a entrada
 // que Remove nao encontrava sobrevivia apontando para uma nota deletada.
 func aliasKey(alias string) string { return strings.ToLower(alias) }
-
-func (ix *Index) buildAliasMap() {
-	ix.mu.Lock()
-	defer ix.mu.Unlock()
-	for _, n := range ix.notes {
-		for _, alias := range n.Aliases {
-			key := aliasKey(alias)
-			ix.byAlias[key] = append(ix.byAlias[key], n.Path)
-		}
-	}
-}

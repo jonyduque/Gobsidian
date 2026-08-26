@@ -114,7 +114,6 @@ func (ix *Index) Build(ctx context.Context, v *vault.Vault) error {
 
 	// As tres passadas seguintes dependem do conjunto completo e por isso
 	// acontecem depois, nao durante.
-	ix.buildAliasMap()
 	ix.resolveAllLinks()
 	ix.buildBacklinks()
 

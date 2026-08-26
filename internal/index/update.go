@@ -22,35 +22,30 @@ import (
 // Stat nao e erro: a nota sai do indice e os links para ela passam a
 // quebrados.
 func (ix *Index) Replace(ctx context.Context, v *vault.Vault, path vault.CanonicalPath) error {
-	ix.mu.Lock()
-	defer ix.mu.Unlock()
-
-	// chaves acumula, ao longo da funcao, tudo que este Replace pode ter
-	// afetado: o que a versao antiga desta entrada citava (devolvido por
-	// removeContributionsLocked) mais o que a versao nova passa a citar. E o
-	// que reprocessLinksDirigidoLocked usa no final para achar SO as notas
-	// que citam algum desses nomes — em vez de varrer o cofre inteiro a
-	// cada evento do watcher (RNF-06, Task 86).
-	chaves := ix.removeContributionsLocked(path)
-
-	atomic.AddUint64(&ix.generation, 1)
-
+	// FASE 1 — SEM LOCK. Tudo que toca disco acontece aqui.
+	//
+	// A ordem antiga tomava ix.mu.Lock() no topo e so soltava no fim, com
+	// os.Stat, IsCloudOnly e a LEITURA INTEIRA do arquivo dentro. Todo
+	// Get/List/Backlinks/TotalSize esperava atras dessa leitura a cada evento
+	// do watcher — e num OneDrive hidratando isso e espera de REDE disfarcada
+	// de disco (A2). Contrariava a declaracao de index.go de que leituras sao
+	// concorrentes.
+	//
+	// E removia as contribuicoes antigas ANTES do I/O. Falhando a leitura, a
+	// nota ficava fora dos metadados sem republish, enquanto a busca mantinha
+	// o documento velho — e service.Search descarta posting sem metadado, de
+	// modo que a nota sumia das respostas ate o proximo evento (A3). Agora
+	// nada e removido enquanto a leitura nao tiver dado certo: a janela de A3
+	// deixa de existir por CONSTRUCAO, nao por tratamento de erro.
 	abs := v.Abs(path)
 	info, err := os.Stat(abs)
 	if err != nil {
 		if os.IsNotExist(err) {
-			// Nota sumiu entre o evento e o Stat. Reprocessar so quem citava
-			// o nome dela — o que marca como quebrados os links que
-			// apontavam para ela.
-			ix.reprocessLinksDirigidoLocked(chaves)
-			return nil
+			return ix.removerEReprocessar(path)
 		}
 		return err
 	}
 
-	// IsNote sai de vault.Classify, a mesma funcao que vault.Walk consulta na
-	// varredura. Derivar aqui por sufixo ".md" era uma segunda copia da regra,
-	// que discordava da primeira em nome de ruido do editor (`~$nota.md`).
 	entry := vault.Entry{
 		Path:      path,
 		Size:      info.Size(),
@@ -60,96 +55,124 @@ func (ix *Index) Replace(ctx context.Context, v *vault.Vault, path vault.Canonic
 	}
 
 	classificacao := classificar(entry)
-	if classificacao == classeAnexo {
-		ix.publishAssetLocked(anexoDaEntrada(entry))
-		ix.reprocessLinksDirigidoLocked(chaves)
-		return nil
+
+	var nota *Note
+	if classificacao == classeNotaLida {
+		data, err := v.ReadAll(ctx, entry.Path)
+		if err != nil {
+			// Nada foi tocado no indice ainda. O estado continua exatamente
+			// como estava, que e o contrato que o A3 pedia.
+			return err
+		}
+		nota = construirNota(entry, data)
 	}
-	if classificacao == classeNotaSemLeitura {
+
+	// FASE 2 — SOB LOCK. So mutacao em memoria daqui para baixo.
+	ix.mu.Lock()
+	defer ix.mu.Unlock()
+
+	// A janela entre as fases precisa de politica explicita, e esta e ela: um
+	// Remove concorrente (que toma o mesmo lock) pode ter apagado a nota entre
+	// a leitura e aqui. Republicar seria ressuscitar uma nota deletada, e ela
+	// ficaria no indice ate o proximo evento. Um Stat e barato — o que custa
+	// caro num placeholder de nuvem e a LEITURA, e essa ja aconteceu fora do
+	// lock.
+	if _, err := os.Stat(abs); os.IsNotExist(err) {
+		return ix.removerEReprocessarLocked(path)
+	}
+
+	chaves := ix.removeContributionsLocked(path)
+	atomic.AddUint64(&ix.generation, 1)
+
+	switch classificacao {
+	case classeAnexo:
+		ix.publishAssetLocked(anexoDaEntrada(entry))
+	case classeNotaSemLeitura:
 		// Placeholder de nuvem: entra como NOTA, com o que a varredura de
 		// diretorio ja sabia, sem abrir o arquivo. Build sempre fez assim; era
 		// Replace que o registrava como Asset, de modo que idx.Get devolvia
 		// false para um `.md` conforme qual construcao tivesse rodado.
 		ix.publishNoteLocked(notaSemLeitura(entry))
-		ix.reprocessLinksDirigidoLocked(chaves)
-		return nil
+	default:
+		// publishNoteLocked, e nao seis derivacoes refeitas a mao (M7).
+		// notes, lowerPath, byName, byAlias, tags e citantes moram numa conta
+		// so, compartilhada com Build e com a carga do cache — o padrao que
+		// produziu o bug [[STJ]] era exatamente ter duas.
+		ix.publishNoteLocked(nota)
+		chaves = append(chaves, chavesDaNota(nota)...)
+		ix.resolveLinksForNoteLocked(nota)
+		ix.registrarBacklinksLocked(nota)
 	}
 
-	data, err := v.ReadAll(ctx, entry.Path)
-	if err != nil {
-		return err
-	}
+	// Um alvo recem-criado pode fazer links passarem a resolver — so nas
+	// notas que citam algum dos nomes em chaves.
+	ix.reprocessLinksDirigidoLocked(chaves)
+	return nil
+}
 
+// construirNota monta a Note a partir dos bytes lidos. Extraida do corpo de
+// Replace para que a FASE 1 (sem lock) contenha todo o parse, que e a outra
+// metade do trabalho que nao precisa de exclusao.
+func construirNota(entry vault.Entry, data []byte) *Note {
 	body, hadBOM := vault.StripBOM(data)
-	note := parser.Parse(body)
+	parsed := parser.Parse(body)
 	if hadBOM {
-		note.ShiftOffsets(int64(vault.BOMLen))
+		parsed.ShiftOffsets(int64(vault.BOMLen))
 	}
 
 	n := &Note{
 		Path:           entry.Path,
-		Title:          note.Title,
-		TitleNorm:      normalizeTitleForNote(note.Title),
+		Title:          parsed.Title,
+		TitleNorm:      normalizeTitleForNote(parsed.Title),
 		Size:           entry.Size,
 		ModTime:        entry.ModTime,
 		Hash:           xxhash.Sum64(data),
 		EOL:            vault.DetectEOL(data),
 		BOM:            hadBOM,
 		CloudOnly:      entry.CloudOnly,
-		Frontmatter:    note.Frontmatter,
-		FrontmatterErr: note.FrontmatterErr,
-		Tags:           note.Tags,
-		Aliases:        note.Aliases,
-		Headings:       note.Headings,
-		Blocks:         note.Blocks,
-		Inline:         note.Inline,
+		Frontmatter:    parsed.Frontmatter,
+		FrontmatterErr: parsed.FrontmatterErr,
+		Tags:           parsed.Tags,
+		Aliases:        parsed.Aliases,
+		Headings:       parsed.Headings,
+		Blocks:         parsed.Blocks,
+		Inline:         parsed.Inline,
 	}
-
-	for _, l := range note.Links {
+	for _, l := range parsed.Links {
 		n.Links = append(n.Links, ResolvedLink{Link: l})
 	}
-	ix.notes[entry.Path] = n
+	return n
+}
 
-	lower := strings.ToLower(string(entry.Path))
-	ix.lowerPath[lower] = entry.Path
-
-	base := vault.CanonicalPath(filepath.ToSlash(filepath.Base(string(entry.Path))))
-	ix.byName[string(base)] = append(ix.byName[string(base)], entry.Path)
-
-	for _, alias := range note.Aliases {
-		key := aliasKey(alias)
-		ix.byAlias[key] = append(ix.byAlias[key], entry.Path)
-	}
-	for _, tag := range note.Tags {
-		ix.tags[tag] = append(ix.tags[tag], entry.Path)
-	}
-
-	// A nota nova pode citar nomes diferentes da versao antiga (link
-	// editado, alias adicionado ou removido) — registra o que ela cita AGORA
-	// e acumula as chaves que a MUDANCA DE IDENTIDADE dela afeta em quem
-	// cita ela (nome de arquivo inalterado aqui, mas alias pode ter mudado).
-	ix.registrarCitantesLocked(entry.Path, n.Links)
-	chaves = append(chaves, chavesDaNota(n)...)
-
-	// Resolve os links da nota inserida
-	ix.resolveLinksForNoteLocked(n)
-
-	// Adiciona backlinks da nota inserida
+// registrarBacklinksLocked publica os backlinks dos links ja resolvidos da
+// nota. Exige ix.mu tomado.
+func (ix *Index) registrarBacklinksLocked(n *Note) {
 	for _, l := range n.Links {
-		if l.Resolved != "" {
-			bl := Backlink{
-				From:    path,
-				Anchor:  l.Anchor,
-				Alias:   l.Alias,
-				Context: "",
-				Kind:    l.Kind,
-			}
-			ix.backlinks[l.Resolved] = append(ix.backlinks[l.Resolved], bl)
+		if l.Resolved == "" {
+			continue
 		}
+		ix.backlinks[l.Resolved] = append(ix.backlinks[l.Resolved], Backlink{
+			From:    n.Path,
+			Anchor:  l.Anchor,
+			Alias:   l.Alias,
+			Context: "",
+			Kind:    l.Kind,
+		})
 	}
+}
 
-	// Um alvo recem-criado pode fazer links passarem a resolver — so nas
-	// notas que citam algum dos nomes em chaves.
+// removerEReprocessar trata a nota que sumiu entre o evento e o Stat: ela sai
+// do indice e os links que apontavam para ela viram quebrados.
+func (ix *Index) removerEReprocessar(path vault.CanonicalPath) error {
+	ix.mu.Lock()
+	defer ix.mu.Unlock()
+	return ix.removerEReprocessarLocked(path)
+}
+
+// removerEReprocessarLocked e a mesma coisa com ix.mu ja tomado.
+func (ix *Index) removerEReprocessarLocked(path vault.CanonicalPath) error {
+	chaves := ix.removeContributionsLocked(path)
+	atomic.AddUint64(&ix.generation, 1)
 	ix.reprocessLinksDirigidoLocked(chaves)
 	return nil
 }

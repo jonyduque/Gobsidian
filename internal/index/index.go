@@ -148,6 +148,19 @@ func (ix *Index) publishNoteLocked(n *Note) {
 	for _, t := range n.Tags {
 		ix.tags[t] = append(ix.tags[t], n.Path)
 	}
+	// byAlias entra AQUI desde 2026-08-26, e nao num passe separado.
+	//
+	// Eram tres contas do mesmo fato: buildAliasMap varria as notas no fim do
+	// Build, Replace publicava inline, e esta funcao nao publicava nada. Uma
+	// nota indexada pelo watcher e outra indexada no boot passavam por codigos
+	// diferentes para produzir a MESMA entrada — que e o padrao que ja custou o
+	// bug [[STJ]], onde o boot escrevia minusculo e Replace escrevia cru.
+	//
+	// aliasKey continua sendo a unica funcao que calcula a chave.
+	for _, alias := range n.Aliases {
+		key := aliasKey(alias)
+		ix.byAlias[key] = append(ix.byAlias[key], n.Path)
+	}
 	ix.registrarCitantesLocked(n.Path, n.Links)
 }
 

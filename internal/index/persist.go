@@ -180,7 +180,6 @@ func LoadIndexCache(ctx context.Context, cacheDir, vaultPath string) (*Index, *C
 	}
 	idx.mu.Unlock()
 
-	idx.buildAliasMap()
 	idx.resolveAllLinks()
 	idx.buildBacklinks()
 
