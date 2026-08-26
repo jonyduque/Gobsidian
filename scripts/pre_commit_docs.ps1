@@ -4,66 +4,81 @@
     Antes de um `git commit`, confere se a documentacao acompanhou o codigo.
 
 .DESCRIPTION
-    Roda como hook PreToolUse do Claude Code, filtrado para `Bash(git commit*)`
-    e `PowerShell(git commit*)`. Le o JSON do hook em stdin, inspeciona o que
-    esta EM STAGE e devolve uma decisao de permissao.
+    Roda como hook PreToolUse do Claude Code, filtrado para `git commit*`. Le o
+    JSON do hook em stdin, inspeciona o que esta EM STAGE e devolve uma decisao.
 
-    Existe porque neste projeto a documentacao nao e enfeite -- ela e o contrato.
-    Tres defeitos ja custaram caro exatamente por divergencia entre codigo e doc:
+    Existe porque neste projeto a documentacao e contrato, nao enfeite. Tres
+    defeitos ja custaram caro por divergencia entre codigo e doc:
 
       - `note_list` declarava `fields` no schema e o descartava. Quem lia o
         schema nao tinha como saber que o pedido nao fazia nada.
       - `alias_collisions` era `Collisions: 0` literal, e aparecia na resposta.
-      - O README declarou "v0.1 publicada" sem tag, sem release e sem o gate de
-        orfaos ter rodado.
+      - RNF-32 esteve publicado como "Atingido" enquanto metade dele — symlink
+        de arquivo — nunca funcionou nem teve teste.
 
-    A decisao e `ask`, nao `deny`. Gate que reprova sozinho e sem recurso ensina
-    a contornar o gate -- e a licao de -MaxNaoMedidosPct no test_orphans.ps1.
-    Aqui quem decide e a pessoa, com a lista do que provavelmente ficou para
-    tras na tela.
+    QUEM ELE INTERROMPE, e por que isso mudou em 2026-08-26. A primeira versao
+    devolvia `ask`, e o resultado era o hook PERGUNTANDO AO USUARIO sobre um
+    commit que o modelo fez. Alvo errado: o usuario nao e quem esqueceu a
+    documentacao, e uma pergunta a cada commit vira ruido que se aprende a
+    aprovar sem ler — que e o mesmo modo de falha de um gate que reprova
+    aleatoriamente.
+
+    Agora ele devolve `deny`, e o motivo volta para o MODELO, que corrige e
+    tenta de novo. Do ponto de vista do usuario e automatico: nenhum prompt.
+
+    ESCOTILHA. `[sem-doc]` na mensagem do commit passa direto. Existe porque
+    gate sem saida legitima ensina a contornar o gate — e porque ha commits em
+    que documentacao de fato nao se aplica (revert, ajuste de formatacao,
+    correcao de teste que nao muda contrato). Usar a escotilha e uma decisao
+    consciente e visivel na mensagem, que e exatamente o que se quer.
 
 .NOTES
-    Saida: JSON de hook em stdout. Nunca escreve em stdout fora desse JSON.
-    Falha do proprio script NAO bloqueia o commit (sai permitindo): um hook
-    quebrado nao pode virar um repositorio travado.
+    Saida: JSON de hook em stdout. Falha do proprio script NAO bloqueia o
+    commit: um hook quebrado nao pode virar um repositorio travado.
 #>
 [CmdletBinding()]
 param(
     # Para teste manual: pula a leitura de stdin e assume que e um git commit.
-    [switch]$Simular
+    [switch]$Simular,
+    # Para teste manual: mensagem de commit simulada.
+    [string]$Mensagem = ""
 )
 
 $ErrorActionPreference = "Stop"
 
-function Emitir($decisao, $motivo) {
-    $obj = @{
+function Emitir($decisao, $motivo, $aviso = $null) {
+    $saida = @{
         hookSpecificOutput = @{
             hookEventName            = "PreToolUse"
             permissionDecision       = $decisao
             permissionDecisionReason = $motivo
         }
     }
-    $obj | ConvertTo-Json -Depth 5 -Compress
+    if ($aviso) { $saida.systemMessage = $aviso }
+    $saida | ConvertTo-Json -Depth 5 -Compress
     exit 0
 }
 
 try {
+    $comando = $Mensagem
     if (-not $Simular) {
         $bruto = [Console]::In.ReadToEnd()
         if ([string]::IsNullOrWhiteSpace($bruto)) { Emitir "allow" "sem payload" }
         $entrada = $bruto | ConvertFrom-Json
         $comando = $entrada.tool_input.command
         if ($comando -notmatch 'git\s+commit') { Emitir "allow" "nao e git commit" }
-        # `git commit --amend` de mensagem, e commits so de doc, nao interessam.
         if ($comando -match '--amend' -and $comando -notmatch '--no-edit') {
             Emitir "allow" "amend de mensagem"
         }
     }
 
+    if ($comando -match '\[sem-doc\]') {
+        Emitir "allow" "escotilha [sem-doc] usada de proposito"
+    }
+
     $emStage = @(git diff --cached --name-only 2>$null | Where-Object { $_ })
     if ($emStage.Count -eq 0) { Emitir "allow" "nada em stage" }
 
-    # Codigo de producao: o que muda comportamento e contrato.
     $codigo = @($emStage | Where-Object {
             $_ -like "internal/*.go" -or $_ -like "cmd/*.go" -or
             $_ -like "internal/*/*.go" -or $_ -like "cmd/*/*.go"
@@ -72,53 +87,54 @@ try {
     if ($codigo.Count -eq 0) { Emitir "allow" "nenhum .go de producao em stage" }
 
     $docs = @($emStage | Where-Object {
-            $_ -like "docs/*" -or $_ -eq "CLAUDE.md" -or $_ -eq "AGENTS.md" -or
-            $_ -eq "README.md" -or $_ -like ".superpowers/sdd/*"
+            $_ -like "docs/*" -or $_ -eq "CLAUDE.md" -or $_ -eq "AGENTS.md" -or $_ -eq "README.md"
         })
-
-    # Contrato de tool mexido exige TOOLS.md, mesmo que outra doc tenha entrado.
-    $tools = @($codigo | Where-Object { $_ -like "*mcpsrv/tools_*" -or $_ -like "*internal/service/*" })
+    $tools = @($codigo | Where-Object { $_ -like "*mcpsrv/tools_*" })
     $toolsDoc = $emStage -contains "docs/TOOLS.md"
+    $ledger = @($emStage | Where-Object { $_ -like "*progress.md" })
 
-    $pendencias = [System.Collections.Generic.List[string]]::new()
+    # Bloqueantes: o codigo mudou e a documentacao que o descreve nao veio junto.
+    $bloqueios = [System.Collections.Generic.List[string]]::new()
     if ($docs.Count -eq 0) {
-        $pendencias.Add("nenhum arquivo de documentacao em stage")
+        $bloqueios.Add("$($codigo.Count) arquivo(s) .go de producao em stage e NENHUM arquivo de documentacao")
     }
     if ($tools.Count -gt 0 -and -not $toolsDoc) {
-        $pendencias.Add("mexeu em superficie de tool ($($tools -join ', ')) e docs/TOOLS.md NAO esta em stage")
-    }
-    $ledger = @($emStage | Where-Object { $_ -like ".superpowers/sdd/*progress.md" })
-    if ($ledger.Count -eq 0) {
-        $pendencias.Add("o ledger (progress.md) nao esta em stage -- a proxima sessao le ele, nao o seu contexto")
+        $bloqueios.Add("a superficie de tool mudou ($($tools -join ', ')) e docs/TOOLS.md NAO esta em stage -- schema e documentacao sao um contrato so")
     }
 
-    if ($pendencias.Count -eq 0) {
-        Emitir "allow" "codigo e documentacao entraram juntos"
+    if ($bloqueios.Count -eq 0) {
+        # O ledger avisa, nunca bloqueia: nem todo commit fecha uma tarefa, e um
+        # bloqueio aqui obrigaria a inventar linha de ledger a cada commit
+        # intermediario -- que e pior que ledger ausente, porque vira ruido.
+        if ($ledger.Count -eq 0) {
+            Emitir "allow" "documentacao acompanhou o codigo" `
+                "[i] Lembrete: o ledger (progress.md) nao esta neste commit. Se ele fecha uma tarefa, registre antes de dizer que acabou."
+        }
+        Emitir "allow" "codigo, documentacao e ledger entraram juntos"
     }
 
     $texto = @(
-        "Este commit muda codigo de producao e a documentacao pode ter ficado para tras.",
+        "COMMIT BLOQUEADO: codigo de producao mudou e a documentacao correspondente nao entrou.",
         "",
-        "Arquivos .go de producao em stage ($($codigo.Count)):",
-        ($codigo | Select-Object -First 8 | ForEach-Object { "  - $_" })
-        if ($codigo.Count -gt 8) { "  ... e mais $($codigo.Count - 8)" }
+        ($bloqueios | ForEach-Object { "  [!] $_" }),
         "",
-        "Pendencias:",
-        ($pendencias | ForEach-Object { "  [!] $_" }),
+        "Arquivos .go de producao em stage:",
+        ($codigo | Select-Object -First 8 | ForEach-Object { "  - $_" }),
         "",
-        "Antes de confirmar, pergunte-se:",
+        "Antes de tentar de novo, decida qual se aplica:",
         "  - mudou contrato de tool?      -> docs/TOOLS.md",
-        "  - mudou regra ou armadilha?    -> CLAUDE.md / docs/ARMADILHAS.md",
+        "  - mudou regra ou armadilha?    -> docs/ARMADILHAS.md",
         "  - mudou camada ou decisao?     -> docs/ARCHITECTURE.md (AD-xx)",
         "  - mudou requisito ou medicao?  -> docs/OPERACAO.md (numero MEDIDO, nunca estimado)",
-        "  - terminou uma tarefa?         -> o ledger em .superpowers/sdd/<marco>/progress.md",
+        "  - fechou uma tarefa?           -> o ledger em .superpowers/sdd/<marco>/progress.md",
         "",
-        "Se a resposta for 'nada disso se aplica', aprove e siga."
-    ) | Where-Object { $null -ne $_ } | ForEach-Object { $_ }
+        "Se documentacao genuinamente NAO se aplica (revert, formatacao, ajuste de",
+        "teste que nao muda contrato), inclua [sem-doc] na mensagem do commit.",
+        "Isso e uma decisao consciente e fica visivel no historico."
+    ) | Where-Object { $null -ne $_ }
 
-    Emitir "ask" (($texto | Out-String).TrimEnd())
+    Emitir "deny" (($texto | Out-String).TrimEnd())
 }
 catch {
-    # Hook quebrado nao trava repositorio.
     Emitir "allow" "pre_commit_docs.ps1 falhou: $($_.Exception.Message)"
 }

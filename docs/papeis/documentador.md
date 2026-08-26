@@ -140,10 +140,32 @@ página estiver `status: stale`. Página defasada é ponto de partida, não resp
 ## O hook de commit
 
 `.claude/settings.json` instala um hook `PreToolUse` filtrado para
-`git commit*`, que roda `scripts/pre_commit_docs.ps1`. Ele inspeciona o que está
-em stage e **pergunta** (não bloqueia) quando há `.go` de produção sem
-documentação nem ledger junto.
+`git commit*`, que roda `scripts/pre_commit_docs.ps1`.
 
-A decisão é `ask` de propósito: gate que reprova sozinho e sem recurso ensina a
-contornar o gate. Quem decide é a pessoa, com a lista do que provavelmente
-ficou para trás na tela.
+**Ele bloqueia o modelo, não pergunta ao usuário.** A primeira versão devolvia
+`ask`, e o resultado era o hook interrompendo o *usuário* por causa de um commit
+que o *modelo* fez — alvo errado, e uma pergunta a cada commit vira ruído que se
+aprende a aprovar sem ler, o mesmo modo de falha de um gate que reprova
+aleatoriamente. Hoje devolve `deny`, e o motivo volta para quem esqueceu a
+documentação, que corrige e tenta de novo.
+
+| Situação | Decisão |
+|---|---|
+| `.go` de produção em stage e **nenhuma** documentação | `deny`, com a lista do que provavelmente falta |
+| superfície de tool mudou e `docs/TOOLS.md` fora do stage | `deny` — schema e documentação são um contrato só |
+| documentação veio, ledger não | `allow` + lembrete de uma linha |
+| `[sem-doc]` na mensagem do commit | `allow` |
+| nenhum `.go` de produção, ou não é commit | `allow`, calado |
+
+**O ledger avisa, nunca bloqueia.** Nem todo commit fecha uma tarefa, e exigir
+linha de ledger em commit intermediário obrigaria a inventá-la — que é pior que
+ledger ausente, porque vira ruído.
+
+**A escotilha `[sem-doc]` existe de propósito.** Gate sem saída legítima ensina
+a contornar o gate, e há commits em que documentação de fato não se aplica:
+revert, formatação, ajuste de teste que não muda contrato. Usá-la é decisão
+consciente e fica visível na mensagem do commit.
+
+**Se o hook não disparar**, o observador de configuração só vigia diretórios que
+já tinham arquivo de settings quando a sessão começou. Abra `/hooks` uma vez ou
+reinicie a sessão.
