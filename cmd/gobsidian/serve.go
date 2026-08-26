@@ -387,6 +387,13 @@ func serveEmProcesso(parent context.Context, cfg config.Config, log *slog.Logger
 	// pacote em servico.go).
 	montado, err := construirServico(ctx, cfg, log)
 	if err != nil {
+		// O irmao do ramo equivalente em runDaemon. Vale mesmo tendo aqui um
+		// stderr com leitor: o fallback em processo e obrigatorio quando o
+		// daemon nao sobe, e se os DOIS caminhos de boot morrerem calados um
+		// cofre mal configurado nao produz mensagem acionavel em lugar
+		// nenhum. Foi o que aconteceu com um dos cofres do dono por dois dias.
+		log.Error("nao foi possivel montar o servico",
+			"vault", cfg.VaultPath, "err", err)
 		return err
 	}
 

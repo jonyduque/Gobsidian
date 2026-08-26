@@ -142,7 +142,26 @@ func (w *Watcher) Run(ctx context.Context) error {
 							w.log.Warn("falha ao adicionar watch em novo subdiretório", "path", e.Name, "err", err)
 						}
 						if err := w.varreDiretorioNovo(ctx, e.Name); err != nil {
-							return err
+							// Cancelamento encerra; qualquer outra falha NAO
+							// pode matar o watcher.
+							//
+							// Um diretorio que chega e fica ilegivel por um
+							// instante — antivirus segurando o que acabou de
+							// ser movido, no Windows — nao vale a sessao
+							// inteira. Mas tambem nao pode ser engolido: o
+							// conteudo dele ficaria invisivel ate o proximo
+							// reinicio, que e o defeito que varreDiretorioNovo
+							// existe para impedir.
+							//
+							// A saida e o anteparo que ja existe para eventos
+							// perdidos: agenda reconciliacao. Ela varre o cofre
+							// inteiro e repara os dois indices.
+							if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+								return err
+							}
+							w.log.Error("varredura de diretório novo falhou; agendando reconciliação",
+								"path", e.Name, "err", err)
+							w.agendaReconciliacao()
 						}
 					}
 				}
@@ -208,6 +227,24 @@ func (w *Watcher) emite(ctx context.Context, e fsnotify.Event) error {
 func (w *Watcher) varreDiretorioNovo(ctx context.Context, dir string) error {
 	err := filepath.WalkDir(dir, func(caminho string, d fs.DirEntry, erro error) error {
 		if erro != nil {
+			// d == nil significa falha na PROPRIA RAIZ: o WalkDir nao
+			// conseguiu nem fazer Lstat no diretorio que acabou de chegar.
+			// E a mesma distincao que vault.Walk ja faz (walk.go:133), e que
+			// aqui nunca tinha sido feita.
+			//
+			// Engolir isso faz a varredura reportar sucesso com ZERO entradas
+			// — exatamente o estado que esta funcao existe para impedir. O
+			// sintoma resultante e indistinguivel de "a varredura nao rodou":
+			// um evento recebido, indice vazio, e as notas invisiveis para
+			// todas as tools ate o proximo reinicio, sem erro e sem log util.
+			// No Windows a causa transitoria classica e o antivirus segurando
+			// o diretorio recem-movido.
+			//
+			// Diretorio inacessivel e diretorio vazio nao podem produzir a
+			// mesma resposta.
+			if d == nil {
+				return fmt.Errorf("varrendo a raiz do diretório novo %q: %w", caminho, erro)
+			}
 			// Entrada ilegivel nao pode abortar a varredura das outras: a
 			// alternativa e perder o diretorio inteiro por causa de um arquivo.
 			w.log.Warn("entrada ilegivel ao varrer diretório novo", "path", caminho, "err", erro)
@@ -231,7 +268,10 @@ func (w *Watcher) varreDiretorioNovo(ctx context.Context, dir string) error {
 		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 			return err
 		}
-		w.log.Warn("varredura de diretório novo interrompida", "path", dir, "err", err)
+		// Falha na raiz sobe; falha de entrada individual ja foi tratada e
+		// logada dentro do callback. Quem chama decide o que fazer — e a
+		// decisao NAO e morrer, ver o comentario em Run.
+		return fmt.Errorf("varredura de diretório novo em %q: %w", dir, err)
 	}
 	return nil
 }
@@ -247,16 +287,32 @@ func (w *Watcher) varreDiretorioNovo(ctx context.Context, dir string) error {
 // corria com o backend kqueue, e o detector de corrida reprovava em macOS.
 func (w *Watcher) handleFSError(err error) {
 	if errors.Is(err, fsnotify.ErrEventOverflow) {
-		w.reconciliations.Add(1)
-		select {
-		case w.reconcile <- struct{}{}:
-			w.log.Warn("Overflow de fsnotify detectado, reconciliação agendada")
-		default:
-			w.log.Warn("Overflow de fsnotify detectado, reconciliação já em andamento")
-		}
+		w.log.Warn("Overflow de fsnotify detectado")
+		w.agendaReconciliacao()
 		return
 	}
 	w.log.Error("Erro do fsnotify", "err", err)
+}
+
+// agendaReconciliacao pede uma varredura completa de reparo, se ainda não
+// houver uma pendente.
+//
+// É o anteparo para eventos perdidos, e tem MAIS de um gatilho: o overflow do
+// buffer do sistema operacional (handleFSError) e a varredura de diretório novo
+// que não conseguiu ler a própria raiz (Run). Os dois deixam o índice sabendo
+// menos do que o disco, que é a mesma condição.
+//
+// Extraída para os dois gatilhos partilharem uma conta só do contador e do
+// canal — duas cópias divergem, e a que fica na menos usada é a que ninguém
+// percebe.
+func (w *Watcher) agendaReconciliacao() {
+	w.reconciliations.Add(1)
+	select {
+	case w.reconcile <- struct{}{}:
+		w.log.Warn("reconciliação agendada")
+	default:
+		w.log.Warn("reconciliação já em andamento")
+	}
 }
 
 // Close fecha o fsnotify e limpa handles.

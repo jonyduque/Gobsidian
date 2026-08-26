@@ -90,6 +90,14 @@ func Run(ctx context.Context, cfg config.Config) []Result {
 		checkLongestPath(scan),
 		checkCacheDir(ctx, cfg),
 		checkFreeSpace(ctx, cfg),
+		// Runtime do daemon (daemon.go). Vem depois das checagens de cofre
+		// porque so fazem sentido com a raiz ja validada, e antes das de
+		// plataforma porque sao as que alguem consulta quando o servidor
+		// "sumiu do host" -- o sintoma que trouxe estas linhas para ca.
+		checkSocketPath(ctx, cfg),
+		checkDaemonVivo(ctx, cfg),
+		checkDaemonLog(ctx, cfg),
+		checkLocksOrfaos(ctx, cfg),
 	)
 	out = append(out, platformChecks(scan)...)
 

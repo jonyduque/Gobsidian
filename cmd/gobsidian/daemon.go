@@ -67,17 +67,12 @@ func newDaemonCmd() *cobra.Command {
 	return cmd
 }
 
-// daemonLogPath deriva do MESMO caminho que ipc.SocketPath calcula --
-// trocando so a extensao, do mesmo jeito que internal/daemon/lock.go deriva
-// o caminho do lock. Um cofre, um socket, um lock, um log, todos no mesmo
-// diretorio de runtime e pela MESMA chave (config.VaultKey), nunca uma
-// segunda conta do mesmo hash.
+// daemonLogPath delega para daemon.CaminhoDoLog: a conta do caminho do log
+// mora num lugar so, ao lado da do socket e da do lock. Ate 2026-08-26 ela
+// estava em tres lugares -- aqui, em internal/daemon e em internal/doctor --
+// e tres contas do mesmo valor concordam por coincidencia ate uma mudar.
 func daemonLogPath(vaultPath string) (string, error) {
-	sock, err := ipc.SocketPath(vaultPath)
-	if err != nil {
-		return "", err
-	}
-	return sock + ".log", nil
+	return daemon.CaminhoDoLog(vaultPath)
 }
 
 // novoLoggerDoDaemon abre o arquivo de log do daemon e devolve o logger
@@ -131,6 +126,17 @@ func novoLoggerDoDaemon(vaultPath string, level slog.Level) (*slog.Logger, func(
 func runDaemon(parent context.Context, cfg config.Config, ociosidade time.Duration, log *slog.Logger) error {
 	ln, sockPath, err := ipc.Listen(cfg.VaultPath)
 	if err != nil {
+		// Todo caminho de saida do daemon loga a causa ANTES de sair.
+		//
+		// Nao e zelo: o daemon e detachado (SpawnDetached), entao o erro
+		// devolvido daqui sobe ate o cobra e e impresso num stderr que nao
+		// tem leitor. Medido em 2026-08-26 na maquina do dono: dois daemons
+		// morreram deixando so a linha "daemon iniciado" no arquivo de log, a
+		// ponte esperou o prazo inteiro do EnsureStarted, e o unico rastro no
+		// host foi "Server transport closed unexpectedly". A causa existia e
+		// era especifica; nunca chegou a ninguem.
+		log.Error("daemon nao pode abrir o socket",
+			"vault", cfg.VaultPath, "err", err)
 		return fmt.Errorf("abrindo socket do daemon: %w", err)
 	}
 
@@ -144,6 +150,12 @@ func runDaemon(parent context.Context, cfg config.Config, ociosidade time.Durati
 
 	montado, err := construirServico(ctx, cfg, log)
 	if err != nil {
+		// Este e o ramo que matou os dois daemons de 2026-08-26: e aqui que
+		// vault.New recusa o cofre (internal/vault/vault.go:90-95, "raiz do
+		// cofre inacessivel %q"). A validacao ja existia e ja nomeava o
+		// caminho -- o defeito era o erro nao chegar ao log.
+		log.Error("daemon nao pode montar o servico",
+			"vault", cfg.VaultPath, "err", err)
 		_ = ln.Close()
 		return err
 	}

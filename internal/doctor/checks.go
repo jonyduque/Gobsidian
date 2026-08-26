@@ -46,10 +46,24 @@ func checkRootExists(ctx context.Context, cfg config.Config) Result {
 
 	info, err := os.Stat(vault.LongPath(cfg.VaultPath))
 	if err != nil {
+		// A dica de grafia mora AQUI, e nao numa verificacao propria, porque
+		// esta e halting: ela aborta as seguintes, e uma checagem posterior
+		// nunca rodaria justamente no caso para o qual existiria.
+		//
+		// Medido em 2026-08-26: o config de um host apontava para
+		// ...\Obsidian\Jurisprudencia, sem acento, e no disco so existe
+		// Jurisprudencia COM acento. As duas grafias produzem VaultKey
+		// diferente -- socket, cache e daemon proprios -- e o servidor morria
+		// na partida. "nao existe" e verdadeiro e inutil; a diferenca entre as
+		// duas grafias e invisivel numa leitura apressada de JSON.
+		detalhe := fmt.Sprintf("%q: %v", cfg.VaultPath, err)
+		if vizinhos := vizinhosParecidos(cfg.VaultPath); len(vizinhos) > 0 {
+			detalhe += fmt.Sprintf("\n     existe(m) ao lado, com grafia diferente: %s", strings.Join(vizinhos, ", "))
+		}
 		return Result{
 			Name:   name,
 			Status: StatusFail,
-			Detail: fmt.Sprintf("%q: %v", cfg.VaultPath, err),
+			Detail: detalhe,
 		}
 	}
 	if !info.IsDir() {

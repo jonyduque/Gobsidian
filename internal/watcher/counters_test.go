@@ -1,11 +1,14 @@
 package watcher
 
 import (
+	"bytes"
 	"context"
+	"fmt"
 	"io"
 	"log/slog"
 	"os"
 	"path/filepath"
+	"sync"
 	"testing"
 	"time"
 
@@ -14,8 +17,62 @@ import (
 	"github.com/jonyd/gobsidian/internal/vault"
 )
 
+// bufferDeLog acumula o que o watcher registrou, para o teste despejar quando
+// falhar.
+//
+// io.Discard estava aqui antes, e foi o que tornou um estouro de prazo
+// indiagnosticavel em 2026-08-26: o teste dizia "nunca chegou ao indice" e
+// TODOS os avisos do watcher — falha ao adicionar watch, entrada ilegivel,
+// varredura interrompida — tinham sido jogados fora. Um teste que descarta o
+// log do componente que ele testa so consegue dizer QUE falhou.
+//
+// Protegido por mutex porque o watcher registra a partir de varias goroutines
+// enquanto o teste le.
+type bufferDeLog struct {
+	mu  sync.Mutex
+	buf bytes.Buffer
+}
+
+func (b *bufferDeLog) Write(p []byte) (int, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.Write(p)
+}
+
+func (b *bufferDeLog) String() string {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.String()
+}
+
+// diagnostico despeja os contadores do watcher numa falha.
+//
+// A mensagem antiga imprimia so "eventos=N" e descartava o resto, entao um
+// estouro de prazo em 2026-08-26 nao dizia QUAL das etapas parou. Cada campo
+// aqui separa uma causa diferente:
+//
+//	Active=false           o laco de Run saiu; nada mais sera processado
+//	EventsReceived=0       o watch nunca viu o rename (registro ou fsnotify)
+//	EventsReceived=1       so a criacao do diretorio chegou; a varredura falhou
+//	EventsProcessed=0      a varredura emitiu, mas Apply nao indexou
+//	DroppedByReason        o filtro comeu os eventos, e diz por que motivo
+//	Reconciliations>0      houve overflow do buffer do SO
+func diagnostico(w *Watcher) string {
+	s := w.Stats()
+	return fmt.Sprintf("  contadores: Active=%v Received=%d Dropped=%d(%v) "+
+		"Coalesced=%d Processed=%d Skipped=%d Reconciliations=%d",
+		s.Active, s.EventsReceived, s.EventsDropped, s.DroppedByReason,
+		s.EventsCoalesced, s.EventsProcessed, s.EventsSkipped, s.Reconciliations)
+}
+
 func setupTestWatcher(t *testing.T) (*Watcher, context.CancelFunc, string, *index.Index) {
-	log := slog.New(slog.NewTextHandler(io.Discard, nil))
+	saida := &bufferDeLog{}
+	log := slog.New(slog.NewTextHandler(saida, &slog.HandlerOptions{Level: slog.LevelDebug}))
+	t.Cleanup(func() {
+		if t.Failed() {
+			t.Logf("--- log do watcher ---\n%s--- fim do log ---", saida.String())
+		}
+	})
 	dir := t.TempDir()
 
 	v, err := vault.New(dir)
@@ -397,8 +454,8 @@ func TestPastaQueChegaComArquivosDentro(t *testing.T) {
 			for _, p := range idx.NotePaths() {
 				vistos = append(vistos, string(p))
 			}
-			t.Errorf("%s nunca chegou ao indice (eventos=%d, indice=%v)",
-				rel, w.Stats().EventsReceived, vistos)
+			t.Errorf("%s nunca chegou ao indice; indice=%v\n%s",
+				rel, vistos, diagnostico(w))
 		}
 	}
 
@@ -420,5 +477,6 @@ func TestPastaQueChegaComArquivosDentro(t *testing.T) {
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
-	t.Errorf("chegou/sub/d.md nao foi indexada: o subdiretorio varrido ficou sem watch")
+	t.Errorf("chegou/sub/d.md nao foi indexada: o subdiretorio varrido ficou sem watch\n%s",
+		diagnostico(w))
 }

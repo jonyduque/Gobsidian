@@ -17,6 +17,7 @@ import (
 	"io"
 	"log/slog"
 	"os"
+	"syscall"
 	"time"
 
 	"github.com/jonyd/gobsidian/internal/config"
@@ -84,21 +85,50 @@ func servePonte(ctx context.Context, cfg config.Config, log *slog.Logger) error 
 		log.Info("conectado ao daemon via socket")
 		return servePonteRemota(ctx, conn, os.Stdin, os.Stdout, log)
 	}
-	log.Info("socket do daemon indisponivel; tentando iniciar o daemon", "err", err)
+	log.Info("socket do daemon indisponivel; tentando iniciar o daemon",
+		"err", err, "errno", errnoDe(err))
 
 	iniciar := func() error { return iniciarDaemonFn(cfg) }
 	if startErr := daemon.EnsureStarted(ctx, cfg, daemonStartTimeout, iniciar); startErr != nil {
-		log.Info("nao foi possivel iniciar o daemon; servindo em processo", "err", startErr)
+		log.Info("nao foi possivel iniciar o daemon; servindo em processo",
+			"err", startErr, "errno", errnoDe(startErr))
 		return serveEmProcesso(ctx, cfg, log)
 	}
 
 	conn, err = ipc.DialAndHandshake(ctx, cfg.VaultPath, cfg.ReadOnly, ipcDialTimeout)
 	if err != nil {
-		log.Info("daemon nao respondeu apos iniciar; servindo em processo", "err", err)
+		log.Info("daemon nao respondeu apos iniciar; servindo em processo",
+			"err", err, "errno", errnoDe(err))
 		return serveEmProcesso(ctx, cfg, log)
 	}
 	log.Info("conectado ao daemon recem-iniciado via socket")
 	return servePonteRemota(ctx, conn, os.Stdin, os.Stdout, log)
+}
+
+// errnoDe extrai o numero do erro de sistema, ou -1 quando nao houver um.
+//
+// Existe porque a prosa do Windows nao distingue casos que se comportam de
+// forma diferente. Medido em 2026-08-26 com net.Dial("unix", ...):
+//
+//	10061  ECONNREFUSED   arquivo comum, socket orfao de dono morto a forca,
+//	                      E caminho inexistente -- os tres iguais
+//	10022  EINVAL         diretorio no lugar do socket
+//
+// A distincao decide se ha daemon vivo ou lixo no caminho, e nos logs de campo
+// do dono apareceu o 10022, que nenhum dos reprodutores conhecidos explica.
+// Sem o numero foi preciso reverter a mensagem para descobrir isso; com ele, a
+// proxima ocorrencia se explica sozinha.
+//
+// NAO use este numero para decidir se o daemon esta vivo. O criterio e
+// comportamental -- handshake completo -- porque a taxonomia acima mostra que
+// errnos diferentes descrevem o mesmo estado e o mesmo errno descreve estados
+// diferentes.
+func errnoDe(err error) int {
+	var se syscall.Errno
+	if errors.As(err, &se) {
+		return int(se)
+	}
+	return -1
 }
 
 // servePonteRemota copia bytes entre o stdio deste processo e o socket do

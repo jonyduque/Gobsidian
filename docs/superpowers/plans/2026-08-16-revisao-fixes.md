@@ -3735,6 +3735,428 @@ remoção troca um problema por outro.
 
 ---
 
+# Task 124 — observabilidade do daemon: quem morre diz por quê
+
+**Tier: modelo barato.** Sem decisão de projeto; o desenho está aqui inteiro.
+
+#### Onde encaixa
+Primeira da Fase 4, **antes** da 125 e da 126. Vem primeiro de propósito: a 126
+mexe na lógica de partida, e mexer nela enquanto as falhas são mudas repete a
+investigação que originou este lote.
+
+#### A evidência que originou esta tarefa (2026-08-26, cofres reais do dono)
+Dois daemons na máquina do dono morreram deixando **uma linha** no log e nada
+mais — `%LOCALAPPDATA%\gobsidian\run\<VaultKey>.sock.log`:
+
+```
+time=2026-08-24T12:56:46.418-03:00 level=INFO msg="daemon iniciado" vault="C:\\Users\\jonyd\\Obsidian\\Revis<U+FFFD>o" socket=...7a43b2b161338f9a.sock read_only=false ociosidade_s=900
+(fim do arquivo)
+```
+
+O outro, `4568ecbd07c39faa.sock.log`, repetiu a mesma linha duas vezes (24/08
+12:56 e 19:15) para `C:\Users\jonyd\Obsidian\Jurisprudencia` — caminho **sem
+acento, que não existe no disco**; só `Jurisprudência` existe. O daemon subiu,
+falhou ao indexar um caminho inexistente e saiu sem registrar nada.
+
+Do lado do host o sintoma não ajuda em nada — `mcp-server-gobsidian-jurisprudencia.log`:
+
+```
+[gobsidian-jurisprudencia] [info] Server transport closed unexpectedly, this is
+likely due to the process exiting early.
+[gobsidian-jurisprudencia] [error] Couldn't start for Cowork and Code sessions.
+```
+
+Um cofre inexistente produziu, ao longo de dois dias, **zero** mensagens
+acionáveis em três lugares diferentes.
+
+#### O que vincula esta tarefa
+- **stdout pertence ao JSON-RPC.** Todo log vai para stderr via `log/slog`. No
+  daemon o stderr é redirecionado para `<socket>.log` pelo spawner; é lá que a
+  mensagem tem de cair.
+- **Não afirme estado que você não verificou.** O relatório desta tarefa cola o
+  conteúdo real do arquivo de log produzido pelo teste, não a descrição dele.
+- **Mensagem host-facing não leva caminho absoluto** (B9); absoluto só no `slog`.
+
+#### O que entra
+
+**(a) Todo caminho de saída do daemon loga a causa antes de sair.**
+Em `internal/daemon/daemon.go` e `cmd/gobsidian/daemon.go`: falha de
+`index.Build`, de `ipc.Listen`, de leitura de config, de montagem do serviço —
+cada uma emite `log.Error` com a causa e o campo que a identifica, **antes** do
+`return`/`os.Exit`, e o processo sai com código diferente de zero.
+
+**(b) Cofre inválido falha alto, nomeando o caminho.**
+Caminho inexistente, inacessível, ou que não é diretório: erro na entrada, com o
+caminho na mensagem de log. Vale para o daemon **e** para `serveEmProcesso`, que
+hoje morre igualmente calado.
+
+**(c) O errno numérico entra no log de dial.**
+`cmd/gobsidian/ponte.go`, nos três pontos de queda: além da mensagem do Go,
+registrar o número, via `errors.As` para `syscall.Errno`. A prosa do Windows não
+distingue casos que se comportam de forma diferente — foi preciso reverter a
+mensagem para descobrir que `An invalid argument was supplied` é `10022` e
+`actively refused` é `10061`, e essa distinção decide a Task 126.
+
+#### O que prova esta tarefa
+RED que falha **hoje**, em `internal/daemon`:
+
+```go
+func TestDaemonComCofreInexistenteRegistraCausa(t *testing.T) {
+	dir := t.TempDir()
+	inexistente := filepath.Join(dir, "cofre-que-nao-existe")
+	var buf bytes.Buffer
+	log := slog.New(slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelDebug}))
+
+	err := runDaemon(context.Background(), config.Config{VaultPath: inexistente}, log)
+	if err == nil {
+		t.Fatal("runDaemon devolveu nil para cofre inexistente")
+	}
+	saida := buf.String()
+	if !strings.Contains(saida, "level=ERROR") {
+		t.Errorf("nenhum log de ERROR antes da saida; log foi:\n%s", saida)
+	}
+	if !strings.Contains(saida, inexistente) {
+		t.Errorf("o log nao nomeia o caminho do cofre; log foi:\n%s", saida)
+	}
+}
+```
+
+Provas de mutação exigidas, com a saída de `scripts/mutate.ps1` colada:
+1. Remover o `log.Error` do ramo de saída por cofre inválido ⇒ o teste acima
+   reprova pelo nome e pela linha.
+2. Trocar o `return err` por `return nil` nesse mesmo ramo ⇒ reprova.
+
+#### Verificações
+Além dos passos:
+1. `runDaemon` (`cmd/gobsidian/daemon.go:131`) hoje devolve erro em
+   `ipc.Listen` (`:133-135`) **sem logar**, e a montagem do serviço mais adiante
+   devolve o erro de `vault.New` do mesmo jeito. Confira que **todos** os
+   `return` de erro anteriores e posteriores ao `log.Info("daemon iniciado")`
+   (`:139`) passaram a logar.
+2. `vault.New` **já valida** existência e tipo do caminho
+   (`internal/vault/vault.go:90-95`). Esta tarefa **não** acrescenta validação —
+   ela faz o erro que já existe chegar ao log. Se você se pegar escrevendo
+   `os.Stat` novo, parou no lugar errado.
+3. Rode o binário contra um caminho inexistente e **leia o arquivo**
+   `<socket>.log` que ele produz. Uma linha só significa que a tarefa não está
+   pronta.
+4. Nenhum log novo em stdout — stdout pertence ao JSON-RPC.
+
+#### Regras de execução
+- Gate: `pwsh -File scripts/verify.ps1` verde, com a contagem de passos colada.
+- Nunca `git checkout`, `git restore`, `git stash`, `git clean` nem `git reset`.
+- Nunca `go mod tidy`.
+- `golangci-lint version` conferido antes de confiar num zero — o CI fixa
+  `v2.12.2`.
+- Se um teste falhar por motivo que este brief não explica, **pare e reporte**
+  `BLOCKED`; não ajuste a expectativa para o código passar.
+
+#### Comando de mutação
+Copie a âncora **do arquivo**, não de memória — âncora digitada sai `EXIT=2`:
+
+```bash
+pwsh -File scripts/mutate.ps1 -Path cmd/gobsidian/daemon.go `
+  -Anchor 'return fmt.Errorf("abrindo socket do daemon: %w", err)' `
+  -Replacement 'return nil' `
+  -Test TestDaemonComCofreInexistenteRegistraCausa -Package ./cmd/gobsidian/
+```
+
+`0` = o teste reprovou sob mutação (é o que se quer). `1` = a regra está escrita
+e não verificada. `2` = âncora ambígua ou build quebrado.
+
+**Files:** `cmd/gobsidian/daemon.go`, `cmd/gobsidian/ponte.go`,
+`cmd/gobsidian/servico.go`, `internal/daemon/daemon.go`, mais o `_test.go` novo.
+
+#### Contrato de relatório
+Status; commit; RED com a saída falhando e GREEN com a saída passando; as duas
+provas de mutação com `EXIT=0` e o texto do `mutate.ps1`; `verify.ps1` com a
+contagem de passos; e **o conteúdo literal do arquivo de log** que o teste
+produziu, para que se veja a mensagem que passou a existir.
+
+---
+
+# Task 125 — `doctor` diagnostica o daemon
+
+**Tier: modelo barato.** A lista de checagens está fechada abaixo.
+
+#### Onde encaixa
+Depois da 124, que cria as mensagens que este comando vai ler.
+
+#### Por que existe
+`doctor` é o comando que alguém roda quando **já está confuso**, e hoje ele não
+diz uma palavra sobre a metade do sistema que quebra: nem socket, nem lock, nem
+log, nem daemon vivo. `internal/doctor/checks.go` tem `checkCacheDir` e nenhum
+equivalente para o runtime.
+
+O diagnóstico que originou esta tarefa custou quatro camadas de investigação
+manual — processos e parentesco, `%LOCALAPPDATA%\gobsidian\run\`, os logs do
+host em `%LOCALAPPDATA%\Claude\Logs\mcp-server-*.log`, e uma reprodução com
+stderr capturado. **Todas as quatro respostas estavam disponíveis para um
+programa.**
+
+#### O que vincula esta tarefa
+- **Saída de console em ASCII puro:** `[OK]`, `[*]`, `[!]`, `[i]`, `[...]`.
+  Console PowerShell em CP-850 renderiza o resto como lixo, e este é justamente
+  o comando de quem já está perdido.
+- **`doctor` e `version` imprimem em stdout de propósito** — são CLI, não
+  servidores. A distinção merece comentário onde aparecer.
+- **Cor decidida pelo destino, não por `os.Stdout` global** (`internal/console`),
+  senão `doctor > relatorio.txt` sai sujo.
+- **`doctor` sai 1 nos checks halting** — corrigido antes, não regredir.
+
+#### As checagens que entram
+Uma por linha, cada uma com nome estável:
+
+1. **`socket_path`** — o caminho derivado de `ipc.SocketPath(cfg.VaultPath)`, e
+   **o que existe lá**, distinguindo: ausente · socket (reparse point) · arquivo
+   comum · **diretório** · outro. A distinção não é acadêmica: medido em
+   2026-08-26, `net.Dial("unix", …)` devolve `10061` (refused) para arquivo
+   comum, socket órfão **e** caminho inexistente, mas `10022`
+   (`An invalid argument was supplied`) para **diretório**. Só o `10022` estava
+   nos logs do dono, e nenhum dos reprodutores conhecidos o explica — o check
+   existe para que a próxima ocorrência se explique sozinha.
+2. **`daemon_vivo`** — tenta `DialAndHandshake` com prazo curto. `[OK]` com o
+   PID quando responde; `[i]` quando não há daemon (não é erro); `[!]` quando o
+   arquivo existe e o dial falha, **imprimindo o errno numérico**.
+3. **`daemon_log`** — existência, tamanho, idade e as **três últimas linhas** de
+   `<socket>.log`. É onde a Task 124 passou a escrever a causa.
+4. **`locks_orfaos`** — `*.sock.lock` cujo PID não corresponde a processo vivo.
+   Medido: cinco deles na máquina do dono, de 15 a 19/08, todos com PID morto.
+5. **`grafia_do_cofre`** — confere que `cfg.VaultPath` existe **e** compara com
+   a grafia real do disco. `C:\Users\jonyd\Obsidian\Jurisprudencia` não existe;
+   `Jurisprudência` existe; nada dizia isso a ninguém.
+
+Nenhuma delas é halting salvo a 5 quando o cofre não existe — aí já é falha de
+cofre, que o `doctor` hoje trata.
+
+#### O que prova esta tarefa
+Teste por checagem, com o estado montado em `t.TempDir()`: socket ausente;
+arquivo comum no lugar do socket; **diretório** no lugar do socket; lock com PID
+morto; cofre com grafia divergente. Cada um afirma o **marcador e o texto**, não
+só o status.
+
+Prova de mutação: apagar a distinção diretório × arquivo comum na checagem 1
+(devolver o mesmo texto para os dois) ⇒ o teste do diretório reprova.
+
+#### Verificações
+Além dos passos:
+1. `doctor > relatorio.txt` sai **sem** códigos de cor — a decisão é pelo
+   destino, não por `os.Stdout` global.
+2. Marcadores ASCII puros. Nenhum caractere fora de ASCII na saída.
+3. `ExitCode` continua 1 nos checks halting e 0 no resto: daemon ausente é
+   `[i]`, não falha.
+4. A checagem `socket_path` não pode **abrir** o socket para classificá-lo —
+   `os.Lstat` e atributos bastam, e abrir muda o que se está diagnosticando.
+5. `gobsidian doctor --vault <cofre real>` roda sem daemon vivo e com daemon
+   vivo, e diz coisas diferentes nos dois.
+
+#### Regras de execução
+- Gate: `pwsh -File scripts/verify.ps1` verde, contagem de passos colada.
+- Nunca `git checkout`, `git restore`, `git stash`, `git clean` nem `git reset`.
+- Nunca `go mod tidy`.
+- `doctor` imprime em **stdout de propósito** — é CLI, não servidor. A distinção
+  merece comentário onde aparecer.
+- Escopo não encolhe em silêncio: se uma das cinco checagens não couber,
+  entregue as outras quatro e **diga qual ficou de fora e por quê**.
+
+#### Comando de mutação
+A âncora está no código que você vai escrever; copie a linha literal depois de
+escrevê-la. O alvo é a distinção diretório × arquivo comum:
+
+```bash
+pwsh -File scripts/mutate.ps1 -Path internal/doctor/checks.go `
+  -Anchor '<a linha que devolve o texto do caso DIRETORIO>' `
+  -Replacement '<o mesmo texto do caso ARQUIVO COMUM>' `
+  -Test TestCheckSocketPathDistingueDiretorio -Package ./internal/doctor/
+```
+
+**Files:** `internal/doctor/checks.go`, `internal/doctor/doctor.go`, os
+`_test.go` correspondentes, e `docs/OPERACAO.md` (a seção de diagnóstico).
+
+#### Contrato de relatório
+A saída **literal** de `gobsidian doctor --vault <fixture>` em dois estados —
+um saudável e um com socket quebrado — coladas lado a lado. Mais a prova de
+mutação e o `verify.ps1`.
+
+---
+
+# Task 126 — `EnsureStarted` decide por handshake, nunca por errno
+
+**Tier: modelo principal.** Concorrência, orçamento e uma correção de premissa
+do próprio plano.
+
+#### Onde encaixa
+Depois da 124 e da 125. Fecha, junto com o **item 11** da Fase 4, a cadeia que
+produziu o incidente de campo.
+
+#### A evidência (2026-08-26, máquina do dono)
+Nas três sessões MCP, em **toda** partida, ao longo de dias:
+
+```
+time=2026-08-25T18:26:36 msg="socket do daemon indisponivel; tentando iniciar o daemon"
+     err="... connect: An invalid argument was supplied."
+time=2026-08-25T18:26:46 msg="nao foi possivel iniciar o daemon; servindo em processo"
+     err="socket do daemon nao respondeu em 10s: ..."
+time=2026-08-25T18:26:48 msg="servidor pronto" vault=...\Estudo notes=2557 index_origin=cache
+```
+
+Dez segundos de pena por sessão, sempre terminando em `servindo em processo`, e
+**nenhuma linha `"daemon iniciado"`** nos logs de runtime naquele dia: o daemon
+não morreu, não nasceu. Depois de remover os `.sock` órfãos, a mesma partida no
+mesmo cofre com o mesmo binário passou a decidir em **559 ms**, com
+`conectado ao daemon recem-iniciado via socket`.
+
+#### Correção de premissa — leia antes de codar
+O item 11 da Fase 4 dizia: *"discar antes de desvincular — `ECONNREFUSED`
+significa órfão e libera o unlink, sucesso significa abortar."*
+
+**A primeira metade está errada como critério.** Medido em 2026-08-26 com
+`net.Dial("unix", …)` no Windows: `ECONNREFUSED` (`10061`) é o que devolvem
+**arquivo comum, socket órfão de dono morto à força, e caminho inexistente** —
+os três. E o erro que apareceu em produção na máquina do dono foi `10022`, que
+nenhum desses três reproduz. Classificar por errno decide certo nos casos que já
+conhecemos e erra em silêncio no que apareceu de verdade.
+
+**O critério é comportamental: só um handshake bem-sucedido prova daemon vivo.**
+Qualquer falha de dial — refused, invalid argument, timeout — significa "não
+está servindo", e libera o unlink.
+
+#### O que entra
+1. **Espera escalonada no lugar do probe único.** N tentativas de dial dentro do
+   orçamento total (ex.: 250 ms × 40 = 10 s), falhando só no fim. Hoje o
+   orçamento inteiro é gasto num `select` só, então o chegante tardio nunca vê o
+   daemon que subiu 300 ms depois dele.
+2. **A decisão é o handshake.** `EnsureStarted` só declara sucesso quando
+   `DialAndHandshake` completa. Conectar não basta: um daemon com o `acceptLoop`
+   morto (item 10) aceita no backlog do SO e nunca responde.
+3. **O errno vai para o log** em toda tentativa falha (produzido na Task 124(c);
+   aqui, consumir).
+4. **`cmd/gobsidian/daemon.go` participa do mesmo lock** (`daemon/adquirirLock`)
+   antes do `Listen`, com o segundo dial idempotente que a ponte já faz.
+
+#### O que prova esta tarefa
+- **RED 1:** listener que aceita a conexão e **nunca responde** ao handshake ⇒
+  `EnsureStarted` não pode declarar sucesso. Falha hoje.
+- **RED 2:** socket que só passa a responder após 2 s ⇒ com orçamento de 10 s, a
+  ponte **conecta**, em vez de cair para o modo em processo. Falha hoje.
+- **RED 3 (tempestade):** ≥10 pontes simultâneas sobre cofre frio ⇒ exatamente
+  **um** daemon, e todas as sessões listam tools dentro do prazo.
+
+Provas de mutação:
+1. Trocar o critério de handshake por "dial conectou" ⇒ RED 1 reprova.
+2. Remover a espera escalonada (voltar ao probe único) ⇒ RED 2 e RED 3 reprovam.
+
+**Cuidado com o harness:** `StreamReader.Peek()` bloqueia apesar do nome, e já
+deixou um ciclo 15h44m parado. Use `ReadLineAsync` com `Wait` limitado. Gate que
+pode travar indefinidamente vira gate que se aprende a pular.
+
+#### Verificações
+Além dos passos:
+1. O fallback em processo **continua obrigatório** nos três pontos (decisão 2 da
+   Task 91, mantida pela 92). Esta tarefa muda quando ele dispara, nunca se ele
+   existe. Um daemon quebrado não pode transformar a ferramenta em nada.
+2. A goroutine vigia de `ln.Close()` (`daemon.go:140-143`) fica como está.
+3. Meça o tempo de decisão da ponte antes e depois, no mesmo cofre e com cache
+   quente. Número não medido não entra no relatório — escreva "não medido".
+4. Rode `pwsh -File scripts/test_orphans.ps1 -Cycles 100` (os quatro cenários, o
+   padrão) e confira que `daemon-idle` continua reprovando por `reason=` errado.
+5. Não rode o gate de órfãos concorrente com a medição de tempo: um mata os
+   processos do outro e produz falso verde.
+
+#### Regras de execução
+- Gate: `pwsh -File scripts/verify.ps1` verde, contagem de passos colada.
+- Nunca `git checkout`, `git restore`, `git stash`, `git clean` nem `git reset`.
+- Nunca `go mod tidy`.
+- Matar processo **sempre por PID que você mesmo lançou**, nunca por nome:
+  `Stop-Process -Name gobsidian` já matou a sessão real do dono.
+- Asserção de tempo atrás de build tag `//go:build race`, em arquivo separado.
+- `pipe engole código de saída`: `cmd | tail` devolve o status do `tail`.
+  Redirecione para arquivo e leia o `$?` do comando.
+
+#### Comando de mutação
+```bash
+pwsh -File scripts/mutate.ps1 -Path internal/daemon/lock.go `
+  -Anchor '<a linha que exige handshake bem-sucedido>' `
+  -Replacement '<a versao que aceita dial conectado>' `
+  -Test TestEnsureStartedNaoAceitaDaemonQueNaoResponde -Package ./internal/daemon/
+```
+
+Copie as duas âncoras **do arquivo** depois de escrever o código. A segunda
+mutação (remover a espera escalonada) usa a mesma ferramenta, com a âncora do
+laço de tentativas.
+
+**Files:** `internal/daemon/lock.go`, `internal/ipc/ipc.go`,
+`cmd/gobsidian/daemon.go`, `cmd/gobsidian/ponte.go`, os `_test.go`
+correspondentes, e `docs/OPERACAO.md` (limites conhecidos: a corrida residual).
+
+#### Contrato de relatório
+Os três RED com saída falhando e passando; as duas mutações com `EXIT=0`; o
+tempo medido de decisão da ponte **antes e depois** (a referência é 10 s →
+559 ms, medida no cofre Estudo, 2.557 notas, cache quente); `verify.ps1`.
+
+---
+
+## Identidade do cofre — verificado, NÃO virou tarefa
+
+Estava planejado como Task 127 e foi **retirado depois de conferir o código**,
+em 2026-08-26. Fica registrado para não ser re-proposto.
+
+**O problema observado.** `config.VaultKey` é
+`xxhash.Sum64String(strings.ToLower(vaultPath))`, sem normalização Unicode. Na
+máquina do dono isso produziu, para o mesmo cofre pretendido, duas instâncias
+completas — socket, cache e daemon próprios para cada grafia:
+
+| Grafia | VaultKey | Existe no disco? |
+|---|---|---|
+| `...\Obsidian\Jurisprudência` | `d34d3da9c925ef62` | sim |
+| `...\Obsidian\Jurisprudencia` | `4568ecbd07c39faa` | **não** |
+| `...\Obsidian\Revisão` | `1f213394ace393eb` | sim |
+| `...\Obsidian\Revis<U+FFFD>o` | `7a43b2b161338f9a` | **não** |
+
+As duas grafias inexistentes vieram do config do host — uma com acento removido,
+outra com caractere de substituição, resíduo de round-trip de encoding.
+
+**Por que não virou tarefa.** A correção planejada era "recusar alto caminho que
+não existe". **Isso já está implementado**: `vault.New`
+(`internal/vault/vault.go:90-95`) devolve `raiz do cofre inacessivel %q` para
+caminho ausente e `raiz do cofre nao e diretorio: %q` para arquivo. O erro
+existe, é específico, e nomeia o caminho.
+
+O que faltava não era a validação — era **o erro chegar a alguém**. Ele é
+devolvido e descartado sem log, e é por isso que o daemon morria mudo. Isso é a
+Task 124(a)/(b), e a grafia real do disco aparece na checagem `grafia_do_cofre`
+da Task 125. Uma tarefa própria duplicaria as duas.
+
+**Decisão do dono, registrada:** **não** normalizar Unicode em `VaultKey`. NFC
+resolveria acento composto × pré-composto e **não** resolveria acento ausente,
+que é o caso que de fato ocorreu, ao custo de invalidar todo cache existente.
+A chave é sensível a grafia por construção, e isso é aceitável dado que
+`vault.New` recusa e o `doctor` mostra. Quem quiser reabrir precisa de caso novo
+em que a divergência ocorra com **duas grafias que existem no disco**.
+
+---
+
+# Task 000 — sentinela de fim dos briefs (não é tarefa; não execute)
+
+Existe por uma razão mecânica, medida em 2026-08-26. O `task-brief` do plugin
+superpowers extrai com um `awk` que só liga e desliga em cabeçalho casando
+`^#+[ 	]+Task[ 	]+[0-9]+`. **Nenhum outro cabeçalho interrompe a extração** —
+nem `#`, nem `##`. Consequência: a ÚLTIMA tarefa de qualquer plano vaza até o
+fim do arquivo.
+
+Medido: sem esta sentinela, `task-127-brief.md` saiu com **33.421 bytes** e
+engoliu sete cabeçalhos — as fases seguintes, a ordem de execução, os tiers, o
+prompt de despacho, a auditoria e as pendências. As irmãs têm 3.625 a 4.425
+bytes. Um implementador delegado receberia o plano inteiro no lugar da tarefa
+dele, e o `check_briefs.ps1` acusaria o brief que destoa em tamanho — que é
+exatamente o sintoma que ele existe para pegar.
+
+Não numere uma tarefa real como 000. Ao acrescentar tarefas ao fim deste plano,
+**mova esta seção para depois da última** e confira o tamanho do brief recém-
+extraído contra o das irmãs antes de despachar.
+
+---
+
 # Fases seguintes — escopo nomeado, sem brief
 
 O detalhe destas fases se escreve quando elas chegarem, com o mesmo padrão
@@ -3749,8 +4171,12 @@ sistema.
   **incondicionalmente** antes do `net.Listen`. Um daemon vivo tem seu arquivo
   removido; ele fica com o descritor ligado a um inode sem nome, invisível para
   toda ponte futura, e sem ociosidade se tiver cliente. Padrão consagrado: discar
-  antes de desvincular — `ECONNREFUSED` significa órfão e libera o unlink,
-  sucesso significa abortar.
+  antes de desvincular.
+  **Correção de 2026-08-26, medida:** o critério NÃO é `ECONNREFUSED`. Arquivo
+  comum, socket órfão de dono morto à força e caminho inexistente devolvem os
+  três o mesmo `10061`; e o erro que apareceu em produção foi `10022`, que
+  nenhum deles reproduz. O critério é **handshake bem-sucedido** — ver Task 126,
+  que detalha a medição.
   **Correção da revisão:** ela diz *"o lock não é a causa: o `Listen` é"*, e isso
   é exclusão indevida. São duas causas que compõem. `daemon/lock.go:65-79`
   registra o incidente medido — dez pontes sob carga, dois daemons vivos, quase

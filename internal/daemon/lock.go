@@ -216,7 +216,15 @@ func esperarSocket(ctx context.Context, cfg config.Config, prazo time.Duration) 
 		ultimoErr = err
 
 		if time.Now().After(limite) {
-			return fmt.Errorf("socket do daemon nao respondeu em %s: %w", prazo, ultimoErr)
+			// A pista do log entra no erro porque a mensagem sozinha culpa o
+			// socket -- o unico lugar onde a resposta NAO esta. Medido em
+			// 2026-08-26: tres sessoes MCP pagaram este prazo em toda partida
+			// durante dias, e quem lia "socket nao respondeu" nao tinha como
+			// saber se o daemon morreu na montagem (log com uma linha) ou nem
+			// chegou a nascer (log ausente). Sao dois defeitos diferentes com
+			// o mesmo sintoma aqui.
+			return fmt.Errorf("socket do daemon nao respondeu em %s: %w (%s)",
+				prazo, ultimoErr, pistaDoLog(cfg.VaultPath))
 		}
 		select {
 		case <-ctx.Done():
