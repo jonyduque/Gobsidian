@@ -100,12 +100,27 @@ type Link struct {
 
 	// Start e End delimitam o link no buffer, com bodyOffset ja somado.
 	//
-	// ATENCAO: hoje so sao preenchidos para LinkWiki e LinkEmbed. Para
-	// LinkMarkdown e para embeds em grafia Markdown ("![alt](x.png)") ficam no
-	// valor sentinela offsetUnknown (-1), porque a AST do goldmark nao entrega
-	// o span completo de "[texto](destino)" num unico no. Quem for reescrever
-	// um link PRECISA checar Kind antes: reescrever a partir de Start=0 num
-	// link Markdown sobrescreveria o inicio da nota.
+	// As QUATRO grafias trazem span correto. Sondado em 2026-08-26 (achado B14
+	// da auditoria, que corrigiu este proprio comentario):
+	//
+	//   [[wiki]]         start= 6 end=14  span="[[wiki]]"
+	//   [alvo](alvo.md)  start=20 end=35  span="[alvo](alvo.md)"
+	//   ![[e.png]]       start=40 end=50  span="![[e.png]]"
+	//   ![alt](x.png)    start=53 end=66  span="![alt](x.png)"
+	//
+	// Ate esta data o comentario afirmava que LinkMarkdown e o embed em grafia
+	// Markdown ficavam em offsetUnknown, e por isso mandava checar Kind antes
+	// de reescrever. Isso era verdade quando foi escrito e deixou de ser; o
+	// texto ficou, e passou a desviar quem o lesse de um caminho que ja
+	// funcionava.
+	//
+	// O que CONTINUA valendo, e e a armadilha de verdade: Raw NAO cobre o
+	// mesmo trecho que Start:End nas grafias Markdown. Nelas Raw traz so o
+	// destino ("alvo.md"), enquanto o span traz a sintaxe inteira. Quem
+	// reescreve deve fatiar por Start:End; quem casa por Raw erra em Markdown.
+	//
+	// offsetUnknown continua sendo caminho vivo — ver os tres pontos de saida
+	// em ast.go —, entao quem consome offsets ainda precisa tratar o -1.
 	//
 	// O sentinela e -1, nao zero. Zero e uma posicao legitima — o primeiro
 	// byte do buffer — entao usa-lo para "nao sei" repete o erro que

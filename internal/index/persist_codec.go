@@ -40,8 +40,17 @@ import (
 // corrupção de um byte — em comprimento OU em payload — é pega antes de
 // qualquer campo ser interpretado.
 const (
-	indexCacheMagic     = "GIC1"
-	indexCacheCodecVers = 2
+	indexCacheMagic = "GIC1"
+	// indexCacheCodecVers e IndexCacheFormatVersion, nao uma copia dele.
+	//
+	// Ate 2026-08-26 eram DUAS constantes independentes, com o mesmo valor por
+	// coincidencia, guardando o MESMO portao: persist.go conferia a sua em
+	// LoadIndexCache e o decodificador conferia a sua no cabecalho. Subir uma
+	// sem a outra nao quebra build nem teste — faz o leitor recusar todo save
+	// que o proprio processo acabou de gravar, com reconstrucao completa a
+	// cada boot e NENHUM log dizendo por que. Achado B11 da auditoria; o alias
+	// existe para que o bump seja impossivel de fazer pela metade.
+	indexCacheCodecVers = IndexCacheFormatVersion
 )
 
 // Tags do codec de valor genérico de frontmatter. Frontmatter vem do YAML
@@ -203,12 +212,19 @@ func (e *escritor) blocks(bs []parser.Block) {
 	}
 }
 
-// links grava só os campos de parser.Link. Resolved, Via e State NÃO são
-// gravados — ver o comentário de LoadIndexCache: são recalculados depois do
-// load pelas MESMAS funções que Build chama (resolveAllLinks,
-// buildBacklinks), e persistir os dois seria uma segunda forma de calcular
-// o mesmo dado. A lição deste projeto, escrita em CLAUDE.md, é que a forma
-// menos usada é a que diverge.
+// links grava os campos de parser.Link MAIS o Context. Resolved, Via e State
+// NÃO são gravados — ver o comentário de LoadIndexCache: são recalculados
+// depois do load pelas MESMAS funções que Build chama (resolveAllLinks,
+// buildBacklinks), e persistir os dois seria uma segunda forma de calcular o
+// mesmo dado. A lição deste projeto, escrita em CLAUDE.md, é que a forma menos
+// usada é a que diverge.
+//
+// Context é a exceção, e ela é justificada pelo mesmo critério: ele NÃO é
+// recalculável a partir do que o índice guarda. Recortá-lo de novo exigiria
+// reler o corpo de cada nota no boot — precisamente o custo que este cache
+// existe para não pagar. Gravá-lo não cria segunda conta; deixá-lo de fora
+// criaria duas respostas para `vault_backlinks` conforme o cache tenha sido
+// usado ou não, que é pior.
 func (e *escritor) links(ls []ResolvedLink) {
 	if ls == nil {
 		e.varint(-1)
@@ -223,6 +239,7 @@ func (e *escritor) links(ls []ResolvedLink) {
 		e.varint(int64(rl.Kind))
 		e.varint(rl.Start)
 		e.varint(rl.End)
+		e.str(rl.Context)
 	}
 }
 
@@ -569,6 +586,7 @@ func (l *leitor) links(oque string) []ResolvedLink {
 				Start:  l.varint(),
 				End:    l.varint(),
 			},
+			Context: l.str(oque + " context"),
 			// Resolved, Via e State ficam no zero-value de propósito — ver o
 			// comentário de escritor.links.
 		}

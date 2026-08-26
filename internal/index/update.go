@@ -138,9 +138,9 @@ func construirNota(entry vault.Entry, data []byte) *Note {
 		Blocks:         parsed.Blocks,
 		Inline:         parsed.Inline,
 	}
-	for _, l := range parsed.Links {
-		n.Links = append(n.Links, ResolvedLink{Link: l})
-	}
+	// data, e nao body: ShiftOffsets ja realinhou os offsets ao arquivo BRUTO
+	// quando ha BOM, entao recortar de body erraria BOMLen bytes.
+	n.Links = montarLinks(data, parsed.Links)
 	return n
 }
 
@@ -151,13 +151,7 @@ func (ix *Index) registrarBacklinksLocked(n *Note) {
 		if l.Resolved == "" {
 			continue
 		}
-		ix.backlinks[l.Resolved] = append(ix.backlinks[l.Resolved], Backlink{
-			From:    n.Path,
-			Anchor:  l.Anchor,
-			Alias:   l.Alias,
-			Context: "",
-			Kind:    l.Kind,
-		})
+		ix.backlinks[l.Resolved] = append(ix.backlinks[l.Resolved], backlinkDe(n.Path, l))
 	}
 }
 
@@ -491,14 +485,7 @@ func (ix *Index) reprocessNoteLinksLocked(path vault.CanonicalPath) {
 			}
 
 			if resolved != "" {
-				bl := Backlink{
-					From:    n.Path,
-					Anchor:  n.Links[i].Anchor,
-					Alias:   n.Links[i].Alias,
-					Context: "",
-					Kind:    n.Links[i].Kind,
-				}
-				ix.backlinks[resolved] = append(ix.backlinks[resolved], bl)
+				ix.backlinks[resolved] = append(ix.backlinks[resolved], backlinkDe(n.Path, n.Links[i]))
 			}
 		}
 	}

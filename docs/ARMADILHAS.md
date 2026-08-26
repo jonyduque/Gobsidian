@@ -180,6 +180,22 @@ veria, não sobre cada estrutura em separado.
 
 ---
 
+**Duas constantes independentes guardando o mesmo portão concordam por
+coincidência, e divergir não quebra nada visível.** O cache de metadados era
+conferido em dois lugares: `IndexCacheFormatVersion` em `LoadIndexCache`, e
+`indexCacheCodecVers` no cabeçalho, dentro do decodificador. Tinham o mesmo
+valor porque alguém digitou o mesmo número duas vezes. Subir **uma** — o que
+qualquer mudança de layout exige — não quebra build nem teste: faz o leitor
+recusar todo save que o próprio processo acabou de gravar, com **reconstrução
+completa a cada boot e nenhum log dizendo por quê**. O sintoma parece
+"cache lento", não "cache quebrado". Fechado em 2026-08-26 (achado B11) com
+`indexCacheCodecVers = IndexCacheFormatVersion` — alias, não cópia, para que o
+bump seja impossível de fazer pela metade. O teste que pega isso é um
+round-trip `Save`→`Load`; ele não existia, e é o que faltava para o portão ter
+dono.
+
+---
+
 ## Watcher
 
 **A falha na raiz da varredura de diretório novo era engolida — a mesma
@@ -307,6 +323,29 @@ schema e da documentação.
 
 **Campo de API com valor fixo mente sempre.** `alias_collisions` era
 `Collisions: 0` literal. Aparecia na resposta e nunca foi verdade.
+
+**E o valor fixo não precisa ser literal para mentir: basta não haver um lugar
+onde escrevê-lo.** `Backlink.Context` existia no tipo, era documentado no próprio
+campo como "texto ao redor da referência", e `docs/TOOLS.md` §`vault_backlinks`
+**promete** que "backlinks traz origem e o contexto textual ao redor de cada
+referência". Chegava vazio em toda resposta, desde sempre. A causa: **três**
+construções de `Backlink` — `backlinks.go`, e duas em `update.go` — cada uma
+escrevendo `Context: ""` à mão. Não havia um lugar para preencher; havia três
+para esquecer. Corrigido em 2026-08-26 (achado A8) com `backlinkDe`, construtor
+único, e `montarLinks`, único ponto que monta `[]ResolvedLink`.
+**A normativa estava certa e o código é que mentia** — foi a doc que denunciou o
+defeito, não o contrário.
+
+**Comentário que descreve uma limitação some quando ela é removida; se não some,
+vira desinformação com autoridade.** `parser/types.go` avisava que os offsets
+`Start`/`End` "só são preenchidos para LinkWiki e LinkEmbed" e que link Markdown
+fica em `offsetUnknown`, mandando checar `Kind` antes de reescrever. Sondado em
+2026-08-26: **as quatro grafias trazem span correto**, embed Markdown incluído.
+Era verdade quando foi escrito, deixou de ser, e o texto ficou desviando quem o
+lesse de um caminho que já funcionava (achado B14). A armadilha real é outra e
+continua: **`Raw` não cobre o mesmo trecho que `Start:End`** nas grafias
+Markdown — nelas `Raw` traz só o destino. Quem reescreve deve fatiar por
+`Start:End`; quem casa por `Raw` erra em Markdown.
 
 **Flag booleana ou inteira não distingue "omitida" de "definida com zero".**
 `config.Flags` tem companheiros `ReadOnlySet` e `DebounceMSSet`. **Toda** chamada

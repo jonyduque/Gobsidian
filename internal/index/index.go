@@ -129,9 +129,7 @@ func (ix *Index) insert(r parsed) {
 		n.Blocks = r.note.Blocks
 		n.Inline = r.note.Inline
 
-		for _, l := range r.note.Links {
-			n.Links = append(n.Links, ResolvedLink{Link: l})
-		}
+		n.Links = r.links
 	}
 
 	ix.publishNoteLocked(n)

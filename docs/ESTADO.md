@@ -126,6 +126,31 @@ Medido no cofre real de 3.152 notas na virada do 4 para o 5:
 | arquivo | 482 MB | **67 MB** |
 | boot quente | ~7 s | **842 ms** |
 
+**O formato do cache de metadados é o 3** (2 até 2026-08-26). O 3 acrescentou o
+`Context` de cada link — o texto ao redor da referência, que `docs/TOOLS.md` já
+prometia em `backlinks` e que o código entregava vazio desde sempre (achado A8).
+
+Ele é persistido, e não recalculado como `Resolved`/`Via`/`State`, porque **não é
+derivável do que o índice guarda**: recortá-lo de novo exigiria reler o corpo de
+cada nota no boot, que é exatamente o custo que este cache existe para não pagar.
+
+Medido em 2026-08-26 no cofre real de 5.686 notas e 42.329 links (109 MB):
+
+| | formato 2 | formato 3 |
+|---|---|---|
+| arquivo | 19,53 MB | **32,62 MB** (+67%, +13,09 MB) |
+| `LoadIndexCache`, mediana de 5 | 275,5 ms | 282,2 ms |
+
+O custo de disco é real e está medido. **O de tempo não é distinguível de ruído
+nesta amostra**: as duas distribuições se sobrepõem (com contexto: 236–450 ms;
+sem: 258–292 ms), e a rodada *com* contexto produziu as duas amostras mais
+rápidas. O delta mediano de +6,7 ms é o que este formato acrescenta ao boot;
+**o boot completo deste cofre contra o teto de 300 ms do RNF-02 não foi medido
+aqui**, e o cofre é maior que o de 3.149 notas onde o RNF-02 foi publicado.
+
+O tamanho é governado por `contextoBytes` (80 de cada lado) em
+`internal/index/contexto_link.go`, num lugar só, para poder ser discutido.
+
 **Toda troca de formato reconstrói o cache de todo cofre no boot seguinte**, em
 segundo plano, com as outras onze tools respondendo desde o primeiro segundo — e
 isso vale para quem atualizar de uma v1.0.x, que grava `gob` e invalida o cache

@@ -87,6 +87,14 @@ type ResolvedLink struct {
 	Resolved vault.CanonicalPath
 	Via      ResolveVia
 	State    LinkState
+	// Context e o texto ao redor da referencia, recortado do corpo no momento
+	// em que a nota foi lida. Diferente de Resolved/Via/State — que o codec do
+	// cache NAO persiste porque sao recalculados na carga — o contexto nao e
+	// derivavel do que o indice guarda: recalcula-lo exigiria reler o cofre no
+	// boot, que e exatamente o que o cache existe para evitar. Por isso ele e
+	// persistido, e por isso o formato do cache subiu para 3. Ver
+	// contexto_link.go.
+	Context string
 }
 
 // Note e uma nota indexada: metadados e offsets, sem o corpo.
@@ -135,6 +143,22 @@ type Backlink struct {
 	Alias   string
 	Context string // texto ao redor da referencia
 	Kind    parser.LinkKind
+}
+
+// backlinkDe monta o Backlink que corresponde a um link ja resolvido.
+//
+// E o UNICO lugar que faz essa conversao. Havia TRES — backlinks.go:20,
+// update.go:154 e update.go:494 — e as tres escreviam `Context: ""` a mao. Foi
+// assim que o campo ficou tres anos prometido no tipo e vazio na resposta: nao
+// havia um lugar onde escrever o valor, havia tres para esquecer.
+func backlinkDe(from vault.CanonicalPath, l ResolvedLink) Backlink {
+	return Backlink{
+		From:    from,
+		Anchor:  l.Anchor,
+		Alias:   l.Alias,
+		Context: l.Context,
+		Kind:    l.Kind,
+	}
 }
 
 // normalizeTitleForNote produz o campo TitleNorm de uma Note. Única função

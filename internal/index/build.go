@@ -15,6 +15,13 @@ import (
 type parsed struct {
 	entry vault.Entry
 	note  *parser.ParsedNote
+	// links ja vem montado do worker, com o contexto recortado. O corpo NAO
+	// viaja nesta struct de proposito: ela atravessa um canal com o cofre
+	// inteiro em voo, e carregar os bytes de cada nota ate o coletor
+	// multiplicaria o pico de memoria pelo tamanho do cofre. O contexto e o
+	// unico pedaco do corpo que o indice guarda, e ele e recortado onde os
+	// bytes ja estao na mao.
+	links []ResolvedLink
 	hash  uint64
 	eol   vault.EOLStyle
 	bom   bool
@@ -84,6 +91,7 @@ func (ix *Index) Build(ctx context.Context, v *vault.Vault) error {
 				case results <- parsed{
 					entry: e,
 					note:  note,
+					links: montarLinks(data, note.Links),
 					hash:  xxhash.Sum64(data),
 					eol:   vault.DetectEOL(data),
 					bom:   hadBOM,

@@ -19,7 +19,12 @@ import (
 // lacuna; ela é fechada junto com este arquivo.
 const (
 	// IndexCacheFormatVersion muda quando o layout serializado muda.
-	IndexCacheFormatVersion = 2
+	//
+	// 2 -> 3 em 2026-08-26: cada link passou a gravar o Context recortado do
+	// corpo (achado A8). Cache da versao anterior e recusado e reconstruido,
+	// que e o comportamento certo: carrega-lo daria backlinks com contexto
+	// vazio para sempre, sem nada indicando por que.
+	IndexCacheFormatVersion = 3
 	// IndexCacheParserVersion muda quando o parser passa a produzir
 	// estrutura diferente para a mesma entrada. Sem isto, corrigir um bug de
 	// parsing e reiniciar carregaria de volta o índice errado: mtime e

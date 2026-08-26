@@ -4312,5 +4312,54 @@ daemon surdo por daemon girando. O teste do A4 injeta o listener falho em
 
 `pwsh -File scripts/verify.ps1`: **14 de 14 [OK]** em cada um dos três commits.
 
-**Ainda abertos dos altos:** A6 (espera cancelável com orçamento) e A8 (+B11, que
-tem de ir junto porque o bump de formato é o que torna o B11 perigoso).
+**Task 134 — A6** (`7337e78`). A espera da primeira busca virou uma PORTA com
+`select` em `ctx.Done()`; quem desiste recebe `INDEX_BUILDING` e **a carga segue
+em segundo plano** — amarrá-la ao primeiro chamador faria a busca seguinte
+recomeçar do zero. Não é `sync.Once`: falha não marca pronta, senão um cache
+corrompido derrubaria a busca até o próximo reinício.
+- O comentário que justificava o mutex media o caso BARATO ("carga do cache bem
+  abaixo de 1 s") e o desenho pagava o caro — 219 s de tokenização num cofre de
+  109 MB, sem resposta e sem erro.
+- **A primeira mutação fez o teste TRAVAR em vez de reprovar** (`<-make(chan
+  struct{})` bloqueia para sempre). Teste pendurado não nomeia falha nenhuma.
+  Trocada por `case <-ctx.Done():` → `case <-porta:`, que preserva o modo de
+  falha. EXIT=0.
+- O parágrafo de boot em `servico.go` descrevia só o modo eager; agora cobre os
+  dois.
+
+**Task 135 — A8 + B11 + B14.** Fecha o oitavo e último alto. As duas primeiras
+foram juntas por necessidade: A8 exige bump do formato do cache, e é esse bump
+que torna o B11 perigoso.
+- **A8**: `Backlink.Context` existia no tipo e `docs/TOOLS.md:164` já **prometia**
+  na normativa. Chegava vazio ao host desde sempre, porque havia **três**
+  construções de `Backlink` escrevendo `Context: ""` à mão. Não havia um lugar
+  para preencher; havia três para esquecer. Colapsadas em `backlinkDe`, e
+  `ResolvedLink` em `montarLinks` — os dois pontos que faziam a conta à mão.
+  **A doc denunciou o código, não o contrário.**
+- **B11**: `IndexCacheFormatVersion` e `indexCacheCodecVers` eram duas constantes
+  independentes guardando o MESMO portão, iguais por coincidência. Subir uma sem
+  a outra não quebra build nem teste — faz o leitor recusar todo save que o
+  próprio processo gravou, com rebuild a cada boot e **sem log**. Agora é alias,
+  não cópia. A mutação reproduz o sintoma exato, e **antes deste round-trip ela
+  passaria em silêncio**.
+- **B14**: sondei os offsets antes de confiar neles. **As quatro grafias trazem
+  span correto**, embed Markdown incluído — o comentário que dizia o contrário
+  era verdade quando escrito e virou desinformação com autoridade. A armadilha
+  real e persistente é outra: `Raw` não cobre o mesmo trecho que `Start:End` em
+  Markdown.
+- **Custo medido** (cofre real, 5.686 notas, 42.329 links): cache **19,53 → 32,62
+  MB (+67%, +309 bytes por link)**. `LoadIndexCache` 275,5 → 282,2 ms de mediana,
+  mas as distribuições **se sobrepõem** e a rodada *com* contexto deu as duas
+  amostras mais rápidas — o delta de tempo não é distinguível de ruído a n=5.
+- **Não medido, e dito assim:** o boot completo deste cofre contra o teto de
+  300 ms do RNF-02. Medi `LoadIndexCache` isolado. O cofre é maior que o de 3.149
+  notas onde o RNF-02 foi publicado; se já estoura hoje, é preexistente — não
+  verifiquei, e não afirmo nas duas direções.
+- **Decisão que fica com o dono:** os +67% pagam um contrato que a normativa já
+  publicava. `contextoBytes = 80` está num lugar só para poder ser reduzido. A
+  alternativa de recortar na consulta (disco zero) está registrada no relatório
+  com o motivo de eu não a ter seguido: choca com "somente-nuvem nunca é aberto",
+  e o campo voltaria a ser inconstante.
+
+**Os oito altos estão fechados.** Seguem abertos: 17 médios, 14 de desempenho,
+~15 baixos, mais o item do lock de `EnsureStarted` e o teste da tempestade.

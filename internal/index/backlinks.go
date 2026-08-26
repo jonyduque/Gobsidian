@@ -17,14 +17,7 @@ func (ix *Index) buildBacklinks() {
 	for from, note := range ix.notes {
 		for _, l := range note.Links {
 			if l.Resolved != "" {
-				bl := Backlink{
-					From:    from,
-					Anchor:  l.Anchor,
-					Alias:   l.Alias,
-					Context: "",
-					Kind:    l.Kind,
-				}
-				ix.backlinks[l.Resolved] = append(ix.backlinks[l.Resolved], bl)
+				ix.backlinks[l.Resolved] = append(ix.backlinks[l.Resolved], backlinkDe(from, l))
 			}
 		}
 	}
