@@ -101,9 +101,27 @@ devolvia conteúdo arbitrário pelo canal MCP. **O RNF-32 estava publicado como
 "Atingido"** com um único teste, o de symlink de *diretório* — que `WalkDir`
 nunca atravessou. O de *arquivo* nunca teve teste e nunca funcionou. Corrigido
 em 2026-08-26: `Walk` pula com descarte **registrado**, as três aberturas
-recusam, e `--follow-symlinks` religa o comportamento antigo. A correção
-estrutural (`os.Root`, que elimina também a janela TOCTOU) fica como tarefa de
-arquitetura própria.
+recusam, e `--follow-symlinks` religa o comportamento antigo.
+
+**`os.Root` foi implementado, medido e REJEITADO no mesmo dia** — não é dívida
+esquecida, é decisão tomada. Ele funciona: `r.Open("link.md")` e
+`r.Open("../fora.txt")` devolvem `path escapes from parent`, imposto pelo
+runtime, e a janela TOCTOU fecha. O que o derrubou foi um custo que o plano não
+previa. O plano mandava medir "syscalls extras por nota"; o bloqueio foi tempo
+de vida de handle:
+
+| Arranjo | Latência de leitura | Custo |
+|---|---|---|
+| `os.ReadFile` (hoje) | 155,2 µs | TOCTOU aberto |
+| Root **cacheado** | 155,1 µs (idêntica) | **trava a pasta do cofre** |
+| Root **por leitura** | 252,7 µs (**+63%**) | — |
+
+Com o descritor da raiz aberto, o Windows recusa renomear, mover e apagar a
+pasta do cofre enquanto o servidor roda — medido, não inferido. Numa ferramenta
+de notas isso é regressão visível. E abrir o Root a cada leitura custa +63% num
+caminho quente: `GenerateSnippet` abre um arquivo por hit, e é 21% do CPU da
+busca. Reabrir exige caso novo — por exemplo, um vetor de escape que a guarda
+`Lstat` não pegue.
 
 **Camada de pré-filtro que abre arquivo derrota o filtro que ela precede.**
 `CorrelateRenames` roda antes de `index.Replace` e chamava `vault.ReadAll` em

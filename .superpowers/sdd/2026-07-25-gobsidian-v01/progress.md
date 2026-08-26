@@ -4191,3 +4191,51 @@ bytes (índice + estrutura + regras inegociáveis); história em `docs/ARMADILHA
 e `docs/ESTADO.md`; guias por papel em `docs/papeis/`; RNF-30 alinhado ao PRD
 §6.4, onde estava defasado desde 2026-08-05. `AGENTS_NEW.md` foi absorvido e
 removido. Hook `PreToolUse` de commit em `.claude/settings.json`.
+
+
+## Tasks 128 e 129 — os três críticos da auditoria — 2026-08-26
+
+Commit `e345578`. Relatórios em `.superpowers/sdd/task-12{8,9}-report.md`.
+
+**Task 128 — C1 + C3, uma guarda só.** Os dois se consertam juntos: fazer
+`Inverted.Update` ser o ÚNICO caminho de indexação a partir de arquivo.
+- **C1**: `buildInvertedIndex` fazia `v.ReadAll` + `inv.Add`, contornando a
+  guarda de nuvem. O que "provava" a regra era um dublê (`construirComoOBoot`)
+  que chamava `Update` afirmando ser "exatamente como buildInvertedIndex faz" —
+  não era. O teste novo exercita `buildInvertedIndex` de verdade, e a mutação
+  **restaura o corpo antigo literal** (`EXIT=0`).
+- **C3**: anexo era lido inteiro. Medido no RED: `DocLength do anexo = 4` —
+  bytes de anexo no **divisor da normalização do BM25**. É ranking errado, não
+  lentidão; a auditoria classificava como performance. Mutação `EXIT=0`.
+- Contrapeso em ambos (`TestUpdateLeNota`, `DocLength("hidratada.md") != 0`),
+  porque "não leia nada" passaria em todos os testes de recusa e desligaria a
+  busca em silêncio.
+
+**Task 129 — C2, symlink.** `Walk` pula com descarte registrado, as três
+aberturas recusam, `--follow-symlinks` (nos seis subcomandos) religa o antigo.
+- Achado não previsto: **RNF-32 estava publicado como "Atingido"** com um único
+  teste, o de symlink de *diretório* — que `WalkDir` nunca atravessou. O de
+  *arquivo* nunca teve teste e nunca funcionou. `OPERACAO.md` corrigido.
+- Erro registrado: sobrescrevi `symlink_test.go` com `Write` sem ver que já
+  existia. Recuperado de `HEAD` e os testes novos foram SOMADOS ao original.
+- Uma mutação saiu `EXIT=2` (INCONCLUSIVO): `if false` deixava `fi` sem uso e
+  quebrava o build. Refeita com `&& false`, que compila. Falha de compilação
+  não é cobertura.
+
+**`os.Root` (AD-10) — implementado, medido e REJEITADO pelo dono.** Não é dívida
+esquecida. Ele funciona (`path escapes from parent`, imposto pelo runtime) e
+fecha o TOCTOU. O plano mandava medir "syscalls extras por nota"; o bloqueio foi
+outro:
+
+| Arranjo | Latência | Custo |
+|---|---|---|
+| `os.ReadFile` (hoje) | 155,2 µs | TOCTOU aberto |
+| Root cacheado | 155,1 µs | **trava a pasta do cofre** no Windows |
+| Root por leitura | 252,7 µs (+63%) | — |
+
+Medido: com o descritor da raiz aberto, o Windows recusa renomear, mover e
+apagar a pasta do cofre com o servidor rodando. Numa ferramenta de notas é
+regressão visível. Reabrir exige caso novo — um vetor que a guarda `Lstat` não
+pegue. Diff e benchmarks preservados no scratchpad da sessão.
+
+`pwsh -File scripts/verify.ps1`: **14 de 14 [OK]**.
