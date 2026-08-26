@@ -32,7 +32,7 @@ func newSearchCmd() *cobra.Command {
 				return err
 			}
 
-			v, err := vault.New(cfg.VaultPath)
+			v, err := vault.New(cfg.VaultPath, vault.SeguirSymlinks(cfg.FollowSymlinks))
 			if err != nil {
 				return err
 			}
@@ -92,6 +92,8 @@ func newSearchCmd() *cobra.Command {
 	cmd.Flags().IntVar(&limit, "limit", 20, "limite maximo de resultados")
 	cmd.Flags().BoolVar(&flags.ReadOnly, "read-only", false, "desabilita verificacoes de escrita")
 	cmd.Flags().IntVar(&flags.DebounceMS, "debounce-ms", 0, "janela de coalescencia de eventos do watcher")
+	cmd.Flags().BoolVar(&flags.FollowSymlinks, "follow-symlinks", false,
+		"segue symlink dentro do cofre; o padrao recusa, porque o confinamento nao alcanca o alvo")
 	cmd.Flags().IntVar(&flags.MaxResults, "max-results", 0, "teto de resultados por consulta")
 
 	return cmd

@@ -357,7 +357,7 @@ func scanVault(ctx context.Context, cfg config.Config) vaultScan {
 // chamadora, e nao abre arquivos: vault.Walk ja evita tocar em placeholders
 // de nuvem.
 func walkVault(ctx context.Context, cfg config.Config, fn func(vault.Entry)) error {
-	v, err := vault.New(cfg.VaultPath)
+	v, err := vault.New(cfg.VaultPath, vault.SeguirSymlinks(cfg.FollowSymlinks))
 	if err != nil {
 		return fmt.Errorf("abrindo cofre: %w", err)
 	}

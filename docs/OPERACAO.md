@@ -204,7 +204,7 @@ num cofre de 7 notas.
 | **RNF-24** | Protocolo MCP fixado em `2025-11-25` com fallback | **não medido**; fixado no SDK e verificado por teste | — |
 | **RNF-30** | Nenhum socket que saia da máquina (reformulado em 2026-08-05, Task 90 — texto anterior: "nenhuma requisição de rede") | **não medido**; verificado por gate — `check_net.ps1` com o analisador `netcheck` em `go vet -vettool`, nos três GOOS, mais checagem textual de `net/*` | **Atingido** |
 | **RNF-31** | Todo caminho de tool confinado ao cofre | **não medido**; verificado por teste (`validateLocal` + `Canonicalize`) | — |
-| **RNF-32** | Links simbólicos para fora do cofre não são seguidos | **não medido**; verificado por teste (`TestWalkNaoSegueSymlink`, executado com privilégio) | **Atingido** |
+| **RNF-32** | Links simbólicos para fora do cofre não são seguidos | **não medido**; verificado por teste (`TestWalkNaoSegueSymlink`, `TestWalkPulaSymlinkDeArquivo`, `TestLeituraRecusaSymlinkPorPadrao`, executados com privilégio) | **Atingido desde 2026-08-26.** Antes disso valia só para symlink de DIRETÓRIO: o único teste que existia era o de diretório, e um symlink de ARQUIVO chamado `nota.md` passava nas duas camadas léxicas de confinamento, entrava no índice e era lido. O requisito estava publicado como atingido enquanto metade dele era violada. `--follow-symlinks` religa o comportamento antigo, por decisão do dono |
 | **RNF-33** | `--read-only` desabilita toda a superfície de escrita | **não medido**; verificado por teste (tools de escrita ausentes de `ListTools`) | — |
 
 ### O que RNF-01 e RNF-02 medem, e o que eles NÃO mediam

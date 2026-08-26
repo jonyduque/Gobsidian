@@ -38,7 +38,7 @@ func newIndexCmd() *cobra.Command {
 				return err
 			}
 
-			v, err := vault.New(cfg.VaultPath)
+			v, err := vault.New(cfg.VaultPath, vault.SeguirSymlinks(cfg.FollowSymlinks))
 			if err != nil {
 				return err
 			}
@@ -91,6 +91,8 @@ func newIndexCmd() *cobra.Command {
 	cmd.Flags().BoolVar(&flags.ReadOnly, "read-only", false, "desabilita verificacoes de escrita")
 	cmd.Flags().IntVar(&flags.DebounceMS, "debounce-ms", 0, "janela de coalescencia de eventos do watcher")
 	cmd.Flags().IntVar(&flags.MaxResults, "max-results", 0, "teto de resultados por consulta")
+	cmd.Flags().BoolVar(&flags.FollowSymlinks, "follow-symlinks", false,
+		"segue symlink dentro do cofre; o padrao recusa, porque o confinamento nao alcanca o alvo")
 
 	return cmd
 }

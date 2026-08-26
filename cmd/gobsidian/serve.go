@@ -49,6 +49,8 @@ func newServeCmd() *cobra.Command {
 	cmd.Flags().IntVar(&flags.DebounceMS, "debounce-ms", 0, "janela de coalescencia de eventos do watcher")
 	cmd.Flags().IntVar(&flags.MaxResults, "max-results", 0, "teto de resultados por consulta")
 	cmd.Flags().StringVar(&flags.CacheDir, "cache-dir", "", "diretorio do cache de indice")
+	cmd.Flags().BoolVar(&flags.FollowSymlinks, "follow-symlinks", false,
+		"segue symlink dentro do cofre; o padrao recusa, porque o confinamento nao alcanca o alvo")
 	cmd.Flags().BoolVar(&flags.EagerSearch, "eager-search", false,
 		"carrega o indice de busca no boot em vez de esperar a primeira vault_search")
 
@@ -322,13 +324,21 @@ func buildInvertedIndex(
 				"perdido_desde_ultima_gravacao_ms", time.Since(ultimoSalvo).Milliseconds())
 			return
 		}
-		data, err := v.ReadAll(ctx, p)
-		if err != nil {
-			log.Warn("falha ao ler nota ao construir indice invertido de busca", "path", p, "err", err)
+		// Indexa pelo caminho GUARDADO, nunca lendo aqui.
+		//
+		// Ate 2026-08-26 este laco fazia v.ReadAll + inv.Add. v.ReadAll e um
+		// os.ReadFile puro, sem consulta a CloudOnly, e idx.NotePaths()
+		// devolve placeholders — um `.md` somente-nuvem E nota do indice de
+		// metadados. O boot escapava assim da guarda inteira que mora em
+		// Inverted.Update, e num cofre OneDrive sem cache valido baixava todo
+		// placeholder em segundo plano.
+		//
+		// Havia duas construcoes do mesmo indice, uma com guarda (o CLI, em
+		// search.go) e outra sem (esta). Agora ha um caminho so.
+		if err := inv.Update(ctx, v, p); err != nil {
+			log.Warn("falha ao indexar nota ao construir indice invertido de busca", "path", p, "err", err)
 			continue
 		}
-		body, _ := vault.StripBOM(data)
-		inv.Add(string(p), search.Analyze(string(body)))
 
 		feitas++
 		if time.Since(ultimoSalvo) >= invertedSaveInterval {

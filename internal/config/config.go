@@ -39,6 +39,12 @@ type Flags struct {
 	// (false, o padrao preguicoso) e indistinguivel de "omitida" so no
 	// sentido em que os dois significam a mesma coisa.
 	EagerSearch bool
+
+	// FollowSymlinks liga o comportamento anterior a 2026-08-26: symlink
+	// dentro do cofre e seguido na varredura e na leitura. Padrao recusa; ver
+	// vault.SeguirSymlinks para a razao. Sem par de variavel de ambiente, logo
+	// sem companheiro *Set.
+	FollowSymlinks bool
 }
 
 // Config e a configuracao ja resolvida, do jeito que o resto do produto a
@@ -52,6 +58,12 @@ type Config struct {
 	CacheDir    string
 	MaxResults  int
 	EagerSearch bool
+
+	// FollowSymlinks liga o comportamento anterior a 2026-08-26. Padrao false:
+	// o cofre recusa symlink na varredura e na leitura. Ver
+	// vault.SeguirSymlinks para a razao de o padrao ser recusar, e para por que
+	// a saida existe.
+	FollowSymlinks bool
 }
 
 // Load resolve a configuracao com precedencia flag > env > default.
@@ -127,6 +139,7 @@ func Load(f Flags) (Config, error) {
 	}
 
 	cfg.EagerSearch = f.EagerSearch
+	cfg.FollowSymlinks = f.FollowSymlinks
 
 	return cfg, nil
 }

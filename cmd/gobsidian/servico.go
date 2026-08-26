@@ -47,7 +47,7 @@ type servicoMontado struct {
 // por baixo dele e para quando ele for cancelado, exatamente como antes
 // desta extracao.
 func construirServico(ctx context.Context, cfg config.Config, log *slog.Logger) (*servicoMontado, error) {
-	v, err := vault.New(cfg.VaultPath)
+	v, err := vault.New(cfg.VaultPath, vault.SeguirSymlinks(cfg.FollowSymlinks))
 	if err != nil {
 		return nil, err
 	}

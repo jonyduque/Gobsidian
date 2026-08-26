@@ -67,6 +67,44 @@ no ramo `r.entry.IsNote` — verdadeiro, é `.md` — e lia `r.note.Title`. Um �
 **`FILE_ATTRIBUTE_OFFLINE` é gravável por `SetFileAttributes` e
 `vault.IsCloudOnly` também o aceita** — é assim que se monta o caso em teste.
 
+**O boot do índice de busca contornava a guarda que ele deveria respeitar.**
+`Inverted.Update` tem a guarda de nuvem e o comentário certo — *"mora aqui, e
+não nos chamadores, porque esta é a função que abre o arquivo"*. Mas
+`buildInvertedIndex` não passava por ela: fazia `v.ReadAll` (um `os.ReadFile`
+puro, sem consulta a `CloudOnly`) e `inv.Add` direto. Como `.md` somente-nuvem
+**é** nota do índice de metadados, `idx.NotePaths()` devolvia placeholders, e um
+cofre OneDrive sem cache válido baixava o cofre inteiro em segundo plano. Havia
+**duas construções do mesmo índice**, uma com guarda (o CLI) e outra sem.
+Agravante: o teste que "provava" o boot seguro usava um dublê chamado
+`construirComoOBoot` que chamava `Update`, afirmando em comentário ser
+"exatamente como buildInvertedIndex faz" — não era. **Teste que afirma sobre uma
+reimplementação não afirma sobre produção.** Corrigido em 2026-08-26: o boot
+chama `Update`, e o teste novo exercita `buildInvertedIndex` de verdade.
+
+**Anexo era lido inteiro pelo índice de busca, e isso corrompia o ranking.**
+`Inverted.Update` guardava só contra nuvem; todo `.png` ou `.mp4` seguia para
+`os.ReadFile` e tokenização binária. O dano não era I/O: medido, um anexo
+contribuía `DocLength=4`, e **`DocLength` é o divisor da normalização por
+tamanho do BM25**. Pior, o índice do boot indexava só notas enquanto o mantido
+por eventos indexava anexo também — duas construções respondendo diferente, a
+mesma família do defeito de `DocLength`. Na reconciliação por overflow era pior
+ainda: o atalho de mtime/tamanho consulta `idx.Get`, que resolve só notas, então
+todo anexo falhava no atalho e era **re-lido a cada varredura**. Corrigido em
+2026-08-26 com guarda de classe dentro de `Update`.
+
+**Confinamento léxico não alcança symlink, e a camada que abria o arquivo não
+exercia checagem nenhuma.** As duas camadas — `validateLocal` e `Canonicalize` —
+são léxicas de propósito, e `path.go` documenta o limite delegando à "camada que
+abre o arquivo". Essa camada era um `os.Open` puro. `cofre/nota.md ->
+C:\qualquer\coisa.txt` passava nas duas, entrava no índice, e `note_read`
+devolvia conteúdo arbitrário pelo canal MCP. **O RNF-32 estava publicado como
+"Atingido"** com um único teste, o de symlink de *diretório* — que `WalkDir`
+nunca atravessou. O de *arquivo* nunca teve teste e nunca funcionou. Corrigido
+em 2026-08-26: `Walk` pula com descarte **registrado**, as três aberturas
+recusam, e `--follow-symlinks` religa o comportamento antigo. A correção
+estrutural (`os.Root`, que elimina também a janela TOCTOU) fica como tarefa de
+arquitetura própria.
+
 **Camada de pré-filtro que abre arquivo derrota o filtro que ela precede.**
 `CorrelateRenames` roda antes de `index.Replace` e chamava `vault.ReadAll` em
 todo caminho do lote — anexo inclusive, placeholder de nuvem inclusive.

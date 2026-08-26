@@ -68,6 +68,8 @@ func newDoctorCmd() *cobra.Command {
 	cmd.Flags().BoolVar(&flags.ReadOnly, "read-only", false, "nao verifica permissao de escrita")
 	cmd.Flags().IntVar(&flags.DebounceMS, "debounce-ms", 0, "janela de coalescencia de eventos do watcher")
 	cmd.Flags().IntVar(&flags.MaxResults, "max-results", 0, "teto de resultados por consulta")
+	cmd.Flags().BoolVar(&flags.FollowSymlinks, "follow-symlinks", false,
+		"segue symlink dentro do cofre; o padrao recusa, porque o confinamento nao alcanca o alvo")
 
 	return cmd
 }

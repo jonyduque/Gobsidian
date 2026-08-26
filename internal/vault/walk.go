@@ -2,6 +2,7 @@ package vault
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io/fs"
 	"path/filepath"
@@ -166,6 +167,27 @@ func (v *Vault) Walk(ctx context.Context, fn func(Entry) error) error {
 
 		class := Classify(canon)
 		if class == ClassExcluded {
+			return nil
+		}
+
+		// Symlink de ARQUIVO nao entra no indice quando a politica e nao
+		// segui-los.
+		//
+		// TestWalkNaoSegueSymlink ja fixava o caso do symlink de DIRETORIO, que
+		// WalkDir nunca atravessa. O de arquivo era o buraco: um symlink
+		// chamado `nota.md` passava nas duas camadas lexicas de confinamento —
+		// que sao lexicas justamente porque nao consultam o disco — entrava no
+		// indice, e note_read devolvia conteudo arbitrario pelo canal MCP.
+		//
+		// O descarte e REGISTRADO, nunca silencioso: uma nota que some sem
+		// motivo visivel e a falha que SkippedEntries existe para tornar
+		// diagnosticavel, e aparece em vault_stats e no doctor.
+		//
+		// Recusar aqui E na leitura nao e redundancia. Indexar e recusar na
+		// leitura produziria uma nota que aparece em note_list e falha em
+		// note_read — pior que qualquer um dos dois isolado.
+		if !v.seguirSymlinks && d.Type()&fs.ModeSymlink != 0 {
+			v.RecordSkip(abs, errors.New("symlink: fora do confinamento do cofre (use --follow-symlinks para permitir)"))
 			return nil
 		}
 

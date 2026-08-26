@@ -29,6 +29,10 @@ type Vault struct {
 	// contra root, para que filepath.Rel compare formas iguais.
 	walkRoot string
 
+	// seguirSymlinks liga o comportamento anterior a 2026-08-26. Ver a opcao
+	// SeguirSymlinks para a razao de o padrao ser recusar.
+	seguirSymlinks bool
+
 	// Entradas descartadas durante a varredura. Uma nota que existe no disco
 	// mas nao entra no indice fica inalcancavel; sem contador, fica tambem
 	// indiagnosticavel — o usuario ve uma nota sumida e nao tem por onde
@@ -82,7 +86,7 @@ func (v *Vault) SkippedEntries() (int64, []string) {
 // New abre o cofre em root. Falha se o caminho nao resolve; nao verifica se
 // existe nem se e legivel, porque quem diagnostica ambiente e o doctor, e
 // um servidor que se recusa a subir nao consegue reportar o proprio motivo.
-func New(root string) (*Vault, error) {
+func New(root string, opcoes ...Opcao) (*Vault, error) {
 	abs, err := filepath.Abs(root)
 	if err != nil {
 		return nil, fmt.Errorf("resolvendo raiz do cofre %q: %w", root, err)
@@ -94,7 +98,61 @@ func New(root string) (*Vault, error) {
 	if !info.IsDir() {
 		return nil, fmt.Errorf("raiz do cofre nao e diretorio: %q", abs)
 	}
-	return &Vault{root: abs, walkRoot: LongPath(abs)}, nil
+	v := &Vault{root: abs, walkRoot: LongPath(abs)}
+	for _, o := range opcoes {
+		o(v)
+	}
+	return v, nil
+}
+
+// Opcao configura o cofre na construcao. Variadica para que os chamadores
+// existentes de New(root) continuem valendo.
+type Opcao func(*Vault)
+
+// SeguirSymlinks liga o comportamento anterior a 2026-08-26: symlink dentro do
+// cofre e seguido na varredura e na leitura.
+//
+// O padrao e NAO seguir, e a razao e concreta. As duas camadas de confinamento
+// deste pacote sao lexicas — validateLocal e Canonicalize — e nenhuma consulta
+// o disco. path.go documenta o limite e delega a "camada que abre o arquivo",
+// que era um os.Open puro: um `cofre/nota.md -> C:\qualquer\coisa.txt` passava
+// nas duas, entrava no indice, e note_read devolvia conteudo arbitrario do
+// disco pelo canal MCP.
+//
+// A saida existe porque symlinkar uma pasta externa para dentro do cofre e
+// workflow legitimo, suportado pelo Obsidian. Recusar sem alternativa trocaria
+// um risco hipotetico — o dono do cofre e o "atacante" — por uma regressao
+// certa em quem ja depende do comportamento. Quem liga a flag aceita que o
+// confinamento do produto termina no symlink.
+//
+// A correcao ESTRUTURAL e os.Root/os.OpenRoot (Go >= 1.24), que torna o escape
+// impossivel por construcao e elimina a janela TOCTOU que esta checagem deixa
+// aberta. Fica como tarefa de arquitetura propria, com AD-10.
+func SeguirSymlinks(seguir bool) Opcao {
+	return func(v *Vault) { v.seguirSymlinks = seguir }
+}
+
+// recusaSymlink devolve erro quando o componente final do caminho e um symlink
+// e a politica e nao segui-los.
+//
+// Usa Lstat: Stat seguiria o link, que e justamente o que se quer evitar. A
+// checagem e do componente FINAL — um symlink de diretorio no meio do caminho
+// nao chega aqui porque WalkDir nao desce nele.
+func (v *Vault) recusaSymlink(p CanonicalPath) error {
+	if v.seguirSymlinks {
+		return nil
+	}
+	fi, err := os.Lstat(v.Abs(p))
+	if err != nil {
+		// Caminho inexistente ou ilegivel nao e problema desta guarda: quem
+		// abrir em seguida devolve o erro real, com a mensagem certa.
+		return nil
+	}
+	if fi.Mode()&os.ModeSymlink != 0 {
+		return fmt.Errorf("%q e um symlink e o confinamento do cofre nao segue symlink "+
+			"(use --follow-symlinks para permitir)", p)
+	}
+	return nil
 }
 
 // Root devolve a raiz na forma tradicional, sem o prefixo \\?\ que as
@@ -112,6 +170,9 @@ func (v *Vault) Abs(p CanonicalPath) string {
 // e a prova de que o confinamento ja rodou, e nao ha caminho para chegar
 // aqui sem passar por ele.
 func (v *Vault) Open(p CanonicalPath) (*os.File, error) {
+	if err := v.recusaSymlink(p); err != nil {
+		return nil, err
+	}
 	f, err := os.Open(v.Abs(p))
 	if err != nil {
 		return nil, fmt.Errorf("abrindo %q: %w", p, err)
@@ -123,6 +184,9 @@ func (v *Vault) Open(p CanonicalPath) (*os.File, error) {
 // custa 2 KB — e a razao de o indice guardar offsets em vez de conteudo.
 func (v *Vault) ReadRange(ctx context.Context, p CanonicalPath, start, end int64) ([]byte, error) {
 	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	if err := v.recusaSymlink(p); err != nil {
 		return nil, err
 	}
 	// start negativo precisa ser rejeitado antes de qualquer subtracao.
@@ -162,6 +226,9 @@ func (v *Vault) ReadRange(ctx context.Context, p CanonicalPath, start, end int64
 // cliente hidrata o placeholder.
 func (v *Vault) ReadAll(ctx context.Context, p CanonicalPath) ([]byte, error) {
 	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	if err := v.recusaSymlink(p); err != nil {
 		return nil, err
 	}
 	data, err := os.ReadFile(v.Abs(p))

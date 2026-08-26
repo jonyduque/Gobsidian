@@ -460,13 +460,37 @@ func (ix *Inverted) Update(ctx context.Context, v *vault.Vault, path vault.Canon
 
 	abs := v.Abs(path)
 
+	// Só NOTA e lida. Anexo e arquivo excluido entram COBERTOS E VAZIOS.
+	//
+	// "Anexo e indexado por nome, NUNCA lido" e regra fechada, e ate 2026-08-26
+	// esta funcao nao a respeitava: so havia a guarda de nuvem logo abaixo, e
+	// todo `.png` ou `.mp4` seguia para os.ReadFile e tokenizacao binaria.
+	//
+	// O dano nao era so I/O. Medido no teste desta regra: um anexo de texto
+	// contribuia DocLength=4 — e DocLength e o DIVISOR da normalizacao por
+	// tamanho do BM25. Bytes de anexo no divisor sao ranking errado, nao
+	// lentidao. Pior, o indice construido no boot indexava so notas
+	// (idx.NotePaths) enquanto o mantido por eventos indexava anexo tambem:
+	// duas construcoes do mesmo indice respondendo diferente, que e exatamente
+	// a familia do defeito de DocLength que este projeto ja pagou.
+	//
+	// Na reconciliacao por overflow era ainda pior: o atalho de mtime/tamanho
+	// consulta idx.Get, que resolve so notas, entao todo anexo falhava no
+	// atalho e era re-lido a cada varredura, mesmo intocado.
+	if vault.Classify(path) != vault.ClassNote {
+		ix.Add(string(path), nil)
+		return nil
+	}
+
 	// Placeholder de nuvem entra COBERTO E VAZIO, sem ser aberto.
 	//
 	// A guarda mora aqui, e nao nos chamadores, porque esta e a funcao que abre
-	// o arquivo. Sao tres pontos de chamada hoje — o laco de boot em
-	// buildInvertedIndex, o watcher em Apply e a reconciliacao por overflow — e
-	// guarda em chamador e a proxima divergencia esperando acontecer, que e a
-	// mesma licao de aliasKey e de index.classificar.
+	// o arquivo — e desde 2026-08-26 ela e o UNICO caminho de indexacao a
+	// partir de arquivo: o laco de boot em buildInvertedIndex passou a chamar
+	// Update em vez de ler com v.ReadAll e chamar Add direto, que era como o
+	// boot escapava desta guarda inteira. Guarda em chamador e a proxima
+	// divergencia esperando acontecer, que e a mesma licao de aliasKey e de
+	// index.classificar.
 	//
 	// Ate o pico de indexacao ser corrigido este caminho era INALCANCAVEL: um
 	// unico `.md` nao hidratado derrubava index.Build, e o boot morria antes de
