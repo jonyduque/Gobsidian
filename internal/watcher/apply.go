@@ -82,7 +82,21 @@ func Apply(ctx context.Context, in <-chan []vault.CanonicalPath, reconcile <-cha
 
 				// Verifica se já está indexado e se mtime/tamanho bateram.
 				// Só compara para notas (pois idx.Get resolve apenas notas).
-				if n, ok := idx.Get(path); ok {
+				//
+				// A condição inclui o índice de BUSCA, e não só o de metadados.
+				// A reconciliação por overflow já exigia isso (overflow.go:58);
+				// este atalho não a espelhava, e eram duas cópias de uma regra
+				// com a errada no caminho mais usado.
+				//
+				// O que a assimetria custava: um único searchInv.Update falho
+				// — que só produz log.Warn, logo abaixo — deixa os metadados em
+				// dia e a posting ausente. A partir daí TODO evento com mtime e
+				// tamanho iguais caía aqui, e o índice de busca nunca se
+				// recompunha. O OneDrive re-emite evento de arquivo intocado
+				// como rotina, então o gatilho não é raro.
+				//
+				// HasDoc não lê disco: o custo do atalho continua em memória.
+				if n, ok := idx.Get(path); ok && (searchInv == nil || searchInv.HasDoc(string(path))) {
 					if n.ModTime.Equal(info.ModTime()) && n.Size == info.Size() {
 						if skipped != nil {
 							skipped.Add(1)

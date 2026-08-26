@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -77,12 +78,36 @@ func TestNoteMovePartialFailureReportsWhatWasApplied(t *testing.T) {
 		t.Errorf("Rewritten esta vazio; esperava registrar [a.md] antes da falha")
 	}
 
-	// 2. O arquivo alvo.md NAO pode ter se movido
-	if _, err := os.Stat(filepath.Join(root, "alvo.md")); err != nil {
-		t.Errorf("o alvo.md saiu do lugar apesar da falha: %v", err)
+	// 2. O CORPO JA SE MOVEU, e isso mudou em 2026-08-26.
+	//
+	// Ate entao este teste exigia o oposto — "o alvo.md NAO pode ter se
+	// movido" —, porque os citantes eram reescritos ANTES do corpo. Essa ordem
+	// tinha um custo pior, medido em teste: quando a movimentacao falhava, os
+	// citantes ja estavam gravados apontando para um destino que nunca
+	// existiu, e a nota continuava na origem. Todo link quebrado, e nenhum
+	// deles apontando para nada.
+	//
+	// A inversao (A1) troca quem fica inconsistente. Agora o corpo se move
+	// primeiro, e uma falha de citante deixa APENAS os citantes ainda nao
+	// reescritos apontando para o caminho antigo — um subconjunto, visivel, e
+	// recuperavel repetindo a atualizacao de links. A nota esta onde o usuario
+	// pediu.
+	//
+	// A garantia antiga ("se nao der para terminar, nao mova") foi trocada de
+	// propósito, nao perdida por descuido. O preco esta registrado em
+	// docs/SUGESTOES.md, na analise de alternativas do A1.
+	if _, err := os.Stat(filepath.Join(root, "Novo", "alvo.md")); err != nil {
+		t.Errorf("o corpo NAO se moveu apesar de a falha ser posterior a ele: %v", err)
 	}
-	if _, err := os.Stat(filepath.Join(root, "Novo", "alvo.md")); err == nil {
-		t.Error("o alvo foi movido para Novo/alvo.md apesar da falha antes do passo de move")
+	if _, err := os.Stat(filepath.Join(root, "alvo.md")); err == nil {
+		t.Error("a nota ficou nos DOIS caminhos: o corpo moveu e a origem sobreviveu")
+	}
+
+	// 3. O citante que NAO foi reescrito continua apontando para o caminho
+	//    antigo — inconsistencia visivel, que e o ponto da troca.
+	b, errB := os.ReadFile(filepath.Join(root, "sub", "b.md"))
+	if errB == nil && !strings.Contains(string(b), "[[alvo]]") {
+		t.Errorf("sub/b.md foi reescrita apesar de o cenario torna-la inescrivel: %q", string(b))
 	}
 }
 

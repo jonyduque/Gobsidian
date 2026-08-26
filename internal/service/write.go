@@ -511,7 +511,15 @@ func (s *Service) MoveNote(_ context.Context, req MoveNoteRequest) (MoveNoteResu
 	if req.DryRun {
 		diffs := make(map[string]string)
 		absFrom := s.vault.Abs(canonicalFrom)
-		fromRaw, _ := os.ReadFile(absFrom)
+		// O erro de leitura SOBE. Ate 2026-08-26 era `fromRaw, _ :=`, e o
+		// dry-run seguia produzindo um diff de "" contra "" — vazio, mas
+		// apresentado como resultado legitimo. Quem le um dry-run vazio conclui
+		// que a operacao nao muda nada, que e o oposto do que aconteceria.
+		fromRaw, err := os.ReadFile(absFrom)
+		if err != nil {
+			return MoveNoteResult{}, Errorf(CodeInternal,
+				"lendo nota de origem %q para o dry-run: %v", canonicalFrom, err)
+		}
 		diffs[string(canonicalFrom)] = writer.UnifiedDiff(string(canonicalFrom), string(canonicalTo), string(fromRaw), string(fromRaw), 3)
 
 		for refPath, replacements := range affectedNotes {
@@ -546,6 +554,41 @@ func (s *Service) MoveNote(_ context.Context, req MoveNoteRequest) (MoveNoteResu
 	sort.Slice(affectedKeys, func(i, j int) bool {
 		return affectedKeys[i] < affectedKeys[j]
 	})
+
+	// O diretorio de destino precisa existir ANTES do move do corpo.
+	//
+	// Ele era criado depois, o que funcionava enquanto o corpo se movia por
+	// ultimo. Com a nova ordem, criar depois faz WriteAtomic falhar em
+	// "criando temporario em <dir>: The system cannot find the path
+	// specified" — pego pelos testes de move existentes, nao por leitura.
+	if _, err := os.Stat(dirTo); os.IsNotExist(err) {
+		if err := os.MkdirAll(dirTo, 0755); err != nil {
+			return MoveNoteResult{
+				From:          string(canonicalFrom),
+				To:            string(canonicalTo),
+				BrokenAnchors: brokenAnchors,
+			}, Errorf(CodeInternal, "criando diretorio %q: %v", dirTo, err)
+		}
+	}
+
+	// O CORPO se move ANTES de qualquer citante ser reescrito.
+	//
+	// A ordem era a inversa, e custava duas coisas ao mesmo tempo. Medido em
+	// teste: com a origem travada para leitura, o citante ja tinha sido gravado
+	// como `ver [[destino]] aqui.` e a nota nunca se movia — links persistidos
+	// em disco apontando para um destino inexistente, sem compensacao.
+	//
+	// A inversao troca quem fica inconsistente quando a segunda etapa falha:
+	// agora sobra link apontando para o caminho antigo, que e VISIVEL e
+	// recuperavel, em vez de nota duplicada, que e silenciosa. Nao e nada de
+	// graca — e menos grave, e esta escrito.
+	if err := s.moverCorpo(canonicalFrom, canonicalTo, absTo); err != nil {
+		return MoveNoteResult{
+			From:          string(canonicalFrom),
+			To:            string(canonicalTo),
+			BrokenAnchors: brokenAnchors,
+		}, err
+	}
 
 	var rewrittenList []string
 	var linksUpdatedCount int
@@ -593,47 +636,6 @@ func (s *Service) MoveNote(_ context.Context, req MoveNoteRequest) (MoveNoteResu
 		rewrittenList = append(rewrittenList, string(refPath))
 		linksUpdatedCount += len(replacements)
 	}
-
-	if _, err := os.Stat(dirTo); os.IsNotExist(err) {
-		if err := os.MkdirAll(dirTo, 0755); err != nil {
-			return MoveNoteResult{
-				From:          string(canonicalFrom),
-				To:            string(canonicalTo),
-				Rewritten:     rewrittenList,
-				LinksUpdated:  linksUpdatedCount,
-				BrokenAnchors: brokenAnchors,
-			}, Errorf(CodeInternal, "criando diretorio %q: %v", dirTo, err)
-		}
-	}
-
-	unlockFrom := s.locker.Lock(canonicalFrom)
-	unlockTo := s.locker.Lock(canonicalTo)
-	defer unlockTo()
-	defer unlockFrom()
-
-	absFrom := s.vault.Abs(canonicalFrom)
-	fromRaw, err := os.ReadFile(absFrom)
-	if err != nil {
-		return MoveNoteResult{
-			From:          string(canonicalFrom),
-			To:            string(canonicalTo),
-			Rewritten:     rewrittenList,
-			LinksUpdated:  linksUpdatedCount,
-			BrokenAnchors: brokenAnchors,
-		}, Errorf(CodeInternal, "lendo nota de origem %q: %v", canonicalFrom, err)
-	}
-
-	if err := writer.WriteAtomic(absTo, fromRaw); err != nil {
-		return MoveNoteResult{
-			From:          string(canonicalFrom),
-			To:            string(canonicalTo),
-			Rewritten:     rewrittenList,
-			LinksUpdated:  linksUpdatedCount,
-			BrokenAnchors: brokenAnchors,
-		}, Errorf(CodeInternal, "escrevendo destino %q: %v", absTo, err)
-	}
-
-	_ = os.Remove(absFrom)
 
 	return MoveNoteResult{
 		From:          string(canonicalFrom),
@@ -758,7 +760,19 @@ func (s *Service) DeleteNote(_ context.Context, req DeleteNoteRequest) (DeleteNo
 			return DeleteNoteResult{}, Errorf(CodeInternal, "movendo nota para lixeira: %v", err)
 		}
 
-		_ = os.Remove(absPath)
+		// O erro do remove e CONFERIDO. Ate 2026-08-26 era `_ = os.Remove`, e
+		// uma nota travada pelo Obsidian produzia Deleted=true com o arquivo
+		// existindo em DOIS lugares: o caminho original e a lixeira. Medido em
+		// teste. E a mesma familia do A1, no outro caminho de escrita.
+		//
+		// A mensagem diz que a copia na lixeira existe, porque sem isso quem
+		// recebe o erro nao sabe se precisa limpar alguma coisa.
+		if err := os.Remove(absPath); err != nil {
+			return DeleteNoteResult{}, Errorf(CodeFileLocked,
+				"a nota foi copiada para a lixeira em %q, mas %q nao pode ser removida (%v); "+
+					"a nota existe nos dois caminhos ate a origem ser liberada",
+				trashRel, canonical, err)
+		}
 
 		return DeleteNoteResult{
 			Path:          string(canonical),
@@ -782,4 +796,52 @@ func (s *Service) DeleteNote(_ context.Context, req DeleteNoteRequest) (DeleteNo
 		BrokenLinks:   brokenLinks,
 		BrokenAnchors: brokenAnchors,
 	}, nil
+}
+
+// moverCorpo move o arquivo da nota, conferindo TODOS os erros.
+//
+// `_ = os.Remove(absFrom)` descartava o erro do remove. No Windows, arquivo com
+// handle aberto por outro processo recusa remocao — e o Obsidian segurando a
+// nota aberta e rotina, nao caso de borda. O resultado era sucesso reportado
+// com a nota existindo nos DOIS caminhos, em silencio.
+//
+// os.Rename primeiro: no mesmo volume ele e atomico, entao "duplicada" deixa de
+// ser um estado possivel. O fallback copia-e-remove existe para volume
+// diferente, e ali o remove e conferido.
+func (s *Service) moverCorpo(de, para vault.CanonicalPath, absTo string) error {
+	// Travas em ordem determinada pela chave, nao pela direcao do move.
+	//
+	// Adquirir sempre from->to permite o deadlock AB-BA entre dois moves
+	// opostos simultaneos (A->B e B->A). Ordenar por chave da a ordem global
+	// que o torna impossivel, e custa uma comparacao de string.
+	primeira, segunda := de, para
+	if string(segunda) < string(primeira) {
+		primeira, segunda = segunda, primeira
+	}
+	destravaPrimeira := s.locker.Lock(primeira)
+	defer destravaPrimeira()
+	destravaSegunda := s.locker.Lock(segunda)
+	defer destravaSegunda()
+
+	absFrom := s.vault.Abs(de)
+
+	if err := os.Rename(absFrom, absTo); err == nil {
+		return nil
+	}
+
+	// Volume diferente, ou rename recusado: copia e remove, com o erro do
+	// remove CONFERIDO.
+	fromRaw, err := os.ReadFile(absFrom)
+	if err != nil {
+		return Errorf(CodeInternal, "lendo nota de origem %q: %v", de, err)
+	}
+	if err := writer.WriteAtomic(absTo, fromRaw); err != nil {
+		return Errorf(CodeInternal, "escrevendo destino %q: %v", absTo, err)
+	}
+	if err := os.Remove(absFrom); err != nil {
+		return Errorf(CodeFileLocked,
+			"a nota foi copiada para %q mas a origem %q nao pode ser removida (%v); "+
+				"a nota existe nos dois caminhos ate a origem ser liberada", para, de, err)
+	}
+	return nil
 }
