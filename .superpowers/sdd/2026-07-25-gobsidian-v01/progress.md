@@ -4120,3 +4120,74 @@ Provas de Mutação (`mutate.ps1`):
 2. `-Anchor 'res.NextOffset = &end'` -> `-Replacement '_ = end'` em `TestReadNoteOffsetPaginaDoInicioAoFim` (`EXIT=0`, falhou em `read_test.go:343`).
 
 `pwsh -File scripts/verify.ps1`: 13 de 13 [OK]. `golangci-lint`: v2.12.2.
+
+
+## Tasks 124, 125 e 126 — observabilidade do daemon — 2026-08-26
+
+Lote nascido de um diagnóstico de campo, não da auditoria: três sessões MCP na
+máquina do dono caíam para o modo em processo em TODA partida, ao longo de dias,
+pagando 10 s cada uma, e dois daemons haviam morrido deixando UMA linha de log.
+Commit `499e744`.
+
+**Task 124 — quem morre diz por quê.** `runDaemon` fazia `return err` depois de
+já ter logado `"daemon iniciado"`; o erro existia e era específico (`vault.New`
+recusa raiz ausente pelo nome) e nunca chegava a ninguém, porque o stderr de um
+processo detachado não tem leitor. Todo caminho de saída passa a logar antes de
+sair, no daemon e em `serveEmProcesso`. Acrescenta `errnoDe` nos três pontos de
+queda da ponte.
+- Prova de mutação: `-Anchor 'log.Error("daemon nao pode montar o servico",'`
+  → `log.Info(...)` (`EXIT=0`, reprovou em `daemon_log_test.go:49`).
+- **Derrubou a Task 127**: `vault.New` (`vault.go:90-95`) já validava o caminho;
+  a tarefa que ia reimplementar a validação virou nota verificada no plano.
+
+**Task 125 — `doctor` diagnostica o daemon.** Cinco checagens: classe do que
+existe no caminho do socket (ausente/socket/arquivo/**diretório**), handshake,
+tail do `<socket>.log`, locks órfãos com PID morto, e a grafia real do disco.
+- Prova de mutação: `-Anchor 'return "DIRETORIO (nenhum daemon consegue usar
+  este caminho)"'` → texto de arquivo comum (`EXIT=0`, reprovou em
+  `daemon_test.go:64` e `:73`).
+- **Achado durante a execução:** a checagem de grafia, escrita como verificação
+  própria, **nunca rodava** — `checkRootExists` é halting e aborta as seguintes,
+  e o caso para o qual ela existia é justamente o que dispara o halting. Foi
+  dobrada para dentro do check halting. Lição: verificação posterior a um check
+  halting não cobre o caso que causa o halting.
+
+**Task 126 — prazo estourado que aponta para a causa.** **Duas premissas do
+brief eram falsas** e a verificação da âncora as expôs: `esperarSocket`
+(`lock.go:204-227`) já fazia espera escalonada (25 ms × 400) e já usava
+handshake como critério, nunca errno. O buraco real era a mensagem culpar o
+socket. Agora ela carrega a pista do log, distinguindo **log ausente** (falha de
+spawn) de **log com uma linha** (morte na montagem).
+- Prova de mutação: `-Anchor 'return "o log do daemon nao existe: ..."'` →
+  `"sem informacao"` (`EXIT=0`, reprovou em `log_test.go:46`).
+- Consolidou **três** contas do caminho do log do daemon em
+  `daemon.CaminhoDoLog`.
+- Ficou de fora: o item 4 do brief (`cmd/gobsidian/daemon.go` no lock de
+  `EnsureStarted`) e o teste da tempestade. Seguem abertos com o item 11 da
+  Fase 4.
+
+**Extra, fora das três tarefas — `varreDiretorioNovo`.** Investigando um estouro
+de prazo de `TestPastaQueChegaComArquivosDentro`, apareceu a armadilha do
+`d == nil` num segundo lugar: a varredura engolia falha na PRÓPRIA RAIZ e
+reportava sucesso com zero entradas — o estado que ela existe para impedir.
+`vault.Walk:133` já distinguia; o watcher não. Raiz sobe erro, entrada
+individual segue logada e pulada, e o `Run` **não morre**: agenda reconciliação.
+- Prova de mutação: `-Anchor 'return fmt.Errorf("varrendo a raiz do diretório
+  novo %q: %w", caminho, erro)'` → `return nil` (`EXIT=0`).
+- **O estouro original não foi reproduzido** em 12 suítes completas com `-race`,
+  20 execuções isoladas e 20 com `GOMAXPROCS=1`. O teste passou a capturar o log
+  do watcher (era `io.Discard`) e a imprimir os contadores na falha, para a
+  próxima ocorrência se explicar sozinha.
+
+**Medido (reparo de ambiente, cofre Estudo, 2.557 notas, cache quente):** tempo
+até a ponte decidir **10 s → 559 ms**; desfecho `servindo em processo` →
+`conectado ao daemon`; daemons vivos na máquina **0 → 3**.
+
+`pwsh -File scripts/verify.ps1`: **14 de 14 [OK]**. Relatórios em
+`.superpowers/sdd/task-12{4,5,6}-report.md`.
+
+**Documentação reestruturada no mesmo commit:** `CLAUDE.md` 39.493 → 10.897
+bytes (índice + estrutura + regras inegociáveis); história em `docs/ARMADILHAS.md`
+e `docs/ESTADO.md`; guias por papel em `docs/papeis/`; RNF-30 alinhado ao PRD
+§6.4, onde estava defasado desde 2026-08-05. `AGENTS_NEW.md` foi absorvido e
+removido. Hook `PreToolUse` de commit em `.claude/settings.json`.
