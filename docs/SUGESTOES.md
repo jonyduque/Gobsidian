@@ -1002,6 +1002,329 @@ tarefa (nova tool = contrato novo).
 | 9 | M17 (Fase 8) | barato, alto valor no uso multi-instância; pode entrar antes, é independente |
 | — | Alternativas ao daemon | não é tarefa: decisão D-M7; medir (a)/(b) no cenário real antes de migrar |
 
+## Altos em aberto — alternativas de solução (2026-08-26)
+
+Escrito depois de fechar os três críticos. Cada mecanismo abaixo foi
+**reconferido no código nesta data**, não copiado da auditoria; onde a
+verificação mudou o achado, está dito.
+
+Cada item traz alternativas reais com o preço de cada uma. Onde há recomendação,
+ela vem com o motivo — e onde a decisão depende de um número que ninguém mediu,
+isso está escrito em vez de um palpite.
+
+---
+
+### Bloco 1 — consistência dos dois índices (A2, A3, A7, + M7)
+
+Os três são **o mesmo defeito visto de três ângulos**, e é por isso que o plano
+os junta.
+
+**Mecanismo, conferido em `internal/index/update.go:24-50`:**
+
+```go
+func (ix *Index) Replace(ctx, v, path) error {
+	ix.mu.Lock()
+	defer ix.mu.Unlock()                       // <- lock do inicio ao fim
+
+	chaves := ix.removeContributionsLocked(path)   // <- remove ANTES do I/O
+	atomic.AddUint64(&ix.generation, 1)
+
+	abs := v.Abs(path)
+	info, err := os.Stat(abs)                  // <- I/O sob lock exclusivo
+	...
+```
+
+- **A2**: `os.Stat`, `IsCloudOnly` e a leitura inteira acontecem com o lock
+  exclusivo tomado. Todo `Get`/`List`/`Backlinks`/`TotalSize` espera atrás
+  disso a cada evento do watcher. Em OneDrive hidratando, é espera de **rede**
+  disfarçada de disco. Contraria o que `index.go:17` declara ("leituras são
+  concorrentes").
+- **A3**: as contribuições antigas saem **antes** de o arquivo ser lido. Se
+  `ReadAll` falha, a nota fica fora dos metadados sem republish; `apply.go`,
+  vendo erro, pula `searchInv.Update`. Busca mantém o documento velho,
+  metadados não — e `service.Search` descarta posting sem metadado, então **a
+  nota some das respostas** até o próximo evento, reconciliação ou boot.
+- **A7**: o atalho de mtime/tamanho do `Apply` consulta só `idx.Get`. A
+  `Reconcile` já aprendeu a condição certa — conferido em `overflow.go:58`:
+  `if n, ok := idx.Get(e.Path); ok && (inv == nil || inv.HasDoc(...))`. O
+  `Apply` não a espelhou. Um `searchInv.Update` falho deixa metadados em dia e
+  posting ausente, e **todo evento seguinte com mtime/tamanho iguais cai no
+  `continue`** — e o OneDrive re-emite eventos de arquivos intocados como
+  rotina.
+
+#### Alternativa 1 — redesenho em duas fases (I/O fora do lock)
+
+Fase 1 sem lock: `Stat`, `IsCloudOnly`, `ReadAll`, parse. Fase 2 sob lock:
+construir a `Note`, remover contribuições antigas, publicar as novas,
+reprocessar citantes.
+
+- **Vantagem:** cura A2 e A3 de uma vez, pela raiz. Remover só depois de a
+  leitura ter dado certo elimina a janela de A3 **por construção**, não por
+  tratamento de erro. E **M7 sai junto**: publicar exclusivamente via
+  `publishNoteLocked` apaga as seis derivações refeitas à mão em
+  `update.go:111-125` — o padrão que gerou o bug `[[STJ]]`.
+- **Desvantagem:** abre uma janela nova entre as fases. O arquivo pode sumir ou
+  mudar entre a leitura e a publicação, e isso **exige política explícita**
+  (re-checar existência sob lock; se sumiu, tratar como `Remove`). É a parte
+  que precisa de teste, não de comentário.
+- **Risco:** `Replace` é o ponto de chegada do watcher e roda em todo evento.
+  Errar a janela troca um defeito raro por um frequente.
+
+#### Alternativa 2 — só reordenar (remover depois de ler), mantendo o lock
+
+Mantém `Lock()` no topo, mas move `removeContributionsLocked` para depois da
+leitura bem-sucedida.
+
+- **Vantagem:** conserta A3 com um diff pequeno e de baixo risco. Nenhuma
+  janela nova. Cabe num modelo barato.
+- **Desvantagem:** **não** conserta A2 — o I/O continua sob lock exclusivo, e a
+  contenção que a auditoria descreve permanece inteira.
+- **Quando escolher:** se você quiser fechar a divergência (que é dado
+  invisível para o usuário) sem abrir a frente de concorrência agora.
+
+#### Alternativa 3 — RWMutex com upgrade / cópia-na-escrita
+
+Índice imutável trocado por ponteiro atômico; escritores constroem a versão
+nova fora do lock.
+
+- **Vantagem:** leitura nunca bloqueia. Resolve A2 no limite.
+- **Desvantagem:** reescreve `internal/index` inteiro, e o índice tem
+  `backlinks`, `byName`, `byAlias`, `lowerPath` e `citantesPorNome` —
+  copiar tudo a cada evento troca contenção por alocação. **Sem baseline, isso
+  é troca no escuro**, e a regra da casa proíbe.
+- **Veredito:** fora de escopo hoje. Só faz sentido se a medição mostrar que a
+  contenção de A2 é real no cofre do dono — e ela **não foi medida**.
+
+#### Sobre A7, separadamente
+
+Uma linha: `apply.go:85-92` passa a exigir
+`(searchInv == nil || searchInv.HasDoc(string(path)))` no atalho, espelhando o
+`overflow.go:58`.
+
+- **Vantagem:** trivial, e é "uma conta por regra" — hoje há duas cópias da
+  condição, e a que está errada é a mais usada.
+- **Desvantagem:** nenhuma identificada. O custo é uma consulta em memória.
+- **Alternativa descartada:** extrair a condição para uma função compartilhada
+  entre `Apply` e `Reconcile`. Mais correto em princípio, mas os dois laços têm
+  formas diferentes (um itera evento, outro entrada de varredura), e forçar uma
+  assinatura comum acrescenta mais do que remove.
+
+**Recomendação do bloco:** A7 primeiro (isolado, trivial, e sozinho já corta o
+modo de falha mais provável em OneDrive). Depois Alternativa 1 para A2+A3+M7,
+com a política da janela escrita no brief e testada.
+
+---
+
+### Bloco 2 — escrita que reporta sucesso sem ter feito (A1, + B5, B17, B6)
+
+**Mecanismo, conferido em `internal/service/write.go`:** a ordem é
+`WriteAtomic(absRef, ...)` para cada citante (`:581`), depois
+`WriteAtomic(absTo, fromRaw)` (`:626`), depois `_ = os.Remove(absFrom)`
+(`:636`).
+
+Duas consequências independentes:
+
+1. `_ = os.Remove` — remove falhando (sharing violation do Obsidian é rotina no
+   Windows) ⇒ **sucesso reportado com a nota duplicada** nos dois caminhos.
+2. Os citantes são reescritos **antes** de o corpo se mover. Falhando a cópia,
+   todos os links apontam para destino inexistente, **persistidos em disco**,
+   sem compensação — com o `raw` original em mãos no loop.
+
+#### Alternativa 1 — mover o corpo primeiro, citantes depois
+
+`os.Rename(absFrom, absTo)` (mesmo volume é o caso comum; fallback
+`WriteAtomic` + `os.Remove` **com o erro conferido**). Só depois reescrever
+citantes.
+
+- **Vantagem:** elimina os dois defeitos com uma reordenação. `os.Rename` é
+  atômico no mesmo volume, então "nota duplicada" deixa de ser possível ali.
+- **Desvantagem:** inverte quem fica inconsistente quando a segunda etapa falha
+  — agora o corpo moveu e alguns citantes ficaram apontando para o caminho
+  antigo. É **menos grave** (link quebrado é visível e recuperável; nota
+  duplicada é silenciosa), mas não é nada.
+- **Mitigação:** registrar no resultado quais citantes já foram reescritos,
+  com diff, para compensação consciente.
+
+#### Alternativa 2 — rollback automático dos citantes
+
+O `raw` original de cada citante já está em mãos no loop; guardar e reescrever
+de volta em caso de falha.
+
+- **Vantagem:** o move vira tudo-ou-nada do ponto de vista do usuário.
+- **Desvantagem:** **o rollback também pode falhar**, e aí o estado é pior que
+  o de qualquer uma das alternativas — parcialmente revertido, sem registro. E
+  guardar o `raw` de N citantes é memória proporcional ao grafo; uma nota-hub
+  com centenas de citantes é caso real.
+- **Veredito:** só sobre a Alternativa 1, e como opção, não como padrão.
+
+#### Alternativa 3 — journal de operação
+
+Gravar a intenção antes, aplicar, apagar o journal.
+
+- **Vantagem:** recuperável até depois de crash.
+- **Desvantagem:** formato novo, ponto de recuperação novo no boot, e uma
+  classe inteira de defeitos nova. Desproporcional para uma tool de move.
+
+**Relacionados que se consertam no mesmo movimento:**
+
+- **B5** — `note_delete to_trash` descarta o erro do remove (`:761`). Nota
+  travada pelo Obsidian ⇒ `Deleted=true` com a nota em **dois** lugares.
+  Mesmo remédio: conferir o erro e mapear para `FILE_LOCKED`, dizendo que a
+  cópia na lixeira existe.
+- **B17** — dry-run engole erro de leitura (`fromRaw, _ :=`, `:514`) e apresenta
+  **diff vazio como resultado**. Uma linha.
+- **B6** — travas do move em ordem fixa `from→to`. Ordenar por chave
+  normalizada (menor primeiro) elimina o deadlock AB-BA **de graça**, dentro da
+  mesma tarefa.
+
+**Recomendação:** Alternativa 1 + B5 + B17 + B6 numa tarefa só. Rollback
+(Alternativa 2) fica como decisão sua, separada.
+
+---
+
+### Bloco 3 — daemon e IPC (A4, A5, + M8, M9)
+
+**Isto saiu do hipotético.** Até 2026-08-26 o daemon não subia na máquina do
+dono; hoje há três vivos. A superfície passou a ser exercitada de verdade.
+
+**A5, conferido em `internal/ipc/ipc.go:104`:** `cleanupSocketFile(path)` roda
+**incondicionalmente** antes do `net.Listen`. Sem dial de prova, sem `pidVivo`,
+e o subcomando `daemon` não participa do lock de `EnsureStarted`. Um segundo
+daemon remove o socket do vivo e binda no nome: o primeiro fica inalcançável, e
+**duas instâncias gravam concorrentemente no mesmo cache de busca** — corrupção
+por escrita intercalada.
+
+**A4, conferido em `internal/daemon/daemon.go:145-155`:**
+
+```go
+conn, err := d.ln.Accept()
+if err != nil {
+	if ctx.Err() != nil { return }        // encerramento normal
+	d.log.Warn("aceitar conexao ... falhou", "err", err)
+	return                                 // <- morre para sempre
+}
+```
+
+Processo segue vivo, socket bound, ticker rodando: dials conectam, ninguém
+aceita.
+
+#### A5 — Alternativa 1: dial de prova antes do unlink
+
+Antes de `cleanupSocketFile`, tentar `DialAndHandshake` com prazo curto.
+Sucesso ⇒ erro "daemon já ativo", sem tocar no arquivo. Falha ⇒ unlink e segue.
+
+- **Vantagem:** funciona nos três SOs sem arquivo extra, e o critério é
+  **comportamental** — que é o que a medição de hoje exige. Errno **não serve**:
+  medido, arquivo comum, socket órfão e caminho inexistente devolvem os três
+  `10061`, e o que apareceu em produção foi `10022`.
+- **Desvantagem:** custa um dial (~250 ms de prazo) em toda partida de daemon.
+  Medido: um socket que responde faz ida e volta em 25,7 µs, então o custo real
+  só aparece quando **não** há daemon — que é justamente o caso comum.
+- **Mitigação:** prazo curto, e o caminho "arquivo ausente" nem chega a discar.
+
+#### A5 — Alternativa 2: PID ao lado do socket + `pidVivo`
+
+- **Vantagem:** decide sem I/O de rede; `daemon.PIDVivo` já existe e já paga a
+  armadilha do Windows (PID consultável depois da morte).
+- **Desvantagem:** arquivo a mais para ficar órfão — e órfão de arquivo de
+  estado é exatamente o defeito que se está consertando. Além disso, PID vivo
+  **não prova** que o processo está servindo aquele socket.
+- **Veredito:** complementar, não substituto.
+
+#### A5 — Alternativa 3: as duas, em camadas
+
+Dial de prova decide; o PID entra só no diagnóstico (`doctor`).
+
+- **Vantagem:** o `doctor` da Task 125 já lê locks órfãos com PID morto — o
+  investimento está feito.
+- **Desvantagem:** duas fontes de verdade sobre "há daemon vivo", e a regra da
+  casa é uma conta por regra. **Só aceitável se o PID for explicitamente
+  informativo**, nunca decisório.
+
+#### A4 — Alternativa 1: classificar erro e continuar com backoff
+
+Sair só em `net.ErrClosed` ou `ctx.Err() != nil`; qualquer outro ⇒ log com
+contador, backoff (50 ms → teto 1 s) e `continue`.
+
+- **Vantagem:** `EMFILE`/`ENFILE` é transitório e clássico; hoje ele mata o
+  daemon em silêncio.
+- **Desvantagem:** um erro **permanente** não classificado vira laço quente com
+  backoff — consome CPU para sempre em vez de morrer. Precisa de teto de
+  tentativas consecutivas, ou o conserto troca "daemon surdo" por "daemon
+  girando".
+
+#### A4 — Alternativa 2: morrer, mas alto
+
+Manter o `return`, mas com `log.Error` e código de saída diferente de zero,
+para a ponte re-spawnar.
+
+- **Vantagem:** diff mínimo, e compõe com a Task 124 (que já fez todo caminho
+  de saída logar).
+- **Desvantagem:** o daemon morre em erro transitório que se resolveria sozinho,
+  e cada morte custa uma reconstrução de índice a quem reconectar.
+
+**Recomendação do bloco:** A5 pela Alternativa 1 (o critério comportamental é o
+que a medição sustenta), A4 pela Alternativa 1 **com teto de tentativas
+consecutivas** — sem o teto ela é meio conserto.
+
+**Relacionados:**
+
+- **M8** — `CloseWrite` é declarado, exigido no handshake e **nunca chamado**;
+  no EOF a ponte fecha a conexão inteira, descartando resposta em voo. Duas
+  saídas: usar no shutdown, ou **tirar do tipo e do handshake**. Contrato morto
+  é pior que contrato ausente, e a segunda opção é legítima.
+- **M9** — `--max-results` é no-op silencioso no modo daemon: não é encaminhado
+  no spawn nem entra no handshake, então vale o cfg do **primeiro** daemon.
+  Duas saídas: entrar no `HandshakeConfig` (recusando divergência, como
+  `ReadOnly`), ou **documentar** que o primeiro daemon fixa o parâmetro. A
+  segunda é honesta e mais barata; a primeira é o que a simetria pede. Escolher
+  uma e registrar.
+
+---
+
+### Bloco 4 — contrato (A6, A8)
+
+Os dois já têm decisão sua tomada; ficam aqui as alternativas para o registro.
+
+**A6 — primeira `vault_search` bloqueia sem prazo.** `cargaUnica.fazer` segura
+o mutex durante a carga; concorrentes esperam em `mu.Lock()` puro, **sem
+`select` em `ctx.Done()`**. Cache frio ou corrompido ⇒ tokenização completa do
+cofre sem resposta nem erro.
+
+- **Decidido:** porta `chan struct{}` no lugar do mutex, com orçamento no
+  primeiro chamador devolvendo `INDEX_BUILDING` com `Retryable`.
+- **Vantagem:** prazo do host respeitado, código de erro honesto, e a carga
+  continua em segundo plano.
+- **Desvantagem:** exige desacoplar a carga da vida do primeiro chamador —
+  goroutine dona, referenciada pela porta. É a parte de projeto, e é onde um
+  erro vira carga órfã ou carga dupla.
+- **Alternativa mais barata, não escolhida:** só tornar a espera cancelável
+  (concorrentes respeitam ctx; o primeiro segue bloqueando). Menor risco, mas
+  deixa o caso pior — o primeiro chamador — sem conserto.
+
+**A8 — `Backlink.Context` é sempre `""`.** Conferido: os três construtores
+gravam literal, e `note_metadata.backlinks` serializa direto ao host, contra
+promessa explícita de `docs/TOOLS.md:164`.
+
+- **Alternativa 1 — implementar.** O offset `Start`/`End` do link e o corpo já
+  lido no parse permitem recortar ±N bytes.
+  - *Vantagem:* backlink sem contexto obriga o modelo a abrir a origem — é uma
+    chamada a mais por backlink, e o campo existe justamente para evitá-la.
+  - *Desvantagem:* **exige bump do formato do cache de metadados**, e aí é
+    obrigatório usar a constante única do **B11** — hoje são duas constantes
+    independentes guardando o mesmo portão (`persist.go:22` ×
+    `persist_codec.go:44`), e subir uma sem a outra faz o leitor recusar todo
+    save novo, com rebuild a cada boot e **sem log**.
+- **Alternativa 2 — remover o campo e a promessa.**
+  - *Vantagem:* honesto, imediato, zero formato novo.
+  - *Desvantagem:* perde-se uma economia real de chamadas.
+
+**Recomendação:** implementar, **junto** do B11, numa tarefa só — porque o bump
+de formato é o gatilho que torna o B11 perigoso, e consertar os dois separados
+deixa a janela aberta exatamente no commit que a usa.
+
+---
+
 ## Decisões fechadas em 2026-08-25 (dono do projeto) — não re-litigar
 
 As nove pendências que este relatório listava como bloqueantes foram decididas. O que
