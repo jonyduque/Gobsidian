@@ -4351,15 +4351,26 @@ que torna o B11 perigoso.
   MB (+67%, +309 bytes por link)**. `LoadIndexCache` 275,5 → 282,2 ms de mediana,
   mas as distribuições **se sobrepõem** e a rodada *com* contexto deu as duas
   amostras mais rápidas — o delta de tempo não é distinguível de ruído a n=5.
-- **Não medido, e dito assim:** o boot completo deste cofre contra o teto de
-  300 ms do RNF-02. Medi `LoadIndexCache` isolado. O cofre é maior que o de 3.149
-  notas onde o RNF-02 foi publicado; se já estoura hoje, é preexistente — não
-  verifiquei, e não afirmo nas duas direções.
-- **Decisão que fica com o dono:** os +67% pagam um contrato que a normativa já
-  publicava. `contextoBytes = 80` está num lugar só para poder ser reduzido. A
-  alternativa de recortar na consulta (disco zero) está registrada no relatório
-  com o motivo de eu não a ter seguido: choca com "somente-nuvem nunca é aberto",
-  e o campo voltaria a ser inconstante.
+- **Decisão do dono (2026-08-26): manter como está.** Os +67% pagam um contrato
+  que a normativa já publicava. `contextoBytes = 80` fica num lugar só para poder
+  ser reduzido depois. As alternativas — cortar o span duplicado, ou recortar na
+  consulta — estão registradas no relatório com o motivo de não terem sido
+  seguidas.
+- **Boot medido a pedido do dono, e o resultado inverte a preocupação.** Mesmo
+  cofre, `index_ms` da linha `servidor pronto`, em processo, somente-leitura e com
+  `--cache-dir` próprio — **para não gravar formato 3 no cache que as sessões
+  vivas leem**, que forçaria reconstrução em todas elas. Boot quente: mediana
+  **891 ms no formato 2** contra **921 ms no formato 3**, teto do RNF-02 de
+  300 ms. **Estourado nas duas, e já estava**: preexistente nesta escala, não
+  regressão. O delta de +30 ms não é distinguível de ruído — as faixas se
+  sobrepõem e a do formato 2 é a mais LARGA (269 contra 162 ms). Publicado em
+  `OPERACAO.md`, que já trazia RNF-02 como NÃO ATINGIDO desde 2026-08-06; o que
+  esta medição acrescenta é a escala e a exclusão da causa.
+- **Segue não medido:** onde estão os ~600 ms restantes. `LoadIndexCache` isolado
+  dá 275–282 ms e o boot dá ~900 ms, então a maior parte está fora do codec.
+  `VerifyFreshness` faz `Stat` nos 5.686 arquivos em OneDrive e é o suspeito
+  óbvio — mas suspeito não é medida. Próximo alvo se RNF-02 voltar a ser
+  prioridade nesta escala.
 
 **Os oito altos estão fechados.** Seguem abertos: 17 médios, 14 de desempenho,
 ~15 baixos, mais o item do lock de `EnsureStarted` e o teste da tempestade.

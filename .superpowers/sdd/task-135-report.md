@@ -1,7 +1,9 @@
 # Task 135 — A8 + B11 (+B14): o contexto do backlink, e o portão que tinha dois donos
 
-**Status:** DONE_WITH_CONCERNS — a correção está completa e provada; **o custo em
-disco é de +67% no cache de metadados, medido, e merece decisão do dono.**
+**Status:** DONE — a correção está completa e provada. O custo de +67% no cache
+de metadados foi medido e **o dono decidiu manter como está** (2026-08-26). O
+efeito no boot foi medido depois, a pedido dele: **RNF-02 já estava estourado com
+o formato antigo**, e o formato 3 não é a causa.
 **Commit:** `7c24c67` — `fix(index,parser): fill backlink context, unify the cache version gate`
 
 As duas foram juntas por necessidade, não por conveniência: implementar A8 exige
@@ -186,16 +188,46 @@ arquivo restaurado byte a byte depois — SHA-256 conferido antes e depois).
 se sobrepõem, e a rodada *com* contexto produziu as duas amostras mais rápidas
 (236 e 241 ms). O delta mediano de +6,7 ms é o que este formato acrescenta.
 
-### O que NÃO foi medido, e importa
+### O boot completo, medido depois (RNF-02)
 
-**O boot completo deste cofre contra o teto de 300 ms do RNF-02.** Medi
-`LoadIndexCache` isolado, não o boot. O RNF-02 foi publicado num cofre sintético
-de 3.149 notas (208–282 ms); este tem 5.686 notas. Se ele já estoura o teto
-**hoje**, é condição preexistente e não desta tarefa — mas eu **não verifiquei**,
-e não afirmo em nenhuma das duas direções.
+O relatório fechou com isto em aberto; o dono mandou medir. Feito no mesmo cofre,
+com `index_ms` da linha `servidor pronto`, em processo (`GOBSIDIAN_NO_DAEMON=1`),
+somente-leitura e com `--cache-dir` próprio — **para não gravar formato 3 no cache
+que as sessões vivas do dono leem**: o binário instalado é anterior, recusaria, e
+todas elas reconstruiriam o índice no próximo boot. O binário foi remontado para o
+formato 2 por mutação do codec, medido, e o arquivo restaurado byte a byte
+(SHA-256 conferido: `7cca05addc8b4116` antes e depois).
 
-Não medi porque o cofre é um dos que o dono usa em sessão viva, e subir `serve`
-contra ele arriscaria conflitar com as pontes em execução.
+| | formato 2 | formato 3 |
+|---|---|---|
+| boot quente, mediana de 5 | **891 ms** | **921 ms** |
+| amostras | 810 / 871 / 891 / 930 / 1079 ms | 872 / 887 / 921 / 988 / 1034 ms |
+| boot frio, n=1 | 1741 ms | 2326 ms |
+
+**RNF-02 estourado nas duas, e já estava.** 891 ms contra 300 ms **com o formato
+antigo** — condição preexistente nesta escala, não regressão desta tarefa. O
+RNF-02 já é publicado como NÃO ATINGIDO em `OPERACAO.md` desde 2026-08-06; o que
+esta medição acrescenta é a escala (5.686 notas: 810–1079 ms, contra os 371–472 ms
+publicados) e a prova de que o formato 3 não é a causa.
+
+**O delta de +30 ms na mediana não é distinguível de ruído.** As faixas se
+sobrepõem quase inteiras, e a do formato 2 é a **mais larga** das duas — 269 ms
+contra 162 ms. Uma amostra do formato 2 (1079 ms) estourou até o limite de falha
+de 1 s, e nenhuma do formato 3: isso sozinho mostra o tamanho do ruído. Remover o
+contexto não devolveria o RNF-02.
+
+**O boot frio tem uma amostra só de cada e não sustenta conclusão.** A diferença
+está na direção que se esperaria — `index_ms` inclui `SaveIndexCache` e o formato
+3 grava 13 MB a mais —, mas com n=1 é hipótese, não medida. As duas passam no alvo
+de 3 s do RNF-01.
+
+### O que continua não medido
+
+**Onde estão os ~600 ms restantes.** `LoadIndexCache` isolado mede 275–282 ms
+neste mesmo cofre e o boot mede ~900 ms, então a maior parte do tempo está fora do
+codec. `VerifyFreshness` faz `Stat` em cada um dos 5.686 arquivos, num cofre em
+OneDrive, e é o suspeito óbvio — **mas suspeito não é medida**, e não fiz nenhuma
+para confirmá-lo.
 
 ---
 

@@ -185,7 +185,7 @@ num cofre de 7 notas.
 | ID | Métrica (alvo) | Medição | Estado |
 |---|---|---|---|
 | **RNF-01** | Indexação a frio (≤ 3 s) | 500,11 ms no cofre sintético; **1,1 s** num cofre real de 109 MB | **Atingido** |
-| **RNF-02** | Boot com cache válido (≤ 300 ms) | 208–282 ms no cofre sintético; **371–472 ms** num cofre real de 109 MB (2026-08-06, com `index_cache`) | **NÃO ATINGIDO** |
+| **RNF-02** | Boot com cache válido (≤ 300 ms) | 208–282 ms no cofre sintético; **371–472 ms** num cofre real de 109 MB (2026-08-06, com `index_cache`); **810–1079 ms** num cofre real de 5.686 notas (2026-08-26, Task 135) | **NÃO ATINGIDO** |
 | **RNF-03** | `note_read` p95 (≤ 15 ms) | p95 **344,97 µs**, mediana 206,47 µs (5.000 notas) | **Atingido** |
 | **RNF-04** | `vault_search` p95 (≤ 100 ms) | 5.000 notas: **8 de 8** (2026-08-12, Task 94). `limit: 200` em **43,1 / 28,8 / 27,6 ms** em três rodadas; era 119–123 ms. Medido a frio e no índice **vindo do cache**, que é o ramo que o servidor executa — ver "Recorte de trecho" ao fim | **Atingido** |
 | **RNF-05** | `note_list` com filtro de metadados p95 (≤ 10 ms) | p95 **533,68 µs**, mediana 249,24 µs (5.000 notas) | **Atingido** |
@@ -1966,3 +1966,46 @@ pelo motivo errado. A mutação que apagava a checagem de `exitTime` **passou**.
 teste passou a adiar o `Wait` e a esperar num handle próprio, montando a
 condição real — processo morto que ainda responde a `OpenProcess` — e a conferir
 que ela se montou antes de afirmar.
+
+---
+
+## RNF-02 numa escala maior, e o que o formato 3 do cache custou (2026-08-26, Task 135)
+
+O formato do cache de metadados subiu para 3 para carregar o `Context` de cada
+link. Medir o efeito no boot era obrigatório: o RNF-02 é publicado, e o cache
+cresceu 67%.
+
+Cofre real do dono: **5.686 notas, 42.329 links, 109 MB, em OneDrive.** Medido
+com `index_ms` da linha `servidor pronto` — que é o recorte que RNF-01 e RNF-02
+nomeiam — em processo (`GOBSIDIAN_NO_DAEMON=1`), somente-leitura, e com
+`--cache-dir` próprio, **para não gravar formato 3 no cache que as sessões vivas
+do dono leem**: o binário instalado é anterior e recusaria, forçando reconstrução
+em todas elas.
+
+| | formato 2 | formato 3 |
+|---|---|---|
+| arquivo de cache | 19,53 MB | 32,62 MB (+67%) |
+| boot quente, mediana de 5 | **891 ms** | **921 ms** |
+| amostras | 810 / 871 / 891 / 930 / 1079 ms | 872 / 887 / 921 / 988 / 1034 ms |
+| boot frio, n=1 | 1741 ms | 2326 ms |
+
+**RNF-02 segue NÃO ATINGIDO, e nas duas versões.** 891 ms contra o teto de
+300 ms, com o formato ANTIGO — é condição preexistente nesta escala, não regressão
+desta tarefa. Está também acima do limite de falha de 1 s em uma das cinco
+amostras do formato 2 (1079 ms) e em nenhuma do formato 3, o que sozinho já
+mostra o tamanho do ruído.
+
+**O delta de +30 ms na mediana não é distinguível de ruído**: as faixas se
+sobrepõem quase inteiras, e a do formato 2 é a **mais larga** das duas (269 ms
+contra 162 ms). Remover o contexto não devolveria o RNF-02.
+
+**O boot frio tem uma amostra só de cada e não sustenta conclusão.** A diferença
+está na direção que se esperaria — `index_ms` inclui `SaveIndexCache`, e o
+formato 3 grava 13 MB a mais —, mas com n=1 isso é hipótese. As duas passam no
+alvo de 3 s do RNF-01.
+
+**Onde o tempo está, não foi medido.** `LoadIndexCache` isolado neste mesmo cofre
+mede 275–282 ms, e o boot mede ~900 ms: os ~600 ms restantes estão fora do codec.
+`VerifyFreshness` faz `Stat` em cada um dos 5.686 arquivos, num cofre em OneDrive,
+e é o suspeito óbvio — **mas suspeito não é medida**, e nenhuma medição foi feita
+para confirmá-lo. É o próximo alvo se RNF-02 continuar prioridade nesta escala.

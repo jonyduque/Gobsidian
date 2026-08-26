@@ -144,9 +144,29 @@ Medido em 2026-08-26 no cofre real de 5.686 notas e 42.329 links (109 MB):
 O custo de disco é real e está medido. **O de tempo não é distinguível de ruído
 nesta amostra**: as duas distribuições se sobrepõem (com contexto: 236–450 ms;
 sem: 258–292 ms), e a rodada *com* contexto produziu as duas amostras mais
-rápidas. O delta mediano de +6,7 ms é o que este formato acrescenta ao boot;
-**o boot completo deste cofre contra o teto de 300 ms do RNF-02 não foi medido
-aqui**, e o cofre é maior que o de 3.149 notas onde o RNF-02 foi publicado.
+rápidas.
+
+O boot completo foi medido em seguida, no mesmo cofre, contra o teto de 300 ms do
+RNF-02 — `index_ms` do log `servidor pronto`, em processo (`GOBSIDIAN_NO_DAEMON`),
+somente-leitura e com `--cache-dir` próprio, para não gravar formato 3 no cache
+que as sessões vivas do dono leem:
+
+| | formato 2 | formato 3 |
+|---|---|---|
+| boot quente, mediana de 5 | **891 ms** | **921 ms** |
+| amostras | 810–1079 ms | 872–1034 ms |
+| boot frio, n=1 | 1741 ms | 2326 ms |
+
+**O RNF-02 está estourado nas duas — 3× o teto — e já estava.** Ele é publicado
+como NÃO ATINGIDO em [`OPERACAO.md`](OPERACAO.md) desde 2026-08-06. O delta
+mediano de +30 ms deste formato **não é distinguível de ruído**: as faixas se
+sobrepõem, e a do formato 2 é a mais *larga* das duas. O contexto do backlink não
+é a causa, e removê-lo não devolveria o RNF.
+
+O boot frio tem **uma amostra só de cada** e não sustenta conclusão. A diferença
+está na direção que se espera de gravar 13 MB a mais — `index_ms` inclui
+`SaveIndexCache` —, mas com n=1 isso é hipótese, não medida. As duas passam no
+alvo de 3 s do RNF-01.
 
 O tamanho é governado por `contextoBytes` (80 de cada lado) em
 `internal/index/contexto_link.go`, num lugar só, para poder ser discutido.
