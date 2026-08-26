@@ -2,7 +2,7 @@
 
 **Status:** DONE_WITH_CONCERNS — a correção está completa e provada; **o custo em
 disco é de +67% no cache de metadados, medido, e merece decisão do dono.**
-**Commit:** a preencher
+**Commit:** `7c24c67` — `fix(index,parser): fill backlink context, unify the cache version gate`
 
 As duas foram juntas por necessidade, não por conveniência: implementar A8 exige
 subir o formato do cache, e **é exatamente esse bump que torna o B11 perigoso**.
