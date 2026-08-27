@@ -1,9 +1,11 @@
 # Task 135 — A8 + B11 (+B14): o contexto do backlink, e o portão que tinha dois donos
 
-**Status:** DONE — a correção está completa e provada. O custo de +67% no cache
-de metadados foi medido e **o dono decidiu manter como está** (2026-08-26). O
-efeito no boot foi medido depois, a pedido dele: **RNF-02 já estava estourado com
-o formato antigo**, e o formato 3 não é a causa.
+**Status:** DONE_WITH_CONCERNS — a correção está completa e provada, mas o custo
+de desempenho é maior do que a primeira medição indicou. **Num cofre fora do
+OneDrive o formato 3 empurra o RNF-02 de atingido para não atingido** (mediana
+243 → 323 ms, teto 300 ms). A decisão de manter foi tomada pelo dono em
+2026-08-26 com base na medição do cofre em OneDrive, onde o efeito some no ruído;
+**ela merece ser reconsiderada com o número novo.**
 **Commit:** `7c24c67` — `fix(index,parser): fill backlink context, unify the cache version gate`
 
 As duas foram juntas por necessidade, não por conveniência: implementar A8 exige
@@ -220,6 +222,44 @@ contexto não devolveria o RNF-02.
 está na direção que se esperaria — `index_ms` inclui `SaveIndexCache` e o formato
 3 grava 13 MB a mais —, mas com n=1 é hipótese, não medida. As duas passam no alvo
 de 3 s do RNF-01.
+
+### Correção: fora do OneDrive o custo aparece, e cruza a linha
+
+A conclusão acima — "não distinguível de ruído" — **vale para aquele cofre e eu a
+generalizei demais.** Escrevi que "remover o contexto não devolveria o RNF-02".
+Num cofre em OneDrive isso é verdade; não é uma afirmação sobre o formato 3.
+
+O dono mandou medir fora do OneDrive. `Obsidian\Jurisprudência`, **1.254 notas,
+90 anexos**, disco local. Duas bateladas de cada formato, em ordens alternadas,
+agrupadas — **n=13 cada**:
+
+| | formato 2 | formato 3 |
+|---|---|---|
+| cache | 9,76 MB | **19,05 MB (+95%)** |
+| boot quente, mediana de 13 | **243 ms** | **323 ms** |
+| faixa | 214–433 ms | 284–415 ms |
+| acima do teto de 300 ms | **3 de 13** | **10 de 13** |
+
+**Aqui o formato 3 empurra o RNF-02 de atingido para não atingido.** As caudas se
+sobrepõem, mas a separação é forte onde importa: **9 das 13 amostras do formato 2
+ficam abaixo da MENOR amostra do formato 3** (284 ms), e nenhuma do formato 3
+desce abaixo disso.
+
+O cofre em OneDrive escondeu o efeito porque lá o ruído tem ~270 ms de largura
+contra um efeito de ~90 ms — e o RNF-02 já estava 3× estourado nos dois formatos,
+o que tornava a comparação acadêmica. No cofre local a métrica vive **em cima da
+linha**, e é onde 80 ms decidem.
+
+### A ordem das bateladas quase produziu o número errado
+
+A primeira batelada do formato 3 tocou 1,3 GB com o cache de arquivo do SO **frio**
+— boot frio de 4.534 ms, contra 765 ms na repetição com o SO quente. A batelada do
+formato 2 rodou depois, com tudo aquecido. Comparar aquelas duas daria um custo
+muito maior do que o real.
+
+Foi o que me obrigou a repetir: cada formato medido duas vezes, em ordens
+diferentes, e as bateladas agrupadas. **O primeiro par de números teria passado por
+medição.**
 
 ### O que continua não medido
 

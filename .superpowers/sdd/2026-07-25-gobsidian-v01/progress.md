@@ -4366,6 +4366,23 @@ que torna o B11 perigoso.
   sobrepõem e a do formato 2 é a mais LARGA (269 contra 162 ms). Publicado em
   `OPERACAO.md`, que já trazia RNF-02 como NÃO ATINGIDO desde 2026-08-06; o que
   esta medição acrescenta é a escala e a exclusão da causa.
+- **CORREÇÃO, medida no cofre que o dono apontou (fora do OneDrive).** A
+  conclusão acima vale para o cofre em OneDrive e eu a generalizei demais — tinha
+  escrito que "remover o contexto não devolveria o RNF-02". Em
+  `Obsidian\Jurisprudência` (1.254 notas, disco local), n=13 por formato com as
+  bateladas alternadas: mediana **243 ms no formato 2** contra **323 ms no formato
+  3**, cache 9,76 → 19,05 MB (+95%). **Ali o formato 3 empurra o RNF-02 de
+  atingido para NÃO atingido** — 3 de 13 amostras acima do teto contra 10 de 13, e
+  9 das 13 do formato 2 abaixo da MENOR do formato 3. O cofre em OneDrive escondia
+  o efeito: ruído de ~270 ms contra efeito de ~90 ms, e o RNF já 3× estourado nos
+  dois formatos.
+- **A ordem das bateladas quase deu o número errado.** A primeira do formato 3
+  tocou 1,3 GB com o cache de arquivo do SO frio (boot frio 4.534 ms; 765 ms na
+  repetição quente), e a do formato 2 rodou depois com tudo aquecido. Comparar
+  aquele par daria custo muito maior que o real. Cada formato foi medido duas
+  vezes, em ordens diferentes.
+- **A decisão de manter precisa ser reconsiderada**: foi tomada com o número do
+  cofre em OneDrive, onde o efeito some no ruído.
 - **Segue não medido:** onde estão os ~600 ms restantes. `LoadIndexCache` isolado
   dá 275–282 ms e o boot dá ~900 ms, então a maior parte está fora do codec.
   `VerifyFreshness` faz `Stat` nos 5.686 arquivos em OneDrive e é o suspeito

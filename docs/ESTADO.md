@@ -158,10 +158,23 @@ que as sessões vivas do dono leem:
 | boot frio, n=1 | 1741 ms | 2326 ms |
 
 **O RNF-02 está estourado nas duas — 3× o teto — e já estava.** Ele é publicado
-como NÃO ATINGIDO em [`OPERACAO.md`](OPERACAO.md) desde 2026-08-06. O delta
-mediano de +30 ms deste formato **não é distinguível de ruído**: as faixas se
-sobrepõem, e a do formato 2 é a mais *larga* das duas. O contexto do backlink não
-é a causa, e removê-lo não devolveria o RNF.
+como NÃO ATINGIDO em [`OPERACAO.md`](OPERACAO.md) desde 2026-08-06. Neste cofre o
+delta mediano de +30 ms não é distinguível de ruído: as faixas se sobrepõem, e a
+do formato 2 é a mais *larga* das duas.
+
+**Isso vale para ESTE cofre e não generaliza.** Medido em seguida num cofre fora
+do OneDrive (`Obsidian\Jurisprudência`, 1.254 notas, disco local), com n=13 por
+formato e as bateladas alternadas: mediana **243 ms no formato 2** contra
+**323 ms no formato 3**, cache 9,76 → 19,05 MB (+95%). **Ali o formato 3 empurra
+o RNF-02 de atingido para não atingido** — 3 de 13 amostras acima do teto no
+formato 2, contra 10 de 13 no formato 3, e 9 das 13 do formato 2 ficam abaixo da
+MENOR amostra do formato 3.
+
+O cofre em OneDrive escondeu o efeito porque lá o ruído tem ~270 ms de largura e o
+efeito tem ~90 ms — e o RNF-02 já estava 3× estourado pelos dois formatos, o que
+tornava a comparação acadêmica. No cofre local, quieto, a métrica vive **em cima
+da linha**, e é onde 80 ms decidem. Tabela completa em
+[`OPERACAO.md`](OPERACAO.md).
 
 O boot frio tem **uma amostra só de cada** e não sustenta conclusão. A diferença
 está na direção que se espera de gravar 13 MB a mais — `index_ms` inclui

@@ -2009,3 +2009,44 @@ mede 275–282 ms, e o boot mede ~900 ms: os ~600 ms restantes estão fora do co
 `VerifyFreshness` faz `Stat` em cada um dos 5.686 arquivos, num cofre em OneDrive,
 e é o suspeito óbvio — **mas suspeito não é medida**, e nenhuma medição foi feita
 para confirmá-lo. É o próximo alvo se RNF-02 continuar prioridade nesta escala.
+
+### Correção: fora do OneDrive o formato 3 CUSTA, e cruza a linha do RNF-02
+
+A seção acima concluiu que o delta do formato 3 "não é distinguível de ruído" e
+que "remover o contexto não devolveria o RNF-02". **Isso vale para o cofre em
+OneDrive e não generaliza.** O dono mandou medir num cofre fora do OneDrive, e lá
+o sinal aparece limpo.
+
+`C:\Users\jonyd\Obsidian\Jurisprudência` — **1.254 notas, 90 anexos**, disco
+local. Mesmo protocolo. Duas bateladas de cada formato, agrupadas: **n=13 cada**,
+alternando a ordem para que o cache de arquivo do SO não favoreça um dos lados.
+
+| | formato 2 | formato 3 |
+|---|---|---|
+| arquivo de cache | 9,76 MB | **19,05 MB (+95%)** |
+| boot quente, mediana de 13 | **243 ms** | **323 ms** |
+| faixa | 214–433 ms | 284–415 ms |
+| amostras acima do teto de 300 ms | **3 de 13** | **10 de 13** |
+
+**O formato 3 empurra o RNF-02 de atingido para não atingido neste cofre.**
+Mediana 243 ms contra 323 ms, teto de 300 ms. As caudas se sobrepõem, mas a
+separação é forte onde importa: **9 das 13 amostras do formato 2 ficam abaixo da
+MENOR amostra do formato 3** (284 ms), e nenhuma do formato 3 desce abaixo disso.
+
+Por que o outro cofre escondeu isto: lá o ruído é de ~270 ms de largura e o efeito
+é de ~90 ms, então o efeito some dentro dele — e o RNF-02 já estava 3× estourado
+pelos dois formatos, o que tornava a pergunta acadêmica. Aqui o cofre é local,
+quieto, e a métrica vive **em cima da linha** — é exatamente onde 80 ms decidem.
+
+**A ordem das bateladas importa e quase produziu um número errado.** A primeira
+rodada do formato 3 tocou 1,3 GB de arquivos com o cache de arquivo do SO frio
+(boot frio de 4.534 ms; a repetição com o SO quente deu 765 ms). Se eu tivesse
+comparado aquela batelada contra a do formato 2, que rodou depois com tudo quente,
+o custo apareceria muito maior do que é. Cada formato foi medido duas vezes, em
+ordens diferentes, e as bateladas foram agrupadas.
+
+**O boot frio continua sem conclusão:** uma amostra por batelada, e a primeira de
+todas está contaminada pelo cache de arquivo do SO. 521 e 597 ms no formato 2
+contra 765 ms no formato 3 (a de 4.534 ms é descartada pelo motivo acima). A
+direção bate com gravar 9 MB a mais — `index_ms` inclui `SaveIndexCache` — mas com
+n=1 por batelada isso é hipótese.
