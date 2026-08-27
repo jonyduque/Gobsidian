@@ -70,10 +70,14 @@ func TestHeadingVazioAntesDoPrimeiroTitulo(t *testing.T) {
 	}
 }
 
-// TestContextoCurtoNaoEstouraOOrcamento fixa o corte para 40 bytes de cada lado.
-// Sem isto, contextoBytes voltaria a 80 numa edição futura sem nada reprovando —
-// e foi 80 que atravessou o teto do RNF-02 no cofre local.
-func TestContextoCurtoNaoEstouraOOrcamento(t *testing.T) {
+// TestContextoNaoEstouraOOrcamento fixa contextoBytes em 80 por lado.
+//
+// O teto não existe porque 80 seja perigoso — a medição intercalada mostrou que
+// não há custo de tempo mensurável. Existe porque `Context` vai para o disco em
+// TODO link do cofre, e um crescimento silencioso da constante multiplica o
+// tamanho do cache por 42 mil sem nada reprovando. O teto é o que obriga quem
+// mudar o número a mudar este teste também, e a olhar a conta.
+func TestContextoNaoEstouraOOrcamento(t *testing.T) {
 	root := t.TempDir()
 	corpo := "# T\n\n" + longo(300) + " [[Alvo]] " + longo(300) + "\n"
 	writeFile(t, root, "Origem.md", corpo)
@@ -83,9 +87,10 @@ func TestContextoCurtoNaoEstouraOOrcamento(t *testing.T) {
 	if len(bls) != 1 {
 		t.Fatalf("backlinks = %d, queria 1", len(bls))
 	}
-	// 40 de cada lado + o proprio "[[Alvo]]" (8) + folga para o alinhamento de
-	// runa. Um teto frouxo ainda reprova o 80, que era 160+span.
-	const teto = 40 + 40 + 8 + 8
+	// 80 de cada lado + o proprio "[[Alvo]]" (8) + folga para o alinhamento de
+	// runa. Frouxo de proposito: o teste guarda a ORDEM de grandeza, nao o byte
+	// exato. Um 160 acidental reprova.
+	const teto = 80 + 80 + 8 + 8
 	if n := len(bls[0].Context); n > teto {
 		t.Errorf("contexto tem %d bytes, teto %d: contextoBytes voltou a crescer\ncontexto=%q",
 			n, teto, bls[0].Context)

@@ -1,8 +1,11 @@
 # Task 135 — A8 + B11 (+B14): o contexto do backlink, e o portão que tinha dois donos
 
-**Status:** DONE. A correção está completa e provada. O contexto ficou em **40
-bytes de cada lado**, e o backlink ganhou o **título da seção de origem**
-(`Heading`), derivado a custo zero de disco — decisão do dono em 2026-08-26.
+**Status:** DONE. A correção está completa e provada. O contexto ficou em **80
+bytes de cada lado** e o backlink ganhou o **título da seção de origem**
+(`Heading`), derivado a custo zero de disco. Formato do cache **2 → 5** ao longo
+da tarefa: 3 acrescentou o contexto, 4 cortou para 40 sobre uma medição que se
+provou errada, 5 voltou para 80 com o número correto. Decisões do dono em
+2026-08-26.
 
 **Este relatório contém DUAS retratações de números que eu mesmo publiquei.** As
 duas vieram do mesmo defeito de método: comparar variantes de desempenho em

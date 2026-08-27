@@ -2086,3 +2086,9 @@ bateladas. Qualquer deriva de máquina — cache de arquivo do SO aquecendo, out
 processo, throttling térmico — atinge bateladas sequenciais de forma desigual e
 aparece como sinal. Foi o segundo número errado que este método produziu na mesma
 sessão; o primeiro foi corrigido por acaso, ao trocar de cofre.
+
+**Decisão do dono, com o número na mão (2026-08-26):** ficar com `contextoBytes =
+80`, mantendo o `heading`. Formato do cache 4 → 5. Os 2,1 MB de diferença para o
+corte de 40 compram o dobro de contexto e não custam tempo mensurável — as três
+variantes ficaram dentro de 14 ms uma da outra, com zero amostras acima do teto.
+O corte para 40 tinha sido decidido sobre a medição retratada acima.

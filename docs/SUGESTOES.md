@@ -6,6 +6,18 @@ seis frentes paralelas de leitura por subsistema (`cmd`/`lifecycle`/`daemon`/`ip
 `service`/`mcpsrv`, `parser`/`watcher`), com verificação cruzada dos achados de maior
 severidade contra o fonte. **Nenhum código foi alterado.**
 
+> **Estado em 2026-08-26: a seção de achados abaixo está DESATUALIZADA e não foi
+> reescrita.** Ela ainda descreve C1–C3, A1–A8, M7, M15, M17, P5, B5, B6, B7, B9,
+> B11, B14 e B17 como abertos; **todos foram fechados** nas Tasks 128–135, ou
+> decididos pelo dono. Quem quiser o estado real consulte o ledger em
+> `.superpowers/sdd/2026-07-25-gobsidian-v01/progress.md`, que é a fonte, e
+> `docs/ESTADO.md` para as medições.
+>
+> O aviso está aqui em vez de a seção ter sido reescrita porque riscar 17 achados
+> a mão é o tipo de edição em que um fica para trás — e um achado marcado como
+> fechado sem ter sido é pior que um marcado como aberto tendo sido. Continuam
+> **abertos e válidos**: 14 médios, 15 de desempenho e 10 baixos.
+
 - Base da análise: HEAD `1cbb007` (merge Task 106).
 - **Nada aqui é número medido.** Nenhum build, teste ou benchmark rodou nesta auditoria.
   Itens de performance descrevem **mecanismo e complexidade**; cada um exige baseline de

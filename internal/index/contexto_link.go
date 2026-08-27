@@ -9,15 +9,24 @@ import (
 
 // contextoBytes e quanto de texto entra de cada lado da referencia.
 //
-// Era 80 ate 2026-08-26. Medido no cofre local `Obsidian\Jurisprudencia` (1.254
-// notas), 80 de cada lado levava o cache de 9,76 para 19,05 MB e a mediana do
-// boot quente de 243 para 323 ms — atravessando o teto de 300 ms do RNF-02. O
-// dono decidiu cortar para 40 e recuperar o resto da informacao pelo heading,
-// que ja esta no indice e nao custa byte nenhum de disco (ver headingDoLink).
+// 80, decidido pelo dono em 2026-08-26 depois de o custo ser medido — e depois
+// de uma medicao ERRADA ter sugerido cortar para 40.
 //
-// Nao e numero medido no sentido de "40 e o otimo": e uma escolha de produto,
-// com o custo do 80 medido. Esta aqui, em um lugar so, para ser discutida.
-const contextoBytes = 40
+// A medicao errada dizia que 80 levava a mediana do boot quente de 243 para
+// 323 ms no cofre local `Obsidian\Jurisprudencia`, atravessando o teto de
+// 300 ms do RNF-02. Ela comparava bateladas SEQUENCIAIS e mediu a deriva da
+// maquina. Refeita intercalando as execucoes, n=10: 179 ms sem contexto,
+// 193 ms com 80, 191 ms com 40 — os tres com zero amostras acima do teto, e as
+// medianas separadas por menos que a variacao dentro de uma unica variante.
+// **Nao ha custo de tempo mensuravel.** Ver docs/ARMADILHAS.md, secao de
+// medicao.
+//
+// O que sobra e o disco, que e deterministico: naquele cofre, 9,76 MB sem
+// contexto, 16,95 MB com 40, 19,05 MB com 80.
+//
+// Nao e numero medido no sentido de "80 e o otimo": e uma escolha de produto,
+// com o custo medido. Esta aqui, em um lugar so, para ser discutida.
+const contextoBytes = 80
 
 // montarLinks constroi os ResolvedLink de uma nota, com o contexto de cada
 // referencia recortado do corpo.

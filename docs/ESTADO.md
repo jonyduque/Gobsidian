@@ -162,9 +162,14 @@ como NÃO ATINGIDO em [`OPERACAO.md`](OPERACAO.md) desde 2026-08-06. Neste cofre
 delta mediano de +30 ms não é distinguível de ruído: as faixas se sobrepõem, e a
 do formato 2 é a mais *larga* das duas.
 
-**O formato do cache é o 4** desde 2026-08-26: `contextoBytes` caiu de 80 para 40,
-e o backlink ganhou `Heading` — o título da seção da nota de origem, **derivado**
-dos headings já indexados, a custo zero de disco (ver `headingDoLink`).
+**O formato do cache de metadados é o 5** desde 2026-08-26. O backlink ganhou
+`Heading` — o título da seção da nota de origem, **derivado** dos headings já
+indexados, a custo zero de disco (ver `headingDoLink`). `contextoBytes` foi para
+40 no formato 4 e **voltou para 80 no 5**, quando a medição que motivara o corte
+foi retratada. Os dois bumps mudam o CONTEÚDO sem mudar o layout, e são
+necessários pelo mesmo motivo: um cache gravado com outro `contextoBytes` carrega
+trechos de outro tamanho, e aceitá-lo faria a mesma pergunta ser respondida com
+recortes diferentes conforme o cache fosse velho ou novo.
 
 Uma versão anterior desta seção afirmava que o formato 3 empurrava o RNF-02 de
 atingido para não atingido num cofre local. **Retratado.** Aquelas bateladas eram
@@ -176,12 +181,14 @@ lado e **uma rodada de cada por vez**, n=10, no cofre local
 | variante | cache | mediana de 10 | acima do teto de 300 ms |
 |---|---|---|---|
 | sem contexto | 9,76 MB | 179 ms | 0 de 10 |
-| contexto de 80 | 19,05 MB | 193 ms | 0 de 10 |
-| contexto de 40 + heading | **16,95 MB** | 191 ms | 0 de 10 |
+| **contexto de 80** (o formato 5) | **19,05 MB** | 193 ms | 0 de 10 |
+| contexto de 40 | 16,95 MB | 191 ms | 0 de 10 |
 
 **Os três passam no RNF-02 nesse cofre.** As medianas diferem em 14 ms, menos que
 a variação dentro de uma única variante. **O tamanho do cache é o único custo que
-sobrevive à medição** — e ele é determinístico. Detalhe e a lição de método em
+sobrevive à medição** — e ele é determinístico. Foi com esse número na mão que o
+dono escolheu ficar com 80: os 2,1 MB de diferença compram o dobro de contexto, e
+não custam tempo mensurável. Detalhe e a lição de método em
 [`OPERACAO.md`](OPERACAO.md).
 
 O boot frio tem **uma amostra só de cada** e não sustenta conclusão. A diferença

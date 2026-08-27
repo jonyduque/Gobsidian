@@ -4398,6 +4398,14 @@ que torna o B11 perigoso.
   `Heading` — o título da seção de origem, **derivado** de `Note.Headings` mais o
   offset do link, a custo zero de disco. Formato do cache 3 → 4. `docs/TOOLS.md`
   atualizado com o campo novo.
+- **Decisão final do dono: contexto de 80 COM heading.** Formato do cache 4 → 5.
+  Com a medição intercalada na mão — 2,1 MB a mais, sem custo de tempo
+  mensurável —, o dobro de contexto sai barato. O corte para 40 tinha sido
+  decidido sobre a medição retratada.
+- **`docs/SUGESTOES.md` está desatualizado e ganhou aviso no topo em vez de
+  reescrita.** A seção de achados ainda lista C1–C3 e A1–A8 como abertos. Riscar
+  17 achados a mão é edição em que um fica para trás, e achado marcado como
+  fechado sem ter sido é pior que o contrário. O ledger é a fonte.
 - **A prova de mutação matou uma guarda que eu tinha escrito.** `headingDoLink`
   nasceu com `if start < 0`, para `offsetUnknown`; a mutação deu EXIT=1 e a análise
   mostrou que era código morto — com `start = -1` o laço já quebra na primeira
@@ -4408,5 +4416,5 @@ que torna o B11 perigoso.
   óbvio — mas suspeito não é medida. Próximo alvo se RNF-02 voltar a ser
   prioridade nesta escala.
 
-**Os oito altos estão fechados.** Seguem abertos: 17 médios, 14 de desempenho,
+**Os oito altos estão fechados.** Seguem abertos: 14 médios, 14 de desempenho,
 ~15 baixos, mais o item do lock de `EnsureStarted` e o teste da tempestade.
