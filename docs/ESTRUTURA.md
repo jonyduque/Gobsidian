@@ -28,6 +28,7 @@ gobsidian/
 │   │   ├── lifecycle.go          composição dos três mecanismos → context raiz
 │   │   ├── stdin.go              detecção de EOF em stdin
 │   │   ├── signals.go            handlers de SIGINT/SIGTERM
+│   │   ├── parent.go             política da vigília, independente de plataforma
 │   │   ├── parent_windows.go     vigília do PID pai (build tag windows)
 │   │   ├── parent_unix.go        vigília do PID pai (build tag !windows)
 │   │   └── shutdown.go           sequência de encerramento com timeout
@@ -35,10 +36,15 @@ gobsidian/
 │   ├── vault/
 │   │   ├── vault.go              tipo Vault; raiz, abertura, validação
 │   │   ├── path.go               caminho canônico, resolução, confinamento
+│   │   ├── path_windows.go       casing e separadores (build tag windows)
+│   │   ├── path_other.go         idem (build tag !windows)
 │   │   ├── walk.go               varredura com exclusões
 │   │   ├── ignore.go             .gitignore e .gobsidianignore
-│   │   ├── eol.go                detecção e preservação de CRLF/LF
-│   │   └── cloud_windows.go      detecção de arquivo somente-nuvem (OneDrive)
+│   │   ├── eol.go                detecção e preservação de CRLF/LF — ÚNICA conta de EOL
+│   │   ├── longpath_windows.go   prefixo de caminho longo p/ syscall direta (build tag windows)
+│   │   ├── longpath_other.go     identidade (build tag !windows)
+│   │   ├── cloud_windows.go      detecção de arquivo somente-nuvem (OneDrive)
+│   │   └── cloud_other.go        sempre falso (build tag !windows)
 │   │
 │   ├── parser/
 │   │   ├── parser.go             fachada: []byte → ParsedNote
@@ -62,6 +68,10 @@ gobsidian/
 │   │   ├── alias.go              mapa alias → caminhos, do frontmatter
 │   │   ├── assets.go             registro de anexos (nome, tamanho, mtime)
 │   │   ├── anchors.go            validação de âncora de heading e de bloco
+│   │   ├── classify.go           classificação de entrada: nota, anexo, excluído
+│   │   ├── contexto_link.go      recorte do contexto do backlink e heading da seção
+│   │   ├── persist.go            carga e gravação do cache de metadados
+│   │   ├── persist_codec.go      codec binário do cache de metadados (formato 5)
 │   │   └── query.go              consultas por metadados (tag, pasta, frontmatter)
 │   │
 │   ├── search/
@@ -70,6 +80,7 @@ gobsidian/
 │   │   ├── soa.go                base imutável em arrays achatados, com busca binária
 │   │   ├── bm25.go               ranking
 │   │   ├── snippet.go            extração de trecho com destaque
+│   │   ├── snippet_cache.go      cache de trechos por nota e ocorrência
 │   │   ├── persist.go            carga e gravação atômica do cache
 │   │   ├── persist_codec.go      codec binário do cache (formato 6)
 │   │   ├── mmap.go               arena do cache mapeada em memória, compartilhável
@@ -98,16 +109,23 @@ gobsidian/
 │   │   ├── service.go            struct Service; injeção dos subsistemas
 │   │   ├── read.go               métodos de leitura
 │   │   ├── write.go              métodos de escrita
-│   │   ├── graph.go              link_graph, tag_list, vault_stats
-│   │   └── errors.go             taxonomia de erros de domínio
+│   │   ├── graph.go              link_graph, note_metadata, tag_list, vault_stats
+│   │   ├── search.go             vault_search: filtro, paginação, trechos
+│   │   ├── search_lazy.go        carga única e cancelável do índice de busca
+│   │   └── errors.go             taxonomia de erros de domínio e classificação
 │   │
 │   ├── mcpsrv/
 │   │   ├── server.go             construção do servidor, registro de tools
 │   │   ├── tools_read.go         handlers e schemas das tools de leitura
 │   │   ├── tools_write.go        handlers e schemas das tools de escrita
 │   │   ├── resources.go          exposição de notas como resources gobsidian://
+│   │   ├── uri.go                construção e parsing da URI gobsidian://
 │   │   ├── recover.go            middleware de recuperação de panic
 │   │   └── convert.go            erros de domínio → resultados MCP
+│   │
+│   ├── text/
+│   │   └── normalize.go          normalização de texto — ÚNICA conta usada por
+│   │                             título, alias e chave de citante
 │   │
 │   ├── console/
 │   │   ├── console.go            marcadores e cores da saída de CLI; decide sobre cor por destino
@@ -122,6 +140,10 @@ gobsidian/
 │   │
 │   ├── daemon/
 │   │   ├── daemon.go             laço de aceitação de N conexões sobre um índice
+│   │   ├── log.go                caminho do log e as últimas linhas, para o doctor
+│   │   ├── pidvivo.go            "este PID ainda responde?" — conta única
+│   │   ├── pidvivo_windows.go    OpenProcess + exitTime (build tag windows)
+│   │   ├── pidvivo_unix.go       idem (build tag !windows)
 │   │   ├── lock.go               corrida de inicialização: um daemon por cofre
 │   │   ├── spawn.go              lançamento do processo, e o padrão de ociosidade
 │   │   ├── spawn_windows.go      desanexação do processo (build tag windows)
@@ -130,7 +152,9 @@ gobsidian/
 │   └── doctor/
 │       ├── doctor.go             orquestração das verificações
 │       ├── checks.go             verificações independentes de plataforma
-│       └── checks_windows.go     OneDrive, MAX_PATH, colisão de casing
+│       ├── daemon.go             verificações do runtime do daemon
+│       ├── checks_windows.go     OneDrive, MAX_PATH, colisão de casing
+│       └── checks_other.go       equivalentes vazias (build tag !windows)
 │
 ├── docs/
 │   ├── PRD.md

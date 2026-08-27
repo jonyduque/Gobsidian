@@ -196,6 +196,30 @@ dono.
 
 ---
 
+**Teto de tamanho que não cabe no tipo do índice estoura em silêncio.**
+`limitePosicoes` valia `4_000_000_000`, quase o dobro de `math.MaxInt32`, e os
+índices dentro das fatias que ele dimensiona são `int32` (`termIni`, `postIni`,
+`postPath`). Acima do teto, `int32(kPos)` dá a volta **sem erro**: o cache
+decodifica "com sucesso" e serve as posições de outro termo. A mesma constante
+dimensionava `make([]TokenPosition, totPos)` — 16 bytes cada — em **64 GB** a
+partir de um cabeçalho adulterado, antes de qualquer verificação do corpo.
+Fechado em 2026-08-27 (achado B1). A guarda é de **compilação**: converter uma
+constante negativa para `uint` não compila, então um teto acima de `MaxInt32`
+quebra o build naquela linha. Está no código-fonte, e não num teste, porque
+teste que ninguém rodou não impede o commit.
+
+**Duas funções com o mesmo nome em pacotes diferentes convidam a semânticas
+diferentes.** `writer.DetectEOL` e `vault.DetectEOL` respondiam a mesma pergunta
+por regras distintas: a primeira chamava o arquivo inteiro de CRLF se houvesse
+QUALQUER quebra CRLF, a segunda usa o estilo PREDOMINANTE — e é a resposta da
+segunda que o índice persiste em `Note.EOL`. Um arquivo com uma linha CRLF e mil
+LF era LF para o índice e CRLF para a escrita. As duas concordavam na maioria dos
+arquivos reais, que é o que fez isso sobreviver: **contas que divergem só na
+borda são as que ninguém percebe**. Fechado em 2026-08-27 (achado M14);
+`writer.DetectEOL` delega.
+
+---
+
 ## Watcher
 
 **A falha na raiz da varredura de diretório novo era engolida — a mesma
@@ -308,6 +332,18 @@ quando outro mata por ele.
 
 ---
 
+**Guarda que não pode mudar o resultado parece proteção e não é.** Duas apareceram
+em 2026-08-27, e as duas foram mortas pela prova de mutação, não pela leitura.
+`headingDoLink` nasceu com `if start < 0 { return "" }` para tratar
+`offsetUnknown`: com `start = -1` todo heading tem `Start > -1`, o laço quebra na
+primeira volta e o resultado já é `""`. E a correção do achado P11 prefixava a
+raiz da varredura com `\?\` para alcançar caminhos além de MAX_PATH: o pacote
+`os` do Go já aplica o prefixo sozinho (`fixLongPath`), e `MkdirAll`,
+`WriteFile` e `WalkDir` alcançaram 318 caracteres sem ele. **A mutação é o que
+distingue proteção de decoração** — nos dois casos ela devolveu EXIT=1, "o teste
+passou com a regra mutada", e a leitura seguinte mostrou que a regra não fazia
+nada.
+
 **Comparar duas variantes de desempenho em bateladas sequenciais mede a deriva da
 máquina, não a diferença entre elas.** Em 2026-08-26 isto produziu **dois** números
 errados na mesma sessão, publicados e depois retratados. O segundo dizia que o
@@ -368,6 +404,17 @@ lesse de um caminho que já funcionava (achado B14). A armadilha real é outra e
 continua: **`Raw` não cobre o mesmo trecho que `Start:End`** nas grafias
 Markdown — nelas `Raw` traz só o destino. Quem reescreve deve fatiar por
 `Start:End`; quem casa por `Raw` erra em Markdown.
+
+**Erro de segurança usado como erro genérico ACUSA o cliente.**
+`LinkGraph` e `NoteMetadata` embrulhavam qualquer falha de `ResolvePath` como
+`PATH_OUTSIDE_VAULT`, inclusive nota que simplesmente não existe. O host lê esse
+código como tentativa de escapar do cofre: errar um nome de nota passava a
+acusar quem chamou de algo que ele não fez. Pior, `ResolvePath` **não verifica
+confinamento** — ela só procura no índice —, então o código afirmava algo que a
+função não tinha como saber. Fechado em 2026-08-27 (achado M2) com o sentinela
+`index.ErrPathNotFound` e **uma** função de classificação,
+`service.ErroDeResolucao`: havia seis chamadores e três respostas diferentes
+para a mesma falha.
 
 **Flag booleana ou inteira não distingue "omitida" de "definida com zero".**
 `config.Flags` tem companheiros `ReadOnlySet` e `DebounceMSSet`. **Toda** chamada

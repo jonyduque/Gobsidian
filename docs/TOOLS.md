@@ -161,7 +161,7 @@ Metadados estruturais completos de uma nota, sem o corpo.
 }
 ```
 
-**Retorno.** Sempre `path`, `title` e `hash`. Os demais campos conforme pedido em `include`. `headings` traz nível, texto, slug e offsets — o que permite planejar uma leitura ou uma escrita seletiva antes de fazê-la. `links` distingue wikilink, embed e link Markdown, e marca os não resolvidos. `backlinks` traz origem, o contexto textual ao redor de cada referência (~80 bytes de cada lado, em `context`) e o título da seção da nota de origem em que a referência está (`heading`, vazio quando ela vem antes do primeiro título). O `heading` é derivado dos headings já indexados e não custa espaço no cache; ele existe porque saber *em que seção* a nota cita você costuma decidir mais que prosa adicional, e porque não custa espaço.
+**Retorno.** Sempre `path`, `title` e `hash`. Os demais campos conforme pedido em `include`. `headings` traz nível, texto, slug e offsets — o que permite planejar uma leitura ou uma escrita seletiva antes de fazê-la. `inline_fields` traz os campos `chave:: valor` do corpo, agrupados por chave. `links` distingue wikilink, embed e link Markdown, e marca os não resolvidos. `backlinks` traz origem, o contexto textual ao redor de cada referência (~80 bytes de cada lado, em `context`) e o título da seção da nota de origem em que a referência está (`heading`, vazio quando ela vem antes do primeiro título). O `heading` é derivado dos headings já indexados e não custa espaço no cache; ele existe porque saber *em que seção* a nota cita você costuma decidir mais que prosa adicional, e porque não custa espaço.
 
 Cada entrada de `links` traz `state` com um de três valores, e `via` com a forma pela qual resolveu:
 
@@ -408,6 +408,7 @@ A listagem de resources é paginada e serve o índice em memória. Em cofres gra
 | Código | Significado | Ação sugerida ao cliente |
 |---|---|---|
 | `PATH_OUTSIDE_VAULT` | Caminho resolve para fora do cofre | Corrigir o caminho |
+| | **Não** é devolvido para nota inexistente — esse caso é `NOTE_NOT_FOUND`. O host lê `PATH_OUTSIDE_VAULT` como tentativa de escapar do cofre, e usá-lo para um nome errado acusaria o cliente de algo que ele não fez (achado M2, corrigido em 2026-08-27) | |
 | `NOTE_NOT_FOUND` | Nota inexistente | Verificar com `note_list` |
 | `NOTE_ALREADY_EXISTS` | Destino de criação ou movimentação já existe | Escolher outro caminho ou usar `note_patch` |
 | `AMBIGUOUS_PATH` | Mais de uma nota casa insensível a maiúsculas | Usar o caminho exato listado na mensagem |

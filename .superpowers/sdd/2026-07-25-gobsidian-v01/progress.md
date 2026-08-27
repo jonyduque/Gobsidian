@@ -4416,5 +4416,45 @@ que torna o B11 perigoso.
   óbvio — mas suspeito não é medida. Próximo alvo se RNF-02 voltar a ser
   prioridade nesta escala.
 
-**Os oito altos estão fechados.** Seguem abertos: 14 médios, 14 de desempenho,
-~15 baixos, mais o item do lock de `EnsureStarted` e o teste da tempestade.
+**Task 136 — B1, M2–M5, M14 e os achados de desempenho** (`08e12fc`). Onze
+fechados, **dois rejeitados depois de verificados**.
+- **B1**: `limitePosicoes` valia 4 bilhões, quase o DOBRO de `math.MaxInt32`, e os
+  índices dentro das fatias que ele dimensiona são `int32`. Acima do teto,
+  `int32(kPos)` dá a volta SEM erro e o cache serve posições de outro termo. A
+  mesma constante pedia **64 GB** num `make` disparado pelo cabeçalho. Agora 200
+  milhões, com guarda de **compilação** — constante negativa para `uint` não
+  compila. No código, e não num teste: teste que ninguém rodou não impede commit.
+- **M2**: `PATH_OUTSIDE_VAULT` para nota inexistente é ACUSAÇÃO — o host lê como
+  tentativa de escapar do cofre. E `ResolvePath` nem verifica confinamento.
+  Sentinela `ErrPathNotFound` e uma função de classificação; havia seis chamadores
+  e três respostas para a mesma falha.
+- **M3, M4, M5**: mesmo defeito do A8 — `TOOLS.md` prometia, o código entregava
+  menos. **A suíte inteira passava verde antes**, que é o próprio achado. Em M5,
+  alias e âncora mudam a IDENTIDADE da aresta: duas referências distintas
+  colapsavam numa só, e publicar a âncora de uma seria escolher arbitrariamente.
+- **M14**: `writer.DetectEOL` e `vault.DetectEOL` divergiam na borda — uma linha
+  CRLF em mil LF era LF para o índice e CRLF para a escrita. Contas que divergem
+  só na borda são as que ninguém percebe.
+- **Desempenho, tudo intercalado**: **P6 deu 688×** (47.155 → 68,55 ns/op). **P8
+  (−0,8%) e P10+P13 (dentro do ruído) NÃO são otimizações** — ficam pela forma. O
+  laço quadrático do P8 era real e some dentro de um Build dominado por I/O.
+  **P14 não foi medido em relógio**, e está dito assim.
+- **P14 mexeu em regra de segurança e foi testado como tal**: se `info.Sys()` não
+  trouxesse os dados do Windows, a detecção de somente-nuvem sumiria sem nada
+  falhar e o índice passaria a ABRIR placeholders. Dois testes; o `fs.FileInfo` do
+  `WalkDir` carrega os atributos.
+- **M1 REJEITADO: prescrito ao contrário.** Manda o `note_delete` usar o critério
+  do `note_move`, que reporta só âncora já ausente. No delete a nota some e toda
+  referência ancorada quebra; aplicar esconderia justamente essas.
+- **P11 REJEITADO: premissa falsa.** O `os` do Go já aplica o prefixo de caminho
+  longo — 318 caracteres sem ele. A correção foi escrita e a **mutação a
+  reprovou** (EXIT=1). A metade certa ficou: o descarte silencioso de erro de
+  subárvore virou `SweepResult` com três contagens.
+- **Segunda guarda morta que a mutação mata nesta sessão** (a outra foi
+  `headingDoLink`). Nos dois casos meu primeiro instinto foi consertar a mutação;
+  nos dois ela estava certa. Registrado em `ARMADILHAS.md`.
+
+**Os três críticos e os oito altos estão fechados.** Seguem abertos: **8 médios,
+9 de desempenho, 8 baixos**, mais o item do lock de `EnsureStarted` e o teste da
+tempestade. **P1, P2 e P3 seguem congelados** por decisão do dono, até o baseline
+da Oportunidade 1. Quadro por severidade em `docs/ESTADO.md`.

@@ -2092,3 +2092,46 @@ sessão; o primeiro foi corrigido por acaso, ao trocar de cofre.
 corte de 40 compram o dobro de contexto e não custam tempo mensurável — as três
 variantes ficaram dentro de 14 ms uma da outra, com zero amostras acima do teto.
 O corte para 40 tinha sido decidido sobre a medição retratada acima.
+
+---
+
+## Achados de desempenho de 2026-08-27, medidos e intercalados
+
+Todos com binários construídos lado a lado e **uma rodada de cada por vez** —
+bateladas sequenciais mediram deriva de máquina duas vezes nesta base, e a lição
+está em [`ARMADILHAS.md`](ARMADILHAS.md).
+
+| Achado | O que mudou | Medida | Veredito |
+|---|---|---|---|
+| **P6** | `TotalSize` memorizado contra `generation`, em vez de varrer os dois mapas sob lock a cada chamada | **47.155 → 68,55 ns/op** (n=2000 por rodada) | **688×** |
+| **P8** | `registrarCitantesLocked` sem `slices.Contains` na lista de citantes do alvo | 4,905 → 4,865 s no Build de 8.000 notas com alvo-hub, n=5 intercalado | **−0,8%, dentro do ruído** |
+| **P10 + P13** | Análise dos termos do trecho uma vez, e não por hit; `index.Get` uma vez por resultado, e não duas | 22,28 → 22,10 ms de mediana em `BenchmarkSearchLimit200`, n=8 intercalado | **dentro do ruído** |
+| **P14** | Varredura lê os atributos de nuvem do `fs.FileInfo` que já tem, em vez de um `GetFileAttributes` por entrada | **não medido em relógio** | trabalho removido é certo pelo código |
+
+**P8 e P10/P13 removem trabalho que existia, e o número não os sustenta como
+otimização.** Ficam pela forma — o laço quadrático era real, e o tipo
+`TermosDeTrecho` impede um chamador de perder a expansão por forma reduzida em
+silêncio —, não pela velocidade. Escrever "otimizamos a busca" aqui seria a
+mesma classe de mentira que esta base já corrigiu duas vezes nesta sessão.
+
+**P14 não foi medido em relógio**, e por isso não há número. O que é certo pelo
+código é o trabalho removido: um `GetFileAttributes` por entrada da varredura. O
+efeito onde importa — cofre em OneDrive, onde o syscall é caro — não foi medido.
+
+### Dois achados REJEITADOS depois de verificados
+
+**M1** estava prescrito ao contrário. Ele pedia que `note_delete` adotasse o
+critério de `note_move`, que reporta só âncoras **já** ausentes. No delete a nota
+some, então toda referência ancorada quebra — inclusive as que apontam para
+heading existente. `TOOLS.md` diz que a tool lista o que "passará a ter" links
+quebrados. Aplicar M1 esconderia exatamente as âncoras que quebram por causa do
+delete.
+
+**P11** dizia que a varredura de temporários pulava, em silêncio, subárvores além
+de MAX_PATH por falta do prefixo `\?\`. Sondado: **o pacote `os` do Go aplica o
+prefixo sozinho** (`fixLongPath`) — `MkdirAll`, `WriteFile` e `WalkDir`
+alcançaram 318 caracteres sem ele. A correção chegou a ser escrita e a prova de
+mutação a reprovou. O que P11 acertou, e ficou: a varredura **descartava erro de
+subárvore em silêncio**, então "varri e não achei nada" e "não consegui entrar em
+trinta diretórios" davam a mesma resposta. `SweepResult` passou a carregar as
+três contagens, e o boot as loga.

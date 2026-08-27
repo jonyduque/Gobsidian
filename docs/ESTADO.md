@@ -106,6 +106,30 @@ nos três sistemas; build tag só para o caminho do socket e a limpeza.
 
 ---
 
+## Estado dos achados da auditoria de 2026-08-25
+
+`docs/SUGESTOES.md` levantou 61 achados. Em 2026-08-27 o quadro é:
+
+| Severidade | Fechados | Abertos |
+|---|---|---|
+| Críticos | 3 de 3 | — |
+| Altos | 8 de 8 | — |
+| Médios | 7 (M2–M5, M7, M14, M15, M17) | 8 |
+| Desempenho | 5 (P5, P6, P8, P10, P13, P14) | 9 |
+| Baixos | 8 (B5, B6, B7, B9, B11, B14, B17, B1) | 8 |
+
+Dois foram **rejeitados depois de verificados**, e a verificação é o registro que
+importa: **M1** estava prescrito ao contrário, e **P11** partia de uma premissa
+falsa sobre MAX_PATH no Go. Os dois estão em [`OPERACAO.md`](OPERACAO.md) com a
+sondagem que os derrubou. **P1, P2 e P3** seguem congelados por decisão do dono,
+até existir o baseline da Oportunidade 1.
+
+A seção de achados do próprio `SUGESTOES.md` **não foi reescrita** e tem aviso no
+topo: riscar dezenas de itens a mão é edição em que um fica para trás, e achado
+marcado como fechado sem ter sido é pior que o contrário. O ledger é a fonte.
+
+---
+
 ## Formato de cache
 
 **O formato do cache de busca é o 6, e não é `gob`** (formato 5 em 2026-08-03/04;

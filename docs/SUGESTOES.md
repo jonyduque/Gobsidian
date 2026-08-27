@@ -6,17 +6,29 @@ seis frentes paralelas de leitura por subsistema (`cmd`/`lifecycle`/`daemon`/`ip
 `service`/`mcpsrv`, `parser`/`watcher`), com verificação cruzada dos achados de maior
 severidade contra o fonte. **Nenhum código foi alterado.**
 
-> **Estado em 2026-08-26: a seção de achados abaixo está DESATUALIZADA e não foi
-> reescrita.** Ela ainda descreve C1–C3, A1–A8, M7, M15, M17, P5, B5, B6, B7, B9,
-> B11, B14 e B17 como abertos; **todos foram fechados** nas Tasks 128–135, ou
-> decididos pelo dono. Quem quiser o estado real consulte o ledger em
-> `.superpowers/sdd/2026-07-25-gobsidian-v01/progress.md`, que é a fonte, e
-> `docs/ESTADO.md` para as medições.
+> **Estado em 2026-08-27: a seção de achados abaixo está DESATUALIZADA e não foi
+> reescrita.** Ela ainda descreve como abertos: C1–C3, A1–A8, B1, M2–M5, M7, M14,
+> M15, M17, P5, P6, P8, P10, P13, P14, B5, B6, B7, B9, B11, B14 e B17. **Todos
+> foram fechados** nas Tasks 128–136, ou decididos pelo dono.
 >
-> O aviso está aqui em vez de a seção ter sido reescrita porque riscar 17 achados
-> a mão é o tipo de edição em que um fica para trás — e um achado marcado como
-> fechado sem ter sido é pior que um marcado como aberto tendo sido. Continuam
-> **abertos e válidos**: 14 médios, 15 de desempenho e 10 baixos.
+> Dois foram **REJEITADOS depois de verificados**, e isso importa mais que o
+> fechamento: **M1** está prescrito ao contrário — pede que `note_delete` adote o
+> critério de `note_move`, o que esconderia justamente as âncoras que quebram por
+> causa do delete. **P11** parte de premissa falsa: o pacote `os` do Go já aplica
+> o prefixo de caminho longo sozinho, e a correção foi reprovada pela prova de mutação. Os
+> dois estão detalhados em `docs/OPERACAO.md`.
+>
+> **P1, P2 e P3 seguem congelados** por decisão do dono, até existir o baseline da
+> Oportunidade 1.
+>
+> Quem quiser o estado real consulte o ledger em
+> `.superpowers/sdd/2026-07-25-gobsidian-v01/progress.md`, que é a fonte, e
+> `docs/ESTADO.md` para o quadro por severidade e as medições.
+>
+> O aviso está aqui em vez de a seção ter sido reescrita porque riscar dezenas de
+> achados a mão é o tipo de edição em que um fica para trás — e um achado marcado
+> como fechado sem ter sido é pior que um marcado como aberto tendo sido.
+> Continuam **abertos e válidos**: 8 médios, 9 de desempenho e 8 baixos.
 
 - Base da análise: HEAD `1cbb007` (merge Task 106).
 - **Nada aqui é número medido.** Nenhum build, teste ou benchmark rodou nesta auditoria.
@@ -223,7 +235,7 @@ campo direto ao host: "campo de API com valor fixo mente sempre" — o `alias_co
 
 ### Médios — bugs e contratos
 
-**M1 · `note_delete` reporta âncoras quebradas falsas** · Falha-de-contrato · CONFIRMADO
+**M1 · `note_delete` reporta âncoras quebradas falsas** · Falha-de-contrato · **REJEITADO em 2026-08-27: prescrito ao contrário.** Ele manda `note_delete` adotar o critério de `note_move` (`write.go:479`), que reporta só âncoras **já** ausentes. No move a nota sobrevive com os headings; no delete ela some, e toda referência ancorada quebra — inclusive as que apontam para heading existente. `TOOLS.md` diz que a tool lista o que "passará a ter" links quebrados. Aplicar isto esconderia exatamente as âncoras que quebram por causa do delete.
 `write.go:693-704` coleta qualquer link com âncora SEM checar estado; o critério certo
 está no mesmo arquivo (`write.go:479`: `rl.State == index.LinkAnchorMissing`). Âncoras
 existentes entram em `broken_anchors` — informação que o contrato diz mudar a decisão.
@@ -387,7 +399,7 @@ todas as candidatas, serializado.
 `snippet.go:78` dentro do laço; `rawTerms` já vem analisado de `Search`
 (`service/search.go:168`). Memoizar uma vez por busca ou aceitar tokens prontos.
 
-**P11 · `SweepStaleTempFiles` varre sem prefixo LongPath e pula diretórios profundos em silêncio**
+**P11 · `SweepStaleTempFiles` varre sem prefixo LongPath e pula diretórios profundos em silêncio** — **REJEITADO em 2026-08-27: a premissa é falsa.** O pacote `os` do Go aplica o prefixo de caminho longo sozinho (`fixLongPath`), e `MkdirAll`, `WriteFile` e `WalkDir` alcançaram 318 caracteres sem ele. A correção foi escrita e a prova de mutação a reprovou. A metade que estava certa — descarte silencioso de erro de subárvore — foi corrigida. Ver `docs/OPERACAO.md`.
 CONFIRMADO (alcance depende do cofre) · `writer/atomic.go:57,69`; chamador
 `servico.go:80` passa root cru. Contraste: `vault.Walk` usa `walkRoot` prefixado.
 Além do limiar Win32, o sweep "sucede" sem descer — temporários órfãos sobrevivem lá
