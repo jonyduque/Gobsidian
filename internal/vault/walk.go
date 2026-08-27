@@ -200,11 +200,15 @@ func (v *Vault) Walk(ctx context.Context, fn func(Entry) error) error {
 		}
 
 		return fn(Entry{
-			Path:      canon,
-			Size:      info.Size(),
-			ModTime:   info.ModTime(),
-			IsNote:    isNote,
-			CloudOnly: IsCloudOnly(abs),
+			Path:    canon,
+			Size:    info.Size(),
+			ModTime: info.ModTime(),
+			IsNote:  isNote,
+			// IsCloudOnlyInfo, e nao IsCloudOnly(abs): info ja esta em maos
+			// e no Windows ela ja carrega os atributos, entao consultar o
+			// caminho de novo seria um syscall por entrada da varredura
+			// (achado P14).
+			CloudOnly: IsCloudOnlyInfo(info),
 		})
 	})
 }

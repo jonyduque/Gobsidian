@@ -39,6 +39,21 @@ func CleanStaleTempFiles(dir string) {
 	}
 }
 
+// SweepResult e o que a varredura de temporarios encontrou.
+//
+// Era um int so — a contagem de removidos — e todo o resto era descartado
+// (achado P11). Uma varredura que nao conseguiu entrar em nenhum diretorio
+// devolvia "0 removidos", indistinguivel de um cofre limpo. Quem chama loga
+// os tres numeros.
+type SweepResult struct {
+	Removidos int
+	// NaoRemovidos conta temporarios encontrados que os.Remove recusou —
+	// tipicamente arquivo travado por outro processo.
+	NaoRemovidos int
+	// Inacessiveis conta subarvores em que a varredura nao conseguiu entrar.
+	Inacessiveis int
+}
+
 // SweepStaleTempFiles remove, do cofre inteiro, os temporarios que escritas
 // interrompidas deixaram, e devolve quantos removeu. Roda no boot, quando
 // nenhuma escrita esta em voo — e por isso nao tem a corrida que CleanStaleTempFiles
@@ -52,8 +67,21 @@ func CleanStaleTempFiles(dir string) {
 // Recebe ctx porque percorrer um cofre grande bloqueia. Erro em subdiretorio
 // nao aborta a varredura: um temporario que nao pudemos remover e lixo, nao
 // motivo para o servidor nao subir.
-func SweepStaleTempFiles(ctx context.Context, root string) (int, error) {
-	removidos := 0
+func SweepStaleTempFiles(ctx context.Context, root string) (SweepResult, error) {
+	var res SweepResult
+
+	// A raiz vai CRUA, e isso esta medido.
+	//
+	// O achado P11 dizia que a varredura pulava diretorios alem de MAX_PATH em
+	// silencio, e que a raiz precisava do prefixo \?\ para os filhos herdarem.
+	// Sondado em 2026-08-27: falso. O pacote os do Go aplica o prefixo sozinho
+	// (fixLongPath), e MkdirAll, WriteFile e WalkDir alcancaram 318 caracteres
+	// sem prefixo nenhum. A prova de mutacao confirmou: trocar por vault.LongPath
+	// — que para raiz curta e identidade, ou seja, o comportamento antigo —
+	// deixou o teste PASSANDO.
+	//
+	// Prefixar aqui seria guarda que nao muda resultado: parece protecao e nao e.
+	// TestSweepAlcancaCaminhoAlemDeMaxPath fixa o alcance real.
 	err := filepath.WalkDir(root, func(caminho string, d os.DirEntry, err error) error {
 		if ctxErr := ctx.Err(); ctxErr != nil {
 			return ctxErr
@@ -66,17 +94,25 @@ func SweepStaleTempFiles(ctx context.Context, root string) (int, error) {
 			if d == nil {
 				return fmt.Errorf("varrendo temporarios em %q: %w", root, err)
 			}
+			// Erro em subarvore continua nao abortando — um temporario que nao
+			// pudemos remover e lixo, nao motivo para o servidor nao subir. Mas
+			// agora ele é CONTADO: "varri e nao achei nada" e "varri e nao
+			// consegui entrar em 30 diretorios" nao podem produzir a mesma
+			// resposta.
+			res.Inacessiveis++
 			return nil
 		}
 		if d.IsDir() || !strings.HasPrefix(d.Name(), TempFilePrefix) {
 			return nil
 		}
 		if os.Remove(caminho) == nil {
-			removidos++
+			res.Removidos++
+		} else {
+			res.NaoRemovidos++
 		}
 		return nil
 	})
-	return removidos, err
+	return res, err
 }
 
 // WriteAtomic escreve os dados fornecidos no caminho de destino de forma atomica:

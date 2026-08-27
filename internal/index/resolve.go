@@ -13,6 +13,19 @@ import (
 // seria pior: o cliente leria a nota errada acreditando ter lido a certa.
 var ErrAmbiguousPath = errors.New("ambiguous path")
 
+// ErrPathNotFound sinaliza que a entrada nao casou com nota nem anexo nenhum.
+//
+// Era um errors.New("not found") anonimo ate 2026-08-27 (achado M2). Sem
+// sentinela o chamador nao tinha como distinguir "nao existe" de qualquer outra
+// falha, e dois deles — LinkGraph e NoteMetadata — respondiam
+// PATH_OUTSIDE_VAULT para nota inexistente. O host le esse codigo como
+// "tentativa de sair do cofre", que e um erro de SEGURANCA: a resposta acusava
+// o cliente de algo que ele nao fez.
+//
+// ResolvePath NAO verifica confinamento — ela so procura no indice. Entao
+// "nao encontrado" e a unica coisa que ela pode afirmar aqui.
+var ErrPathNotFound = errors.New("path not found")
+
 // nomeChave normaliza um alvo de link — ou um nome derivado de caminho ou
 // alias — para a chave usada no indice reverso citantesPorNome. Toma so o
 // ultimo segmento do caminho, sem sufixo .md, em minusculas.
@@ -278,7 +291,7 @@ func (ix *Index) ResolvePath(input string) (vault.CanonicalPath, error) {
 	}
 
 	if len(matches) == 0 {
-		return "", errors.New("not found")
+		return "", ErrPathNotFound
 	}
 
 	if len(matches) > 1 {

@@ -29,6 +29,16 @@ type GraphRequest struct {
 type GraphNode struct {
 	Path  string `json:"path"`
 	Title string `json:"title,omitempty"`
+	// Distance e a distancia em saltos ate a nota de origem da consulta.
+	//
+	// Prometida em docs/TOOLS.md e ausente ate 2026-08-27 (achado M5). Sem ela
+	// o grafo devolve um conjunto de nos sem forma: quem recebe nao distingue
+	// vizinho direto de no a tres saltos, que costuma ser a unica coisa que a
+	// resposta precisava dizer.
+	//
+	// A travessia e em largura, entao a primeira vez que um no e retirado da
+	// fila JA e pela rota mais curta — o valor nao precisa de relaxamento.
+	Distance int `json:"distance"`
 }
 
 // GraphEdge e um link resolvido, da origem para o alvo.
@@ -36,6 +46,32 @@ type GraphEdge struct {
 	Source string `json:"source"`
 	Target string `json:"target"`
 	Kind   string `json:"kind,omitempty"`
+	// Alias e Anchor sao a grafia da referencia. Prometidos em docs/TOOLS.md e
+	// ausentes ate 2026-08-27 (achado M5).
+	//
+	// Eles tambem mudam a IDENTIDADE da aresta: A->B#Prescricao e
+	// A->B#Honorarios sao referencias diferentes. Ate esta data a chave de
+	// deduplicacao era so origem+destino, entao as duas colapsavam numa
+	// aresta so — e publicar a ancora de uma delas seria escolher arbitraria-
+	// mente qual das duas contar. A chave passou a incluir tipo, alias e
+	// ancora.
+	Alias  string `json:"alias,omitempty"`
+	Anchor string `json:"anchor,omitempty"`
+	// Resolved diz se a referencia encontrou alvo no cofre. Falso so aparece
+	// com include_broken, que e o unico caminho que produz aresta nao resolvida.
+	Resolved bool `json:"resolved"`
+}
+
+// chaveDaAresta e a identidade de uma aresta do grafo. Uma funcao so, porque os
+// tres pontos que inserem em edgesMap tem de concordar: dois deles montavam a
+// chave a mao e o terceiro tambem, e bastava um esquecer a ancora para arestas
+// distintas colapsarem em silencio.
+func chaveDaAresta(e GraphEdge) string {
+	// %q em cada parte, e nao um separador escolhido a dedo: qualquer
+	// separador literal pode aparecer DENTRO de um alias ou de uma ancora, e
+	// ai duas arestas diferentes produzem a mesma chave. A citacao resolve
+	// isso sem depender de suposicao sobre o conteudo.
+	return fmt.Sprintf("%q|%q|%q|%q|%q", e.Source, e.Target, e.Kind, e.Alias, e.Anchor)
 }
 
 // GraphResult e o retorno de link_graph.
@@ -74,7 +110,7 @@ func (s *Service) LinkGraph(_ context.Context, req GraphRequest) (GraphResult, e
 
 	startPath, err := s.index.ResolvePath(req.Path)
 	if err != nil {
-		return GraphResult{}, Wrap(CodePathOutsideVault, err, "resolving root path")
+		return GraphResult{}, ErroDeResolucao(req.Path, err)
 	}
 
 	nodesMap := make(map[vault.CanonicalPath]GraphNode)
@@ -99,11 +135,11 @@ func (s *Service) LinkGraph(_ context.Context, req GraphRequest) (GraphResult, e
 
 		n, ok := s.index.Get(curr.Path)
 		if !ok {
-			nodesMap[curr.Path] = GraphNode{Path: string(curr.Path)}
+			nodesMap[curr.Path] = GraphNode{Path: string(curr.Path), Distance: curr.Depth}
 			continue
 		}
 
-		nodesMap[curr.Path] = GraphNode{Path: string(curr.Path), Title: n.Title}
+		nodesMap[curr.Path] = GraphNode{Path: string(curr.Path), Title: n.Title, Distance: curr.Depth}
 
 		if curr.Depth >= depth {
 			continue
@@ -117,8 +153,15 @@ func (s *Service) LinkGraph(_ context.Context, req GraphRequest) (GraphResult, e
 
 				if link.State == index.LinkOK || link.State == index.LinkAnchorMissing {
 					if link.Resolved != "" {
-						edgeID := string(curr.Path) + "->" + string(link.Resolved)
-						edgesMap[edgeID] = GraphEdge{Source: string(curr.Path), Target: string(link.Resolved), Kind: link.Kind.String()}
+						a := GraphEdge{
+							Source:   string(curr.Path),
+							Target:   string(link.Resolved),
+							Kind:     link.Kind.String(),
+							Alias:    link.Alias,
+							Anchor:   link.Anchor,
+							Resolved: true,
+						}
+						edgesMap[chaveDaAresta(a)] = a
 
 						if !visited[link.Resolved] && len(nodesMap)+len(queue) < limit {
 							queue = append(queue, queueItem{Path: link.Resolved, Depth: curr.Depth + 1})
@@ -130,9 +173,22 @@ func (s *Service) LinkGraph(_ context.Context, req GraphRequest) (GraphResult, e
 						targetPath = link.Target
 					}
 					if targetPath != "" {
-						edgeID := string(curr.Path) + "->" + targetPath
-						edgesMap[edgeID] = GraphEdge{Source: string(curr.Path), Target: targetPath, Kind: link.Kind.String()}
-						nodesMap[vault.CanonicalPath(targetPath)] = GraphNode{Path: targetPath}
+						a := GraphEdge{
+							Source: string(curr.Path),
+							Target: targetPath,
+							Kind:   link.Kind.String(),
+							Alias:  link.Alias,
+							Anchor: link.Anchor,
+							// Resolved falso de proposito: este ramo E o do
+							// alvo inexistente. Um no criado aqui nunca entra
+							// na fila, entao ele fica a curr.Depth+1 e nao
+							// ganha distancia menor depois.
+							Resolved: false,
+						}
+						edgesMap[chaveDaAresta(a)] = a
+						if _, ja := nodesMap[vault.CanonicalPath(targetPath)]; !ja {
+							nodesMap[vault.CanonicalPath(targetPath)] = GraphNode{Path: targetPath, Distance: curr.Depth + 1}
+						}
 					}
 				}
 			}
@@ -144,8 +200,17 @@ func (s *Service) LinkGraph(_ context.Context, req GraphRequest) (GraphResult, e
 					continue
 				}
 
-				edgeID := string(bl.From) + "->" + string(curr.Path)
-				edgesMap[edgeID] = GraphEdge{Source: string(bl.From), Target: string(curr.Path), Kind: bl.Kind.String()}
+				// Backlink so existe para link que resolveu, entao Resolved e
+				// sempre verdadeiro neste ramo.
+				a := GraphEdge{
+					Source:   string(bl.From),
+					Target:   string(curr.Path),
+					Kind:     bl.Kind.String(),
+					Alias:    bl.Alias,
+					Anchor:   bl.Anchor,
+					Resolved: true,
+				}
+				edgesMap[chaveDaAresta(a)] = a
 
 				if !visited[bl.From] && len(nodesMap)+len(queue) < limit {
 					queue = append(queue, queueItem{Path: bl.From, Depth: curr.Depth + 1})
@@ -439,17 +504,30 @@ type MetadataRequest struct {
 
 // MetadataResult e tudo o que o indice sabe de uma nota sem ler o disco.
 type MetadataResult struct {
-	Path           string               `json:"path"`
-	Title          string               `json:"title"`
-	Hash           string               `json:"hash"`
-	Frontmatter    map[string]any       `json:"frontmatter,omitempty"`
-	FrontmatterErr string               `json:"frontmatter_err,omitempty"`
-	Tags           []string             `json:"tags,omitempty"`
-	Aliases        []string             `json:"aliases,omitempty"`
-	Headings       []string             `json:"headings,omitempty"`
-	Blocks         []string             `json:"blocks,omitempty"`
-	Links          []index.ResolvedLink `json:"links,omitempty"`
-	Backlinks      []index.Backlink     `json:"backlinks,omitempty"`
+	Path           string         `json:"path"`
+	Title          string         `json:"title"`
+	Hash           string         `json:"hash"`
+	Frontmatter    map[string]any `json:"frontmatter,omitempty"`
+	FrontmatterErr string         `json:"frontmatter_err,omitempty"`
+	Tags           []string       `json:"tags,omitempty"`
+	Aliases        []string       `json:"aliases,omitempty"`
+	// Headings traz nivel, texto, slug e offsets — nao so o texto.
+	//
+	// Era []string ate 2026-08-27 (achado M3), enquanto docs/TOOLS.md prometia
+	// "nivel, texto, slug e offsets — o que permite planejar uma leitura ou uma
+	// escrita seletiva antes de faze-la". Sem o slug nao da para montar a
+	// ancora; sem os offsets nao da para planejar leitura seletiva. O campo
+	// existia e respondia menos do que o contrato dizia, que e a mesma classe do
+	// achado A8.
+	Headings  []parser.Heading     `json:"headings,omitempty"`
+	Blocks    []string             `json:"blocks,omitempty"`
+	Links     []index.ResolvedLink `json:"links,omitempty"`
+	Backlinks []index.Backlink     `json:"backlinks,omitempty"`
+	// InlineFields atende o valor "inline_fields" do enum de include, que era
+	// aceito pelo schema e descartado pelo codigo (achado M4). Schema que
+	// promete e codigo que ignora e pior que parametro ausente: o modelo do
+	// outro lado le o schema para decidir o que pedir.
+	InlineFields map[string][]string `json:"inline_fields,omitempty"`
 }
 
 // NoteMetadata devolve tudo o que o indice sabe de uma nota sem abrir o
@@ -460,7 +538,7 @@ func (s *Service) NoteMetadata(_ context.Context, req MetadataRequest) (Metadata
 	}
 	cp, err := s.index.ResolvePath(req.Path)
 	if err != nil {
-		return MetadataResult{}, Wrap(CodePathOutsideVault, err, "resolving path")
+		return MetadataResult{}, ErroDeResolucao(req.Path, err)
 	}
 	n, ok := s.index.Get(cp)
 	if !ok {
@@ -495,11 +573,7 @@ func (s *Service) NoteMetadata(_ context.Context, req MetadataRequest) (Metadata
 		res.Tags = n.Tags
 	}
 	if includeSet["headings"] {
-		headings := make([]string, len(n.Headings))
-		for i, h := range n.Headings {
-			headings[i] = h.Text
-		}
-		res.Headings = headings
+		res.Headings = n.Headings
 	}
 	if includeSet["blocks"] {
 		blocks := make([]string, len(n.Blocks))
@@ -513,6 +587,9 @@ func (s *Service) NoteMetadata(_ context.Context, req MetadataRequest) (Metadata
 	}
 	if includeSet["backlinks"] {
 		res.Backlinks = s.index.Backlinks(cp)
+	}
+	if includeSet["inline_fields"] {
+		res.InlineFields = n.Inline
 	}
 
 	return res, nil

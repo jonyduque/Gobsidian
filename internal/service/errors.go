@@ -6,6 +6,9 @@ package service
 import (
 	"errors"
 	"fmt"
+	"strings"
+
+	"github.com/jonyd/gobsidian/internal/index"
 )
 
 // Code e o codigo legivel por maquina devolvido ao cliente. A tabela completa
@@ -94,3 +97,32 @@ func CodeOf(err error) Code {
 }
 
 func sprintf(format string, args ...any) string { return fmt.Sprintf(format, args...) }
+
+// ErroDeResolucao traduz a falha de index.ResolvePath no erro de tool certo.
+//
+// É a ÚNICA função que faz essa classificação. Havia seis chamadores e três
+// respostas diferentes para a mesma falha: `read.go` distinguia ambiguidade,
+// `../` e não-encontrado; `write.go` distinguia ambiguidade e devolvia
+// `NOTE_NOT_FOUND` para o resto; e `graph.go` respondia `PATH_OUTSIDE_VAULT`
+// para tudo, inclusive nota inexistente (achado M2).
+//
+// O terceiro caso não é só inconsistência: `PATH_OUTSIDE_VAULT` é um erro de
+// SEGURANÇA, e o host o lê como tentativa de escapar do cofre. Errar um nome de
+// nota passava a acusar o cliente de algo que ele não fez.
+//
+// `ResolvePath` não verifica confinamento — só procura no índice —, então
+// "não encontrado" é a única coisa que ela pode afirmar. O `../` continua sendo
+// classificado à parte porque é sinal útil para quem depura, e porque perdê-lo
+// tornaria a mensagem menos informativa do que já era; mas ele é uma heurística
+// sobre o TEXTO da entrada, e não um veredito de confinamento. A guarda de
+// verdade mora em `internal/vault`.
+func ErroDeResolucao(entrada string, err error) error {
+	switch {
+	case errors.Is(err, index.ErrAmbiguousPath):
+		return Errorf(CodeAmbiguousPath, "caminho %q resolve para mais de um arquivo", entrada)
+	case strings.Contains(entrada, "../"):
+		return Errorf(CodePathOutsideVault, "caminho %q sai do cofre", entrada)
+	default:
+		return Errorf(CodeNoteNotFound, "nota %q nao encontrada no indice", entrada)
+	}
+}

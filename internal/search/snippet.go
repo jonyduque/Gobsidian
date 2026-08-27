@@ -23,13 +23,48 @@ type Snippet struct {
 	MatchedHeading string
 }
 
+// TermosDeTrecho e a lista de termos da consulta JA analisada e expandida.
+//
+// E um tipo, e nao um []string, de proposito. GenerateSnippet analisava os
+// termos por HIT: com limit=200 e tres palavras, 600 chamadas a Analyze por
+// busca produzindo sempre o mesmo resultado (achado P10). Tirar o Analyze de
+// dentro resolveria isso, mas passar a esperar um []string ja expandido faria
+// um chamador desavisado — que passasse os termos crus — perder a expansao por
+// forma reduzida em SILENCIO, trocando custo por resultado pior.
+//
+// O tipo obriga a construcao a passar por NovosTermosDeTrecho, que e a unica
+// conta da expansao.
+type TermosDeTrecho struct {
+	termos []string
+}
+
+// NovosTermosDeTrecho analisa e expande os termos uma vez so.
+//
+// Cada termo vira a forma crua e, quando diferente, a forma reduzida — a mesma
+// expansao que acontecia dentro do laco por hit.
+func NovosTermosDeTrecho(queryTerms []string) TermosDeTrecho {
+	var out []string
+	for _, termStr := range queryTerms {
+		for _, tok := range Analyze(termStr) {
+			out = append(out, tok.Raw)
+			if tok.Reduced != "" && tok.Reduced != tok.Raw {
+				out = append(out, tok.Reduced)
+			}
+		}
+	}
+	return TermosDeTrecho{termos: out}
+}
+
+// Vazio diz se nao ha termo nenhum para procurar.
+func (t TermosDeTrecho) Vazio() bool { return len(t.termos) == 0 }
+
 // GenerateSnippet recorta do disco o trecho em volta das ocorrências dos termos de busca.
 //
 // cache pode ser nil, e nil é o caminho sem cache — é o que o benchmark frio
 // mede e o que o RNF-04 cobra. Só é cacheada a nota que está no índice de
 // metadados: sem o hash dela não existe chave de invalidação, e servir bytes
 // velhos com confiança é pior que reler o disco.
-func GenerateSnippet(ctx context.Context, v *vault.Vault, ix *Inverted, idx *index.Index, path string, queryTerms []string, maxChars int, cache *SnippetCache) (Snippet, error) {
+func GenerateSnippet(ctx context.Context, v *vault.Vault, ix *Inverted, idx *index.Index, path string, queryTerms TermosDeTrecho, maxChars int, cache *SnippetCache) (Snippet, error) {
 	if maxChars <= 0 {
 		maxChars = DefaultSnippetChars
 	}
@@ -61,7 +96,7 @@ func GenerateSnippet(ctx context.Context, v *vault.Vault, ix *Inverted, idx *ind
 		}
 	}
 
-	if ix == nil || len(queryTerms) == 0 {
+	if ix == nil || queryTerms.Vazio() {
 		return Snippet{}, nil
 	}
 
@@ -74,30 +109,16 @@ func GenerateSnippet(ctx context.Context, v *vault.Vault, ix *Inverted, idx *ind
 
 	var bestMatch *matchPos
 
-	for _, termStr := range queryTerms {
-		toks := Analyze(termStr)
-		for _, tok := range toks {
-			termsToSearch := []string{tok.Raw}
-			if tok.Reduced != "" && tok.Reduced != tok.Raw {
-				termsToSearch = append(termsToSearch, tok.Reduced)
+	// A analise e a expansao ja aconteceram uma vez, em NovosTermosDeTrecho.
+	// Aqui sobra so a consulta ao indice.
+	for _, t := range queryTerms.termos {
+		posicoes := ix.Positions(t, string(cPath))
+		if len(posicoes) > 0 {
+			bestMatch = &matchPos{
+				term:  t,
+				start: posicoes[0].Start,
+				end:   posicoes[0].End,
 			}
-
-			for _, t := range termsToSearch {
-				posicoes := ix.Positions(t, string(cPath))
-				if len(posicoes) > 0 {
-					bestMatch = &matchPos{
-						term:  t,
-						start: posicoes[0].Start,
-						end:   posicoes[0].End,
-					}
-					break
-				}
-			}
-			if bestMatch != nil {
-				break
-			}
-		}
-		if bestMatch != nil {
 			break
 		}
 	}

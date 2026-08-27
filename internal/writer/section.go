@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/jonyd/gobsidian/internal/parser"
+	"github.com/jonyd/gobsidian/internal/vault"
 )
 
 // HeadingNotFoundError indica que o heading especificado nao foi encontrado na nota.
@@ -32,11 +33,21 @@ func (e *AmbiguousHeadingError) Error() string {
 }
 
 // DetectEOL identifica se o buffer utiliza CRLF (\r\n) ou LF (\n).
+//
+// Delega para vault.DetectEOL, que e a UNICA conta de EOL do projeto.
+//
+// Ate 2026-08-27 esta funcao tinha regra propria — QUALQUER "\r\n" no arquivo
+// bastava para chamar o arquivo inteiro de CRLF —, enquanto vault.DetectEOL usa
+// o estilo PREDOMINANTE, e e a resposta dela que o indice persiste em Note.EOL.
+// Um arquivo com uma linha CRLF e mil LF era LF para o indice e CRLF para a
+// escrita: a edicao de secao gravava CRLF num arquivo que o resto do sistema
+// tratava como LF. Achado M14; e a mesma classe do bug que este projeto ja
+// pagou caro, duas contas do mesmo fato concordando por coincidencia.
+//
+// A assinatura continua devolvendo string porque os cinco chamadores concatenam
+// o resultado em texto; vault.EOLStyle.Bytes() ja e a conversao unica.
 func DetectEOL(content []byte) string {
-	if bytes.Contains(content, []byte("\r\n")) {
-		return "\r\n"
-	}
-	return "\n"
+	return string(vault.DetectEOL(content).Bytes())
 }
 
 // NormalizeEOL normaliza o texto fornecido para a convencao de EOL alvo (\r\n ou \n).

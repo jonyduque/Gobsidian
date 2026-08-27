@@ -3,11 +3,9 @@ package service
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"strings"
 
-	"github.com/jonyd/gobsidian/internal/index"
 	"github.com/jonyd/gobsidian/internal/parser"
 )
 
@@ -158,13 +156,7 @@ func (s *Service) ReadNote(ctx context.Context, req ReadRequest) (ReadResult, er
 
 	canonical, err := s.index.ResolvePath(req.Path)
 	if err != nil {
-		if errors.Is(err, index.ErrAmbiguousPath) {
-			return ReadResult{}, Errorf(CodeAmbiguousPath, "caminho %q resolve para mais de um arquivo", req.Path)
-		}
-		if strings.Contains(req.Path, "../") {
-			return ReadResult{}, Errorf(CodePathOutsideVault, "caminho %q fora do cofre", req.Path)
-		}
-		return ReadResult{}, Errorf(CodeNoteNotFound, "nota %q nao encontrada no indice", req.Path)
+		return ReadResult{}, ErroDeResolucao(req.Path, err)
 	}
 
 	note, ok := s.index.Get(canonical)

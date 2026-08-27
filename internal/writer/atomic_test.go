@@ -171,14 +171,18 @@ func TestRNF11NoCorruptionUnder1000Crashes(t *testing.T) {
 		mu.Unlock()
 
 		// t.Fatalf so pode ser chamado da goroutine do teste; aqui e Errorf.
-		removidos, err := writer.SweepStaleTempFiles(context.Background(), dir)
+		varr, err := writer.SweepStaleTempFiles(context.Background(), dir)
 		if err != nil {
 			t.Errorf("iteracao %d: SweepStaleTempFiles: %v", i, err)
 			return
 		}
-		if removidos != len(antesDaVarredura) {
+		if varr.Removidos != len(antesDaVarredura) {
 			t.Errorf("iteracao %d: varredura removeu %d de %d temporarios",
-				i, removidos, len(antesDaVarredura))
+				i, varr.Removidos, len(antesDaVarredura))
+		}
+		if varr.Inacessiveis != 0 {
+			t.Errorf("iteracao %d: %d subarvores inacessiveis num diretorio temporario do teste",
+				i, varr.Inacessiveis)
 		}
 		if sobras, _ := filepath.Glob(filepath.Join(dir, writer.TempFilePrefix+"*")); len(sobras) > 0 {
 			t.Errorf("iteracao %d: temporario sobrou DEPOIS da varredura: %v", i, sobras)

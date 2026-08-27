@@ -34,6 +34,14 @@ type Index struct {
 	// nunca conserta o link, porque nada dispara o reprocessamento dele.
 	citantesPorNome map[string][]vault.CanonicalPath
 
+	// tamanho* memorizam TotalSize contra a geracao em que foi calculado.
+	// tamanhoValido distingue "nunca calculado" de "calculado e deu zero" —
+	// cofre vazio e cofre nao medido nao podem dar a mesma resposta, que e a
+	// mesma razao de config.Flags ter os companheiros *Set.
+	tamanhoTotal   int64
+	tamanhoGeracao uint64
+	tamanhoValido  bool
+
 	generation uint64
 }
 
@@ -79,9 +87,31 @@ func (ix *Index) AssetCount() int {
 }
 
 // TotalSize soma os tamanhos de notas e anexos, em bytes.
+//
+// O resultado e memorizado contra a geracao do indice: enquanto nada mudar, a
+// soma nao e refeita. Ate 2026-08-27 ela varria os dois mapas inteiros a CADA
+// chamada, com o RLock tomado durante toda a varredura (achado P6) — num cofre
+// de 5.686 notas, dezenas de milhares de somas para devolver um numero que so
+// muda quando o indice muda.
+//
+// A memorizacao usa `generation`, que ja existe e ja conta toda mutacao, em vez
+// de um total atualizado em cada insert e cada remocao. A segunda forma seria
+// mais rapida e teria de ser mantida em cinco lugares — e o quinto e o que
+// esquece. Aqui ha uma conta so, e ela e invalidada por algo que o proprio
+// indice ja mantem.
+//
+// O lock e o de ESCRITA porque o acerto grava os campos memorizados. Trocar por
+// RLock e gravar assim mesmo seria corrida de dados sob um nome tranquilizador.
 func (ix *Index) TotalSize() int64 {
-	ix.mu.RLock()
-	defer ix.mu.RUnlock()
+	geracao := atomic.LoadUint64(&ix.generation)
+
+	ix.mu.Lock()
+	defer ix.mu.Unlock()
+
+	if ix.tamanhoValido && ix.tamanhoGeracao == geracao {
+		return ix.tamanhoTotal
+	}
+
 	var total int64
 	for _, n := range ix.notes {
 		total += n.Size
@@ -89,6 +119,10 @@ func (ix *Index) TotalSize() int64 {
 	for _, a := range ix.assets {
 		total += a.Size
 	}
+
+	ix.tamanhoTotal = total
+	ix.tamanhoGeracao = geracao
+	ix.tamanhoValido = true
 	return total
 }
 

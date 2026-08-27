@@ -77,10 +77,16 @@ func construirServico(ctx context.Context, cfg config.Config, log *slog.Logger) 
 	// escrita em voo, entao e o unico lugar onde varrer o diretorio nao
 	// corre risco de apagar o temporario de outra escrita. Ver
 	// writer.CleanStaleTempFiles.
-	if removidos, err := writer.SweepStaleTempFiles(ctx, cfg.VaultPath); err != nil {
+	if varr, err := writer.SweepStaleTempFiles(ctx, cfg.VaultPath); err != nil {
 		log.Warn("varredura de temporarios interrompida", "err", err)
-	} else if removidos > 0 {
-		log.Warn("temporarios de escritas interrompidas removidos", "count", removidos)
+	} else if varr.Removidos > 0 || varr.NaoRemovidos > 0 || varr.Inacessiveis > 0 {
+		// Os tres numeros, e nao so os removidos: "varri e nao achei nada" e
+		// "varri e nao consegui entrar em trinta diretorios" davam a mesma
+		// linha de log — nenhuma (achado P11).
+		log.Warn("varredura de temporarios de escritas interrompidas",
+			"removidos", varr.Removidos,
+			"nao_removidos", varr.NaoRemovidos,
+			"subarvores_inacessiveis", varr.Inacessiveis)
 	}
 
 	// Nem a construcao NEM o carregamento do cache bloqueiam o anuncio das

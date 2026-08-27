@@ -195,8 +195,23 @@ func (s *Service) Search(ctx context.Context, opts SearchOptions) (SearchResult,
 	// índice inteiro por resultado.
 	porFrontmatter := s.casamFrontmatter(opts)
 
-	// Filtra por pasta, tags, frontmatter e data de modificação
-	var filteredHits []search.Result
+	// A analise e a expansao dos termos do trecho acontecem UMA vez, e nao por
+	// hit: GenerateSnippet chamava Analyze para cada termo dentro de cada
+	// resultado da pagina — com limit=200 e tres palavras, 600 chamadas por
+	// busca produzindo sempre a mesma lista (achado P10).
+	termosDoTrecho := search.NovosTermosDeTrecho(rawTerms)
+
+	// Filtra por pasta, tags, frontmatter e data de modificação.
+	//
+	// A Note vai JUNTO com o hit a partir daqui. Ela já foi buscada para
+	// filtrar, e montaSlot a buscava de novo mais abaixo: dois index.Get por
+	// resultado da página, o segundo pedindo exatamente o que o primeiro já
+	// tinha (achado P13). Cada Get toma o RLock do índice.
+	type hitComNota struct {
+		hit  search.Result
+		note *index.Note
+	}
+	var filteredHits []hitComNota
 	for _, hit := range rawHits {
 		note, ok := s.index.Get(vault.CanonicalPath(hit.Path))
 		if !ok {
@@ -211,7 +226,7 @@ func (s *Service) Search(ctx context.Context, opts SearchOptions) (SearchResult,
 			continue
 		}
 
-		filteredHits = append(filteredHits, hit)
+		filteredHits = append(filteredHits, hitComNota{hit: hit, note: note})
 	}
 
 	total := len(filteredHits)
@@ -248,14 +263,18 @@ func (s *Service) Search(ctx context.Context, opts SearchOptions) (SearchResult,
 	// montaSlot é o ÚNICO lugar que constrói um SearchHit. O caminho sequencial
 	// e o concorrente chamam a mesma função: dois corpos iguais divergem, e a
 	// divergência aparece no caminho menos usado.
-	montaSlot := func(i int, h search.Result) {
-		// A nota pode ter saído do índice entre o filtro e aqui — o watcher roda
-		// em paralelo. Slot não preenchido é descartado no final.
-		note, ok := s.index.Get(vault.CanonicalPath(h.Path))
-		if !ok {
-			return
-		}
-		snip, _ := search.GenerateSnippet(ctx, s.vault, s.inverted, idxImpl, h.Path, rawTerms, opts.SnippetChars, s.trechos)
+	montaSlot := func(i int, hn hitComNota) {
+		h, note := hn.hit, hn.note
+		// A Note vem do filtro, e não de um segundo index.Get.
+		//
+		// O Get daqui existia para tratar a nota que sai do índice entre o
+		// filtro e este ponto, porque o watcher roda em paralelo. Ele NÃO
+		// protegia de nada: `*index.Note` é um ponteiro para uma estrutura já
+		// publicada, então o que o filtro pegou continua válido e legível
+		// mesmo que a nota tenha saído do mapa no instante seguinte. O
+		// resultado é de um instante ligeiramente anterior — que é o que
+		// qualquer busca devolve, com ou sem o segundo Get.
+		snip, _ := search.GenerateSnippet(ctx, s.vault, s.inverted, idxImpl, h.Path, termosDoTrecho, opts.SnippetChars, s.trechos)
 		var matchedHeadings []string
 		if snip.MatchedHeading != "" {
 			matchedHeadings = append(matchedHeadings, snip.MatchedHeading)
@@ -280,7 +299,7 @@ func (s *Service) Search(ctx context.Context, opts SearchOptions) (SearchResult,
 		var wg sync.WaitGroup
 		for i, hit := range pagedHits {
 			wg.Add(1)
-			go func(i int, h search.Result) {
+			go func(i int, h hitComNota) {
 				defer wg.Done()
 				sem <- struct{}{}
 				defer func() { <-sem }()

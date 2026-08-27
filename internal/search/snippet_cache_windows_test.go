@@ -71,7 +71,7 @@ func TestSnippetCacheNaoAbreNotaSomenteNuvem(t *testing.T) {
 	cache := search.NewSnippetCache(16)
 
 	trecho, err := search.GenerateSnippet(context.Background(), v, ix, idx, "nuvem.md",
-		[]string{"alvo"}, 240, cache)
+		search.NovosTermosDeTrecho([]string{"alvo"}), 240, cache)
 	if err != nil {
 		t.Fatalf("GenerateSnippet: %v", err)
 	}

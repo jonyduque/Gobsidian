@@ -49,7 +49,7 @@ func cofreComNota(t *testing.T, nome, conteudo string) (*vault.Vault, *index.Ind
 
 func trechoCom(t *testing.T, v *vault.Vault, ix *search.Inverted, idx *index.Index, nome, termo string, c *search.SnippetCache) search.Snippet {
 	t.Helper()
-	s, err := search.GenerateSnippet(context.Background(), v, ix, idx, nome, []string{termo}, 240, c)
+	s, err := search.GenerateSnippet(context.Background(), v, ix, idx, nome, search.NovosTermosDeTrecho([]string{termo}), 240, c)
 	if err != nil {
 		t.Fatalf("GenerateSnippet: %v", err)
 	}

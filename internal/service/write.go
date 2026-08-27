@@ -161,10 +161,7 @@ func (s *Service) AppendNote(_ context.Context, req AppendNoteRequest) (AppendNo
 
 	canonical, err := s.index.ResolvePath(req.Path)
 	if err != nil {
-		if errors.Is(err, index.ErrAmbiguousPath) {
-			return AppendNoteResult{}, Errorf(CodeAmbiguousPath, "caminho %q e ambiguo", req.Path)
-		}
-		return AppendNoteResult{}, Errorf(CodeNoteNotFound, "nota %q nao encontrada", req.Path)
+		return AppendNoteResult{}, ErroDeResolucao(req.Path, err)
 	}
 
 	note, ok := s.index.Get(canonical)
@@ -267,10 +264,7 @@ func (s *Service) PatchNote(_ context.Context, req PatchNoteRequest) (PatchNoteR
 
 	canonical, err := s.index.ResolvePath(req.Path)
 	if err != nil {
-		if errors.Is(err, index.ErrAmbiguousPath) {
-			return PatchNoteResult{}, Errorf(CodeAmbiguousPath, "caminho %q e ambiguo", req.Path)
-		}
-		return PatchNoteResult{}, Errorf(CodeNoteNotFound, "nota %q nao encontrada", req.Path)
+		return PatchNoteResult{}, ErroDeResolucao(req.Path, err)
 	}
 
 	note, ok := s.index.Get(canonical)
@@ -419,10 +413,7 @@ func (s *Service) MoveNote(_ context.Context, req MoveNoteRequest) (MoveNoteResu
 
 	canonicalFrom, err := s.index.ResolvePath(req.From)
 	if err != nil {
-		if errors.Is(err, index.ErrAmbiguousPath) {
-			return MoveNoteResult{}, Errorf(CodeAmbiguousPath, "caminho de origem %q e ambiguo", req.From)
-		}
-		return MoveNoteResult{}, Errorf(CodeNoteNotFound, "nota de origem %q nao encontrada", req.From)
+		return MoveNoteResult{}, ErroDeResolucao(req.From, err)
 	}
 
 	_, _, err = vault.Resolve(s.vault.Root(), req.To)
@@ -673,10 +664,7 @@ func (s *Service) DeleteNote(_ context.Context, req DeleteNoteRequest) (DeleteNo
 
 	canonical, err := s.index.ResolvePath(req.Path)
 	if err != nil {
-		if errors.Is(err, index.ErrAmbiguousPath) {
-			return DeleteNoteResult{}, Errorf(CodeAmbiguousPath, "caminho %q e ambiguo", req.Path)
-		}
-		return DeleteNoteResult{}, Errorf(CodeNoteNotFound, "nota %q nao encontrada", req.Path)
+		return DeleteNoteResult{}, ErroDeResolucao(req.Path, err)
 	}
 
 	// 1. Calcula o relatorio de links quebrados e ancoras quebradas ANTES de excluir

@@ -5,7 +5,6 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
-	"slices"
 	"strings"
 	"sync/atomic"
 	"time"
@@ -352,15 +351,6 @@ func (ix *Index) mutarNotaLocked(path vault.CanonicalPath, copia **Note) *Note {
 	return &c
 }
 
-// citantesAtuais devolve, sem copiar, a lista ja registrada para um alvo de
-// link — leitura auxiliar de registrarCitantesLocked, com o parametro
-// nomeado diferente de proposito: a prova de mutacao da Task 86 muta a linha
-// de escrita abaixo, e se esta leitura usasse o mesmo texto a ancora casaria
-// duas vezes e mutate.ps1 recusaria por ambiguidade.
-func (ix *Index) citantesAtuais(nome string) []vault.CanonicalPath {
-	return ix.citantesPorNome[nomeChave(nome)]
-}
-
 // registrarCitantesLocked publica os alvos dos links de uma nota no indice
 // reverso citantesPorNome — o que permite, quando outra entrada muda,
 // encontrar so as notas que citam aquele nome sem varrer o cofre inteiro
@@ -371,15 +361,37 @@ func (ix *Index) citantesAtuais(nome string) []vault.CanonicalPath {
 // normalizacao, ou a proxima diverge exatamente como byAlias divergiu —
 // [[STJ]] continuando a resolver, com state=ok, para uma nota ja removida.
 func (ix *Index) registrarCitantesLocked(path vault.CanonicalPath, links []ResolvedLink) {
+	// A deduplicacao e por CHAVE VISTA NESTA CHAMADA, e nao por varredura da
+	// lista de citantes do alvo.
+	//
+	// Ate 2026-08-27 a linha era `slices.Contains(ix.citantesAtuais(alvo), path)`
+	// (achado P8). Essa lista cresce com o numero de citantes do alvo, e a
+	// varredura rodava uma vez por link: num alvo-hub — a nota que meio cofre
+	// cita — o Build pagava soma quadratica. E ela so podia encontrar `path`
+	// se a PROPRIA nota citasse o alvo duas vezes, porque um caminho nunca e
+	// registrado duas vezes sem passar por desregistrarCitantesLocked antes:
+	// publishNoteLocked roda no insert do Build e no Replace, e o Replace
+	// desregistra primeiro.
+	//
+	// Ou seja: a varredura da lista inteira pagava o preco de um cofre para
+	// responder uma pergunta sobre uma nota. O conjunto responde a mesma
+	// pergunta em O(1), e e a mesma forma que desregistrarCitantesLocked ja
+	// usava — as duas metades do par passam a ler igual.
+	//
+	// TestCitantesNaoDuplicamAposReplace verifica a invariante em vez de
+	// confia-la: com Contains ou sem, a lista nao pode ganhar duplicata.
+	vistas := make(map[string]bool, len(links))
 	for _, l := range links {
 		alvo := l.Target
 		if alvo == "" {
 			continue
 		}
-		if slices.Contains(ix.citantesAtuais(alvo), path) {
+		chave := nomeChave(alvo)
+		if vistas[chave] {
 			continue
 		}
-		ix.citantesPorNome[nomeChave(alvo)] = append(ix.citantesAtuais(alvo), path)
+		vistas[chave] = true
+		ix.citantesPorNome[chave] = append(ix.citantesPorNome[chave], path)
 	}
 }
 

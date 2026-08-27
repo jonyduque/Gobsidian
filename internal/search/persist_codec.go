@@ -68,13 +68,39 @@ var footerMagic = [8]byte{'G', 'B', 'S', 'A', 'R', 'E', 'N', 'A'}
 // devolver "cache corrompido" e reconstruir. O cofre de referência tem 126 mil
 // termos e 17,8 milhões de posições; estes tetos deixam ordens de grandeza de
 // folga e ainda assim são finitos.
+//
+// # Os tetos indexam arrays de int32, e isso os limita antes da memória
+//
+// `termIni`, `postIni` e `postPath` são `[]int32`, e guardam ÍNDICES dentro das
+// fatias que estes tetos dimensionam. Um teto acima de `math.MaxInt32` não
+// produz erro: produz `int32(kPos)` estourando em silêncio, com o índice
+// apontando para outro lugar do arquivo. O cache decodifica "com sucesso" e
+// serve posições de outro termo — que é pior que recusar.
+//
+// `limitePosicoes` era `4_000_000_000` até 2026-08-27 (achado B1), quase o dobro
+// de `math.MaxInt32`. Duas falhas na mesma constante: o estouro silencioso acima,
+// e `make([]TokenPosition, 4e9)` — 16 bytes por posição — pedindo **64 GB** antes
+// de qualquer verificação. Passou a acompanhar `limitePostings`, que é a ordem de
+// grandeza que este formato realmente vê: 200 milhões contra os 17,8 milhões do
+// cofre de referência, 11× de folga, e 3,2 GB no pior caso em vez de 64.
 const (
 	limiteCaminhos = 10_000_000
 	limiteTermos   = 200_000_000
 	limitePostings = 200_000_000
-	limitePosicoes = 4_000_000_000
+	limitePosicoes = 200_000_000
 	limiteString   = 1 << 20
 )
+
+// Guarda de COMPILAÇÃO para a regra acima: converter uma constante negativa para
+// uint não compila. Se algum destes tetos passar de math.MaxInt32, o build
+// quebra aqui, com esta linha apontada — e não em produção, meses depois, como
+// um resultado de busca sutilmente errado.
+//
+// Está aqui, e não num teste, porque teste que ninguém rodou não impede o commit.
+const _ = uint(math.MaxInt32-limiteTermos) +
+	uint(math.MaxInt32-limitePostings) +
+	uint(math.MaxInt32-limitePosicoes) +
+	uint(math.MaxInt32-limiteCaminhos)
 
 // --------------------------------------------------------------------------
 // Escrita
