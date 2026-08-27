@@ -14,10 +14,10 @@ func (ix *Index) buildBacklinks() {
 	defer ix.mu.Unlock()
 
 	ix.backlinks = make(map[vault.CanonicalPath][]Backlink)
-	for from, note := range ix.notes {
+	for _, note := range ix.notes {
 		for _, l := range note.Links {
 			if l.Resolved != "" {
-				ix.backlinks[l.Resolved] = append(ix.backlinks[l.Resolved], backlinkDe(from, l))
+				ix.backlinks[l.Resolved] = append(ix.backlinks[l.Resolved], backlinkDe(note, l))
 			}
 		}
 	}

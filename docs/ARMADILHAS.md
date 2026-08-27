@@ -308,6 +308,28 @@ quando outro mata por ele.
 
 ---
 
+**Comparar duas variantes de desempenho em bateladas sequenciais mede a deriva da
+máquina, não a diferença entre elas.** Em 2026-08-26 isto produziu **dois** números
+errados na mesma sessão, publicados e depois retratados. O segundo dizia que o
+contexto do backlink empurrava o RNF-02 de atingido para não atingido: medianas de
+243 ms contra 323 ms, com as faixas quase disjuntas — parecia sinal forte. Refeito
+com os binários construídos lado a lado e **uma rodada de cada por vez**, as três
+variantes ficaram em 179 / 193 / 191 ms, com a diferença entre elas MENOR que a
+variação dentro de qualquer uma.
+
+**Alternar a ordem das bateladas não corrige isso** — foi o cuidado que eu tinha
+tomado, e não bastou: as bateladas continuam separadas no tempo, e o cache de
+arquivo do SO aquecendo, outro processo ou throttling térmico atingem cada uma de
+forma diferente. O que corrige é **intercalar as execuções**, uma de cada variante
+por vez, com um binário por variante construído antes de começar.
+
+Sinal de alerta específico: se a variante medida PRIMEIRO for sistematicamente a
+mais lenta, suspeite do cache de arquivo do SO antes de acreditar no resultado. O
+primeiro boot contra um cofre de 1,3 GB mediu 4.534 ms; a repetição com o SO
+quente, 765 ms.
+
+---
+
 ## Contratos de API
 
 **Handler que devolve `error` Go faz o SDK montar `IsError` sem

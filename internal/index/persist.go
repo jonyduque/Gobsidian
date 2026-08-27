@@ -24,7 +24,14 @@ const (
 	// corpo (achado A8). Cache da versao anterior e recusado e reconstruido,
 	// que e o comportamento certo: carrega-lo daria backlinks com contexto
 	// vazio para sempre, sem nada indicando por que.
-	IndexCacheFormatVersion = 3
+	//
+	// 3 -> 4 no mesmo dia: contextoBytes caiu de 80 para 40. O LAYOUT nao
+	// mudou, e por isso o bump e facil de achar desnecessario — mas um cache
+	// do formato 3 carrega contextos de 80 bytes, e aceita-lo faria a mesma
+	// pergunta ser respondida com trechos de tamanhos diferentes conforme o
+	// cache fosse velho ou novo. Resposta que depende do estado do cache e a
+	// classe de defeito que este projeto trata como inaceitavel.
+	IndexCacheFormatVersion = 4
 	// IndexCacheParserVersion muda quando o parser passa a produzir
 	// estrutura diferente para a mesma entrada. Sem isto, corrigir um bug de
 	// parsing e reiniciar carregaria de volta o índice errado: mtime e

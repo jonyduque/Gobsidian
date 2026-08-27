@@ -151,7 +151,7 @@ func (ix *Index) registrarBacklinksLocked(n *Note) {
 		if l.Resolved == "" {
 			continue
 		}
-		ix.backlinks[l.Resolved] = append(ix.backlinks[l.Resolved], backlinkDe(n.Path, l))
+		ix.backlinks[l.Resolved] = append(ix.backlinks[l.Resolved], backlinkDe(n, l))
 	}
 }
 
@@ -485,7 +485,7 @@ func (ix *Index) reprocessNoteLinksLocked(path vault.CanonicalPath) {
 			}
 
 			if resolved != "" {
-				ix.backlinks[resolved] = append(ix.backlinks[resolved], backlinkDe(n.Path, n.Links[i]))
+				ix.backlinks[resolved] = append(ix.backlinks[resolved], backlinkDe(n, n.Links[i]))
 			}
 		}
 	}

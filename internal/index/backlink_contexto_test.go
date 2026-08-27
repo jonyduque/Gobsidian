@@ -103,6 +103,12 @@ func TestContextoSobreviveAoCacheDeMetadados(t *testing.T) {
 	if len(antes) == 0 {
 		t.Fatal("sem backlinks antes do cache: o cenario nao exercita nada")
 	}
+	// Sem isto o teste compararia "" com "" e passaria sem exercitar nada.
+	for i, bl := range antes {
+		if bl.Heading == "" {
+			t.Fatalf("backlink %d sem heading ANTES do cache: o cenario nao exercita a derivacao", i)
+		}
+	}
 
 	ctx := context.Background()
 	cacheDir := t.TempDir()
@@ -122,6 +128,18 @@ func TestContextoSobreviveAoCacheDeMetadados(t *testing.T) {
 		t.Fatalf("backlinks depois do cache = %d, antes = %d", len(depois), len(antes))
 	}
 	for i := range antes {
+		// Heading e DERIVADO, nao persistido — sai de Note.Headings mais o
+		// offset do link, na hora de montar o backlink. Isso so funciona
+		// depois de um boot frio se os headings E os offsets tiverem
+		// atravessado o cache. Se um dia o codec parar de gravar headings, ou
+		// zerar os offsets dos links, o campo some silenciosamente no boot com
+		// cache e continua certo no boot sem — a resposta passa a depender do
+		// estado do cache, que e a classe de defeito que esta tarefa fecha.
+		if depois[i].Heading != antes[i].Heading {
+			t.Errorf("backlink %d: heading %q depois do cache, %q antes\n"+
+				"o heading e derivado dos Headings da nota: o cache perdeu headings ou offsets",
+				i, depois[i].Heading, antes[i].Heading)
+		}
 		if depois[i].Context != antes[i].Context {
 			t.Errorf("backlink %d: contexto %q depois do cache, %q antes\n"+
 				"o cache degrada a resposta: mesma pergunta, respostas diferentes conforme houve boot frio",

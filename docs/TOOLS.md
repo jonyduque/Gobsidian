@@ -161,7 +161,7 @@ Metadados estruturais completos de uma nota, sem o corpo.
 }
 ```
 
-**Retorno.** Sempre `path`, `title` e `hash`. Os demais campos conforme pedido em `include`. `headings` traz nível, texto, slug e offsets — o que permite planejar uma leitura ou uma escrita seletiva antes de fazê-la. `links` distingue wikilink, embed e link Markdown, e marca os não resolvidos. `backlinks` traz origem e o contexto textual ao redor de cada referência.
+**Retorno.** Sempre `path`, `title` e `hash`. Os demais campos conforme pedido em `include`. `headings` traz nível, texto, slug e offsets — o que permite planejar uma leitura ou uma escrita seletiva antes de fazê-la. `links` distingue wikilink, embed e link Markdown, e marca os não resolvidos. `backlinks` traz origem, o contexto textual ao redor de cada referência (~40 bytes de cada lado, em `context`) e o título da seção da nota de origem em que a referência está (`heading`, vazio quando ela vem antes do primeiro título). O `heading` é derivado dos headings já indexados e não custa espaço no cache; ele existe porque saber *em que seção* a nota cita você costuma decidir mais que 40 bytes a mais de prosa.
 
 Cada entrada de `links` traz `state` com um de três valores, e `via` com a forma pela qual resolveu:
 

@@ -162,18 +162,26 @@ como NÃO ATINGIDO em [`OPERACAO.md`](OPERACAO.md) desde 2026-08-06. Neste cofre
 delta mediano de +30 ms não é distinguível de ruído: as faixas se sobrepõem, e a
 do formato 2 é a mais *larga* das duas.
 
-**Isso vale para ESTE cofre e não generaliza.** Medido em seguida num cofre fora
-do OneDrive (`Obsidian\Jurisprudência`, 1.254 notas, disco local), com n=13 por
-formato e as bateladas alternadas: mediana **243 ms no formato 2** contra
-**323 ms no formato 3**, cache 9,76 → 19,05 MB (+95%). **Ali o formato 3 empurra
-o RNF-02 de atingido para não atingido** — 3 de 13 amostras acima do teto no
-formato 2, contra 10 de 13 no formato 3, e 9 das 13 do formato 2 ficam abaixo da
-MENOR amostra do formato 3.
+**O formato do cache é o 4** desde 2026-08-26: `contextoBytes` caiu de 80 para 40,
+e o backlink ganhou `Heading` — o título da seção da nota de origem, **derivado**
+dos headings já indexados, a custo zero de disco (ver `headingDoLink`).
 
-O cofre em OneDrive escondeu o efeito porque lá o ruído tem ~270 ms de largura e o
-efeito tem ~90 ms — e o RNF-02 já estava 3× estourado pelos dois formatos, o que
-tornava a comparação acadêmica. No cofre local, quieto, a métrica vive **em cima
-da linha**, e é onde 80 ms decidem. Tabela completa em
+Uma versão anterior desta seção afirmava que o formato 3 empurrava o RNF-02 de
+atingido para não atingido num cofre local. **Retratado.** Aquelas bateladas eram
+sequenciais e a máquina derivou entre elas; alternar a ORDEM das bateladas não
+basta, porque elas continuam separadas no tempo. Refeito com três binários lado a
+lado e **uma rodada de cada por vez**, n=10, no cofre local
+`Obsidian\Jurisprudência`:
+
+| variante | cache | mediana de 10 | acima do teto de 300 ms |
+|---|---|---|---|
+| sem contexto | 9,76 MB | 179 ms | 0 de 10 |
+| contexto de 80 | 19,05 MB | 193 ms | 0 de 10 |
+| contexto de 40 + heading | **16,95 MB** | 191 ms | 0 de 10 |
+
+**Os três passam no RNF-02 nesse cofre.** As medianas diferem em 14 ms, menos que
+a variação dentro de uma única variante. **O tamanho do cache é o único custo que
+sobrevive à medição** — e ele é determinístico. Detalhe e a lição de método em
 [`OPERACAO.md`](OPERACAO.md).
 
 O boot frio tem **uma amostra só de cada** e não sustenta conclusão. A diferença

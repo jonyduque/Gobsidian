@@ -142,6 +142,11 @@ type Backlink struct {
 	Anchor  string
 	Alias   string
 	Context string // texto ao redor da referencia
+	// Heading e o titulo da secao da nota de origem em que a referencia esta.
+	// Derivado dos headings da propria Note na hora de montar o backlink, nao
+	// guardado por link: custa zero byte de cache e evita uma segunda conta do
+	// mesmo dado. Ver headingDoLink.
+	Heading string
 	Kind    parser.LinkKind
 }
 
@@ -151,12 +156,13 @@ type Backlink struct {
 // update.go:154 e update.go:494 — e as tres escreviam `Context: ""` a mao. Foi
 // assim que o campo ficou tres anos prometido no tipo e vazio na resposta: nao
 // havia um lugar onde escrever o valor, havia tres para esquecer.
-func backlinkDe(from vault.CanonicalPath, l ResolvedLink) Backlink {
+func backlinkDe(de *Note, l ResolvedLink) Backlink {
 	return Backlink{
-		From:    from,
+		From:    de.Path,
 		Anchor:  l.Anchor,
 		Alias:   l.Alias,
 		Context: l.Context,
+		Heading: headingDoLink(de.Headings, l.Start),
 		Kind:    l.Kind,
 	}
 }

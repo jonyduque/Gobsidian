@@ -2050,3 +2050,39 @@ todas está contaminada pelo cache de arquivo do SO. 521 e 597 ms no formato 2
 contra 765 ms no formato 3 (a de 4.534 ms é descartada pelo motivo acima). A
 direção bate com gravar 9 MB a mais — `index_ms` inclui `SaveIndexCache` — mas com
 n=1 por batelada isso é hipótese.
+
+### Retratação: o custo de boot do contexto não sobrevive a medição intercalada
+
+A seção anterior afirmou que o formato 3 "empurra o RNF-02 de atingido para não
+atingido" no cofre local. **Está errada, e a causa foi o método, não o cofre.**
+
+Aquelas bateladas rodaram em sequência — todas as amostras de um formato, depois
+todas do outro — enquanto a máquina estava carregada pelas próprias medições. A
+deriva de carga entre bateladas foi lida como diferença entre formatos. Alternar a
+ORDEM das bateladas, que foi o cuidado que tomei, **não basta**: as bateladas
+continuam separadas no tempo.
+
+Refeito com três binários construídos lado a lado e **uma rodada de cada por vez**,
+dez vezes, cada um com seu `--cache-dir`. Mesmo cofre local
+(`Obsidian\Jurisprudência`, 1.254 notas), máquina em repouso:
+
+| variante | cache | mediana de 10 | faixa | acima do teto de 300 ms |
+|---|---|---|---|---|
+| sem contexto (formato 2) | 9,76 MB | 179 ms | 163–237 ms | **0 de 10** |
+| contexto de 80 (formato 3) | 19,05 MB | 193 ms | 159–231 ms | **0 de 10** |
+| contexto de 40 + heading (formato 4) | 16,95 MB | 191 ms | 147–245 ms | **0 de 10** |
+
+**Os três passam no RNF-02 neste cofre, com folga.** A diferença entre as medianas
+é de 14 ms, **menor que a variação dentro de uma única variante** — a faixa do
+formato 2 sozinha tem 74 ms de largura. O efeito de +80 ms relatado antes não
+existe; era carga de máquina.
+
+**O que continua verdadeiro e não depende de tempo:** o tamanho do cache. 9,76 →
+19,05 → 16,95 MB são valores determinísticos, medidos, e não flutuam.
+
+**A lição de método, que é o que sobra:** neste projeto, comparar duas variantes de
+desempenho exige **intercalar as execuções**, não apenas alternar a ordem das
+bateladas. Qualquer deriva de máquina — cache de arquivo do SO aquecendo, outro
+processo, throttling térmico — atinge bateladas sequenciais de forma desigual e
+aparece como sinal. Foi o segundo número errado que este método produziu na mesma
+sessão; o primeiro foi corrigido por acaso, ao trocar de cofre.

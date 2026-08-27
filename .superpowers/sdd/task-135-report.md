@@ -1,11 +1,12 @@
 # Task 135 — A8 + B11 (+B14): o contexto do backlink, e o portão que tinha dois donos
 
-**Status:** DONE_WITH_CONCERNS — a correção está completa e provada, mas o custo
-de desempenho é maior do que a primeira medição indicou. **Num cofre fora do
-OneDrive o formato 3 empurra o RNF-02 de atingido para não atingido** (mediana
-243 → 323 ms, teto 300 ms). A decisão de manter foi tomada pelo dono em
-2026-08-26 com base na medição do cofre em OneDrive, onde o efeito some no ruído;
-**ela merece ser reconsiderada com o número novo.**
+**Status:** DONE. A correção está completa e provada. O contexto ficou em **40
+bytes de cada lado**, e o backlink ganhou o **título da seção de origem**
+(`Heading`), derivado a custo zero de disco — decisão do dono em 2026-08-26.
+
+**Este relatório contém DUAS retratações de números que eu mesmo publiquei.** As
+duas vieram do mesmo defeito de método: comparar variantes de desempenho em
+bateladas sequenciais. Ver "Retratação" ao fim.
 **Commit:** `7c24c67` — `fix(index,parser): fill backlink context, unify the cache version gate`
 
 As duas foram juntas por necessidade, não por conveniência: implementar A8 exige
@@ -294,6 +295,82 @@ limitada e cumprida), mas explica por que dois backlinks da mesma nota curta
 trazem trechos muito parecidos.
 
 ---
+
+## Retratação: o custo de boot que eu publiquei duas vezes não existe
+
+Publiquei que o formato 3 empurrava o RNF-02 de atingido para não atingido no
+cofre local — mediana de 243 ms contra 323 ms, faixas quase disjuntas. **Está
+errado.**
+
+Aquelas bateladas rodaram em sequência, com a máquina carregada pelas próprias
+medições. Eu tinha alternado a ORDEM das bateladas, achando que bastava. **Não
+basta**: as bateladas continuam separadas no tempo, e a deriva de carga entre elas
+vira "diferença entre formatos".
+
+Refeito com os três binários construídos lado a lado e **uma rodada de cada por
+vez**, dez vezes, cada um com seu `--cache-dir`, máquina em repouso:
+
+| variante | cache | mediana de 10 | faixa | acima do teto de 300 ms |
+|---|---|---|---|---|
+| sem contexto | 9,76 MB | 179 ms | 163–237 ms | **0 de 10** |
+| contexto de 80 | 19,05 MB | 193 ms | 159–231 ms | **0 de 10** |
+| contexto de 40 + heading | **16,95 MB** | 191 ms | 147–245 ms | **0 de 10** |
+
+**Os três passam no RNF-02 nesse cofre.** As medianas diferem em 14 ms — menos que
+a variação dentro de uma única variante, cuja faixa mais larga tem 74 ms.
+
+**O que sobrevive à medição é o tamanho do cache**, que é determinístico: 9,76 →
+19,05 → 16,95 MB. Foi isso, e não o tempo, que justificou cortar para 40.
+
+Foi o **segundo** número errado da sessão pela mesma causa. O primeiro — "o delta
+não é distinguível de ruído" no cofre em OneDrive — estava certo por acaso: lá o
+RNF-02 já estava 3× estourado nos dois formatos, o que tornava a comparação
+irrelevante de qualquer jeito. Registrado em `ARMADILHAS.md`.
+
+## O heading, e por que ele custa zero
+
+`Backlink.Heading` é o título da seção em que a referência está. Não é persistido:
+`Note.Headings` já vai para o cache com offsets, e `Link.Start` vem da **mesma
+origem de offset** (dito no comentário de `parser.Heading`). Então o título é
+derivado na hora de montar o backlink.
+
+O critério é o mesmo que mantém `Resolved`/`Via`/`State` fora do disco e que
+colocou `Context` dentro: **derivável do que o índice já guarda fica de fora.** O
+contexto precisa dos bytes do corpo, que o cache não tem; o heading não precisa.
+
+`TestContextoSobreviveAoCacheDeMetadados` passou a conferir o `Heading` no
+round-trip, e a falhar se ele vier vazio ANTES do cache — senão compararia `""`
+com `""` e passaria sem exercitar nada.
+
+### A guarda que a mutação matou
+
+`headingDoLink` nasceu com `if start < 0 { return "" }` para tratar
+`offsetUnknown`. A prova de mutação devolveu **EXIT=1**: o teste passou sem ela.
+A mutação não estava errada — **a guarda era código morto.** Com `start = -1`,
+todo heading tem `Start > -1`, o laço quebra na primeira volta, e o resultado já é
+`""`. Removida, com o motivo escrito no lugar.
+
+## Provas de mutação do corte e do heading
+
+```
+-Anchor 'if h.Start > start {' -Replacement 'if false {'
+  (TestBacklinkTrazHeadingDaSecao)                                   -> EXIT=0
+    "nenhum backlink na secao "Prescricao"; vistos=map[Honorarios:true]"
+    "os dois backlinks caíram no MESMO heading: o calculo ignora a posicao do link"
+
+-Anchor 'if h.Start > start {' -Replacement 'if false {'
+  (TestHeadingVazioAntesDoPrimeiroTitulo)                            -> EXIT=0
+    "Heading = "Depois", queria vazio: a referencia esta ANTES do primeiro
+     titulo, e devolver "Depois" seria apontar uma secao que vem depois dela"
+
+-Anchor 'const contextoBytes = 40' -Replacement 'const contextoBytes = 80'
+  (TestContextoCurtoNaoEstouraOOrcamento)                            -> EXIT=0
+    "contexto tem 168 bytes, teto 96: contextoBytes voltou a crescer"
+```
+
+A mesma âncora serve aos dois primeiros e eles reprovam por motivos **diferentes**
+— um perde a variação por seção, o outro passa a apontar uma seção posterior à
+referência.
 
 ## Verificações
 

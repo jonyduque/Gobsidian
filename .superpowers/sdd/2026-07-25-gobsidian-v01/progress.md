@@ -4381,8 +4381,27 @@ que torna o B11 perigoso.
   repetição quente), e a do formato 2 rodou depois com tudo aquecido. Comparar
   aquele par daria custo muito maior que o real. Cada formato foi medido duas
   vezes, em ordens diferentes.
-- **A decisão de manter precisa ser reconsiderada**: foi tomada com o número do
-  cofre em OneDrive, onde o efeito some no ruído.
+- **RETRATAÇÃO do item acima.** Aquele número também estava errado, pela mesma
+  causa: bateladas sequenciais. Alternar a ORDEM delas — o cuidado que eu tinha
+  tomado — **não basta**, porque continuam separadas no tempo. Refeito com os três
+  binários lado a lado e **uma rodada de cada por vez**, n=10, máquina em repouso:
+  sem contexto **179 ms**, contexto 80 **193 ms**, contexto 40 + heading
+  **191 ms** — **os três com 0 de 10 acima do teto de 300 ms**. As medianas diferem
+  em 14 ms, menos que a variação dentro de uma única variante (74 ms na mais
+  larga). **O efeito de +80 ms não existe.**
+- **O que sobrevive à medição é o tamanho do cache**, determinístico: 9,76 / 19,05
+  / 16,95 MB. Foi isso que justificou o corte, não o tempo.
+- **Dois números errados na mesma sessão pela mesma causa.** Registrado em
+  `ARMADILHAS.md` como regra de método: comparar variantes de desempenho exige
+  intercalar execuções, não alternar bateladas.
+- **Decisão do dono, aplicada:** `contextoBytes` 80 → 40, e o backlink ganhou
+  `Heading` — o título da seção de origem, **derivado** de `Note.Headings` mais o
+  offset do link, a custo zero de disco. Formato do cache 3 → 4. `docs/TOOLS.md`
+  atualizado com o campo novo.
+- **A prova de mutação matou uma guarda que eu tinha escrito.** `headingDoLink`
+  nasceu com `if start < 0`, para `offsetUnknown`; a mutação deu EXIT=1 e a análise
+  mostrou que era código morto — com `start = -1` o laço já quebra na primeira
+  volta. Removida.
 - **Segue não medido:** onde estão os ~600 ms restantes. `LoadIndexCache` isolado
   dá 275–282 ms e o boot dá ~900 ms, então a maior parte está fora do codec.
   `VerifyFreshness` faz `Stat` nos 5.686 arquivos em OneDrive e é o suspeito
