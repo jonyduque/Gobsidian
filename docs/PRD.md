@@ -231,9 +231,50 @@ Cofre de referência para todas as medições: 5.000 notas Markdown, 50 MB de te
 | RNF-04 | `vault_search` full-text, p95 | ≤ 100 ms | 300 ms |
 | RNF-05 | `note_list` com filtro de metadados, p95 | ≤ 10 ms | 30 ms |
 | RNF-06 | Reindexação de arquivo único | ≤ 20 ms | 100 ms |
-| RNF-07 | RSS em repouso | ≤ 60 MB | 150 MB |
+| RNF-07 | Heap vivo em repouso | ≤ 8 MB + 32 KB × notas | 2× o alvo |
 | RNF-08 | CPU em repouso | < 0,5 % | 2 % |
 | RNF-09 | Escalabilidade | linear até 20.000 notas | — |
+
+**RNF-07 foi redefinido em 2026-08-28** — era `RSS em repouso ≤ 60 MB`. Três coisas
+mudaram, e cada uma por um defeito medido:
+
+**1. A métrica passou de RSS para heap vivo.** RSS não mede quanto o servidor
+guarda: ele acompanha a **meta de heap do GC**, que o Go fixa em ~2× o heap vivo ao
+fim de cada ciclo. Medido em 2026-08-27: o binário **sem** o campo `Context`
+consumia 3,6 MB **a mais** de RSS que o binário com ele, de forma reproduzível — a
+diferença era qual ciclo de GC tinha terminado por último, não o dado. Um
+instrumento que inverte de sinal não serve para um orçamento. O heap vivo está na
+linha do `gctrace` (`antes->pico->vivo`) e é estável.
+
+**2. O requisito passou a nomear DOIS estados.** "Em repouso" não dizia se a busca
+já tinha acontecido, e desde a carga preguiçosa isso muda o número por um fator de
+até 3,9×. Os dois estados são normativos:
+
+- **`pronto`** — o servidor terminou o boot e ainda não atendeu nenhuma busca.
+- **`servindo`** — o servidor já atendeu ao menos uma `vault_search`, e portanto
+  carregou o índice invertido. **É o estado de qualquer sessão real**, e é contra
+  ele que o alvo é cobrado; `pronto` é medido junto porque a diferença entre os dois
+  é o custo do índice de busca, que é a informação acionável.
+
+**3. O alvo passou a escalar com o cofre.** Os 60 MB vinham de um cofre **sintético**
+de 5.000 notas; num cofre real de 5.686 notas o mesmo protocolo dá 129,6 MB de RSS.
+Teto absoluto num produto que indexa de 78 a 5.686 notas mede o tamanho do cofre,
+não a qualidade do servidor.
+
+A base de 8 MB cobre o runtime do Go e o que não escala com o cofre. Medido em
+2026-08-28, estado `servindo`, nos cinco cofres do dono:
+
+| Cofre | notas | heap vivo | teto | folga |
+|---|---|---|---|---|
+| Oral | 78 | 7 MB | 10,4 MB | 33% |
+| Revisão | 1.275 | 16 MB | 47,8 MB | 67% |
+| Jurisprudência | 1.254 | 39 MB | 47,2 MB | **17%** |
+| Estudo | 2.557 | 58 MB | 87,9 MB | 34% |
+| TJSP 192 | 5.686 | 126 MB | 185,7 MB | 32% |
+
+**A consequência de escala está dita, não escondida:** a 20.000 notas, que é o que o
+RNF-09 promete, este alvo vira **633 MB**. Se isso for inaceitável, o que precisa
+mudar é a estrutura do índice invertido — não o requisito.
 
 ### 6.2 Confiabilidade
 

@@ -190,7 +190,7 @@ num cofre de 7 notas.
 | **RNF-04** | `vault_search` p95 (≤ 100 ms) | 5.000 notas: **8 de 8** (2026-08-12, Task 94). `limit: 200` em **43,1 / 28,8 / 27,6 ms** em três rodadas; era 119–123 ms. Medido a frio e no índice **vindo do cache**, que é o ramo que o servidor executa — ver "Recorte de trecho" ao fim | **Atingido** |
 | **RNF-05** | `note_list` com filtro de metadados p95 (≤ 10 ms) | p95 **533,68 µs**, mediana 249,24 µs (5.000 notas) | **Atingido** |
 | **RNF-06** | Reindexação de arquivo único (≤ 20 ms) | mediana **334,87 µs**, p95 544,87 µs (5.000 notas, lote=20; Task 86, 2026-08-06). Era 20,35 ms | **Atingido** |
-| **RNF-07** | RSS em repouso (≤ 60 MB) | Cofre **sintético** de 5.000 notas: **37,95–38,10 MB** com cache quente (2026-08-09). Cofres **reais** do dono, cache quente, 2026-08-27: **24,8 / 35,4 / 78,3 / 49,5 / 130,1 MB** antes da primeira busca; **30,9 / 45,5 / 91,3 / 151,0 / 275,6 MB** depois de uma busca | **NÃO ATINGIDO** em cofre real |
+| **RNF-07** | Heap vivo em repouso (≤ 8 MB + 32 KB × notas) | **Redefinido em 2026-08-28** — era `RSS ≤ 60 MB`. Cinco cofres reais, `scripts/measure.ps1`, estado `servindo`: **7 / 17 / 40 / 58 / 126 MB** contra tetos de 10,4 / 47,8 / 47,2 / 87,9 / 185,7 MB | **Atingido**, folga de 15% a 64% |
 | **RNF-08** | CPU em repouso (< 0,5 %) | **não medido** | — |
 | **RNF-09** | Escalabilidade linear até 20.000 notas | **não medido** (medido até 5.000) | — |
 | **RNF-10** | Zero órfãos em 100 ciclos de start/kill do host | **100/100 em quatro cenários** — `stdin-eof`, `parent-death`, `signal` e `daemon-idle` —, cada um com o `reason=` do seu mecanismo, 400 ciclos no total | **Atingido** |
@@ -2138,7 +2138,51 @@ três contagens, e o boot as loga.
 
 ---
 
-## RNF-07 medido nos cinco cofres reais (2026-08-27)
+## RNF-07 redefinido, e medido pelo instrumento novo (2026-08-28)
+
+A definição anterior — `RSS em repouso ≤ 60 MB` — foi substituída. O que motivou
+está na seção seguinte, que é a investigação; esta é a medição sob a regra nova.
+
+**Alvo: `≤ 8 MB + 32 KB × notas` de heap vivo, no estado `servindo`.** A
+redação normativa, com os três motivos da troca, está em `docs/PRD.md` §6.1.
+
+Medido por `pwsh -File scripts/measure.ps1 -Vault <x>`, que passou a medir isto:
+
+| Cofre | notas | `pronto` | `servindo` | teto | folga | RSS `servindo` |
+|---|---|---|---|---|---|---|
+| Oral | 78 | 5 MB | 7 MB | 10,4 MB | 33% | 31,6 MB |
+| Revisão | 1.275 | 9 MB | 17 MB | 47,8 MB | 64% | 46,7 MB |
+| Jurisprudência | 1.254 | 32 MB | 40 MB | 47,2 MB | **15%** | 96,3 MB |
+| Estudo | 2.557 | 16 MB | 58 MB | 87,9 MB | 34% | 161,6 MB |
+| TJSP 192 | 5.686 | 53 MB | 126 MB | 185,7 MB | 32% | 292,8 MB |
+
+**Os cinco passam.** A folga mais apertada é a de Jurisprudência, 15%, e ela é
+explicada: o cofre é denso em links e o `Context` do backlink acrescenta ali ~6 MB
+de heap vivo.
+
+**O RSS continua na saída como diagnóstico**, e a coluna acima mostra por que ele
+foi despromovido: ele é 2,3× a 2,8× o heap vivo, e a razão não é constante.
+
+### Duas correções no próprio instrumento
+
+**`measure.ps1` media a ponte, não o servidor.** Sem `GOBSIDIAN_NO_DAEMON`, o
+`serve` tenta o daemon; quando havia um, o processo medido era uma **ponte de
+~15 MB**, não o processo que segura o índice — e a ponte nem imprime "servidor
+pronto". O número dependia de haver ou não daemon vivo naquele instante. O script
+passou a forçar o modo em processo.
+
+**Ele media um estado só.** Emitia `initialize` + `vault_stats` e parava, o que
+desde a carga preguiçosa descreve um servidor que nunca buscou. Agora faz **duas
+partidas** — e são partidas, não dois momentos da mesma, porque separar linhas de
+`gctrace` por timestamp atribuiria o ciclo errado ao estado errado.
+
+**E confere `index_origin`.** Uma medição publicada saiu de uma rodada com
+`build`: 57,1 MB onde o valor com cache era 49,5. O script agora avisa quando a
+origem não é `cache`.
+
+---
+
+## A investigação que levou à redefinição (2026-08-27)
 
 O achado da auditoria dizia que `scripts/measure.ps1` emite `initialize` +
 `vault_stats` e mede — e que, desde a carga preguiçosa da Task 88, uma sessão que

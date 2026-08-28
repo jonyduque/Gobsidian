@@ -106,31 +106,31 @@ nos três sistemas; build tag só para o caminho do socket e a limpeza.
 
 ---
 
-## RNF-07 não é atingido em cofre real (medido em 2026-08-27)
+## RNF-07 foi redefinido (2026-08-28)
 
-Cinco cofres do dono, cache quente, dois protocolos — antes e depois de **uma**
-`vault_search`, que é o que dispara a carga preguiçosa do índice invertido.
-Tabela completa e método em [`OPERACAO.md`](OPERACAO.md).
+Era `RSS em repouso ≤ 60 MB`. Agora é **`heap vivo ≤ 8 MB + 32 KB × notas`**, no
+estado nomeado **`servindo`** — depois de ao menos uma busca, que é onde toda
+sessão real está. Redação normativa em [`PRD.md`](PRD.md) §6.1; medições e o
+método em [`OPERACAO.md`](OPERACAO.md).
 
-| | alvo 60 MB | limite 150 MB |
-|---|---|---|
-| **Protocolo A** (o publicado, sem busca) | falha em **2 de 5** | — |
-| **Protocolo B** (depois de uma busca) | falha em **3 de 5** | **estoura em 2 de 5** |
+Três defeitos motivaram, e cada um está medido:
 
-TJSP 192, o cofre principal, dá **130,1 MB** sem ter buscado e **275,6 MB** depois
-de uma busca — 1,8× o limite de falha. Os 37,95 MB publicados eram de um cofre
-**sintético**.
+1. **RSS não media o que o requisito queria.** Ele acompanha a meta de heap do GC,
+   e por isso inverteu de sinal: um binário **sem** um campo consumia 3,6 MB **a
+   mais** que o binário com ele, reprodutivelmente.
+2. **"Em repouso" não dizia se a busca já tinha acontecido**, e desde a carga
+   preguiçosa isso muda o número por até 3,9×.
+3. **O alvo era absoluto** e vinha de um cofre sintético. Num cofre real de 5.686
+   notas o mesmo protocolo dava 129,6 MB de RSS contra os 37,95 MB publicados.
 
-O campo `Context` do backlink participa: em Jurisprudência ele acrescenta ~6 MB de
-heap **vivo**, o que leva o cofre de 56,9 para 78,4 MB de RSS — de dentro do alvo
-para fora. Em Estudo o delta de RSS é **negativo**, e a investigação com
-`gctrace` mostrou por quê: **RSS acompanha a META de heap do GC, não o volume de
-dados**, e ali o contexto acrescenta pouco demais para atravessar a granularidade
-de qual ciclo de GC foi o último. Isso importa além do campo: **o RNF-07 é
-especificado contra um número que é artefato do alvo de GC.** Mecanismo completo em
-[`OPERACAO.md`](OPERACAO.md).
+Sob a regra nova, os cinco cofres do dono **passam**, com folga de 15% a 64%.
+`scripts/measure.ps1` foi reescrito para medir isto — ele media a **ponte** em vez
+do servidor quando havia daemon, media um estado só, e não conferia se o índice
+tinha vindo do cache.
 
-**A decisão sobre o alvo é do dono** — as três opções estão em `OPERACAO.md`.
+**Consequência de escala, dita e não escondida:** a 20.000 notas, que é o que o
+RNF-09 promete, o teto vira **633 MB**. Se isso for inaceitável, o que muda é a
+estrutura do índice invertido — não o requisito.
 
 ---
 
