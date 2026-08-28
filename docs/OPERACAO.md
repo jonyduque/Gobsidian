@@ -190,7 +190,7 @@ num cofre de 7 notas.
 | **RNF-04** | `vault_search` p95 (≤ 100 ms) | 5.000 notas: **8 de 8** (2026-08-12, Task 94). `limit: 200` em **43,1 / 28,8 / 27,6 ms** em três rodadas; era 119–123 ms. Medido a frio e no índice **vindo do cache**, que é o ramo que o servidor executa — ver "Recorte de trecho" ao fim | **Atingido** |
 | **RNF-05** | `note_list` com filtro de metadados p95 (≤ 10 ms) | p95 **533,68 µs**, mediana 249,24 µs (5.000 notas) | **Atingido** |
 | **RNF-06** | Reindexação de arquivo único (≤ 20 ms) | mediana **334,87 µs**, p95 544,87 µs (5.000 notas, lote=20; Task 86, 2026-08-06). Era 20,35 ms | **Atingido** |
-| **RNF-07** | RSS em repouso (≤ 60 MB) | Cofre **sintético** de 5.000 notas: **37,95–38,10 MB** com cache quente (2026-08-09). Cofres **reais** do dono, cache quente, 2026-08-27: **25,8 / 35,2 / 78,5 / 57,1 / 129,3 MB** antes da primeira busca; **31,0 / 45,0 / 90,7 / 151,5 / 276,2 MB** depois de uma busca | **NÃO ATINGIDO** em cofre real |
+| **RNF-07** | RSS em repouso (≤ 60 MB) | Cofre **sintético** de 5.000 notas: **37,95–38,10 MB** com cache quente (2026-08-09). Cofres **reais** do dono, cache quente, 2026-08-27: **24,8 / 35,4 / 78,3 / 49,5 / 130,1 MB** antes da primeira busca; **30,9 / 45,5 / 91,3 / 151,0 / 275,6 MB** depois de uma busca | **NÃO ATINGIDO** em cofre real |
 | **RNF-08** | CPU em repouso (< 0,5 %) | **não medido** | — |
 | **RNF-09** | Escalabilidade linear até 20.000 notas | **não medido** (medido até 5.000) | — |
 | **RNF-10** | Zero órfãos em 100 ciclos de start/kill do host | **100/100 em quatro cenários** — `stdin-eof`, `parent-death`, `signal` e `daemon-idle` —, cada um com o `reason=` do seu mecanismo, 400 ciclos no total | **Atingido** |
@@ -2154,16 +2154,19 @@ Protocolo, com uma variável só entre os braços:
 Em processo (`GOBSIDIAN_NO_DAEMON=1`), somente-leitura, `--cache-dir` próprio por
 cofre — para não encostar nas sessões vivas do dono nem gravar cache de formato 5
 onde o binário instalado lê. **Os dois caches quentes**: metadados e invertido.
-RSS é o **pico** de seis amostras após 3 s de acomodação; `heap` é o `alloc` que o
-próprio `vault_stats` devolve.
+RSS é o **pico** de seis amostras após 3 s de acomodação; `alloc` é o campo do
+`vault_stats`. **`alloc` NÃO é heap vivo** — é `HeapAlloc`, que inclui lixo ainda
+não coletado; a seção sobre o `Context` mostra por que isso importa. Toda rodada
+foi conferida com `index_origin=cache`: uma medição anterior de Estudo saiu com
+`build` e publicou 57,1 MB onde o valor com cache é 49,5.
 
-| Cofre | notas | A: RSS | A: heap | B: RSS | B: heap | busca |
+| Cofre | notas | A: RSS | A: `alloc` | B: RSS | B: `alloc` | busca |
 |---|---|---|---|---|---|---|
-| Oral | 78 | 25,8 MB | 8,0 MB | 31,0 MB | 8,4 MB | 65 hits |
-| Revisão | 1.275 | 35,2 MB | 16,4 MB | 45,0 MB | 18,2 MB | 512 |
-| Jurisprudência | 1.254 | **78,5 MB** | 59,7 MB | **90,7 MB** | 41,3 MB | 401 |
-| Estudo | 2.557 | 57,1 MB | 25,7 MB | **151,5 MB** | 60,4 MB | 1.426 |
-| TJSP 192 | 5.686 | **129,3 MB** | 88,0 MB | **276,2 MB** | 129,5 MB | 2.733 |
+| Oral | 78 | 24,8 MB | 5,3 MB | 30,9 MB | 8,4 MB | 65 hits |
+| Revisão | 1.275 | 35,4 MB | 10,0 MB | 45,5 MB | 18,2 MB | 512 |
+| Jurisprudência | 1.254 | **78,3 MB** | 59,6 MB | **91,3 MB** | 41,3 MB | 401 |
+| Estudo | 2.557 | 49,5 MB | 27,6 MB | **151,0 MB** | 60,4 MB | 1.426 |
+| TJSP 192 | 5.686 | **130,1 MB** | 87,7 MB | **275,6 MB** | 129,5 MB | 2.733 |
 
 Alvo: **≤ 60 MB**. Limite de falha: **150 MB**.
 
@@ -2210,9 +2213,51 @@ cofre — o cache de metadados dele vai de 9,8 para 19,1 MB com o campo, e ele �
 denso em links.
 
 Em Estudo o cache cresce só 2,8 MB e o resultado é **negativo e reproduzível**.
-Não está explicado. A hipótese óbvia é o momento do GC — os números de heap acima
-mostram que ele move mais que 3,6 MB —, mas **isso não foi investigado**, e a
-hipótese está aqui como hipótese.
+Isso foi investigado com `GODEBUG=gctrace=1,scavtrace=1`, e a explicação está
+abaixo — **não é dado, é o alvo de heap do GC**.
+
+### Por que o cofre SEM contexto consome mais RSS em Estudo
+
+Traces de GC, protocolo A, os dois binários no mesmo cofre:
+
+| | ciclos de GC | último ciclo | heap **vivo** | **meta de heap** | RSS |
+|---|---|---|---|---|---|
+| **Estudo**, com contexto | 3 | `30->31->15 MB` | 15 MB | **31 MB** | 49,2 MB |
+| **Estudo**, sem contexto | 4 | `32->32->16 MB` | 16 MB | **33 MB** | 52,7 MB |
+| **Jurisprudência**, com contexto | 2 | `38->39->32 MB` | **32 MB** | **39 MB** | 78,4 MB |
+| **Jurisprudência**, sem contexto | 3 | `31->32->26 MB` | **26 MB** | **33 MB** | 56,9 MB |
+
+**RSS acompanha a META de heap, não o volume de dados.** O Go fixa a meta ao fim
+de cada ciclo em ~2× o heap vivo daquele instante (GOGC=100). Então o RSS de um
+processo em repouso é, aproximadamente, a meta que vigorava quando o último ciclo
+terminou.
+
+Em **Jurisprudência** o contexto acrescenta ~6 MB de heap vivo (32 contra 26). Isso
+é grande o bastante para mandar na meta — 39 contra 33 — e o RSS segue, com
+amplificação: +21,5 MB.
+
+Em **Estudo** o contexto acrescenta pouco demais para atravessar a granularidade de
+*qual* ciclo foi o último. Os dois terminaram com heap vivo praticamente igual (15
+contra 16 MB), e o braço **sem** contexto rodou um ciclo a mais, disparado mais
+tarde (`@0.275s`, já depois da chamada de `vault_stats`) e a partir de um heap vivo
+marginalmente maior — fixando meta de **33 MB** contra os 31 MB do outro. O RSS
+seguiu a meta, e o sinal saiu invertido.
+
+**O binário com contexto roda sistematicamente UM ciclo de GC a menos** — 3 contra
+4 em Estudo, 2 contra 3 em Jurisprudência — que é precisamente o que um heap vivo
+maior produz: meta maior, menos ciclos para a mesma alocação.
+
+**Consequência para o requisito:** o RNF-07 é especificado contra RSS, e RSS aqui é
+um artefato do alvo de GC. Uma inversão de 3,6 MB por causa de qual ciclo terminou
+por último mostra que RSS é instrumento ruidoso para um orçamento de 60 MB. Isso
+reforça o caso de re-especificar o RNF-07, e não só o número dele.
+
+**O que continua sem número:** quanto de heap **vivo** o `Context` custa em Estudo.
+Sessenta chamadas seguidas de `vault_stats` produziram só 4–5 ciclos de GC, então
+`alloc` nunca convergiu para o heap vivo — ele continua sendo heap vivo mais lixo
+do momento. Fechar isso exigiria um `runtime.GC()` seguido de `ReadMemStats`, que o
+servidor não expõe. **A leitura anterior de "heap vivo 9 MB maior sem contexto" era
+esse artefato, e está retratada.**
 
 ### O que isto pede de decisão
 

@@ -344,6 +344,23 @@ distingue proteção de decoração** — nos dois casos ela devolveu EXIT=1, "o
 passou com a regra mutada", e a leitura seguinte mostrou que a regra não fazia
 nada.
 
+**RSS não mede quanto dado você guarda — mede a META de heap do GC.** O Go fixa a
+meta ao fim de cada ciclo em ~2× o heap vivo daquele instante, e o RSS de um
+processo em repouso é aproximadamente a meta que vigorava quando o último ciclo
+terminou. Em 2026-08-27 isso produziu um resultado que parecia impossível: o
+binário **sem** o campo `Context` consumia **3,6 MB a mais** de RSS que o binário
+com ele, de forma reproduzível e com faixas disjuntas. `GODEBUG=gctrace=1` mostrou
+a causa: os dois terminaram com heap vivo igual (15 contra 16 MB), o braço sem
+contexto rodou um ciclo de GC a mais, disparado mais tarde e de um heap
+marginalmente maior, e fixou meta de 33 MB contra 31 — o RSS seguiu a meta. No
+cofre onde o campo acrescenta 6 MB de heap vivo, o efeito aparece limpo e na
+direção esperada.
+
+**E `runtime.MemStats.Alloc` não é heap vivo** — é `HeapAlloc`, heap vivo MAIS o
+lixo ainda não coletado. Lê-lo como "quanto o índice ocupa" inverteu o sinal de uma
+comparação nesta mesma sessão. Para heap vivo, o que serve é o número do meio no
+`gctrace` (`antes->pico->vivo`), ou `runtime.GC()` seguido de `ReadMemStats`.
+
 **Comparar duas variantes de desempenho em bateladas sequenciais mede a deriva da
 máquina, não a diferença entre elas.** Em 2026-08-26 isto produziu **dois** números
 errados na mesma sessão, publicados e depois retratados. O segundo dizia que o

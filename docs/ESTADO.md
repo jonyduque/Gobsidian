@@ -117,14 +117,20 @@ Tabela completa e método em [`OPERACAO.md`](OPERACAO.md).
 | **Protocolo A** (o publicado, sem busca) | falha em **2 de 5** | — |
 | **Protocolo B** (depois de uma busca) | falha em **3 de 5** | **estoura em 2 de 5** |
 
-TJSP 192, o cofre principal, dá **129,3 MB** sem ter buscado e **276,2 MB** depois
+TJSP 192, o cofre principal, dá **130,1 MB** sem ter buscado e **275,6 MB** depois
 de uma busca — 1,8× o limite de falha. Os 37,95 MB publicados eram de um cofre
 **sintético**.
 
-O campo `Context` do backlink participa: em Jurisprudência ele leva o cofre de
-56,8 MB (dentro do alvo) para 78,4 MB (fora). Em Estudo o delta é **negativo e
-reproduzível**, sem explicação verificada. **A decisão sobre o alvo é do dono** —
-as três opções estão em `OPERACAO.md`.
+O campo `Context` do backlink participa: em Jurisprudência ele acrescenta ~6 MB de
+heap **vivo**, o que leva o cofre de 56,9 para 78,4 MB de RSS — de dentro do alvo
+para fora. Em Estudo o delta de RSS é **negativo**, e a investigação com
+`gctrace` mostrou por quê: **RSS acompanha a META de heap do GC, não o volume de
+dados**, e ali o contexto acrescenta pouco demais para atravessar a granularidade
+de qual ciclo de GC foi o último. Isso importa além do campo: **o RNF-07 é
+especificado contra um número que é artefato do alvo de GC.** Mecanismo completo em
+[`OPERACAO.md`](OPERACAO.md).
+
+**A decisão sobre o alvo é do dono** — as três opções estão em `OPERACAO.md`.
 
 ---
 

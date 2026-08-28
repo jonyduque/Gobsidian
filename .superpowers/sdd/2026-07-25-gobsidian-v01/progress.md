@@ -4469,10 +4469,25 @@ processo e com `--cache-dir` próprio para não encostar nas sessões vivas.
   pico de construção, não repouso. Refeito com os dois caches quentes, bate com a
   auditoria (Estudo 49,0 → 150,8 contra 53,1 → 149,0 dela).
 - **O `Context` do backlink custa RSS, e o sinal NÃO é uniforme**: Jurisprudência
-  +21,6 MB (56,8 → 78,4, atravessando o alvo), Estudo **−3,6 MB**. Faixas não se
-  sobrepõem em nenhum dos dois. O negativo não está explicado; a hipótese é momento
-  de GC — o heap vivo de Jurisprudência CAI de 59,7 para 41,3 MB entre A e B
-  enquanto o RSS sobe —, mas **não foi investigado**.
+  +21,5 MB (56,9 → 78,4, atravessando o alvo), Estudo **−3,6 MB**. Faixas não se
+  sobrepõem em nenhum dos dois.
+- **O negativo foi investigado e explicado** (`GODEBUG=gctrace=1,scavtrace=1`):
+  **RSS acompanha a META de heap do GC, não o volume de dados.** O Go fixa a meta em
+  ~2× o heap vivo ao fim de cada ciclo. Em Jurisprudência o contexto acrescenta
+  ~6 MB de heap vivo (32 contra 26) e manda na meta (39 contra 33). Em Estudo os
+  dois terminam com heap vivo igual (15 contra 16) e o braço SEM contexto rodou um
+  ciclo a mais, disparado depois do `vault_stats`, fixando meta de 33 contra 31 —
+  o RSS seguiu a meta e o sinal inverteu. O binário com contexto roda
+  sistematicamente UM ciclo a menos, que é o que um heap vivo maior produz.
+- **Retratação:** eu tinha lido `alloc` como heap vivo. **Não é** — é `HeapAlloc`,
+  heap vivo MAIS lixo não coletado. A leitura de "heap 9 MB maior sem contexto" era
+  esse artefato.
+- **Consequência para o requisito:** o RNF-07 é especificado contra RSS, e RSS aqui
+  é artefato do alvo de GC. Uma inversão de 3,6 MB decidida por qual ciclo terminou
+  por último mostra que o instrumento é ruidoso para um orçamento de 60 MB.
+- **Um número publicado saiu contaminado e foi corrigido**: Estudo protocolo A dava
+  57,1 MB porque aquela rodada foi `index_origin=build`, não `cache`. Com cache é
+  **49,5 MB**. A tabela passou a conferir a origem em toda rodada.
 - **Custo a frio do TJSP 192**: pico de **1.467,7 MB**, com 564,6 MB de cache
   invertido gravado. Não é RNF-07, mas é o que a máquina precisa ter a cada troca
   de formato.
