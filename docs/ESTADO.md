@@ -106,6 +106,28 @@ nos três sistemas; build tag só para o caminho do socket e a limpeza.
 
 ---
 
+## RNF-07 não é atingido em cofre real (medido em 2026-08-27)
+
+Cinco cofres do dono, cache quente, dois protocolos — antes e depois de **uma**
+`vault_search`, que é o que dispara a carga preguiçosa do índice invertido.
+Tabela completa e método em [`OPERACAO.md`](OPERACAO.md).
+
+| | alvo 60 MB | limite 150 MB |
+|---|---|---|
+| **Protocolo A** (o publicado, sem busca) | falha em **2 de 5** | — |
+| **Protocolo B** (depois de uma busca) | falha em **3 de 5** | **estoura em 2 de 5** |
+
+TJSP 192, o cofre principal, dá **129,3 MB** sem ter buscado e **276,2 MB** depois
+de uma busca — 1,8× o limite de falha. Os 37,95 MB publicados eram de um cofre
+**sintético**.
+
+O campo `Context` do backlink participa: em Jurisprudência ele leva o cofre de
+56,8 MB (dentro do alvo) para 78,4 MB (fora). Em Estudo o delta é **negativo e
+reproduzível**, sem explicação verificada. **A decisão sobre o alvo é do dono** —
+as três opções estão em `OPERACAO.md`.
+
+---
+
 ## Estado dos achados da auditoria de 2026-08-25
 
 `docs/SUGESTOES.md` levantou 61 achados. Em 2026-08-27 o quadro é:

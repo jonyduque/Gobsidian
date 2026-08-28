@@ -4454,6 +4454,33 @@ fechados, **dois rejeitados depois de verificados**.
   `headingDoLink`). Nos dois casos meu primeiro instinto foi consertar a mutação;
   nos dois ela estava certa. Registrado em `ARMADILHAS.md`.
 
+**Medição do RNF-07, a pedido do dono (2026-08-27).** A auditoria mediu dois
+cofres; isto mede os **cinco**, com o binário atual, dois protocolos (antes e
+depois de UMA `vault_search`), cache de metadados **e** invertido quentes, em
+processo e com `--cache-dir` próprio para não encostar nas sessões vivas.
+- **RNF-07 NÃO é atingido em cofre real, e já não era pelo protocolo publicado**:
+  Jurisprudência 78,5 MB e TJSP 192 **129,3 MB** sem ter buscado, contra alvo de
+  60 MB. Os 37,95 MB publicados eram de cofre **sintético**.
+- **Depois de uma busca**, falha em 3 de 5 e **estoura o limite de 150 MB em dois**:
+  Estudo 151,5 MB e TJSP 192 **276,2 MB** — 1,8× o limite. Linha da tabela em
+  `OPERACAO.md` corrigida de "Atingido" para "NÃO ATINGIDO em cofre real".
+- **Errei o primeiro protocolo e o número saiu absurdo** (Estudo 820 MB): aqueci só
+  o cache de metadados, então o braço B estava CONSTRUINDO o invertido do zero —
+  pico de construção, não repouso. Refeito com os dois caches quentes, bate com a
+  auditoria (Estudo 49,0 → 150,8 contra 53,1 → 149,0 dela).
+- **O `Context` do backlink custa RSS, e o sinal NÃO é uniforme**: Jurisprudência
+  +21,6 MB (56,8 → 78,4, atravessando o alvo), Estudo **−3,6 MB**. Faixas não se
+  sobrepõem em nenhum dos dois. O negativo não está explicado; a hipótese é momento
+  de GC — o heap vivo de Jurisprudência CAI de 59,7 para 41,3 MB entre A e B
+  enquanto o RSS sobe —, mas **não foi investigado**.
+- **Custo a frio do TJSP 192**: pico de **1.467,7 MB**, com 564,6 MB de cache
+  invertido gravado. Não é RNF-07, mas é o que a máquina precisa ter a cada troca
+  de formato.
+- **Decisão pendente do dono**: re-negociar o alvo nomeando o estado medido, manter
+  60 MB como dívida aberta, ou reduzir `contextoBytes`. As três estão em
+  `OPERACAO.md`; a terceira devolve ~21 MB em cofre denso mas não ataca o
+  invertido, que é o que domina o protocolo B.
+
 **Os três críticos e os oito altos estão fechados.** Seguem abertos: **8 médios,
 9 de desempenho, 8 baixos**, mais o item do lock de `EnsureStarted` e o teste da
 tempestade. **P1, P2 e P3 seguem congelados** por decisão do dono, até o baseline

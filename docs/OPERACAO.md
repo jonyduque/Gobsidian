@@ -190,7 +190,7 @@ num cofre de 7 notas.
 | **RNF-04** | `vault_search` p95 (≤ 100 ms) | 5.000 notas: **8 de 8** (2026-08-12, Task 94). `limit: 200` em **43,1 / 28,8 / 27,6 ms** em três rodadas; era 119–123 ms. Medido a frio e no índice **vindo do cache**, que é o ramo que o servidor executa — ver "Recorte de trecho" ao fim | **Atingido** |
 | **RNF-05** | `note_list` com filtro de metadados p95 (≤ 10 ms) | p95 **533,68 µs**, mediana 249,24 µs (5.000 notas) | **Atingido** |
 | **RNF-06** | Reindexação de arquivo único (≤ 20 ms) | mediana **334,87 µs**, p95 544,87 µs (5.000 notas, lote=20; Task 86, 2026-08-06). Era 20,35 ms | **Atingido** |
-| **RNF-07** | RSS em repouso (≤ 60 MB) | 5.000 notas: **37,95–38,10 MB** com cache quente, **54,69–54,82 MB** a frio (2026-08-09). Era 67,08 / 112,96 MB | **Atingido** |
+| **RNF-07** | RSS em repouso (≤ 60 MB) | Cofre **sintético** de 5.000 notas: **37,95–38,10 MB** com cache quente (2026-08-09). Cofres **reais** do dono, cache quente, 2026-08-27: **25,8 / 35,2 / 78,5 / 57,1 / 129,3 MB** antes da primeira busca; **31,0 / 45,0 / 90,7 / 151,5 / 276,2 MB** depois de uma busca | **NÃO ATINGIDO** em cofre real |
 | **RNF-08** | CPU em repouso (< 0,5 %) | **não medido** | — |
 | **RNF-09** | Escalabilidade linear até 20.000 notas | **não medido** (medido até 5.000) | — |
 | **RNF-10** | Zero órfãos em 100 ciclos de start/kill do host | **100/100 em quatro cenários** — `stdin-eof`, `parent-death`, `signal` e `daemon-idle` —, cada um com o `reason=` do seu mecanismo, 400 ciclos no total | **Atingido** |
@@ -2135,3 +2135,94 @@ mutação a reprovou. O que P11 acertou, e ficou: a varredura **descartava erro 
 subárvore em silêncio**, então "varri e não achei nada" e "não consegui entrar em
 trinta diretórios" davam a mesma resposta. `SweepResult` passou a carregar as
 três contagens, e o boot as loga.
+
+---
+
+## RNF-07 medido nos cinco cofres reais (2026-08-27)
+
+O achado da auditoria dizia que `scripts/measure.ps1` emite `initialize` +
+`vault_stats` e mede — e que, desde a carga preguiçosa da Task 88, uma sessão que
+nunca buscou **nunca carregou o índice invertido**. O número publicado descreve um
+servidor que ainda não buscou. A auditoria mediu **dois** cofres; isto mede os
+cinco, com o binário atual.
+
+Protocolo, com uma variável só entre os braços:
+
+- **A** — `initialize` + `vault_stats`. É o que `measure.ps1` faz hoje.
+- **B** — A, mais **uma** `vault_search`, que é o que dispara a carga preguiçosa.
+
+Em processo (`GOBSIDIAN_NO_DAEMON=1`), somente-leitura, `--cache-dir` próprio por
+cofre — para não encostar nas sessões vivas do dono nem gravar cache de formato 5
+onde o binário instalado lê. **Os dois caches quentes**: metadados e invertido.
+RSS é o **pico** de seis amostras após 3 s de acomodação; `heap` é o `alloc` que o
+próprio `vault_stats` devolve.
+
+| Cofre | notas | A: RSS | A: heap | B: RSS | B: heap | busca |
+|---|---|---|---|---|---|---|
+| Oral | 78 | 25,8 MB | 8,0 MB | 31,0 MB | 8,4 MB | 65 hits |
+| Revisão | 1.275 | 35,2 MB | 16,4 MB | 45,0 MB | 18,2 MB | 512 |
+| Jurisprudência | 1.254 | **78,5 MB** | 59,7 MB | **90,7 MB** | 41,3 MB | 401 |
+| Estudo | 2.557 | 57,1 MB | 25,7 MB | **151,5 MB** | 60,4 MB | 1.426 |
+| TJSP 192 | 5.686 | **129,3 MB** | 88,0 MB | **276,2 MB** | 129,5 MB | 2.733 |
+
+Alvo: **≤ 60 MB**. Limite de falha: **150 MB**.
+
+**Pelo protocolo publicado (A), o RNF-07 já falha em 2 dos 5 cofres reais** —
+Jurisprudência a 78,5 MB e TJSP 192 a 129,3 MB, sem que nenhuma busca tenha
+acontecido. Os 37,95 MB publicados são de um cofre **sintético** de 5.000 notas;
+o cofre real de 5.686 notas dá 129,3 MB pelo mesmo protocolo.
+
+**Pelo protocolo B — o estado de qualquer sessão que já buscou uma vez — falha em
+3 dos 5, e dois deles estouram o LIMITE DE FALHA**: Estudo a 151,5 MB e TJSP 192 a
+276,2 MB, este último **1,8× o limite** e 4,6× o alvo.
+
+### O custo a frio, que não é RNF-07 mas assusta mais
+
+TJSP 192 com os dois caches vazios: **pico de 1.467,7 MB** durante a construção,
+gravando 32,6 MB de cache de metadados e **564,6 MB** de cache invertido. Não é
+repouso e não é o que o RNF-07 nomeia — mas é memória que a máquina do dono
+precisa ter no primeiro boot depois de toda troca de formato de cache.
+
+### O que o `heap` acrescenta, e por que ele foi medido
+
+Em Jurisprudência o heap vivo **cai** de 59,7 para 41,3 MB entre A e B, enquanto o
+RSS **sobe** de 78,5 para 90,7. Não é contradição: **RSS não é heap vivo**. O GC
+rodou entre as duas amostras. Isso importa porque mede o tamanho do ruído: em
+comparações onde a diferença de dados é de poucos MB, o momento do GC decide o
+número.
+
+### O `Context` do backlink custa RSS, e o custo não é uniforme
+
+O campo acrescentado em 2026-08-26 mora no índice de metadados, que é exatamente o
+que o protocolo A mede. Medido com dois binários — o atual e um com
+`Context: ""` —, cinco execuções intercaladas de cada, protocolo A:
+
+| Cofre | com contexto | sem contexto | delta |
+|---|---|---|---|
+| Jurisprudência | **78,4 MB** [78,2–78,8] | **56,8 MB** [52,5–57,1] | **+21,6 MB** |
+| Estudo | 49,0 MB [48,6–49,2] | 52,6 MB [52,3–53,5] | **−3,6 MB** |
+
+**As faixas não se sobrepõem em nenhum dos dois, e os sinais são opostos.**
+
+Em Jurisprudência o efeito é grande e inequívoco: **é o `Context` que leva o cofre
+de 56,8 MB, dentro do alvo, para 78,4 MB, fora dele.** Faz sentido pela forma do
+cofre — o cache de metadados dele vai de 9,8 para 19,1 MB com o campo, e ele é
+denso em links.
+
+Em Estudo o cache cresce só 2,8 MB e o resultado é **negativo e reproduzível**.
+Não está explicado. A hipótese óbvia é o momento do GC — os números de heap acima
+mostram que ele move mais que 3,6 MB —, mas **isso não foi investigado**, e a
+hipótese está aqui como hipótese.
+
+### O que isto pede de decisão
+
+O RNF-07 não pode continuar publicado como **Atingido**. A tabela acima já foi
+corrigida. O que falta decidir é o alvo:
+
+1. **Re-negociar o número** com base no cofre real, e nomear o estado medido
+   ("depois da primeira busca"), que é o único que descreve uma sessão de verdade.
+2. **Manter 60 MB e tratar como dívida aberta**, com o caminho de redução nomeado —
+   o índice invertido é o que domina o protocolo B, e os IDs densos da Oportunidade 1
+   atacam exatamente a estrutura que o infla.
+3. **Reduzir `contextoBytes`**, que devolve ~21 MB em cofre denso em links e não
+   custa tempo mensurável — mas não resolve o problema maior, que é o invertido.
