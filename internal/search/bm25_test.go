@@ -91,9 +91,17 @@ func TestBM25WeightTitle(t *testing.T) {
 }
 
 func TestBM25WeightHeadings(t *testing.T) {
+	// As duas notas tem os MESMOS tokens, na mesma quantidade — so a POSICAO de
+	// "civil" muda: heading numa, corpo na outra.
+	//
+	// O fixture anterior era "## civil / texto texto" contra "# Nota C / texto
+	// civil", e as duas tinham comprimentos diferentes. O BM25 normaliza por
+	// comprimento, entao a nota mais curta ja pontuava mais SEM peso nenhum de
+	// heading: uma prova de mutacao em 2026-08-28 apagou a deteccao de heading e
+	// este teste PASSOU. Teste que nao pode falhar e pior que teste ausente.
 	_, idx, ix := createVaultWithNotes(t, map[string]string{
-		"h.md": "---\ntitle: Nota H\n---\n## civil\n\ntexto texto\n",
-		"c.md": "---\ntitle: Nota C\n---\n# Nota C\n\ntexto civil\n",
+		"h.md": "---\ntitle: Nota\n---\n## civil\n\nalpha beta gama\n",
+		"c.md": "---\ntitle: Nota\n---\n## alpha\n\ncivil beta gama\n",
 	})
 
 	res := search.CalculateBM25(search.Analyze("civil"), ix, idx)
