@@ -143,14 +143,20 @@ estrutura do índice invertido — não o requisito.
 | Críticos | 3 de 3 | — |
 | Altos | 8 de 8 | — |
 | Médios | 7 (M2–M5, M7, M14, M15, M17) | 8 |
-| Desempenho | 5 (P5, P6, P8, P10, P13, P14) | 9 |
+| Desempenho | 8 (P1, P2, P3, P5, P6, P8, P10, P13, P14) | 6 |
 | Baixos | 8 (B5, B6, B7, B9, B11, B14, B17, B1) | 8 |
 
 Dois foram **rejeitados depois de verificados**, e a verificação é o registro que
 importa: **M1** estava prescrito ao contrário, e **P11** partia de uma premissa
 falsa sobre MAX_PATH no Go. Os dois estão em [`OPERACAO.md`](OPERACAO.md) com a
-sondagem que os derrubou. **P1, P2 e P3** seguem congelados por decisão do dono,
-até existir o baseline da Oportunidade 1.
+sondagem que os derrubou.
+
+**P1, P2 e P3 saíram do congelamento em 2026-08-28**, junto com a
+**Oportunidade 1** (BM25 em IDs densos) que os subsumia. O perfil que destravava
+a decisão foi feito e mudou a resposta: o BM25 vale 16% da CPU da busca mas
+**79% da alocação** dela. Medido intercalado: busca **−31% a −45% de tempo** e
+**−42% a −47% de alocação**, com ordem de ranking idêntica em seis consultas
+contra cofre real. É o maior ganho de desempenho da série.
 
 A seção de achados do próprio `SUGESTOES.md` **não foi reescrita** e tem aviso no
 topo: riscar dezenas de itens a mão é edição em que um fica para trás, e achado

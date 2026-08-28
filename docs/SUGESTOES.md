@@ -18,8 +18,10 @@ severidade contra o fonte. **Nenhum código foi alterado.**
 > o prefixo de caminho longo sozinho, e a correção foi reprovada pela prova de mutação. Os
 > dois estão detalhados em `docs/OPERACAO.md`.
 >
-> **P1, P2 e P3 seguem congelados** por decisão do dono, até existir o baseline da
-> Oportunidade 1.
+> **P1, P2 e P3 foram descongelados e implementados em 2026-08-28**, junto com a
+> **Oportunidade 1** (BM25 em IDs densos), que a auditoria previa que os
+> subsumiria — e subsumiu. Busca ficou 31% a 45% mais rápida e alocou 42% a 47%
+> menos, com paridade de ranking verificada. Ver `docs/OPERACAO.md`.
 >
 > Quem quiser o estado real consulte o ledger em
 > `.superpowers/sdd/2026-07-25-gobsidian-v01/progress.md`, que é a fonte, e
@@ -28,7 +30,7 @@ severidade contra o fonte. **Nenhum código foi alterado.**
 > O aviso está aqui em vez de a seção ter sido reescrita porque riscar dezenas de
 > achados a mão é o tipo de edição em que um fica para trás — e um achado marcado
 > como fechado sem ter sido é pior que um marcado como aberto tendo sido.
-> Continuam **abertos e válidos**: 8 médios, 9 de desempenho e 8 baixos.
+> Continuam **abertos e válidos**: 8 médios, 6 de desempenho e 8 baixos.
 
 - Base da análise: HEAD `1cbb007` (merge Task 106).
 - **Nada aqui é número medido.** Nenhum build, teste ou benchmark rodou nesta auditoria.

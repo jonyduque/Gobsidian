@@ -4496,7 +4496,52 @@ processo e com `--cache-dir` próprio para não encostar nas sessões vivas.
   `OPERACAO.md`; a terceira devolve ~21 MB em cofre denso mas não ataca o
   invertido, que é o que domina o protocolo B.
 
+**Task 137 — RNF-07 redefinido** (`bf680bb`). Decisão do dono: métrica passa de
+RSS para **heap vivo**, alvo passa a **escalar com o cofre** (`≤ 8 MB + 32 KB ×
+notas`), e o requisito nomeia **dois estados** — `pronto` e `servindo`. Os cinco
+cofres passam, com folga de 15% a 64%.
+- **`measure.ps1` precisou de três correções para o requisito ser verificável.**
+  Ele media a **PONTE**, não o servidor: sem `GOBSIDIAN_NO_DAEMON` o `serve` vira
+  ponte de ~15 MB quando há daemon, e a ponte nem imprime "servidor pronto" — o
+  número dependia de haver ou não daemon vivo. Media **um estado só**. E não
+  conferia `index_origin`, o que já contaminou um número publicado.
+- **Consequência de escala escrita no PRD, não escondida:** a 20.000 notas o teto
+  vira 633 MB. Se for inaceitável, o que muda é a estrutura do índice invertido.
+
+**Task 138 — P2** (`ffeb670`). `strings.Contains(TitleNorm, term)` dava peso de
+TÍTULO — o maior do sistema — para "Barragem" na busca "ar". Resultado errado, nas
+consultas curtas, que são as comuns.
+- **A primeira correção estava certa e era cara, e a medição pegou:** tokenizar o
+  título com `Analyze` custou **+38%** na busca, porque roda por documento
+  candidato por termo. A versão entregue varre `TitleNorm` por fronteira de token
+  — sem alocar, O(len) — e não custa nada mensurável.
+- **`TestBM25WeightHeadings` não podia falhar**: o fixture tinha comprimentos
+  diferentes e o BM25 normaliza por comprimento, então a nota mais curta já
+  vencia sem peso nenhum. Uma mutação que desligava a detecção de heading deixava
+  o teste PASSANDO. Fixture equilibrado; sob a mesma mutação os scores agora
+  saem idênticos.
+- **Limite conhecido e fixado em teste**: título no plural com consulta no
+  singular não casa. O inverso, que é o comum, casa.
+
+**Task 139 — Oportunidade 1 + P1 + P3** (`07aecae`). **O maior ganho de
+desempenho da série.**
+- **O perfil destravou a decisão que estava congelada.** O perfil antigo punha o
+  BM25 em 0,73%, mas era anterior à troca de `Postings` por `Positions`, que
+  cortou 87% do tempo. Refeito: BM25 vale **16% da CPU** da busca e **79% da
+  ALOCAÇÃO** dela. O argumento da Oportunidade 1 nunca foi tempo — é alocação.
+- **Medido intercalado, 7 rodadas por braço:** `SearchLimit200Cache` 16,91 →
+  **11,67 ms** (−31,0%) e 3,78 → **2,21 MB/op** (−41,6%); `TermoAmploCache`
+  11,26 → **6,20 ms** (−45,0%) e 3,37 → **1,80 MB/op** (−46,6%).
+- **Paridade verificada, não suposta.** A reescrita muda a ordem de acumulação em
+  ponto flutuante. Seis consultas contra o cofre real de 1.254 notas: **ordem
+  idêntica nas seis**, maior delta de score **3,55e-15**.
+- **P1 veio junto** porque mora na mesma função: `avgdl` percorria `idx.Paths()`
+  por consulta — alocando e ordenando o cofre inteiro, anexos incluídos, que têm
+  comprimento zero. Virou `Inverted.SomaDocLen` memorizado contra geração.
+- **Ficou de fora, de propósito:** fechar os IDs densos de ponta a ponta mudaria
+  a API de `Inverted`. O ganho veio sem isso, então a mudança maior segue
+  disponível e não foi gasta.
+
 **Os três críticos e os oito altos estão fechados.** Seguem abertos: **8 médios,
-9 de desempenho, 8 baixos**, mais o item do lock de `EnsureStarted` e o teste da
-tempestade. **P1, P2 e P3 seguem congelados** por decisão do dono, até o baseline
-da Oportunidade 1. Quadro por severidade em `docs/ESTADO.md`.
+6 de desempenho, 8 baixos**, mais o item do lock de `EnsureStarted` e o teste da
+tempestade. Quadro por severidade em `docs/ESTADO.md`.

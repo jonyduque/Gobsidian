@@ -2315,3 +2315,60 @@ corrigida. O que falta decidir é o alvo:
    atacam exatamente a estrutura que o infla.
 3. **Reduzir `contextoBytes`**, que devolve ~21 MB em cofre denso em links e não
    custa tempo mensurável — mas não resolve o problema maior, que é o invertido.
+
+---
+
+## Oportunidade 1 implementada: BM25 em IDs densos (2026-08-28)
+
+Era "o maior ganho de desempenho pendente" da auditoria, e estava congelada até
+existir um perfil do caminho BM25. O perfil foi feito, e ele mudou a decisão.
+
+### O perfil que destravou
+
+`BenchmarkSearchLimit200Cache`, filtrado na subárvore de `service.Search`:
+
+| | CPU | alocação |
+|---|---|---|
+| syscall de arquivo (`cgocall`) | 81,5% | — |
+| **`CalculateBM25`** | 16,2% | **79%** (107,9 de 137,1 MB) |
+
+Dentro do `CalculateBM25`: `index.Paths` + `DocLength` 33% (P1), operações de
+mapa 31% (P3), `getFieldWeight` 12% (P2).
+
+**O perfil anterior punha o BM25 em 0,73%** e por isso ninguém mexia nele — mas
+era anterior à troca de `Postings` por `Positions`, que cortou 87% do tempo
+total. A fração mudou e ninguém remediu.
+
+**Em CPU o teto é 16%.** O argumento da Oportunidade 1 é **alocação**: o BM25
+respondia por 79% dos bytes da busca.
+
+### O resultado, medido intercalado
+
+Sete rodadas de cada braço, binários construídos lado a lado:
+
+| | tempo | alocação |
+|---|---|---|
+| `SearchLimit200Cache` | 16,91 → **11,67 ms** (−31,0%) | 3,78 → **2,21 MB/op** (−41,6%) |
+| `SearchTermoAmploCache` | 11,26 → **6,20 ms** (−45,0%) | 3,37 → **1,80 MB/op** (−46,6%) |
+
+**É o maior ganho de desempenho da série.** P1, P2 e P3 saem juntos: a auditoria
+previa que a Oportunidade 1 os subsumiria, e subsumiu.
+
+### Paridade de ranking, verificada e não suposta
+
+A reescrita muda a ordem de acumulação em ponto flutuante — soma os pesos de
+campo por posting e multiplica pelo multiplicador uma vez, onde antes
+multiplicava por ocorrência. Seis consultas contra o cofre real de 1.254 notas,
+50 resultados cada, comparando o binário anterior com este:
+
+- **ordem idêntica nas seis**;
+- maior diferença absoluta de score: **3,55e-15**.
+
+Isso é associatividade, e nada mais.
+
+### O que ficou de fora, e por quê
+
+O `baseSoA` já trabalha em IDs `int32` internamente; o que se perde é na volta,
+porque `Postings` reconverte para string. Fechar isso de ponta a ponta mudaria a
+API de `Inverted`, o que atinge trecho, serviço e testes. **O ganho medido veio
+sem isso**, então a mudança maior segue disponível e não foi gasta.
