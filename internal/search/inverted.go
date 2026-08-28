@@ -79,6 +79,18 @@ type Inverted struct {
 	terms      map[string]map[string][]TokenPosition // delta: termo -> (path -> posList)
 	docLengths map[string]int                        // delta: path -> total de tokens
 
+	// geracao conta toda mutacao do indice. E o que invalida a memorizacao de
+	// SomaDocLen — mesmo padrao de index.TotalSize, que a memorizacao contra
+	// geracao acelerou 688x.
+	geracao uint64
+
+	// soma* memorizam SomaDocLen contra a geracao em que foi calculada.
+	// somaValida distingue "nunca calculada" de "calculada e deu zero": indice
+	// vazio e indice nao medido nao podem dar a mesma resposta.
+	somaDocLen  int64
+	somaGeracao uint64
+	somaValida  bool
+
 	// building diz que o índice NÃO cobre o cofre inteiro ainda.
 	//
 	// Existe porque o servidor passou a construí-lo em segundo plano: num cofre
@@ -119,6 +131,8 @@ func (ix *Inverted) Building() bool { return ix.building.Load() }
 func (ix *Inverted) Add(path string, tokens []Token) {
 	ix.mu.Lock()
 	defer ix.mu.Unlock()
+
+	ix.geracao++
 
 	ix.sombrearLocked(path)
 	ix.removeLocked(path)
@@ -161,6 +175,8 @@ func (ix *Inverted) addTermPositionLocked(term, path string, pos TokenPosition) 
 func (ix *Inverted) Remove(path string) {
 	ix.mu.Lock()
 	defer ix.mu.Unlock()
+
+	ix.geracao++
 	ix.sombrearLocked(path)
 	ix.removeLocked(path)
 }
@@ -450,6 +466,48 @@ func (ix *Inverted) DocLength(path string) int {
 	return int(ix.base.docLen[id])
 }
 
+// SomaDocLen devolve a soma dos comprimentos de TODOS os documentos vivos.
+//
+// E o numerador de `avgdl`, o divisor da normalizacao por comprimento do BM25.
+// Ate 2026-08-28 `CalculateBM25` calculava isso por consulta percorrendo
+// `idx.Paths()` — que ALOCA e ORDENA o cofre inteiro, notas mais anexos — e
+// chamando `DocLength` para cada caminho, cada uma tomando o RLock por conta
+// propria. Anexo tem comprimento zero, entao boa parte do laco era trabalho
+// morto (achado P1). No perfil de `BenchmarkSearchLimit200Cache`, `index.Paths`
+// sozinho respondia por 28,6% do tempo de `CalculateBM25`.
+//
+// O resultado e memorizado contra `geracao`: enquanto o indice nao muda, a soma
+// nao e refeita. O lock e o de ESCRITA porque o acerto grava a memorizacao —
+// usar RLock e gravar assim mesmo seria corrida de dados com nome tranquilizador.
+func (ix *Inverted) SomaDocLen() int64 {
+	ix.mu.Lock()
+	defer ix.mu.Unlock()
+
+	if ix.somaValida && ix.somaGeracao == ix.geracao {
+		return ix.somaDocLen
+	}
+
+	var soma int64
+	for _, n := range ix.docLengths {
+		soma += int64(n)
+	}
+	if ix.base != nil {
+		for id, caminho := range ix.base.caminhos {
+			// Documento sombreado saiu do base: a versao viva dele esta no
+			// delta, e ja foi contada acima. Somar os dois contaria em dobro.
+			if ix.sombra[caminho] {
+				continue
+			}
+			soma += int64(ix.base.docLen[id])
+		}
+	}
+
+	ix.somaDocLen = soma
+	ix.somaGeracao = ix.geracao
+	ix.somaValida = true
+	return soma
+}
+
 // Update lê uma nota do vault, remove BOM, analisa os tokens e atualiza o índice invertido.
 func (ix *Inverted) Update(ctx context.Context, v *vault.Vault, path vault.CanonicalPath) error {
 	select {
@@ -630,6 +688,8 @@ func (ix *Inverted) AdotarDe(outro *Inverted) error {
 	}
 	ix.mu.Lock()
 	defer ix.mu.Unlock()
+
+	ix.geracao++
 	outro.mu.Lock()
 	defer outro.mu.Unlock()
 

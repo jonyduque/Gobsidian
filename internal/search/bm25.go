@@ -32,6 +32,26 @@ type Result struct {
 }
 
 // CalculateBM25 calcula os scores de relevância BM25 para um conjunto de tokens de consulta.
+//
+// # Espaço de IDs densos (Oportunidade 1)
+//
+// Até 2026-08-28 esta função trabalhava em caminhos: `docTermFreqs` era um
+// `map[string]map[int]float64` — **um mapa alocado por documento candidato** —
+// mais um `map[string]bool` por token de consulta e um `map[string]float64`
+// para os scores. No perfil de `BenchmarkSearchLimit200Cache`, `CalculateBM25`
+// respondia sozinha por **79% dos bytes alocados pela busca**, 96 MB só de
+// alocação direta, e ~31% do tempo dela eram operações de mapa.
+//
+// Agora os candidatos recebem um ID compacto na PRIMEIRA passada — um índice
+// 0..M-1, onde M é o número de documentos que casaram algum termo — e tudo
+// depois disso é fatia indexada por esse ID: frequências, comprimentos, scores.
+// Sobra um mapa só, `idPorCaminho`, com uma entrada por candidato em vez de uma
+// por (candidato × termo).
+//
+// O `baseSoA` já trabalha em IDs int32 internamente; o que se perdia era na
+// volta, porque `Postings` reconverte para string. Fechar isso de ponta a ponta
+// exigiria mudar a API de `Inverted`, o que atinge trecho, serviço e testes —
+// ficou de fora, e o ganho medido veio sem isso.
 func CalculateBM25(queryTokens []Token, ix *Inverted, idx *index.Index) []Result {
 	if ix == nil || ix.DocCount() == 0 || len(queryTokens) == 0 {
 		return nil
@@ -39,10 +59,6 @@ func CalculateBM25(queryTokens []Token, ix *Inverted, idx *index.Index) []Result
 
 	totalDocs := ix.DocCount()
 	N := float64(totalDocs)
-
-	// Calcula o comprimento médio dos documentos (avgdl)
-	var sumDocLen float64
-	docTermFreqs := make(map[string]map[int]float64)
 
 	type termMatch struct {
 		term      string
@@ -60,8 +76,8 @@ func CalculateBM25(queryTokens []Token, ix *Inverted, idx *index.Index) []Result
 		}
 	}
 
-	// Pre-fetch all postings to avoid duplicate allocations (profile: 371.40 MB in Postings).
-	// Fetch once for each unique term and reuse throughout scoring and IDF calculation.
+	// Busca as postings uma vez por termo distinto e reusa — na pontuação e no
+	// IDF (perfil anterior: 371,40 MB em Postings por refazer a busca).
 	termPostings := make(map[string][]Posting)
 	for _, m := range matches {
 		if _, exists := termPostings[m.term]; !exists {
@@ -69,22 +85,58 @@ func CalculateBM25(queryTokens []Token, ix *Inverted, idx *index.Index) []Result
 		}
 	}
 
+	// PRIMEIRA PASSADA: atribui um ID compacto a cada documento candidato.
+	//
+	// Uma entrada de mapa por CANDIDATO, e não por (candidato × termo) como
+	// antes. Daqui para baixo nada mais toca em mapa no caminho quente.
+	idPorCaminho := make(map[string]int32)
+	var caminhoPorID []string
+	for _, m := range matches {
+		for _, p := range termPostings[m.term] {
+			if _, visto := idPorCaminho[p.Path]; !visto {
+				idPorCaminho[p.Path] = int32(len(caminhoPorID))
+				caminhoPorID = append(caminhoPorID, p.Path)
+			}
+		}
+	}
+	if len(caminhoPorID) == 0 {
+		return nil
+	}
+
+	M := len(caminhoPorID)
+	nq := len(queryTokens)
+
+	// tf é uma matriz M×nq achatada: tf[doc*nq+termo]. Uma alocação, contígua,
+	// contra os M mapas de antes.
+	tf := make([]float64, M*nq)
+
+	// docsPorTermo conta em quantos documentos cada token da consulta ocorre —
+	// o `nq` do IDF. `marcado` faz o papel do `map[string]bool` por token, com
+	// um carimbo por documento: o valor guardado é o índice do token que o
+	// marcou por último, então não é preciso limpar a fatia entre tokens.
+	docsPorTermo := make([]int, nq)
+	marcado := make([]int32, M)
+	for i := range marcado {
+		marcado[i] = -1
+	}
+
 	for _, m := range matches {
 		postings := termPostings[m.term]
 		if len(postings) == 0 {
 			continue
 		}
-
 		for _, p := range postings {
-			if _, exists := docTermFreqs[p.Path]; !exists {
-				docTermFreqs[p.Path] = make(map[int]float64)
+			id := idPorCaminho[p.Path]
+
+			if marcado[id] != int32(m.queryIdx) {
+				marcado[id] = int32(m.queryIdx)
+				docsPorTermo[m.queryIdx]++
 			}
 
-			// Resolvido UMA vez por documento, e nao por ocorrencia (achado
-			// P2): o `idx.Get` toma RLock e o teste de titulo tokeniza. As
-			// duas respostas sao as mesmas para todas as ocorrencias do mesmo
-			// termo no mesmo documento — so a posicao muda, e so o heading
-			// depende dela.
+			// Resolvido UMA vez por documento, e não por ocorrência (achado
+			// P2): `idx.Get` toma RLock, e a decisão de título é a mesma para
+			// todas as ocorrências do mesmo termo no mesmo documento — só o
+			// heading depende da posição.
 			var n *index.Note
 			if idx != nil {
 				if nota, ok := idx.Get(vault.CanonicalPath(p.Path)); ok {
@@ -93,82 +145,54 @@ func CalculateBM25(queryTokens []Token, ix *Inverted, idx *index.Index) []Result
 			}
 			tituloCasa := n != nil && tituloContemTermo(n.TitleNorm, m.term)
 
+			var soma float64
 			for _, pos := range p.Positions {
-				fw := pesoDeCampo(n, pos, tituloCasa)
-				docTermFreqs[p.Path][m.queryIdx] += fw * m.matchMult
+				soma += pesoDeCampo(n, pos, tituloCasa)
 			}
+			tf[int(id)*nq+m.queryIdx] += soma * m.matchMult
 		}
 	}
 
-	if len(docTermFreqs) == 0 {
-		return nil
-	}
-
-	if idx != nil {
-		for _, p := range idx.Paths() {
-			if dl := ix.DocLength(string(p)); dl > 0 {
-				sumDocLen += float64(dl)
-			}
-		}
-	} else {
-		for path := range docTermFreqs {
-			sumDocLen += float64(ix.DocLength(path))
-		}
-	}
-
-	avgdl := sumDocLen / N
+	// avgdl vem memorizado do índice invertido, e não de um percurso do cofre
+	// inteiro por consulta (achado P1).
+	avgdl := float64(ix.SomaDocLen()) / N
 	if avgdl == 0 {
 		avgdl = 1.0
 	}
 
-	termIDFs := make(map[int]float64)
-	for i, qTok := range queryTokens {
-		docsWithTerm := make(map[string]bool)
-		for _, p := range termPostings[qTok.Raw] {
-			docsWithTerm[p.Path] = true
-		}
-		if qTok.Reduced != "" && qTok.Reduced != qTok.Raw {
-			for _, p := range termPostings[qTok.Reduced] {
-				docsWithTerm[p.Path] = true
-			}
-		}
-
-		nq := float64(len(docsWithTerm))
-		if nq > 0 {
-			idf := math.Log(1.0 + (N-nq+0.5)/(nq+0.5))
-			termIDFs[i] = idf
+	idfs := make([]float64, nq)
+	for i := range idfs {
+		d := float64(docsPorTermo[i])
+		if d > 0 {
+			idfs[i] = math.Log(1.0 + (N-d+0.5)/(d+0.5))
 		}
 	}
 
-	docScores := make(map[string]float64)
-	for path, termFreqs := range docTermFreqs {
-		docLen := float64(ix.DocLength(path))
-		var score float64
+	// Comprimento de cada candidato, uma consulta por documento. Antes era uma
+	// por documento POR ITERAÇÃO de pontuação, cada uma tomando o RLock.
+	docLens := make([]float64, M)
+	for id, caminho := range caminhoPorID {
+		docLens[id] = float64(ix.DocLength(caminho))
+	}
 
-		for qIdx, tf := range termFreqs {
-			idf := termIDFs[qIdx]
-			if idf <= 0 || tf <= 0 {
+	results := make([]Result, 0, M)
+	for id := 0; id < M; id++ {
+		var score float64
+		base := id * nq
+		for q := 0; q < nq; q++ {
+			f := tf[base+q]
+			idf := idfs[q]
+			if idf <= 0 || f <= 0 {
 				continue
 			}
-
-			denom := tf + ParamK1*(1.0-ParamB+ParamB*(docLen/avgdl))
+			denom := f + ParamK1*(1.0-ParamB+ParamB*(docLens[id]/avgdl))
 			if denom > 0 {
-				tfScore := (tf * (ParamK1 + 1.0)) / denom
-				score += idf * tfScore
+				score += idf * (f * (ParamK1 + 1.0)) / denom
 			}
 		}
-
 		if !math.IsNaN(score) && score > 0 {
-			docScores[path] = score
+			results = append(results, Result{Path: caminhoPorID[id], Score: score})
 		}
-	}
-
-	results := make([]Result, 0, len(docScores))
-	for path, score := range docScores {
-		results = append(results, Result{
-			Path:  path,
-			Score: score,
-		})
 	}
 
 	sort.Slice(results, func(i, j int) bool {
