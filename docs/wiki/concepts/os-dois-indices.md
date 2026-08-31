@@ -1,7 +1,7 @@
 ---
 title: Os dois índices
 type: concept
-status: active
+status: stale
 description: Metadados e busca são estruturas separadas, com custos e ciclos de vida diferentes.
 source_paths:
   - internal/index/index.go

@@ -1,7 +1,7 @@
 ---
 title: Como rodar
 type: overview
-status: active
+status: stale
 description: Subcomandos, flags, configuração e a bateria de verificação.
 source_paths:
   - cmd/gobsidian/main.go

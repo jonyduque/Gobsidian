@@ -203,7 +203,9 @@ Vizinhança de links de uma nota.
 }
 ```
 
-**Retorno.** `nodes` (caminho, título, distância da origem) e `edges` (origem, destino, tipo, alias, âncora, resolvido).
+**Retorno.** `nodes` com `path`, `title` e `distance` (saltos até a nota de origem; a travessia é em largura, então a primeira vez que um nó sai da fila já é pela rota mais curta), e `edges` com `source`, `target`, `kind`, `alias`, `anchor` e `resolved`.
+
+`alias` e `anchor` fazem parte da IDENTIDADE da aresta: `A→B#Prescrição` e `A→B#Honorários` são referências diferentes e saem como arestas separadas. `resolved` só vem falso com `include_broken`, que é o único caminho que produz aresta sem alvo no cofre.
 
 **Notas.** `depth` acima de 2 pode devolver uma fração grande do cofre em bases densamente ligadas. O teto de 3 é intencional.
 

@@ -19,13 +19,16 @@ re-medir, e as armadilhas do próprio instrumento.
 # 1. cofre sintético determinístico (sem ele o bench PULA, e ausência = erro)
 pwsh -File scripts/gen_vault.ps1 -Notes 5000 -Seed 42 -Out $env:TEMP\vault_5000
 
-# 2. baseline, n >= 6, braços intercalados em máquina ruidosa
-go test -run '^$' -bench 'BenchmarkSearch' -benchmem -count=8 ./internal/service/ > antes.txt
+# 2. DOIS binários, construídos ANTES de medir qualquer um dos dois
+go test -c -o antes.exe ./internal/service/     # com a árvore no estado anterior
+# ... aplique a mudança ...
+go test -c -o depois.exe ./internal/service/
 
-# 3. mude UMA coisa
-
-# 4. depois, e benchstat
-go test -run '^$' -bench 'BenchmarkSearch' -benchmem -count=8 ./internal/service/ > depois.txt
+# 3. INTERCALE: uma rodada de cada, alternando, 7 ou mais vezes
+for i in $(seq 7); do
+  ./antes.exe  -test.bench=BenchmarkSearchLimit200Cache -test.run='^$' -test.benchmem >> antes.txt
+  ./depois.exe -test.bench=BenchmarkSearchLimit200Cache -test.run='^$' -test.benchmem >> depois.txt
+done
 benchstat antes.txt depois.txt
 
 # 5. comparacao POR BENCHMARK contra o baseline versionado
@@ -35,6 +38,41 @@ pwsh -File scripts/bench_compare.ps1
 `scripts/bench_compare.ps1` compara contra `docs/bench-baseline.json`, **por
 benchmark, nunca agregado**: um agregado esconde a regressão de um caminho atrás
 da melhora de outro.
+
+### Por que INTERCALAR, e não `-count=8` de um lado e depois do outro
+
+Rodar todas as amostras de um braço e depois todas do outro mede a **deriva da
+máquina** junto com a diferença entre os braços. Em 2026-08-27 isso produziu
+**dois números errados publicados e depois retratados** neste projeto. O segundo
+dizia que um campo novo empurrava o RNF-02 de atingido para não atingido —
+medianas de 243 ms contra 323, faixas quase disjuntas, sinal aparentemente forte.
+Refeito com os binários lado a lado e uma rodada de cada por vez, as três
+variantes ficaram em 179 / 193 / 191 ms, com a diferença entre elas **menor que a
+variação dentro de qualquer uma**.
+
+**Alternar a ORDEM das bateladas não corrige** — foi o cuidado tomado na segunda
+tentativa, e não bastou: as bateladas continuam separadas no tempo, e o cache de
+arquivo do SO aquecendo, outro processo ou throttling térmico atingem cada uma
+de forma diferente.
+
+Sinal de alerta específico: **se a variante medida PRIMEIRO for sistematicamente
+a mais lenta, suspeite do cache de arquivo do SO antes de acreditar.** O primeiro
+boot contra um cofre de 1,3 GB mediu 4.534 ms; a repetição com o SO quente, 765.
+
+### Meça o que o requisito nomeia, não o que é fácil de medir
+
+Três vezes nesta base a medição estava certa e a **métrica** errada:
+
+- **RSS não mede quanto dado se guarda** — acompanha a meta de heap do GC, e
+  inverteu de sinal entre dois binários. Para memória, use o heap vivo do
+  `gctrace` (`antes->pico->vivo`), não RSS e nem `MemStats.Alloc`, que é heap
+  vivo MAIS lixo não coletado.
+- **`index_ms` deixou de cobrir o boot inteiro** quando a varredura de
+  temporários passou a rodar em paralelo com a carga do índice. Pelo `index_ms`
+  a mudança era regressão de 23%; pelo relógio até servir, ganho de 26%.
+- **Perfil velho descreve código velho.** O perfil que punha o BM25 em 0,73% era
+  anterior a uma mudança que cortou 87% do tempo total; refeito, ele valia 16% da
+  CPU e **79% da alocação**.
 
 ---
 

@@ -1,7 +1,7 @@
 ---
 title: Nota, anexo e caminho canônico
 type: entity
-status: active
+status: stale
 description: Os tipos centrais do domínio e as regras de confinamento de caminho.
 source_paths:
   - internal/index/note.go

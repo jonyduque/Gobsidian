@@ -1,7 +1,7 @@
 ---
 title: Decisões fechadas
 type: decision
-status: active
+status: stale
 description: Escolhas com trade-off registrado, que não devem ser re-litigadas sem dado novo.
 source_paths:
   - internal/ipc/ipc.go

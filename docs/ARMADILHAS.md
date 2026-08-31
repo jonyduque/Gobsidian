@@ -337,12 +337,20 @@ em 2026-08-27, e as duas foram mortas pela prova de mutação, não pela leitura
 `headingDoLink` nasceu com `if start < 0 { return "" }` para tratar
 `offsetUnknown`: com `start = -1` todo heading tem `Start > -1`, o laço quebra na
 primeira volta e o resultado já é `""`. E a correção do achado P11 prefixava a
-raiz da varredura com `\?\` para alcançar caminhos além de MAX_PATH: o pacote
-`os` do Go já aplica o prefixo sozinho (`fixLongPath`), e `MkdirAll`,
-`WriteFile` e `WalkDir` alcançaram 318 caracteres sem ele. **A mutação é o que
+raiz da varredura para alcançar caminhos além de MAX_PATH: `MkdirAll`,
+`WriteFile` e `WalkDir` alcançaram 318 caracteres sem ela. **A mutação é o que
 distingue proteção de decoração** — nos dois casos ela devolveu EXIT=1, "o teste
-passou com a regra mutada", e a leitura seguinte mostrou que a regra não fazia
-nada.
+passou com a regra mutada".
+
+**Mas a segunda dessas duas ensinou outra coisa, e maior: a prova de mutação vale
+CONTRA O AMBIENTE em que rodou.** Descobriu-se em 2026-08-31 que a máquina tem
+`LongPathsEnabled = 1` no registro do Windows, e que um caminho RELATIVO de 327
+caracteres também passa — o `fixLongPath` do Go só trata caminho absoluto, então
+quem respondia ali era o registro, e não o Go. A guarda pode não ser morta numa
+máquina com a chave desligada. **EXIT=1 diz "este teste, nesta máquina, não
+distingue"; não diz "a regra é inútil".** Quando a regra depende de configuração
+da máquina, a prova de mutação precisa trazer a configuração ao lado do
+resultado.
 
 **RSS não mede quanto dado você guarda — mede a META de heap do GC.** O Go fixa a
 meta ao fim de cada ciclo em ~2× o heap vivo daquele instante, e o RSS de um

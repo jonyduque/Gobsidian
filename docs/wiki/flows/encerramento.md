@@ -1,7 +1,7 @@
 ---
 title: Encerramento
 type: flow
-status: active
+status: stale
 description: Os quatro mecanismos que garantem que o processo morre, e o desligamento por etapas.
 source_paths:
   - internal/lifecycle/lifecycle.go

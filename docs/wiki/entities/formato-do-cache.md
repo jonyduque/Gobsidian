@@ -8,10 +8,10 @@ source_paths:
   - internal/search/persist.go
   - internal/search/soa.go
   - internal/search/mmap.go
-source_commit: b2be492
+source_commit: f7de8e81
 tags: [cache, formato, mmap]
 language: pt-BR
-updated_at: '2026-08-16'
+updated_at: '2026-08-31'
 ---
 
 # Formato do cache de busca
@@ -90,6 +90,25 @@ processo.
 `promoverArenaSePresente` copia `pos` para o heap e desfaz o mapeamento antes de
 um `os.Rename` de regravação — renomear por cima de um arquivo mapeado falha no
 Windows com `ERROR_SHARING_VIOLATION`.
+
+## O outro cache, e por que a versão dele é um alias
+
+São **dois** caches independentes com **duas** versões: o índice de busca está no
+formato **6** (`inverted_cache.gob`, magic `GBS6`) e o de metadados no **5**
+(`index_cache.gob`, magic `GIC1`). Subir um não sobe o outro, e não deve.
+
+Dentro do de metadados, porém, a versão é **um alias, não uma cópia**:
+
+```go
+indexCacheCodecVers = IndexCacheFormatVersion
+```
+
+Até 2026-08-26 eram duas constantes independentes guardando o **mesmo** portão —
+`persist.go` conferia a sua em `LoadIndexCache`, o decodificador conferia a sua no
+cabeçalho — com o mesmo valor por coincidência. Subir uma sem a outra não quebra
+build nem teste: faz o leitor **recusar todo save que o próprio processo acabou de
+gravar**, com reconstrução completa a cada boot e nenhum log dizendo por quê
+(achado B11). O alias existe para que o bump seja impossível de fazer pela metade.
 
 ## Custo de trocar de formato
 

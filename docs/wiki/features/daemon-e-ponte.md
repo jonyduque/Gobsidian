@@ -9,10 +9,10 @@ source_paths:
   - internal/daemon/daemon.go
   - internal/daemon/lock.go
   - internal/ipc/ipc.go
-source_commit: b2be492
+source_commit: f7de8e81
 tags: [daemon, ipc, memoria]
 language: pt-BR
-updated_at: '2026-08-16'
+updated_at: '2026-08-31'
 ---
 
 # Daemon e ponte
@@ -54,12 +54,18 @@ Ver [Decisões fechadas](../decisions/decisoes-fechadas.md).
 Uma linha, e só ela é interpretada — depois disso a conexão é byte cru:
 
 ```
-GOBSIDIAN-IPC 1 ro=0 vault=<VaultKey>
+GOBSIDIAN-IPC 2 ro=0 vault=<VaultKey> max_results=100
 ```
 
 Confere **versão do protocolo** e **configuração**. Versões diferentes não se
 falam: a ponte cai para o modo em processo em vez de arriscar um protocolo que os
 dois lados entendem diferente.
+
+O protocolo virou **2** em 2026-08-28 (achado M9): a saudação passou a carregar
+`max_results`. Até ali, `--max-results` na ponte era **no-op silencioso** no modo
+daemon — a flag existia, o usuário a passava, e o daemon servia o valor dele. Um
+campo de configuração que não atravessa o handshake é pior que campo ausente,
+porque ninguém percebe.
 
 A conferência de `ro` não é detalhe: uma ponte iniciada com `--read-only`
 recebendo uma sessão que escreve no cofre é bug de segurança. A resposta certa
@@ -75,6 +81,17 @@ sempre registra o motivo da queda.
 
 `GOBSIDIAN_NO_DAEMON` pula toda essa decisão.
 
+## Encerramento da conexão: meio-fechamento antes do adeus
+
+Quando a sessão do host acaba, a ponte não fecha o socket seco. Ela faz
+`CloseWrite()` — meio-fechamento — e **drena** o que o daemon ainda estiver
+mandando, com orçamento de 2 s, antes de encerrar.
+
+Sem isso, a última resposta em voo morre no fechamento e o host vê uma chamada
+sem retorno. `CloseWrite` estava declarado na interface e conferido no handshake
+desde sempre, e **nunca era chamado** (achado M8): interface cumprida, contrato
+não.
+
 ## Encerramento por ociosidade
 
 O daemon **não tem pai vigiável nem stdin de host** — quem o lançou foi uma ponte
@@ -86,15 +103,29 @@ Quem os substitui é a ociosidade: sem nenhum cliente por `OciosidadeMax` (padr�
 de cancelamento e log que sinal usa, para o gate de órfãos conferir `reason=` do
 mesmo jeito nos quatro mecanismos.
 
+## Dois locks, e por que não podem ser um
+
+`EnsureStarted` tem um lock; **escutar tem outro**, em `<sock>.listen.lock`.
+
+O de escuta fechou uma janela que o primeiro não alcança: `ipc.Listen` prova que
+o socket está órfão antes de desvinculá-lo, mas **a sonda e o bind não são
+atômicos entre si**. Dois daemons lançados no mesmo instante podem ambos sondar
+"ninguém escuta" antes de qualquer um bindar — e aí os dois desvinculam e bindam,
+duas instâncias gravando no mesmo cache de busca.
+
+Eles não podem ser o mesmo arquivo: o daemon adquire o de escuta **enquanto** a
+ponte que o lançou ainda segura o de `EnsureStarted`. Compartilhar o arquivo
+trava os dois.
+
 ## A corrida residual conhecida
 
 O lock de inicialização serializa quem disputa no mesmo instante, não quem chega
 atrasado. Medido: dez pontes sob carga produziram **dois daemons vivos** para o
 mesmo cofre. O segundo dial depois de adquirir o lock reduziu a janela a
-milissegundos, mas não é exclusão mútua por construção.
+milissegundos, e o lock de escuta fechou a metade sonda-e-bind — mas o caso sob
+carga não é exclusão mútua por construção.
 
-Registrado nos limites conhecidos de `docs/OPERACAO.md`. A revisão aponta a causa
-estrutural em [Achados em aberto](../notes/achados-abertos.md).
+Registrado nos limites conhecidos de `docs/OPERACAO.md`.
 
 ## Ver também
 

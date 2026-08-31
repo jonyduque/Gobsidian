@@ -150,10 +150,16 @@ estrutura do índice invertido — não o requisito.
 Fecharam também o item 4 do brief da Task 126 (o lock do `EnsureStarted`) e o
 teste da tempestade.
 
-Dois foram **rejeitados depois de verificados**, e a verificação é o registro que
-importa: **M1** estava prescrito ao contrário, e **P11** partia de uma premissa
-falsa sobre MAX_PATH no Go. Os dois estão em [`OPERACAO.md`](OPERACAO.md) com a
-sondagem que os derrubou.
+Três foram **rejeitados depois de verificados**, e a verificação é o registro
+que importa: **M1** estava prescrito ao contrário; **B15** pede guarda para um
+caso que o próprio sistema de arquivos torna indistinguível; e **P11** foi
+rejeitado por uma sondagem que, em 2026-08-31, se descobriu **mascarada** — a
+máquina tem `LongPathsEnabled = 1`, e um caminho **relativo** de 327 caracteres
+também passa, o que o `fixLongPath` do Go não explica. A metade do P11 que era
+defeito de verdade — o descarte silencioso de erro de subárvore — está corrigida
+por `SweepResult`; se o prefixo explícito é necessário com a chave desligada
+**segue sem verificação**. Os três estão em [`OPERACAO.md`](OPERACAO.md), o P11
+com a correção da rejeição.
 
 **P1, P2 e P3 saíram do congelamento em 2026-08-28**, junto com a
 **Oportunidade 1** (BM25 em IDs densos) que os subsumia. O perfil que destravava
@@ -308,27 +314,32 @@ o quarto, que é exatamente o defeito que ela existe para impedir.
 
 ## Dívidas abertas
 
-- **`scripts/measure.ps1` continua fora de gate nenhum.** As decisões de RSS
-  (`GOGC`, `FreeOSMemory`, `maxSnippetWorkers`) dependem dele.
-- **O RNF-07 é medido por um caminho que exclui o índice de busca.**
-  `measure.ps1` emite `initialize` + `vault_stats`, e com a carga preguiçosa
-  (Task 88) uma sessão que nunca buscou nunca carregou o invertido. Medido em
-  2026-08-26, cache quente, uma variável (uma `vault_search`):
-
-  | Cofre | só `vault_stats` | + uma busca | delta |
-  |---|---|---|---|
-  | Oral (78 notas) | 22,3 MB | 29,5 MB | 1,32× |
-  | Estudo (2.557 notas) | **53,1 MB** | **149,0 MB** | **2,81×** |
-
-  `OPERACAO.md` registra RNF-07 (≤ 60 MB) como **Atingido** com 37,95–38,10 MB.
-  Pelo protocolo B, Estudo dá 2,5× o alvo. Decisão do dono pendente: ou o RNF-07
-  passa a nomear o estado "já atendeu uma busca" com alvo re-negociado, ou a
-  tabela declara que mede o servidor antes da primeira busca.
+- **`scripts/measure.ps1` continua fora de gate nenhum.** É o único instrumento
+  que responde por RNF-01 e RNF-07, e roda quando alguém lembra.
+- **O RNF-07 não é atingido no cofre Jurisprudência com uma busca servida.** O
+  requisito foi redefinido em 2026-08-30 — heap vivo ≤ 8 MB + 32 KB × notas, nos
+  estados `pronto` e `servindo`, decisão do dono — e por ele os cinco cofres
+  reais passam. O que segue aberto é o caminho para folga maior: o índice de
+  metadados é **67% do heap vivo**, e dentro dele `Link.Raw` repete `Link.Target`
+  em **100,0% dos 28.045 links** medidos, o que vale ~3,3 MB sem perder
+  informação. Medido em 2026-08-30; ver `OPERACAO.md`.
 - **A corrida residual do daemon** (dois daemons vivos sob carga) segue
-  registrada nos limites conhecidos de `OPERACAO.md`.
-- **Achados abertos da revisão de 2026-08-15** estão indexados em
-  `docs/wiki/notes/achados-abertos.md`; a auditoria de 2026-08-25 está em
-  `docs/SUGESTOES.md`, com as decisões do dono já registradas lá.
+  registrada nos limites conhecidos de `OPERACAO.md`. O lock de escuta fechou a
+  janela entre a sonda de órfão e o bind; o que resta é o caso sob carga.
+- **A auditoria de 2026-08-25 está fechada; a revisão de 2026-08-15 não.**
+  Quatro tarefas da revisão nunca foram entregues, conferido **no código** em
+  2026-08-31 (o ledger não as registra em nenhum estado):
+
+  | Task | O que falta |
+  |---|---|
+  | 107 | `vault_search` não devolve o offset do casamento (`match_offset` não existe) | <!-- check-doc-refs: ignore match_offset -- campo que a Task 107 criaria; a ausencia dele E o achado -->
+  | 109 | `note_read.paths` é `[]string`, sem offset por item do lote |
+  | 112 | `note_outline` não existe | <!-- check-doc-refs: ignore note_outline -- tool que a Task 112 criaria; a ausencia dela E o achado -->
+  | 114 | chaves do índice aplicam só caixa, sem NFC/NFD (`aliasKey`, `nomeChave`) |
+
+  As três primeiras são a superfície do incidente de campo de 2026-08-15.
+  Detalhe em `docs/wiki/notes/achados-abertos.md`; `docs/SUGESTOES.md` guarda as
+  decisões do dono sobre a auditoria.
 
 ---
 

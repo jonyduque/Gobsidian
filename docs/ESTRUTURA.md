@@ -100,6 +100,8 @@ gobsidian/
 │   │   ├── writer.go             fachada de escrita
 │   │   ├── lock.go               mutex por caminho canônico; serializa escritas
 │   │   ├── atomic.go             temporário + sync + rename, com retry
+│   │   ├── syncdir_unix.go       fsync do diretório após o rename (build tag !windows)
+│   │   ├── syncdir_windows.go    no-op documentado: o Windows não expõe o handle
 │   │   ├── section.go            inserir e substituir sob heading
 │   │   ├── block.go              substituir bloco por ^id
 │   │   ├── linkrewrite.go        reescrita de links em note_move

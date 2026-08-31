@@ -10,10 +10,10 @@ source_paths:
   - internal/service
   - internal/mcpsrv
   - cmd/gobsidian
-source_commit: b2be492
+source_commit: f7de8e81
 tags: [arquitetura, fronteiras]
 language: pt-BR
-updated_at: '2026-08-16'
+updated_at: '2026-08-31'
 ---
 
 # Camadas e fronteiras
@@ -73,13 +73,19 @@ renomeado por isso.
 
 ## Onde a fronteira vaza hoje
 
-Duas, registradas em [Achados em aberto](../notes/achados-abertos.md):
+Uma, e ela é de forma, não de segurança:
 
 - `service.Index` é uma interface de 12 métodos que devolve `*index.Note`,
   `index.Query` e `index.TagCount`. Ela não isola nada — `service` não compila
-  sem `index`.
-- A superfície de escrita em `internal/service/write.go` constrói
-  `vault.CanonicalPath` por conversão, sem passar por `vault.Resolve`.
+  sem `index`. Fica como está: trocá-la por tipos próprios custaria uma cópia do
+  domínio inteiro para comprar uma fronteira que ninguém precisa atravessar.
+
+A que **era** de segurança fechou: a superfície de escrita construía
+`vault.CanonicalPath` por conversão, sem passar por `vault.Resolve`, e no Windows
+`..\..\x.md` escapava da raiz do cofre. Hoje todo caminho de escrita entra por
+`s.index.ResolvePath` (nota existente) ou por `vault.Resolve` (destino novo, no
+`note_create` e no `to` do `note_move`), e o confinamento mora em
+`vault.Canonicalize` — **uma conta por regra**.
 
 ## Ver também
 

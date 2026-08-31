@@ -12,10 +12,10 @@ source_paths:
   - internal/parser/ext_tag.go
   - internal/parser/ext_inline_field.go
   - internal/parser/slug.go
-source_commit: b2be492
+source_commit: f7de8e81
 tags: [parser, goldmark, markdown]
 language: pt-BR
-updated_at: '2026-08-16'
+updated_at: '2026-08-31'
 ---
 
 # Parser
@@ -53,7 +53,10 @@ ao início do buffer.
 > título sumindo em silêncio.
 
 Frontmatter quebrado **não invalida a nota**: o corpo continua tendo headings e
-links úteis. O erro vai para `FrontmatterErr`.
+links úteis. O erro vai para `FrontmatterErr` — que atravessa o índice e **sai no
+retorno de `note_metadata`**. Até 2026-08-28 o parser o preenchia e ninguém o
+lia: a nota com YAML quebrado aparecia sem tags e sem aliases, sem nada dizendo
+por quê.
 
 ## Headings
 
@@ -99,8 +102,10 @@ Obsidian, que faz `[[nota#Capitulo 118]]` encontrar `## Capítulo 118`.
 Pontuação vira **nada**, não espaço: `Art. 1.234` precisa virar `art 1234`, não
 `art 1 234`.
 
-O valor é pré-computado em `Heading.Slug` e persistido no cache — mas nenhum
-leitor o usa hoje.
+O valor é pré-computado em `Heading.Slug` e persistido no cache — e desde
+2026-08-28 **é lido**: `index.anchors`, `service.read` e `writer.section`
+comparam contra ele em vez de recomputar. Eram três lugares recomputando um valor
+que já vinha pronto do disco.
 
 ## Golden files
 

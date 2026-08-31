@@ -10,10 +10,10 @@ source_paths:
   - internal/search/snippet.go
   - internal/search/snippet_cache.go
   - internal/service/search.go
-source_commit: b2be492
+source_commit: f7de8e81
 tags: [busca, bm25, ranking]
 language: pt-BR
-updated_at: '2026-08-16'
+updated_at: '2026-08-31'
 ---
 
 # Busca
@@ -50,8 +50,23 @@ receba peso superior ao termo derivado.
 ## Ranking
 
 BM25 com `k1 = 1.2`, `b = 0.75`, mais pesos por campo: **título 3.0, heading 2.0,
-corpo 1.0**. O campo é decidido em `getFieldWeight`, que compara a posição do
-token contra a linha de cada heading da nota.
+corpo 1.0**. O campo é decidido em `pesoDeCampo`; `dentroDeHeading` acha o
+heading que contém a posição do token por `sort.Search`, não por varredura.
+
+**O peso de título é por termo inteiro, não por substring** (achado P2). O teste
+era `strings.Contains`, e por ele uma nota chamada "Recursos" recebia o bônus de
+título ao buscar "curso". A conferência agora varre `TitleNorm` — que já está
+pré-computado — checando fronteira de palavra dos dois lados; a primeira tentativa
+de correção chamava `Analyze` por nota candidata por termo e custou **+38%**, e
+foi trocada por esta, que não custa nada mensurável.
+
+**A pontuação roda em espaço de IDs densos** (Oportunidade 1, 2026-08-28). Cada
+consulta mapeia os documentos que ela toca para `0..n-1` e acumula em slices, em
+vez de manter mapas por termo. Entrega **−31% a −45%** no tempo de busca e
+**−42% a −47%** em alocação, com **paridade de ranking verificada**: ordem
+idêntica em seis consultas, maior diferença de score 3,55e-15. De brinde, o
+`avgdl` deixou de ser O(N) por consulta — `SomaDocLen()` é memoizado contra um
+contador de geração do índice.
 
 Consulta entre aspas duplas é **frase exata**: os tokens têm de aparecer em
 sequência na nota, verificado por `matchPhraseInNote` sobre as posições.
@@ -59,7 +74,15 @@ sequência na nota, verificado por `matchPhraseInNote` sobre as posições.
 ## Recorte de trecho
 
 `GenerateSnippet` lê **só a janela** em volta da ocorrência escolhida, via
-`vault.ReadRange`. Três cuidados nele:
+`vault.ReadRange`.
+
+**A ocorrência escolhida é a mais densa, não a primeira** (achado M16).
+`melhorJanela` passa duas pontas sobre as ocorrências ordenadas e ancora onde
+mais termos distintos da consulta cabem na largura da janela. Ancorar na primeira
+devolvia trecho que não mostrava a consulta — o usuário lia um parágrafo com uma
+palavra e concluía que a busca errou.
+
+Três cuidados no recorte:
 
 - **Arquivo somente-nuvem nunca é aberto** — o placeholder do OneDrive sai antes,
   com trecho vazio. Abrir dispararia download síncrono.

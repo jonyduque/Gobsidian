@@ -2446,8 +2446,9 @@ mapa, não a ordenação. A versão simples ficou.
 **M1** estava prescrito ao contrário — mandava `note_delete` usar o critério do
 `note_move`, escondendo as âncoras que quebram por causa do delete.
 
-**P11** partia de premissa falsa: o pacote `os` do Go já aplica o prefixo de
-caminho longo, e a correção foi reprovada pela própria prova de mutação.
+**P11 — a rejeição foi corrigida em 2026-08-31; ver a seção seguinte.** O que
+sustentava a rejeição era uma sondagem feita numa máquina com
+`LongPathsEnabled = 1`, e ela não distingue o Go do registro do Windows.
 
 **B15** não tem correção melhor disponível. Um rename no nível do sistema de
 arquivos **é** um delete mais um create com bytes idênticos — não há sinal nessa
@@ -2522,3 +2523,55 @@ metade menor.
 
 **Nada disto foi implementado**: são medições para uma decisão que é do dono. A
 alavanca 2 é a única que não custa informação nenhuma.
+
+---
+
+## Correção da rejeição do P11: a sondagem estava mascarada (2026-08-31)
+
+O P11 foi rejeitado em 2026-08-27 com esta sondagem:
+
+```
+MkdirAll SEM prefixo (310 chars): OK
+WriteFile SEM prefixo (318 chars): OK
+WalkDir SEM prefixo alcancou o arquivo profundo: true
+```
+
+E com a prova de mutação que trocou `LongPathSempre` por `LongPath` — identidade
+para raiz curta — sem o teste reprovar. A conclusão foi: "o pacote `os` do Go
+aplica o prefixo sozinho, logo o prefixo explícito é guarda morta".
+
+**A máquina onde isso rodou tem `LongPathsEnabled = 1`.** Conferido no registro
+em 2026-08-31.
+
+O caso que separa as duas explicações é o caminho **relativo**: `fixLongPath` do
+Go só atua em caminho absoluto, enquanto o registro do Windows vale para os dois.
+
+```
+RELATIVO (327 chars): err=<nil>
+ABSOLUTO (352 chars): err=<nil>
+```
+
+**O relativo passou.** Logo, nesta máquina, quem responde é o **registro**, e a
+sondagem não prova nada sobre o `fixLongPath`. A prova de mutação é inconclusiva
+pelo mesmo motivo: ela mediu o mesmo ambiente.
+
+### O que continua verdadeiro, e o que fica em aberto
+
+**A metade que era defeito de verdade está corrigida em qualquer máquina.** O
+`SweepStaleTempFiles` descartava erro de subárvore em silêncio — "varri e não
+achei nada" e "não consegui entrar em trinta diretórios" davam a mesma resposta.
+`SweepResult` passou a carregar `Removidos`, `NaoRemovidos` e `Inacessiveis`, e o
+boot loga os três. **O silêncio era o defeito, e o silêncio acabou**: numa máquina
+com o registro desligado, uma subárvore inalcançável agora aparece no log em vez
+de sumir.
+
+**Fica em aberto se o prefixo explícito é necessário com `LongPathsEnabled = 0`.**
+O argumento a favor de não precisar é que `fixLongPath` trata caminho absoluto, e
+a raiz do cofre é absoluta, então os filhos que o `WalkDir` monta também são —
+mas isso é comportamento documentado do Go que **não foi verificado aqui**, e
+verificá-lo exigiria uma máquina com a chave desligada, ou mexer no registro do
+dono, o que não foi feito.
+
+`docs/WINDOWS.md` §MAX_PATH continua correto e recomenda ligar a chave; esta
+seção explica por que a recomendação também afeta o que este projeto consegue
+medir sobre si mesmo.

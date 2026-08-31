@@ -1,7 +1,7 @@
 ---
 title: Onde ficam os dados
 type: overview
-status: active
+status: stale
 description: Caches, socket, lock, lixeira e temporários — o que o servidor grava e onde.
 source_paths:
   - internal/config/config.go

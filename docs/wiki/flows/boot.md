@@ -7,10 +7,10 @@ source_paths:
   - cmd/gobsidian/serve.go
   - cmd/gobsidian/servico.go
   - cmd/gobsidian/ponte.go
-source_commit: b2be492
+source_commit: f7de8e81
 tags: [boot, inicializacao]
 language: pt-BR
-updated_at: '2026-08-16'
+updated_at: '2026-08-31'
 ---
 
 # Fluxo de boot
@@ -39,8 +39,16 @@ mesmo tamanho e mtime por arquivo. Qualquer divergência cai para `idx.Build`, q
 varre e parseia. **Não há reparo parcial aqui**: reparar só o que mudou é
 trabalho do watcher, não do boot.
 
-**2. Varredura de temporários.** `SweepStaleTempFiles` remove o que escritas
-interrompidas deixaram. É o único momento sem escrita em voo.
+**2. Varredura de temporários, em paralelo com o passo 1.** `SweepStaleTempFiles`
+remove o que escritas interrompidas deixaram, e é o único momento sem escrita em
+voo. Ela **não depende do índice**, então roda numa goroutine que sobrepõe o
+carregamento — e é aguardada antes de `watcher.New`, que é o ponto a partir do
+qual escrita externa pode aparecer. Fora do caminho crítico, o custo dela some
+(achado P15).
+
+Ela devolve `SweepResult{Removidos, NaoRemovidos, Inacessiveis}`, e o boot loga os
+três. Até 2026-08-28 erro de subárvore era descartado em silêncio: "varri e não
+achei nada" e "não consegui entrar em trinta diretórios" davam a mesma resposta.
 
 **3. Índice de busca, vazio e marcado em construção.** Nem a construção nem o
 carregamento do cache bloqueiam o anúncio das tools.

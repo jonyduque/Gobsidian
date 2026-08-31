@@ -3,8 +3,8 @@ title: Wiki — Gobsidian
 type: index
 status: active
 language: pt-BR
-last_commit: b2be49253c1a2b235aab6a2294445512a007469d
-updated_at: '2026-08-17'
+last_commit: f7de8e818fba6a831cd07592f15fd978332618ba
+updated_at: '2026-08-31'
 ---
 
 # Gobsidian
@@ -102,7 +102,15 @@ revisão e só apareceram em produção. Estão escritos para não voltarem.
 4. A feature que você vai tocar.
 5. [Regras não negociáveis](risks/regras-nao-negociaveis.md) antes de commitar.
 
-Achados de revisão ainda abertos: [Achados em aberto](notes/achados-abertos.md).
+A auditoria de 2026-08-25 está **fechada** (3 achados rejeitados com
+fundamento); da revisão de 2026-08-15 **quatro tarefas nunca foram entregues**.
+As duas listas, com a conferência feita no código, estão em
+[Achados da revisão e da auditoria](notes/achados-abertos.md); o resto vive em
+`docs/ESTADO.md` § Dívidas abertas.
+
+**Seis páginas estão marcadas `status: stale`** — os arquivos que elas citam
+mudaram e elas não foram conferidas nesta passagem. Página stale é ponto de
+partida, não resposta.
 
 ---
 
@@ -153,7 +161,7 @@ Achados de revisão ainda abertos: [Achados em aberto](notes/achados-abertos.md)
 
 ### Notas
 
-- [Achados em aberto](notes/achados-abertos.md) — Defeitos e oportunidades levantados pela revisão de 2026-08-15, ainda não corrigidos.
+- [Achados da revisão e da auditoria](notes/achados-abertos.md) — A auditoria fechou; da revisão restam quatro tarefas. Registra também os três rejeitados com fundamento.
 - [Incidente de campo de 2026-08-15](notes/incidente-de-campo-2026-08-15.md) — Sessao real do Claude Desktop em que o modelo abandonou o gobsidian e usou outro servidor MCP, e os cinco defeitos que a causaram.
 - [Medições de 2026-08-15](notes/medicoes-2026-08-15.md) — A/B de toolchain 1.25.6 x 1.26.5 e re-aferição do GOGC — as únicas medições da revisão de 2026-08-15.
 <!-- wiki:catalog:end -->

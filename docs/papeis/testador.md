@@ -8,7 +8,7 @@ uma revisão aprovou justamente por causa dele.
 
 ---
 
-## Três testes reais que não podiam falhar
+## Seis testes reais que não podiam falhar
 
 1. O teste de paridade passava **com referência vazia**: o guard checava se o
    diretório existia, e ele existia vazio.
@@ -23,6 +23,30 @@ nunca era exercida. Removido o reconciliador inteiro, o teste passava em 2,8 s �
 cobertura zero num requisito P0, através de uma revisão que o aprovou.
 
 **Teste de fallback desconecta o caminho principal, ou não é teste de fallback.**
+
+### Mais três, de 2026-08-28, e as três passavam por um confundidor
+
+1. **`TestBM25WeightHeadings`** comparava `"## civil / texto texto"` contra
+   `"# Nota C / texto civil"`. As duas notas tinham **comprimentos diferentes**, e
+   o BM25 normaliza por comprimento: a mais curta já pontuava mais **sem peso
+   nenhum de heading**. Uma mutação que desligava a detecção inteira deixou o
+   teste passando. Com o fixture equilibrado, sob a mesma mutação os dois scores
+   saem idênticos — 0,2228 cada.
+2. **O teste de peso de título** comparava uma nota titulada com o termo contra
+   uma neutra. Mas **o frontmatter é tokenizado junto com o corpo**: um título
+   "Ar puro" injeta uma ocorrência de "ar" nos tokens do documento, e a nota
+   pontua mais mesmo com a regra de peso apagada. A regra teve de ir para um
+   teste de UNIDADE; o de integração ficou só com a metade que ele consegue
+   isolar.
+3. **O teste do handshake de `max_results`** verificava a RECUSA por divergência.
+   Com o campo deixando de ser lido, ele vinha como zero — que continua divergindo
+   do que a ponte pediu, e a recusa continuava acontecendo. **Só o contrapeso**, o
+   caso em que os dois valores são iguais e a conexão tem de ser ACEITA, pegava a
+   mutação.
+
+**O padrão comum:** o teste media a coisa certa por um caminho que outro fator já
+determinava. Quando um teste passa, pergunte qual OUTRA diferença entre os dois
+lados do cenário poderia explicar o resultado sozinha — e apague essa diferença.
 
 ---
 

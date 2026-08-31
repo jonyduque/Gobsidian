@@ -14,9 +14,11 @@ severidade contra o fonte. **Nenhum código foi alterado.**
 > Dois foram **REJEITADOS depois de verificados**, e isso importa mais que o
 > fechamento: **M1** está prescrito ao contrário — pede que `note_delete` adote o
 > critério de `note_move`, o que esconderia justamente as âncoras que quebram por
-> causa do delete. **P11** parte de premissa falsa: o pacote `os` do Go já aplica
-> o prefixo de caminho longo sozinho, e a correção foi reprovada pela prova de mutação. Os
-> dois estão detalhados em `docs/OPERACAO.md`.
+> causa do delete. **P11** foi rejeitado com base numa sondagem que se revelou
+> MASCARADA pelo ambiente — a máquina tinha `LongPathsEnabled = 1`, e ela não
+> distingue o Go do registro do Windows. A metade dele que era defeito de
+> verdade, o descarte silencioso de erro de subárvore, está corrigida. Os dois
+> estão detalhados em `docs/OPERACAO.md`.
 >
 > **P1, P2 e P3 foram descongelados e implementados em 2026-08-28**, junto com a
 > **Oportunidade 1** (BM25 em IDs densos), que a auditoria previa que os
@@ -32,7 +34,7 @@ severidade contra o fonte. **Nenhum código foi alterado.**
 > como fechado sem ter sido é pior que um marcado como aberto tendo sido.
 > **Em 2026-08-31 não resta nenhum achado aberto.** Os 61 estão fechados, ou
 > **rejeitados com fundamento verificado** — e são três: **M1** (prescrito ao
-> contrário), **P11** (premissa falsa sobre MAX_PATH no Go) e **B15** (um rename
+> contrário), **P11** (rejeição corrigida em 2026-08-31: a sondagem estava mascarada pelo registro do Windows) e **B15** (um rename
 > no nível do sistema de arquivos É um delete mais um create com bytes iguais;
 > não há sinal que os separe, a guarda de cardinalidade já exclui o caso comum,
 > e nada reescreve conteúdo). Cada rejeição está detalhada em
@@ -407,7 +409,7 @@ todas as candidatas, serializado.
 `snippet.go:78` dentro do laço; `rawTerms` já vem analisado de `Search`
 (`service/search.go:168`). Memoizar uma vez por busca ou aceitar tokens prontos.
 
-**P11 · `SweepStaleTempFiles` varre sem prefixo LongPath e pula diretórios profundos em silêncio** — **REJEITADO em 2026-08-27: a premissa é falsa.** O pacote `os` do Go aplica o prefixo de caminho longo sozinho (`fixLongPath`), e `MkdirAll`, `WriteFile` e `WalkDir` alcançaram 318 caracteres sem ele. A correção foi escrita e a prova de mutação a reprovou. A metade que estava certa — descarte silencioso de erro de subárvore — foi corrigida. Ver `docs/OPERACAO.md`.
+**P11 · `SweepStaleTempFiles` varre sem prefixo LongPath e pula diretórios profundos em silêncio** — **PARCIALMENTE FECHADO; a rejeição da outra metade foi corrigida em 2026-08-31.** A metade que era defeito de verdade — descarte silencioso de erro de subárvore — está corrigida: `SweepResult` conta removidos, não-removidos e inacessíveis, e o boot loga os três. A metade do prefixo foi rejeitada em 2026-08-27 com uma sondagem de 318 caracteres sem prefixo; descobriu-se depois que a máquina tem `LongPathsEnabled = 1`, e um caminho RELATIVO de 327 caracteres também passa — o que prova que quem responde ali é o registro, não o `fixLongPath` do Go. A sondagem e a prova de mutação são inconclusivas para essa metade. Ver `docs/OPERACAO.md`.
 CONFIRMADO (alcance depende do cofre) · `writer/atomic.go:57,69`; chamador
 `servico.go:80` passa root cru. Contraste: `vault.Walk` usa `walkRoot` prefixado.
 Além do limiar Win32, o sweep "sucede" sem descer — temporários órfãos sobrevivem lá

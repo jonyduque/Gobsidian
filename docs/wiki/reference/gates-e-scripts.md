@@ -13,10 +13,10 @@ source_paths:
   - scripts/gen_vault.ps1
   - .github/workflows/ci.yml
   - .github/workflows/bench.yml
-source_commit: b2be492
+source_commit: f7de8e81
 tags: [ci, gates, qualidade]
 language: pt-BR
-updated_at: '2026-08-16'
+updated_at: '2026-08-31'
 ---
 
 # Gates e scripts
@@ -84,17 +84,31 @@ documento.
 
 ## `measure.ps1` — RNF-01 e RNF-07
 
-Mede indexação a frio (do log `servidor pronto`) e **RSS em repouso**
-(`WorkingSet64`, amostrado várias vezes, reportando o **maior**). Encerra fechando
-o stdin, que é o caminho que um host MCP usa.
+Mede indexação a frio (do log `servidor pronto`) e **heap vivo** em dois estados
+nomeados: `pronto` (índice de metadados carregado, nenhuma busca) e `servindo`
+(uma `vault_search` já respondida, portanto o índice invertido carregado).
+Encerra fechando o stdin, que é o caminho que um host MCP usa.
 
 Existe porque uma versão de `docs/OPERACAO.md` trazia "ex: 408ms em teste local" e
 "tende a ficar ~30-45 MB" — um exemplo e uma expectativa, apresentados como
 resultado.
 
+**Três correções de 2026-08-30, cada uma vinda de um número publicado errado:**
+
+- **Mede heap vivo, não RSS.** O RSS do Go segue o **goal** do GC, que fica em
+  torno de 2× o heap vivo do último ciclo — ele mede a política do coletor, não o
+  volume de dado. O heap vivo sai do terceiro número de `A->B->C MB` no
+  `gctrace`, que o script liga com `GODEBUG=gctrace=1` e não exige mudança
+  nenhuma no produto.
+- **Força `GOBSIDIAN_NO_DAEMON=1`.** Havendo daemon, o processo que o script
+  media era a **ponte** (~15 MB) — não o servidor.
+- **Confere `index_origin`.** Um número publicado saiu contaminado por uma
+  execução que reconstruiu o índice em vez de carregar o cache; o script agora
+  avisa.
+
 > **`measure.ps1` não está em gate nenhum** — nem no `verify.ps1`, nem no CI. É a
-> mesma forma de `check_doc_refs` antes de 2026-08-11. Ver
-> [Achados em aberto](../notes/achados-abertos.md).
+> mesma forma de `check_doc_refs` antes de 2026-08-11. Segue registrado nas
+> dívidas abertas de `docs/ESTADO.md`.
 
 ## `bench_compare.ps1` e `gen_vault.ps1`
 

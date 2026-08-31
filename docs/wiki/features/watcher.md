@@ -11,10 +11,10 @@ source_paths:
   - internal/watcher/rename.go
   - internal/watcher/overflow.go
   - internal/watcher/counters.go
-source_commit: b2be492
+source_commit: f7de8e81
 tags: [watcher, fsnotify, incremental]
 language: pt-BR
-updated_at: '2026-08-16'
+updated_at: '2026-08-31'
 ---
 
 # Watcher
@@ -35,6 +35,14 @@ descarte não permite distinguir ruído esperado de nota sumindo.
 A regra de relevância é `vault.Classify`, a **mesma** que a varredura consulta.
 Duas cópias da regra divergiriam, e a que fica na cópia menos usada é a que
 ninguém percebe.
+
+**`DropChmod` só vale para Chmod sozinho.** O teste era `e.Op&Chmod == Chmod`,
+verdadeiro para **qualquer** máscara que contenha Chmod — e um `Write|Chmod`,
+que é o padrão dos backends kqueue, era descartado inteiro (achado M11). No
+Windows o dano ficava contido porque o backend raramente compõe máscaras; em
+linux e darwin, que são alvos declarados, **não há reconciliação por overflow**
+(kqueue não emite `ErrEventOverflow`), então a edição simplesmente não entrava
+até o próximo boot.
 
 ## 2. Debounce
 

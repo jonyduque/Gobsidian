@@ -9,10 +9,10 @@ source_paths:
   - internal/search/inverted.go
   - internal/watcher/rename.go
   - cmd/gobsidian/serve.go
-source_commit: b2be492
+source_commit: f7de8e81
 tags: [defeitos, licoes]
 language: pt-BR
-updated_at: '2026-08-16'
+updated_at: '2026-08-31'
 ---
 
 # Armadilhas já pagas
@@ -96,6 +96,50 @@ Os laços repetem a MESMA consulta, então um cache de trecho ligado acerta quas
 todas e o p95 passa a descrever a consulta repetida, que nenhum usuário vê na
 primeira busca. Todo harness de latência desliga o cache; quem mede repetição é um
 benchmark com "Repetido" no nome.
+
+## RSS não mede quanto dado você guarda
+
+O Go fixa a meta de heap em torno de **2× o heap vivo** do último ciclo. O RSS
+segue essa meta, então ele descreve a política do coletor, não o volume de dado —
+e um número de RSS "melhorou" pode significar só que um ciclo caiu em outro
+momento.
+
+O heap vivo é o **terceiro** número de `A->B->C MB` no `gctrace`, ligado por
+`GODEBUG=gctrace=1` sem tocar no produto. E `runtime.MemStats.Alloc` **não** é
+heap vivo: é `HeapAlloc`, que soma o vivo ao lixo ainda não coletado.
+
+Foi por isso que o RNF-07 foi redefinido em 2026-08-30 — o requisito nomeava a
+métrica errada.
+
+## Bateladas sequenciais medem a deriva da máquina, não a mudança
+
+Duas medições foram **publicadas e depois retratadas** por isso. A segunda dizia
+que um formato novo tirava o RNF-02 de atendido (243 → 323 ms); a re-execução
+**intercalada** deu 179/193/191 ms — a diferença era a máquina, não o código.
+
+Alternar a ordem das bateladas não corrige: uma deriva monotônica atravessa
+qualquer ordem de bloco. O que corrige é intercalar arm A, arm B, arm A, arm B
+com os dois binários vivos ao mesmo tempo. Receita em
+`docs/papeis/desempenho.md`.
+
+## Meça o que o requisito nomeia, não o que é fácil de medir
+
+Três erros da mesma família, todos de 2026-08-30:
+
+- O `measure.ps1` media a **ponte** (~15 MB), não o servidor, sempre que existia
+  daemon. Faltava `GOBSIDIAN_NO_DAEMON=1`.
+- O P15 pareceu regressão de **+23%** por `index_ms` — a varredura de temporários
+  tinha entrado *dentro* daquela janela. O relógio até servir dizia **−26%**.
+- Um número publicado saiu contaminado por uma execução que **reconstruiu** o
+  índice em vez de carregar o cache. Hoje o script confere `index_origin`.
+
+## Uma sondagem num único ambiente mede o ambiente junto com o código
+
+O achado P11 foi rejeitado por uma sondagem que "provava" que o prefixo `\\?\`
+era guarda morta. A máquina tinha `LongPathsEnabled = 1`, e um caminho
+**relativo** de 327 caracteres também passava — o que o `fixLongPath` do Go não
+explica, porque ele só atua em caminho absoluto. **A prova de mutação herdou o
+vício**: mediu o mesmo ambiente.
 
 ## Armadilhas de ferramenta
 

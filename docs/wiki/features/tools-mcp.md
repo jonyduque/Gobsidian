@@ -9,10 +9,10 @@ source_paths:
   - internal/mcpsrv/tools_write.go
   - internal/mcpsrv/resources.go
   - internal/mcpsrv/recover.go
-source_commit: b2be492
+source_commit: f7de8e81
 tags: [mcp, tools, api]
 language: pt-BR
-updated_at: '2026-08-16'
+updated_at: '2026-08-31'
 ---
 
 # As 12 tools MCP
@@ -75,14 +75,22 @@ A exceção é `noteReadValidationError`, que monta o resultado à mão de prop�
 num erro de lote, o cliente se beneficia de `Out` estruturado para inspecionar o
 código por campo.
 
-## Onde o schema mente hoje
+## Onde o schema já mentiu, e o gate que pega
 
-Registrado em [Achados em aberto](../notes/achados-abertos.md): `tag_list.sort` e
-`tag_list.hierarchical` são declarados no schema e nunca lidos, e
-`max_results` é uma cadeia de configuração morta. É a mesma classe de defeito
-<!-- wiki-refs: ignore max_results -- declarado no schema e ausente do codigo: e o defeito -->
-que `note_list.fields` e `ensure_blank_line` já custaram — **ou implemente, ou
-tire do schema e da documentação.**
+`tag_list.sort` e `tag_list.hierarchical` foram declarados no schema e **nunca
+lidos** até 2026-08-28; hoje o handler os repassa ao domínio. `max_results` era
+<!-- wiki-refs: ignore max_results -- nome de flag de CLI, nao de campo de schema -->
+cadeia de configuração morta no modo daemon, porque não atravessava a saudação —
+fechado pelo protocolo 2. Mesma classe de `note_list.fields` e
+`ensure_blank_line`: **ou implemente, ou tire do schema e da documentação.**
+
+Quem pega isso é `scripts/check_tool_params.ps1`, e ele também já passou verde
+por cima do defeito: casava nome de campo no **pacote inteiro**, então
+`tag_list.sort` passava porque outra tool tem um `Sort` que é lido. Desde a
+Task 104 ele decide por `$pVar.$Campo` com `-cmatch`, e struct sem handler
+resolvido vira achado (`HANDLER-NAO-RESOLVIDO`) em vez de cair para o pacote.
+Limite conhecido, escrito no cabeçalho do script: o nível 2 casa `.Campo` em
+qualquer lugar de `internal/`, sem escopo da struct de destino.
 
 ## Ver também
 
