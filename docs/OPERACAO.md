@@ -2386,7 +2386,8 @@ tinham custo, todas intercaladas com binários construídos lado a lado:
 | **P12** — `Analyze` com pré-alocação e caminho rápido ASCII | 3,46 → **3,12 ms**, 3,15 → **2,70 MB/op** | −9,7% / −14,3% |
 | **P15** — varredura de temporários sobreposta à carga do índice | boot até servir: 770 → **570 ms** (TJSP 192) | **−26%** |
 | **B2** — cópia das posições quando a arena está mapeada | 10,86 → **11,48 ms**, +11,1% de alocação | **+5,7%, pago de propósito** |
-| **P4, P7** | sem medição isolada | ver abaixo |
+| **P4** — `ToLower` içado do comparador, `cmp.Compare`, sort fora do lock | `note_list` ordenada: 2,26 → **1,72 ms** (−24,1%); filtrada por tag: 806 → 765 µs (−5,0%) | **−24,1%** |
+| **P7** — seção fixa escrita em blocos | 7,48 → **1,09 MB/op**, e 16,4 → 20,7 ms | **−85,4% de alocação, +25,9% de tempo** |
 
 ### P15 mediu a coisa errada na primeira tentativa
 
@@ -2411,19 +2412,34 @@ pelo gate `Building()`, uma dependência entre dois arquivos que nada testava.
 Os +5,7% compram a remoção disso. A busca continua ~27% mais rápida que no início
 desta série, mesmo com a cópia.
 
-### P7 e P4 não têm medição isolada, e está dito assim
+### P4 e P7, medidos (2026-08-31)
 
-**P7** troca um `make([]byte, totPos*16)` — 291 MB no cofre de referência,
-número documentado no próprio código — por escrita em blocos de 8 KB. O pico
-evitado é certo pela aritmética; **não foi medido em relógio**, porque ele só
-aparece durante os salvamentos periódicos da construção em segundo plano, e
-reproduzir esse regime custaria uma indexação completa do cofre de 109 MB.
+Os dois estavam sem medição isolada porque não havia benchmark que os cobrisse.
+Agora há: `BenchmarkListOrdenada`/`BenchmarkListPorTag` em `internal/index` e
+`BenchmarkEscreveCache` em `internal/search`.
 
-**P4** é um conjunto de custos constantes dentro de laços quentes, e os
-benchmarks existentes cobrem `note_list` de forma indireta demais para atribuir
-o ganho. O que sustenta a mudança não é velocidade medida: é que
-`int(a.Size - b.Size)` **transborda em build 32-bit e inverte a ordem em
-silêncio**, e que o sort deixou de rodar com o índice travado contra escritores.
+**P4 é ganho limpo.** `note_list` ordenada por tamanho sobre 3.000 notas: 2,26 →
+1,72 ms, **−24,1%**, alocação inalterada — o que era esperado, porque o que saiu
+do comparador era CPU (`ToLower` da mesma string a cada comparação), não memória.
+A variante filtrada por tag ganha 5,0%: ali o `ToLower` por chave do mapa de tags
+continua, e ele não foi hasteado porque exigiria um índice de tags em minúsculas
+memorizado — estado novo para um ganho que este número não justifica.
+
+**P7 troca CPU por memória, de propósito.** A alocação por salvamento cai
+**85,4%** — 7,48 para 1,09 MB no benchmark, e no cofre de referência é a
+diferença entre materializar 291 MB e escrever em blocos de 8 KB. O tempo sobe
+**25,9%**.
+
+O benchmark escreve em `io.Discard`, então ele isola a CPU: num salvamento real,
+que grava 564 MB de cache invertido no cofre principal, o disco domina e a
+fração de 25,9% incide sobre uma parcela menor do total. **Não foi medido em
+disco real.**
+
+**Uma segunda otimização do P7 foi tentada e descartada por medição.** A hipótese
+era que o custo estivesse no `sort` dos ids, refeito na segunda passada;
+gravar a ordem na primeira e apenas reproduzi-la deu **23,79 ms contra 23,65 ms**
+— nenhum ganho — e alocou 1,83 MB contra 1,09. O custo é a segunda travessia do
+mapa, não a ordenação. A versão simples ficou.
 
 ### As três rejeições, com o que as derrubou
 
