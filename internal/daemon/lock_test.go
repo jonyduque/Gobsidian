@@ -65,22 +65,33 @@ func TestDezPontesIniciamUmDaemonSo(t *testing.T) {
 		t.Fatal("nenhuma chamada entrou em iniciar a tempo -- adquirirLock nunca venceu a corrida")
 	}
 
+	var perdedores sync.WaitGroup
 	for range 9 {
-		wg.Add(1)
+		perdedores.Add(1)
 		go func() {
-			defer wg.Done()
+			defer perdedores.Done()
 			ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 			defer cancel()
 			_ = daemon.EnsureStarted(ctx, cfg, 300*time.Millisecond, iniciar)
 		}()
 	}
 
-	// Folga para as nove goroutines lancadas acima serem agendadas e
-	// tentarem adquirirLock enquanto o vencedor ainda o retem -- a chamada
-	// em si e um unico syscall (O_CREATE|O_EXCL), entao nao precisa de
-	// muito tempo, mas precisa de o suficiente para sobreviver a uma
-	// maquina sob carga (a suite inteira rodando em paralelo).
-	time.Sleep(200 * time.Millisecond)
+	// Espera as nove RETORNAREM, e nao um sono de duracao arbitraria.
+	//
+	// Ate 2026-08-31 aqui havia `time.Sleep(200ms)` com o comentario de que
+	// precisava ser "o suficiente para sobreviver a uma maquina sob carga".
+	// Nao era: o gate reprovou com `iniciar foi chamado 2 vez(es)` durante uma
+	// rodada de `go test -race ./...`, que e exatamente a carga que o
+	// comentario previa. Um teste que passa por folga de relogio reprova por
+	// falta dela, e um gate que reprova ao acaso ensina a re-rodar ate ficar
+	// verde -- que e como uma falha real passa despercebida.
+	//
+	// A espera e deterministica porque uma goroutine que JA RETORNOU de
+	// EnsureStarted por definicao ja tentou adquirirLock: ela nao pode mais
+	// vencer uma corrida nova. E nenhuma delas depende do vencedor soltar o
+	// lock para retornar -- todas desistem sozinhas em esperarSocket, porque
+	// socket nenhum vai existir.
+	perdedores.Wait()
 	close(vencedorPodeSair)
 
 	wg.Wait()
