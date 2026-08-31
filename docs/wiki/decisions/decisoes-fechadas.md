@@ -1,17 +1,17 @@
 ---
 title: Decisões fechadas
 type: decision
-status: stale
+status: active
 description: Escolhas com trade-off registrado, que não devem ser re-litigadas sem dado novo.
 source_paths:
   - internal/ipc/ipc.go
   - internal/config/config.go
   - internal/search/inverted.go
   - cmd/gobsidian/servico.go
-source_commit: b2be492
+source_commit: c6804e1e
 tags: [adr, trade-offs]
 language: pt-BR
-updated_at: '2026-08-16'
+updated_at: '2026-08-31'
 ---
 
 # Decisões fechadas
@@ -91,6 +91,37 @@ O que pagou foi `debug.FreeOSMemory()` depois de o índice ficar pronto: −195 
 > busca em 39,55% (p=0,002). Isso reproduz só a metade que nunca esteve em
 > disputa — o boot real e o RSS continuam sem re-aferição. **A rejeição segue de
 > pé.** Ver [Medições de 2026-08-15](../notes/medicoes-2026-08-15.md).
+
+## NFC é a forma canônica da chave do índice — e só da chave
+
+O caminho guardado continua sendo a grafia do disco; normalizá-lo faria o
+servidor abrir arquivo que não existe. NFC porque é o que a maioria dos clientes
+envia e o que o Go emite por padrão. E a normalização da chave **não remove
+acento**: `text.Normalize` remove, mas ela serve à BUSCA — aplicada a chave de
+índice faria `Capitulo` e `Capítulo` colidirem numa entrada só.
+
+## `paths` aceita string e objeto na mesma lista, e o schema declara as duas
+
+A alternativa rejeitada era um `items:` ao lado de `paths`: cria uma terceira
+forma de entrada e torna **ternária** a exclusão mútua entre `path` e `paths`,
+que é binária e testada.
+
+Declarar as duas formas no schema não é cosmético: o SDK valida a entrada contra
+o `InputSchema` **antes** de chamar `UnmarshalJSON`. Um schema que só descrevesse
+o objeto reprovaria a lista de strings — a forma que todo cliente manda hoje — e
+a quebra apareceria em produção, não em teste. A prova de mutação que removeu o
+braço `{"type":"string"}` do `oneOf` derrubou o teste de compatibilidade, que é
+como isso está fixado.
+
+## Candidato a título nunca vira heading
+
+`note_outline` devolve `headings` e `candidates` em campos separados, e
+`candidates` não entra no índice nem no cache. O parser **não** muda e
+`IndexCacheParserVersion` não sobe.
+
+Uma tool que afirma estrutura que o arquivo não tem é pior que uma que não
+responde: o cliente age sobre a afirmação. Errar na detecção de um candidato não
+causa dano — apresentá-lo como heading, sim.
 
 ## Task 82 revertida
 

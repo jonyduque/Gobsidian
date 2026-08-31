@@ -107,6 +107,36 @@ O valor é pré-computado em `Heading.Slug` e persistido no cache — e desde
 comparam contra ele em vez de recomputar. Eram três lugares recomputando um valor
 que já vinha pronto do disco.
 
+## `DetectCandidates` — o que PARECE título e não é
+
+`parseATXHeading` só aceita ATX (`#`). Uma nota convertida de PDF, DOCX ou EPUB
+não tem nenhum: ela marca título com parágrafo em negrito
+(`**13.1.10 Substituição de candidatos**`) ou com setext.
+
+`outline.go` detecta essas duas formas e devolve `[]Candidate` — **e o tipo é
+outro de propósito**. Candidato não é `Heading`, não entra no índice e não entra
+no cache. O parser não muda por causa dele, e `IndexCacheParserVersion` não sobe:
+os candidatos são calculados na chamada de `note_outline`, sobre os bytes da
+nota.
+
+Três reusos, e cada um evita uma segunda conta:
+
+- **`openFence` / `closesFence`** — a mesma máquina de cercas de
+  `ExtractHeadings`. Duas máquinas de cerca divergem, e a divergência aparece
+  como hierarquia falsa dentro de um bloco de código.
+- **`closeSections`** — a mesma regra de `End`: o início do próximo de nível
+  menor ou igual, ou o fim do arquivo.
+- **`parseATXHeading`** — para um `---` logo abaixo de um heading ATX não
+  transformar o heading em título de setext.
+
+`Level` é ponteiro. `13` dá 1, `13.1` dá 2, `13.1.10` dá 3; **sem numeração não
+há nível a afirmar**, e um zero literal ali mentiria. No cálculo de `End`,
+candidato sem número entra como nível 6 — o mais profundo — para que qualquer
+candidato numerado o feche sem que ele engula uma seção numerada seguinte.
+
+Negrito conta **só sozinho na linha**: ênfase no meio de um parágrafo não é
+título, e aceitá-la encheria a resposta de ruído.
+
 ## Golden files
 
 48 arquivos congelam o parser e as quatro extensões, mais uma verificação de

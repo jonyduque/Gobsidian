@@ -3,7 +3,6 @@ package index
 import (
 	"path/filepath"
 	"slices"
-	"strings"
 	"sync"
 	"sync/atomic"
 
@@ -206,11 +205,10 @@ func (ix *Index) publishAssetLocked(a *Asset) {
 // publishNameLocked povoa lowerPath e byName, comuns a nota e anexo. Exige
 // ix.mu ja travado.
 func (ix *Index) publishNameLocked(path vault.CanonicalPath) {
-	lower := strings.ToLower(string(path))
-	ix.lowerPath[lower] = path
+	ix.lowerPath[chaveDeCaminho(string(path))] = path
 
-	base := vault.CanonicalPath(filepath.ToSlash(filepath.Base(string(path))))
-	ix.byName[string(base)] = append(ix.byName[string(base)], path)
+	base := chaveDeNomeDeArquivo(filepath.Base(string(path)))
+	ix.byName[base] = append(ix.byName[base], path)
 }
 
 // Paths devolve todos os caminhos indexados, notas E anexos, ordenados.

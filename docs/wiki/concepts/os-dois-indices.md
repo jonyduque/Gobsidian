@@ -1,16 +1,16 @@
 ---
 title: Os dois índices
 type: concept
-status: stale
+status: active
 description: Metadados e busca são estruturas separadas, com custos e ciclos de vida diferentes.
 source_paths:
   - internal/index/index.go
   - internal/search/inverted.go
   - internal/search/soa.go
-source_commit: b2be492
+source_commit: c6804e1e
 tags: [indice, busca, memoria]
 language: pt-BR
-updated_at: '2026-08-16'
+updated_at: '2026-08-31'
 ---
 
 # Os dois índices
@@ -30,13 +30,18 @@ metade das perguntas sobre este código.
 A diferença de custo é o motivo de existirem separados: o host desiste do
 handshake MCP em 30 s, e esperar a tokenização do cofre significava morrer antes
 de anunciar qualquer coisa. Hoje o índice de metadados sozinho já sustenta 11
-das 12 tools; só `vault_search` precisa do outro.
+das 13 tools; só `vault_search` precisa do outro.
 
 ## O índice de metadados
 
-`index.Index` são sete mapas sob um `sync.RWMutex`: `notes`, `assets`,
-`lowerPath`, `byName`, `byAlias`, `backlinks`, `tags`, mais `citantesPorNome`
+`index.Index` são oito mapas sob um `sync.RWMutex`: `notes`, `assets`,
+`lowerPath`, `byName`, `byAlias`, `backlinks`, `tags` e `citantesPorNome`
 (índice reverso que permite reindexar um arquivo sem varrer o cofre).
+
+**As chaves dos derivados passam todas por `internal/index/chave.go`**, que
+aplica NFC além da caixa. Não é detalhe de estilo: sem NFC, uma nota gravada em
+NFD por um cofre sincronizado com macOS não é encontrada por um cliente que pede
+em NFC. Ver [Note e caminho](../entities/note-e-caminho.md).
 
 **Invariante central: um `*Note` publicado em `ix.notes` é imutável.** Quem
 precisa mudar uma nota troca a entrada do mapa por uma cópia — é o que

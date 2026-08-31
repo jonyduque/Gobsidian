@@ -1,17 +1,17 @@
 ---
 title: Nota, anexo e caminho canônico
 type: entity
-status: stale
+status: active
 description: Os tipos centrais do domínio e as regras de confinamento de caminho.
 source_paths:
   - internal/index/note.go
   - internal/vault/path.go
   - internal/vault/walk.go
   - internal/parser/types.go
-source_commit: b2be492
+source_commit: c6804e1e
 tags: [modelo, caminho, seguranca]
 language: pt-BR
-updated_at: '2026-08-16'
+updated_at: '2026-08-31'
 ---
 
 # Nota, anexo e caminho canônico
@@ -28,6 +28,30 @@ pastas, e o índice precisa refletir o disco, não uma normalização inventada.
 > **Esta camada não consulta o disco e portanto NÃO garante a grafia dele.** Ela
 > preserva o que o chamador passou. Quem produz a grafia real é `vault.Walk`, que
 > lê as entradas de diretório.
+
+### A chave do índice é normalizada; o caminho guardado, não
+
+A distinção é o ponto inteiro: `CanonicalPath` continua sendo a grafia do disco,
+porque o servidor abre o arquivo por ele — normalizá-lo faria o produto tentar
+abrir um arquivo que não existe. As **chaves derivadas** dos mapas do índice
+passam por `chaveDeCaminho`, que aplica **NFC** além da caixa.
+
+O defeito que isso fecha: `í` precomposto (U+00ED, NFC) e `i` + acento
+combinante (U+0069 U+0301, NFD) são a mesma letra para quem lê e **strings
+diferentes** para um mapa de Go. Um cofre sincronizado com macOS grava NFD e um
+cliente Windows pede NFC, e até 2026-08-31 `ResolvePath` devolvia
+`ErrPathNotFound` para uma nota que existe. Este é um cofre em português, onde
+acento é a regra.
+
+NFC, e não NFD, porque é o que a maioria dos clientes envia e o que o Go emite
+por padrão. E a normalização **não remove acento** — `text.Normalize` faz isso,
+mas ela existe para BUSCA, onde "Capitulo" tem de casar com "Capítulo". Aplicada
+a chave de índice, faria duas notas distintas colidirem numa entrada só.
+
+As quatro derivações — `lowerPath`, `byName`, `byAlias` e a resolução por nome —
+moram em `internal/index/chave.go`, e **todas** passam por lá, inclusive as que
+já estavam certas. Não é para consertar as erradas: é para tornar a próxima
+divergência impossível sem tocar na função.
 
 ## Confinamento em duas camadas
 

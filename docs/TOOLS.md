@@ -59,7 +59,18 @@ Busca full-text com ranking, combinável com filtros de metadados.
 }
 ```
 
-**Retorno.** Objeto contendo `results` (e `hits`), `total`, `truncated`, mais `effective_snippet_chars` (valor efetivo de `snippet_chars`) e `effective_limit` (valor efetivo de `limit` clampado pelo teto `max_results`). O teto vem de `--max-results` ou de `GOBSIDIAN_MAX_RESULTS`, aceita de 1 a 500 (`MaxResultsCeiling`), e o padrão é 50. Os dois campos existem porque um clamp silencioso não se parece com um controle: quem pediu 200 e recebeu 50 precisa saber que o pedido foi reduzido, e por qual teto. Cada item traz `path`, `title`, `score`, `snippet`, `matched_headings` e `modified`. `unavailable_snippets` aparece quando alguma nota da página não pôde ser lida para montar o trecho — nota travada por outro processo, cofre desmontado no meio da resposta. O resultado continua na página, com `snippet` vazio: uma nota ilegível não apaga as outras. Mas zero e "não consegui ler três delas" não podem sair iguais, e até 2026-08-28 saíam. <!-- check-doc-refs: ignore max_results -- flag de CLI da configuracao que define o teto maximo do limit -->
+**Retorno.** Objeto contendo `results` (e `hits`), `total`, `truncated`, mais `effective_snippet_chars` (valor efetivo de `snippet_chars`) e `effective_limit` (valor efetivo de `limit` clampado pelo teto `max_results`). O teto vem de `--max-results` ou de `GOBSIDIAN_MAX_RESULTS`, aceita de 1 a 500 (`MaxResultsCeiling`), e o padrão é 50. Os dois campos existem porque um clamp silencioso não se parece com um controle: quem pediu 200 e recebeu 50 precisa saber que o pedido foi reduzido, e por qual teto. Cada item traz `path`, `title`, `score`, `snippet`, `matched_headings`, `modified` e — quando houve trecho — `match_offset`. `unavailable_snippets` aparece quando alguma nota da página não pôde ser lida para montar o trecho — nota travada por outro processo, cofre desmontado no meio da resposta. O resultado continua na página, com `snippet` vazio: uma nota ilegível não apaga as outras. Mas zero e "não consegui ler três delas" não podem sair iguais, e até 2026-08-28 saíam. <!-- check-doc-refs: ignore max_results -- flag de CLI da configuracao que define o teto maximo do limit -->
+
+**`match_offset` e o encadeamento que ele existe para permitir.** É o offset
+absoluto do casamento no arquivo, na mesma coordenada que `note_read(offset=)`
+aceita. O fluxo é `vault_search` → `match_offset` → `note_read(path,
+offset=match_offset, max_bytes=8000)`: encontrar o termo numa nota de 255 KB e
+ler os bytes em volta dele, sem baixar o arquivo inteiro.
+
+O campo é **ausente**, nunca zero, quando o hit não tem trecho — nota
+somente-nuvem, nota ilegível, nenhuma ocorrência localizada no corpo. Zero é um
+offset válido (o início do arquivo), então devolvê-lo ali mandaria o cliente ler
+o começo de uma nota qualquer acreditando estar indo ao termo.
 
 **Notas.** A consulta é normalizada: sem acentos, sem distinção de maiúsculas, com stemming leve para português. Buscar `usucapiao` encontra `usucapião`. Não há remoção de stopwords — em corpus técnico, palavras frequentes costumam ser termos de arte.
 
@@ -78,7 +89,7 @@ Lê uma nota inteira, uma seção, ou um bloco — ou várias notas numa só cha
   "type": "object",
   "properties": {
     "path":     { "type": "string", "description": "Caminho de uma nota. Mutuamente exclusivo com paths." },
-    "paths":    { "type": "array", "items": { "type": "string" }, "description": "Vários caminhos numa só chamada, até 50. Mutuamente exclusivo com path; falha de um item não derruba os demais." },
+    "paths":    { "type": "array", "items": { "oneOf": [ { "type": "string" }, { "type": "object", "properties": { "path": {"type":"string"}, "heading": {"type":"string"}, "heading_level": {"type":"integer"}, "block_id": {"type":"string"}, "offset": {"type":"integer"}, "max_bytes": {"type":"integer"}, "include_frontmatter": {"type":"boolean"} }, "required": ["path"] } ] }, "description": "Vários caminhos numa só chamada, até 50. Cada item é um caminho ou um objeto que sobrepõe os campos de topo só para ele. Mutuamente exclusivo com path; falha de um item não derruba os demais." },
     "heading":  { "type": "string", "description": "Texto do heading. Lê a seção até o próximo heading de nível igual ou superior." },
     "heading_level": { "type": "integer", "minimum": 1, "maximum": 6, "description": "Desambigua quando o mesmo texto aparece em níveis diferentes." },
     "block_id": { "type": "string", "description": "Identificador de bloco, sem o circunflexo." },
@@ -101,13 +112,67 @@ Lê uma nota inteira, uma seção, ou um bloco — ou várias notas numa só cha
 
 **Notas.** `block_id` é mutuamente exclusivo com `heading` e `heading_level`; os dois últimos combinam entre si, onde `heading_level` desambigua. A correspondência de heading é feita sobre o slug normalizado, então `## Capítulo 118` casa com `"Capítulo 118"`, `"capitulo 118"` ou `"CAPÍTULO 118"`.
 
-`path` e `paths` são mutuamente exclusivos; os dois preenchidos ao mesmo tempo é erro de validação (`INVALID_ARGUMENT`), não precedência silenciosa de um sobre o outro. `paths` aceita no máximo 50 itens — acima disso, `INVALID_ARGUMENT`. Quando `paths` é usado, `heading`, `heading_level`, `block_id`, `include_frontmatter` e `max_bytes` valem para CADA nota do lote; não há como variar por item numa só chamada.
+`path` e `paths` são mutuamente exclusivos; os dois preenchidos ao mesmo tempo é erro de validação (`INVALID_ARGUMENT`), não precedência silenciosa de um sobre o outro. `paths` aceita no máximo 50 itens — acima disso, `INVALID_ARGUMENT`.
+
+**Objeto por item.** Cada item de `paths` é uma string **ou** um objeto, e os dois se misturam na mesma lista. Os campos de topo (`heading`, `heading_level`, `block_id`, `offset`, `max_bytes`, `include_frontmatter`) são o **padrão**; o objeto sobrepõe **campo a campo**, só para aquele item:
+
+```json
+{
+  "paths": [
+    "Livro/01 Introducao.md",
+    {"path": "Livro/13 Registro.md", "heading": "13.1 Substituicao"},
+    {"path": "Livro/14 Recursos.md", "offset": 40000, "max_bytes": 8000}
+  ],
+  "max_bytes": 4000
+}
+```
+
+Seis capítulos com seis seções diferentes numa chamada, e não seis chamadas — que era o custo antes de 2026-08-31, e caía inteiro sobre o caso mais comum de um cofre de estudo.
+
+Duas regras que a sobreposição respeita:
+
+- **Zero explícito não é omissão.** `{"path":"a.md","max_bytes":0}` pede "sem teto" e é diferente de `{"path":"a.md"}`, que herda o teto do topo. Os campos do objeto são opcionais no schema justamente para essa distinção existir.
+- **`offset` e `heading`/`block_id` continuam mutuamente exclusivos, mas por item.** Um item que traz `heading` sem trazer `offset` não herda o `offset` do topo — herdá-lo o tornaria `INVALID_ARGUMENT` por um campo que ele não mandou. E o erro diz **qual índice** da lista falhou: "item 3 de paths", não "paths inválido".
 
 `hash` é do arquivo inteiro, não da seção lida, e é o valor a devolver em `expected_hash` nas tools de escrita.
 
 Ler uma seção lê apenas os bytes da seção. Uma seção de 2 KB em uma nota de 500 KB custa 2 KB. `max_bytes` no modo lote se aplica por nota: a décima nota de dez não trunca por causa dos bytes já gastos nas nove anteriores.
 
-**Erros.** `HEADING_NOT_FOUND` inclui na mensagem os headings disponíveis no mesmo nível — permite que o cliente se corrija sem uma chamada adicional. `INVALID_ARGUMENT` cobre `path` e `paths` preenchidos juntos, e `paths` acima de 50 itens; ao contrário dos demais erros de `note_read`, este vem com `structuredContent` preenchido — um `items` de um elemento carregando o próprio erro —, porque um erro de validação de lote ainda se beneficia de o cliente poder inspecionar o código por campo, em vez de reparsear o texto.
+**Erros.** `HEADING_NOT_FOUND` inclui na mensagem os headings disponíveis no mesmo nível — permite que o cliente se corrija sem uma chamada adicional. Quando a nota **não tem heading Markdown nenhum**, a mensagem diz isso e aponta `note_outline`: a lista de disponíveis vazia é exatamente o que a nota convertida produz, e ela não explica por quê. `INVALID_ARGUMENT` cobre `path` e `paths` preenchidos juntos, e `paths` acima de 50 itens; ao contrário dos demais erros de `note_read`, este vem com `structuredContent` preenchido — um `items` de um elemento carregando o próprio erro —, porque um erro de validação de lote ainda se beneficia de o cliente poder inspecionar o código por campo, em vez de reparsear o texto.
+
+---
+
+## `note_outline`
+
+O mapa de uma nota: os headings Markdown reais **e** os candidatos a título que uma nota convertida usa no lugar deles.
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "path": { "type": "string", "description": "Caminho da nota." },
+    "max_candidates": { "type": "integer", "default": 200, "maximum": 1000, "description": "Máximo de candidatos devolvidos. O retorno traz 'truncated' quando corta." }
+  },
+  "required": ["path"]
+}
+```
+
+**Retorno.** `path`, `total_size`, `headings`, `candidates` e `truncated`.
+
+- `headings` vem do índice, sem reler o disco: nível, texto, slug e offsets. É **estrutura Markdown de verdade**.
+- `candidates` é calculado na chamada, sobre os bytes da nota. Cada um tem `kind` (`strong_paragraph` ou `setext`), `text`, `start`, `end`, e `level` **quando houver numeração hierárquica** — `13` dá 1, `13.1` dá 2, `13.1.10` dá 3. Sem numeração, `level` é **ausente**, não zero: zero literal afirmaria um nível que ninguém pode ler no arquivo.
+
+**Por que os dois campos são separados.** `parseATXHeading` só aceita ATX (`#`). Uma nota convertida de PDF, DOCX ou EPUB não tem nenhum — ela marca título com parágrafo em negrito (`**13.1.10 Substituição de candidatos**`) ou com setext. Nessas notas, `note_read` por heading, `note_patch` por seção, âncora de wikilink e o peso de heading do BM25 não funcionam, e num cofre de estudo elas são a maioria.
+
+`note_outline` não conserta nenhuma das quatro. Conserta a pergunta real — *"não sei onde está o que eu quero neste arquivo de 255 KB"* — e faz isso **sem afirmar estrutura que o arquivo não tem**. Candidato nunca entra em `headings`, nem no índice, nem no cache: uma tool que afirma hierarquia inventada é pior que uma que não responde, porque o cliente age sobre a afirmação.
+
+**O encadeamento.** `note_outline` → `start` → `note_read(path, offset=start, max_bytes=end-start)`. Os offsets são absolutos, na mesma coordenada de `note_read(offset=)`, BOM incluído — sem isso a tool devolveria números bonitos e inúteis.
+
+**Notas.** Negrito só conta **sozinho na linha**: ênfase no meio de um parágrafo não é título, e aceitá-la encheria a resposta de ruído. Detecção acontece **fora de bloco de código cercado**, pela mesma máquina de cercas de `ExtractHeadings` — duas máquinas de cerca divergiriam, e a divergência apareceria como hierarquia falsa dentro de um bloco de código, que é o pior lugar para ela aparecer numa nota que documenta Markdown.
+
+`end` de um candidato é o `start` do próximo candidato de nível menor ou igual, ou o fim do arquivo — a mesma regra de `closeSections`, reusada e não reimplementada. Candidato sem numeração é tratado como o **mais profundo** no cálculo: assim qualquer candidato numerado o fecha, e ele não engole uma seção numerada que venha depois.
+
+**Erros.** `CLOUD_ONLY_FILE` para nota somente-nuvem — esta tool lê o arquivo inteiro, e abrir um placeholder do OneDrive dispara download síncrono. `NOTE_NOT_FOUND` e `PATH_NOT_FOUND` como nas demais.
 
 ---
 
@@ -419,7 +484,7 @@ A listagem de resources é paginada e serve o índice em memória. Em cofres gra
 | `BLOCK_NOT_FOUND` | Identificador de bloco inexistente | Verificar com `note_metadata` |
 | `AMBIGUOUS_BLOCK` | Mesmo identificador de bloco em mais de um lugar | Usar o caminho exato listado na mensagem |
 | `FOLDER_NOT_FOUND` | Diretório de destino inexistente | Só ocorre com `create_folders: false` em `note_create` e `note_move`; o padrão é `true` e cria os intermediários |
-| `INDEX_BUILDING` | O índice de busca ainda não cobre o cofre inteiro | Repetir em alguns segundos. **Só `vault_search` devolve isto**; as outras onze tools funcionam desde o primeiro segundo |
+| `INDEX_BUILDING` | O índice de busca ainda não cobre o cofre inteiro | Repetir em alguns segundos. **Só `vault_search` devolve isto**; as outras doze tools funcionam desde o primeiro segundo |
 | `HASH_MISMATCH` | Nota mudou desde a leitura | Reler e repetir |
 | `FILE_LOCKED` | Arquivo bloqueado após esgotar retries | Fechar a nota no Obsidian e repetir |
 | `CLOUD_ONLY_FILE` | Arquivo não hidratado pelo OneDrive | Abrir uma vez no Explorer, ou desmarcar "somente online" |

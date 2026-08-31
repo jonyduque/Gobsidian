@@ -116,6 +116,6 @@ e 99 dos 200 resultados com `err == nil` e `Total` intacto.
 
 - [Formato do cache](../entities/formato-do-cache.md)
 - [Parser](parser.md) — de onde vêm os headings que o peso de campo consulta.
-- [As 12 tools MCP](tools-mcp.md) — o schema de `vault_search`.
+- [As 13 tools MCP](tools-mcp.md) — o schema de `vault_search`.
 - [Achados em aberto](../notes/achados-abertos.md) — desempenho e precisão do
   recorte têm itens abertos.

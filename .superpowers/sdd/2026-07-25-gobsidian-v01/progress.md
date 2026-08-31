@@ -4586,3 +4586,74 @@ B15 (rename no nível do sistema de arquivos É delete+create com bytes iguais).
 
 **Os 61 achados da auditoria estão fechados ou rejeitados.** Quadro em
 `docs/ESTADO.md`; medições e rejeições em `docs/OPERACAO.md`.
+
+---
+
+## Tasks 107, 109, 112, 114 — as quatro da revisão que estavam em estado nenhum — 2026-08-31
+
+**Como foram achadas.** Uma auditoria de documentação ia registrar que a revisão
+de 2026-08-15 tinha fechado. O ledger listava 104, 105, 106 e 116; as demais
+(110, 113, 118, 119, 120, 121, 122, 123) tinham sido entregues sob a numeração da
+auditoria de 2026-08-25 e o código as confirmava. Quatro não estavam em lugar
+nenhum — nem `complete`, nem `BLOCKED`, nem abertas. Conferência **no código**,
+uma por uma:
+
+    match_offset / MatchOffset  -> zero referencias
+    noteReadInput.Paths         -> []string
+    note_outline                -> zero referencias
+    aliasKey                    -> strings.ToLower(alias), sem NFC
+
+**Task 114 — a chave do índice normaliza, o caminho não.** Medido ANTES de
+corrigir, como o brief manda. Contra o HEAD: os quatro casos de mesma forma
+passavam, os **dois cruzados reprovavam** (`criar em NFD, ler em NFC` e o
+inverso). Correção: `internal/text.ParaNFC` e `internal/index/chave.go`, com
+`chaveDeCaminho`, `chaveDeNomeDeArquivo` e `aliasKey` numa conta cada; os sete
+pontos de `update.go` e `index.go` passaram a chamá-las, inclusive os que já
+estavam certos.
+
+A primeira prova de mutação saiu **EXIT=1**: o teste passava com
+`chaveDeCaminho` mutada porque `byName` — que também normaliza — respondia pela
+nota na raiz do cofre. Dois testes novos isolam as rotas: homônimos em pastas
+diferentes tornam `byName` ambíguo e forçam o caminho completo; nome nu em
+subpasta força `byName`. As duas mutações reprovam agora.
+
+Um erro próprio no caminho, que vale registrar: escrevi as constantes `nfc` e
+`nfd` como literais Unicode e **as duas saíram em NFC** — 14 bytes cada. Os dois
+testes novos eram tautológicos e passavam por isso. Uma sonda que imprimiu o
+comprimento em bytes pegou; o arquivo usa escapes `\u00ed` / `\u0301` agora, que
+é o que o brief pedia desde o começo.
+
+**Task 107 — `match_offset`.** `Snippet.MatchOffset` sai de `diskMatchStart`, não
+de `winStart+relStart`: o segundo é o início do trecho depois do aparo de UTF-8
+parcial. `SearchHit.MatchOffset` é `*int64` com `omitempty`, preenchido só quando
+há trecho — zero é offset válido. As duas metades têm prova.
+
+**Task 109 — objeto por item em `paths`.** `service.ReadAlvo` com campos
+ponteiro, e `pedidoDoAlvo` como conta única da herança. Descoberta que muda a
+avaliação do brief: **o SDK valida a entrada contra o `InputSchema` antes de
+chamar `UnmarshalJSON`**. O brief autorizava, como plano B, descrever as duas
+formas só na descrição do campo — isso teria **quebrado todo cliente atual em
+silêncio**. `setSchema` só infere quando `Tool.InputSchema` é nil, então
+`schemaDoNoteRead` infere e remenda uma propriedade com `oneOf`. A mutação que
+remove o braço `{"type":"string"}` derruba o teste de compatibilidade.
+
+**Task 112 — `note_outline`.** `parser.DetectCandidates` reusa `openFence`,
+`closesFence` e `closeSections`. `Candidate.Level` é ponteiro: sem numeração
+hierárquica não há nível a afirmar. Candidato sem número entra no cálculo de
+`End` como nível 6, o mais profundo — com zero, `**Introdução**` engoliria
+`**13.1 Algo**` que viesse depois. A mensagem de `HEADING_NOT_FOUND` numa nota
+sem heading nenhum passou a apontar `note_outline`, que é o passo 5 do brief.
+
+**Provas de mutação, todas EXIT=0:** `chaveDeCaminho`, `chaveDeNomeDeArquivo`,
+`MatchOffset: diskMatchStart`, `if snip.Text != ""`, `if alvo.Heading != nil`,
+o braço `{Type: "string"}` do `oneOf`, `inFence, fence = true, f`,
+`Headings: note.Headings` e `truncado = true`.
+
+`verify.ps1` **13 de 13**. A tool nova leva a contagem de doze para treze, e
+`README.md`, `docs/ESTRUTURA.md`, `docs/TOOLS.md` e o wiki acompanham.
+
+**A lição não é sobre nenhuma das quatro.** Tarefa entregue sob outra numeração
+some do ledger do plano que a originou, e o que some não é auditado. "O plano
+fechou" é afirmação de estado, e afirmação de estado se verifica — a verificação
+barata é `grep` pelo nome que cada entregável teria criado. Registrada em
+`docs/ARMADILHAS.md`.

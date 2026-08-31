@@ -56,6 +56,7 @@ gobsidian/
 │   │   ├── ext_inline_field.go   extensão goldmark: chave:: valor
 │   │   ├── headings.go           extração da hierarquia com offsets de seção
 │   │   ├── slug.go               normalização de heading para casar com âncoras
+│   │   ├── outline.go            candidatos a título: parágrafo em negrito e setext
 │   │   └── types.go              ParsedNote, Heading, Block, Link, LinkKind
 │   │
 │   ├── index/
@@ -66,6 +67,7 @@ gobsidian/
 │   │   ├── backlinks.go          construção e manutenção do grafo reverso
 │   │   ├── resolve.go            resolução de wikilink → caminho canônico
 │   │   ├── alias.go              mapa alias → caminhos, do frontmatter
+│   │   ├── chave.go              as chaves derivadas do índice: NFC e caixa, uma conta cada
 │   │   ├── assets.go             registro de anexos (nome, tamanho, mtime)
 │   │   ├── anchors.go            validação de âncora de heading e de bloco
 │   │   ├── classify.go           classificação de entrada: nota, anexo, excluído
@@ -110,6 +112,7 @@ gobsidian/
 │   ├── service/
 │   │   ├── service.go            struct Service; injeção dos subsistemas
 │   │   ├── read.go               métodos de leitura
+│   │   ├── outline.go            note_outline: headings do índice + candidatos do parser
 │   │   ├── write.go              métodos de escrita
 │   │   ├── graph.go              link_graph, note_metadata, tag_list, vault_stats
 │   │   ├── search.go             vault_search: filtro, paginação, trechos
@@ -119,6 +122,7 @@ gobsidian/
 │   ├── mcpsrv/
 │   │   ├── server.go             construção do servidor, registro de tools
 │   │   ├── tools_read.go         handlers e schemas das tools de leitura
+│   │   ├── alvo_note_read.go     item de paths: string ou objeto, e o schema com oneOf
 │   │   ├── tools_write.go        handlers e schemas das tools de escrita
 │   │   ├── resources.go          exposição de notas como resources gobsidian://
 │   │   ├── uri.go                construção e parsing da URI gobsidian://

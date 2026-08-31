@@ -519,7 +519,7 @@ código e trade-offs (`docs/REVISAO-2026-08-15.md`):
    `sort.SearchStrings` dá autocomplete/prefixo de graça.
 5. **`netcheck` verificável por nome de método** + `Dialer.DialUnix` (itens 19/42),
    nesta ordem: corrigir o analisador antes de adotar.
-6. **Recursos de produto** (itens 30–35, 45–48): `note_outline` (estrutura sintética <!-- check-doc-refs: ignore note_outline -- tool proposta na Fase 9; ainda nao existe, e esse e o ponto -->
+6. **Recursos de produto** (itens 30–35, 45–48): `note_outline` (estrutura sintética
    rotulada), restauração de lixeira, `vault_lint`, prompts MCP, `vault_stats` <!-- check-doc-refs: ignore vault_lint -- tool proposta na Fase 9; ainda nao existe, e esse e o ponto -->
    expondo o estado do índice de busca (`Building()` existe e não é publicado).
 

@@ -113,7 +113,7 @@ gravar**, com reconstrução completa a cada boot e nenhum log dizendo por quê
 ## Custo de trocar de formato
 
 **Toda troca reconstrói o cache de todo cofre no boot seguinte**, em segundo
-plano, com as outras onze tools respondendo desde o primeiro segundo.
+plano, com as outras doze tools respondendo desde o primeiro segundo.
 
 Vale também para quem atualizar de uma v1.0.x, que grava `gob` e invalida o cache
 desta versão a cada alternância.

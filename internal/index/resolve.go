@@ -45,7 +45,7 @@ func nomeChave(s string) string {
 	if i := strings.LastIndex(s, "/"); i >= 0 {
 		s = s[i+1:]
 	}
-	s = strings.ToLower(s)
+	s = chaveDeCaminho(s)
 	return strings.TrimSuffix(s, ".md")
 }
 
@@ -218,7 +218,7 @@ func (ix *Index) resolveByName(target string, isNote bool, origin vault.Canonica
 //
 // Exige ix.mu ja tomado.
 func (ix *Index) candidatosPorNomeLocked(name string, isNote bool) []vault.CanonicalPath {
-	paths, ok := ix.byName[name]
+	paths, ok := ix.byName[chaveDeNomeDeArquivo(name)]
 	if !ok || len(paths) == 0 {
 		return nil
 	}
@@ -340,8 +340,7 @@ func (ix *Index) ResolvePath(input string) (vault.CanonicalPath, error) {
 	}
 
 	// Insensivel a maiusculas: lookup direto, nao varredura.
-	lower := strings.ToLower(filepath.ToSlash(input))
-	if canonico, ok := ix.lowerPath[lower]; ok {
+	if canonico, ok := ix.lowerPath[chaveDeCaminho(input)]; ok {
 		return canonico, nil
 	}
 

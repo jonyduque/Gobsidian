@@ -1,7 +1,7 @@
 ---
 title: Encerramento
 type: flow
-status: stale
+status: active
 description: Os quatro mecanismos que garantem que o processo morre, e o desligamento por etapas.
 source_paths:
   - internal/lifecycle/lifecycle.go
@@ -10,10 +10,10 @@ source_paths:
   - internal/lifecycle/parent.go
   - internal/lifecycle/shutdown.go
   - cmd/gobsidian/serve.go
-source_commit: b2be492
+source_commit: c6804e1e
 tags: [lifecycle, shutdown, orfaos]
 language: pt-BR
-updated_at: '2026-08-16'
+updated_at: '2026-08-31'
 ---
 
 # Encerramento
@@ -49,6 +49,13 @@ Docker+tini, systemd ou s6 o reaper não é PID 1.
 isso `watchStdin` fica **fora** do `WaitGroup` — incluí-la travaria `Wait()`
 sempre que outro mecanismo disparasse primeiro e o stdin continuasse aberto. As
 vigias de sinal e de pai entram, porque fazem `select` em `ctx.Done()`.
+
+**A ponte não fecha o socket seco.** Antes do `close-conn` ela faz `CloseWrite()`
+— meio-fechamento — e **drena** o que o daemon ainda estiver mandando, com
+orçamento de 2 s. Sem isso a última resposta em voo morre no fechamento e o host
+vê uma chamada sem retorno. `CloseWrite` estava declarado na interface e
+conferido no handshake desde sempre, e **nunca era chamado** (achado M8):
+interface cumprida, contrato não.
 
 ## Desligamento por etapas
 

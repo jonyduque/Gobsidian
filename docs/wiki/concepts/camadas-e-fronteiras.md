@@ -90,7 +90,7 @@ A que **era** de segurança fechou: a superfície de escrita construía
 ## Ver também
 
 - [Os dois índices](os-dois-indices.md)
-- [As 12 tools MCP](../features/tools-mcp.md) — a superfície que `mcpsrv` expõe.
+- [As 13 tools MCP](../features/tools-mcp.md) — a superfície que `mcpsrv` expõe.
 - [Watcher](../features/watcher.md) — a fronteira do fsnotify.
 - [Regras não negociáveis](../risks/regras-nao-negociaveis.md)
 - `docs/ARCHITECTURE.md` — a especificação, com os AD-01 a AD-09.

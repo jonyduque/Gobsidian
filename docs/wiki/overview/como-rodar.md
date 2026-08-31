@@ -1,7 +1,7 @@
 ---
 title: Como rodar
 type: overview
-status: stale
+status: active
 description: Subcomandos, flags, configuração e a bateria de verificação.
 source_paths:
   - cmd/gobsidian/main.go
@@ -9,10 +9,10 @@ source_paths:
   - internal/config/config.go
   - internal/config/defaults.go
   - scripts/verify.ps1
-source_commit: b2be492
+source_commit: c6804e1e
 tags: [cli, config]
 language: pt-BR
-updated_at: '2026-08-16'
+updated_at: '2026-08-31'
 ---
 
 # Como rodar
@@ -34,6 +34,11 @@ Registrados em `cmd/gobsidian/main.go:59`.
 **`doctor`, `version`, `index`, `search` e `inspect` imprimem em stdout de
 propósito** — são comandos de CLI, não servidores. Só `serve` e `daemon` têm o
 stdout reservado ao JSON-RPC.
+
+`--max-results` na ponte deixou de ser no-op silencioso no modo daemon em
+2026-08-28: a saudação do IPC passou a carregá-lo, e o protocolo virou **2** por
+causa disso. Antes, a flag existia, o usuário a passava, e o daemon servia o
+valor dele.
 
 ## Configuração
 

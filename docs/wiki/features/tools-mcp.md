@@ -1,8 +1,8 @@
 ---
-title: As 12 tools MCP
+title: As 13 tools MCP
 type: feature
 status: active
-description: Superfície pública do servidor — 7 tools de leitura, 5 de escrita, e os resources.
+description: Superfície pública do servidor — 8 tools de leitura, 5 de escrita, e os resources.
 source_paths:
   - internal/mcpsrv/server.go
   - internal/mcpsrv/tools_read.go
@@ -15,7 +15,7 @@ language: pt-BR
 updated_at: '2026-08-31'
 ---
 
-# As 12 tools MCP
+# As 13 tools MCP
 
 O contrato de cada uma está em `docs/TOOLS.md`. Esta página explica como elas se
 ligam ao código.
@@ -27,12 +27,13 @@ ligam ao código.
 | `vault_stats` | `service.VaultStats` | não |
 | `vault_search` | `service.Search` | sim, para recortar trechos |
 | `note_read` | `service.ReadNote` / `ReadNotes` | sim, só a faixa pedida |
+| `note_outline` | `service.Outline` | sim, a nota inteira |
 | `note_list` | `service.ListNotes` | não |
 | `note_metadata` | `service.NoteMetadata` | não |
 | `link_graph` | `service.LinkGraph` | não |
 | `tag_list` | `service.TagList` | não |
 
-Cinco das sete respondem **só do índice em memória**. É o que torna `note_list` a
+Cinco das oito respondem **só do índice em memória**. É o que torna `note_list` a
 tool barata, e é por isso que ela devolve a projeção `ListItem` em vez da `Note`
 inteira — despejar headings, blocos e links por nota transformaria "que notas
 existem na pasta X" numa resposta de dezenas de milhares de tokens.
@@ -40,7 +41,20 @@ existem na pasta X" numa resposta de dezenas de milhares de tokens.
 `note_read` aceita `path` **ou** `paths` (lote de até 50), mutuamente
 exclusivos: os dois preenchidos é erro de validação, não precedência silenciosa.
 No lote, a falha de um item não derruba os demais — cada um vira um
-`ReadNoteItem` na mesma posição de `Paths`.
+`ReadNoteItem` na mesma posição de `Alvos`.
+
+**Cada item de `paths` é uma string ou um objeto**, misturados na mesma lista, e
+o objeto sobrepõe os campos de topo **campo a campo** só para aquele item. Seis
+capítulos com seis headings diferentes numa chamada, e não seis. Os campos do
+objeto são ponteiros porque `max_bytes: 0` ("sem teto") é um pedido diferente de
+omitir `max_bytes` (herdar o do topo).
+
+`note_outline` é a única que lê a nota **inteira**, e por isso recusa
+somente-nuvem. Ela existe porque `parseATXHeading` só aceita `#`, e nota
+convertida de PDF/DOCX/EPUB marca título com parágrafo em negrito — nessas notas,
+`note_read` por heading, `note_patch` por seção, âncora de wikilink e o peso de
+heading do BM25 não funcionam. Ela não conserta as quatro: separa o que é
+estrutura do que é palpite e **diz qual é qual**.
 
 ## Escrita (5)
 

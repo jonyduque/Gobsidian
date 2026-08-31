@@ -34,18 +34,92 @@ type ReadResult struct {
 	NextOffset *int64          `json:"next_offset,omitempty"`
 }
 
+// ReadAlvo e um item do lote de note_read: o caminho, e o que sobrepoe os
+// padroes de topo SO para ele.
+//
+// Todo campo sobreponivel e PONTEIRO, e nao valor. Um item que traz
+// max_bytes=0 esta pedindo explicitamente "sem teto", e isso e um pedido
+// DIFERENTE de um item que nao trouxe max_bytes nenhum e herda o teto do topo.
+// Campo nao-ponteiro nao distingue os dois — e a armadilha de ReadOnlySet e
+// DebounceMSSet, um nivel abaixo.
+type ReadAlvo struct {
+	Path               string
+	Heading            *string
+	HeadingLevel       *int
+	BlockID            *string
+	Offset             *int64
+	MaxBytes           *int
+	IncludeFrontmatter *bool
+}
+
 // ReadBatchRequest e os parametros de note_read em modo lote. Heading,
-// HeadingLevel, BlockID, MaxBytes e IncludeFrontmatter valem para CADA
-// caminho de Paths, do mesmo jeito que valeriam para um ReadRequest unico —
-// nao ha campo por-item porque o schema de entrada e plano.
+// HeadingLevel, BlockID, Offset, MaxBytes e IncludeFrontmatter sao o PADRAO
+// aplicado a cada alvo; cada ReadAlvo sobrepoe campo a campo o que trouxer.
+//
+// Ate 2026-08-31 os campos de topo eram a unica forma de entrada, e o comentario
+// daqui registrava a escolha: "nao ha campo por-item porque o schema de entrada
+// e plano". O custo caiu inteiro sobre o caso mais comum — seis capitulos de uma
+// obra, com seis headings diferentes, exigiam seis chamadas.
 type ReadBatchRequest struct {
-	Paths              []string
+	Alvos              []ReadAlvo
 	Heading            string
 	HeadingLevel       int
 	BlockID            string
 	Offset             *int64
 	MaxBytes           int
 	IncludeFrontmatter bool
+}
+
+// pedidoDoAlvo funde os padroes de topo com o que o alvo sobrepoe.
+//
+// E a UNICA conta da heranca. Fundir no lugar de uso, campo a campo, e como o
+// erro previsivel desta superficie entra: sobrepor o REGISTRO INTEIRO em vez de
+// campo a campo, e ai o max_bytes do topo some no item que so pediu heading.
+func pedidoDoAlvo(padrao ReadBatchRequest, alvo ReadAlvo) ReadRequest {
+	req := ReadRequest{
+		Path:               alvo.Path,
+		Heading:            padrao.Heading,
+		HeadingLevel:       padrao.HeadingLevel,
+		BlockID:            padrao.BlockID,
+		Offset:             padrao.Offset,
+		MaxBytes:           padrao.MaxBytes,
+		IncludeFrontmatter: padrao.IncludeFrontmatter,
+	}
+	if alvo.Heading != nil {
+		req.Heading = *alvo.Heading
+		// Heading e offset sao mutuamente exclusivos (D-R-3). Um alvo que pede
+		// heading sem pedir offset nao pode herdar o offset do topo e virar
+		// INVALID_ARGUMENT por um campo que ele nao mandou.
+		if alvo.Offset == nil {
+			req.Offset = nil
+		}
+	}
+	if alvo.HeadingLevel != nil {
+		req.HeadingLevel = *alvo.HeadingLevel
+	}
+	if alvo.BlockID != nil {
+		req.BlockID = *alvo.BlockID
+		if alvo.Offset == nil {
+			req.Offset = nil
+		}
+	}
+	if alvo.Offset != nil {
+		req.Offset = alvo.Offset
+		// Simetrico: offset explicito no item apaga o heading/block herdados.
+		if alvo.Heading == nil {
+			req.Heading = ""
+		}
+		if alvo.BlockID == nil {
+			req.BlockID = ""
+		}
+	}
+	if alvo.MaxBytes != nil {
+		req.MaxBytes = *alvo.MaxBytes
+	}
+	if alvo.IncludeFrontmatter != nil {
+		req.IncludeFrontmatter = *alvo.IncludeFrontmatter
+	}
+	return req
 }
 
 // ReadNoteItem e um item do lote de note_read. Path identifica de qual
@@ -114,19 +188,14 @@ type ReadBatchResult struct {
 // remove os demais, e nao desloca os que vem depois dele. E o índice, não
 // o comprimento da lista, que amarra pedido e resposta.
 func (s *Service) ReadNotes(ctx context.Context, req ReadBatchRequest) ReadBatchResult {
-	out := make([]ReadNoteItem, len(req.Paths))
-	for i, p := range req.Paths {
-		res, err := s.ReadNote(ctx, ReadRequest{
-			Path:               p,
-			Heading:            req.Heading,
-			HeadingLevel:       req.HeadingLevel,
-			BlockID:            req.BlockID,
-			Offset:             req.Offset,
-			MaxBytes:           req.MaxBytes,
-			IncludeFrontmatter: req.IncludeFrontmatter,
-		})
+	out := make([]ReadNoteItem, len(req.Alvos))
+	for i, alvo := range req.Alvos {
+		p := alvo.Path
+		res, err := s.ReadNote(ctx, pedidoDoAlvo(req, alvo))
 		if err != nil {
-			out[i] = ReadNoteItem{Path: p, Err: err}
+			// O indice do item entra na mensagem: "paths invalido" nao ajuda
+			// quem mandou seis capitulos numa chamada so (D-R-3).
+			out[i] = ReadNoteItem{Path: p, Err: Errorf(CodeOf(err), "item %d de paths (%s): %s", i, p, err.Error())}
 			continue
 		}
 		out[i] = ReadNoteItem{
@@ -195,6 +264,17 @@ func (s *Service) ReadNote(ctx context.Context, req ReadRequest) (ReadResult, er
 				if req.HeadingLevel == 0 || h.Level == req.HeadingLevel {
 					alternatives = append(alternatives, h.Text)
 				}
+			}
+			// Nota SEM heading nenhum e nota COM headings que nao casam sao
+			// perguntas diferentes, e a resposta tem de dizer qual e.
+			//
+			// A nota convertida de livro cai sempre no primeiro caso: ela marca
+			// titulo com paragrafo em negrito, e a lista de "disponiveis" sai
+			// vazia sem explicar por que. E o incidente de campo de 2026-08-15.
+			if len(alternatives) == 0 {
+				return ReadResult{}, Errorf(CodeHeadingNotFound,
+					"nota %q nao tem heading Markdown nenhum. Se ela veio de PDF, DOCX ou EPUB, os titulos provavelmente sao paragrafo em negrito: chame note_outline para ver os candidatos e leia por offset.",
+					req.Path)
 			}
 			return ReadResult{}, Errorf(CodeHeadingNotFound, "heading %q nao encontrado. Disponiveis: %s", req.Heading, strings.Join(alternatives, ", "))
 		}

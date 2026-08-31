@@ -34,22 +34,27 @@ recopia.
 A auditoria de 2026-08-25 levantou **61 achados**: 58 corrigidos, **3 rejeitados
 depois de verificados**, nenhum aberto.
 
-A revisão de 2026-08-15 gerou as Tasks 104–123 e **não fechou inteira**. O ledger
-registra 104, 105, 106 e 116; outras (110, 113, 118, 119, 120, 121, 122, 123)
-foram entregues sob a numeração da auditoria, e o código as confirma. **Quatro
-não foram entregues** — conferidas no código em 2026-08-31, não no ledger:
+A revisão de 2026-08-15 gerou as Tasks 104–123. Em 2026-08-31 uma auditoria do
+ledger achou **quatro que nunca tinham sido entregues** — e que o ledger não
+registrava em estado nenhum, então nem "aberto" elas estavam. As quatro foram
+implementadas no mesmo dia:
 
-| Task | O que falta | Conferência |
+| Task | O que faltava | O que entrou |
 |---|---|---|
-| **107** | `vault_search` não devolve onde o casamento está no arquivo | `match_offset` não existe em lugar nenhum |
-| **109** | `note_read.paths` é `[]string`, não objeto por item — não há como pedir offset diferente por nota do lote | `Paths []string` em `tools_read.go` |
-| **112** | `note_outline` não existe | nenhuma referência no código |
-| **114** | chaves do índice aplicam só caixa, sem NFC/NFD | `aliasKey` e `nomeChave` fazem `strings.ToLower` e mais nada |
+| **107** | `vault_search` não dizia onde o casamento estava no arquivo | `match_offset` absoluto, ausente (nunca zero) quando não há trecho |
+| **109** | `note_read.paths` era `[]string`: seis capítulos exigiam seis chamadas | item vira string **ou** objeto, sobrepondo os campos de topo campo a campo |
+| **112** | nota convertida de livro não tem heading ATX nenhum | `note_outline`, que separa `headings` de `candidates` |
+| **114** | chaves do índice aplicavam só caixa, sem NFC | `internal/index/chave.go`, uma conta por chave |
 
-As três primeiras são a superfície que causou o incidente de campo. A quarta
-aparece em cofre sincronizado com macOS: `Capítulo` em NFD e em NFC são strings
-diferentes, e `text.Normalize` e `parser.Slug` já normalizam enquanto as chaves
-do índice não.
+**As três primeiras são a superfície que causou o incidente de campo**, e juntas
+fecham o encadeamento que faltava: `vault_search` → `match_offset` →
+`note_read(offset=)`, ou `note_outline` → `start` → `note_read(offset=)`.
+
+> **A lição da auditoria não é sobre nenhuma das quatro.** É que uma tarefa
+> entregue sob outra numeração — a da auditoria de 2026-08-25 — some do ledger do
+> plano que a originou, e o que some não é auditado. Quatro tarefas passaram duas
+> semanas sem estar nem em "feito" nem em "aberto". Conferir **no código** foi o
+> que as achou; o ledger não teria.
 
 ## Os três rejeitados — e por que a recusa é o registro que importa
 
@@ -94,10 +99,16 @@ com condições e protocolo, estão em [`docs/OPERACAO.md`](../../OPERACAO.md).
 
 ## O que segue aberto
 
-As quatro tasks da tabela acima, mais o que está em
+Das duas listas, nada. O que segue aberto está em
 [`docs/ESTADO.md`](../../ESTADO.md) § Dívidas abertas: o `measure.ps1` fora de
 gate, e a folga do RNF-07, cujo caminho medido é o índice de metadados (67% do
 heap vivo, com `Link.Raw` repetindo `Link.Target` em 100,0% dos links).
+
+Fora delas, uma questão que a Task 114 abriu e não fechou: as chaves do índice
+normalizam para NFC, mas **o cofre no disco pode ter as duas formas ao mesmo
+tempo** — duas notas cujos nomes só diferem na normalização são dois arquivos
+para o sistema de arquivos e uma chave só para o índice. Hoje a segunda ganha o
+lugar da primeira em `lowerPath`. Não foi medido se isso ocorre em cofre real.
 
 ## Ver também
 

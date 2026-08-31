@@ -227,7 +227,11 @@ func TestNoteReadMantemPosicaoNoErroParcial(t *testing.T) {
 	svc := newTestService(t, root)
 
 	paths := []string{"A.md", "Missing.md", "B.md"}
-	result := svc.ReadNotes(context.Background(), ReadBatchRequest{Paths: paths})
+	alvos := make([]ReadAlvo, len(paths))
+	for i, p := range paths {
+		alvos[i] = ReadAlvo{Path: p}
+	}
+	result := svc.ReadNotes(context.Background(), ReadBatchRequest{Alvos: alvos})
 
 	if len(result.Items) != len(paths) {
 		t.Fatalf("len(Items) = %d, quer %d — lista encolheu", len(result.Items), len(paths))
@@ -258,7 +262,7 @@ func TestReadNotesMaxBytesPerNote(t *testing.T) {
 	svc := newTestService(t, root)
 
 	result := svc.ReadNotes(context.Background(), ReadBatchRequest{
-		Paths:    []string{"A.md", "B.md"},
+		Alvos:    []ReadAlvo{{Path: "A.md"}, {Path: "B.md"}},
 		MaxBytes: 10,
 	})
 

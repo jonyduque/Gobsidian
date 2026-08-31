@@ -35,6 +35,25 @@ func RemoveAccents(s string) string {
 	return res
 }
 
+// ParaNFC devolve a string na forma de normalizacao NFC, sem tocar em caixa
+// nem em acento.
+//
+// E o oposto de Normalize em proposito: Normalize existe para BUSCA, onde
+// "Capitulo" tem de casar com "Capítulo", e por isso remove acento. ParaNFC
+// existe para CHAVE DE INDICE, onde remover acento faria "Capitulo" e
+// "Capítulo" virarem a mesma nota — duas notas distintas colidindo numa
+// entrada so.
+//
+// O que ela resolve: `í` precomposto (U+00ED, NFC) e `i` + acento combinante
+// (U+0069 U+0301, NFD) sao a mesma letra para quem le e strings DIFERENTES para
+// um mapa de Go. Um cofre sincronizado com macOS grava NFD e um cliente Windows
+// pede NFC — e ate 2026-08-31 ResolvePath respondia "nao encontrada" para uma
+// nota que existia.
+//
+// NFC e a forma canonica escolhida porque e o que a maioria dos clientes envia
+// e o que o Go emite por padrao.
+func ParaNFC(s string) string { return norm.NFC.String(s) }
+
 // Normalize remove acentos e converte para caixa baixa.
 // Reutiliza transformer de um pool para evitar alocação a cada chamada.
 // Thread-safety: sync.Pool garante que cada goroutine tenha sua própria instância.

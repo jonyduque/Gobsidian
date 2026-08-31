@@ -84,7 +84,7 @@ Ver [Onde ficam os dados](overview/onde-ficam-os-dados.md).
 - [Os dois índices](concepts/os-dois-indices.md) — metadados e busca, e por que são separados.
 - [Busca](features/busca.md) · [Escrita](features/escrita.md) · [Watcher](features/watcher.md)
 - [Daemon e ponte](features/daemon-e-ponte.md) — como N sessões compartilham um índice.
-- [As 12 tools](features/tools-mcp.md)
+- [As 13 tools](features/tools-mcp.md)
 
 ## O que eu não devo quebrar?
 
@@ -102,15 +102,15 @@ revisão e só apareceram em produção. Estão escritos para não voltarem.
 4. A feature que você vai tocar.
 5. [Regras não negociáveis](risks/regras-nao-negociaveis.md) antes de commitar.
 
-A auditoria de 2026-08-25 está **fechada** (3 achados rejeitados com
-fundamento); da revisão de 2026-08-15 **quatro tarefas nunca foram entregues**.
-As duas listas, com a conferência feita no código, estão em
-[Achados da revisão e da auditoria](notes/achados-abertos.md); o resto vive em
-`docs/ESTADO.md` § Dívidas abertas.
+As duas listas estão **fechadas**: a auditoria de 2026-08-25 com 3 achados
+rejeitados com fundamento, e a revisão de 2026-08-15 com as quatro tarefas
+restantes — 107, 109, 112 e 114 — entregues em 2026-08-31. O registro do que
+fechou, e por que os três foram recusados, está em
+[Achados da revisão e da auditoria](notes/achados-abertos.md); o que segue aberto
+vive em `docs/ESTADO.md` § Dívidas abertas.
 
-**Seis páginas estão marcadas `status: stale`** — os arquivos que elas citam
-mudaram e elas não foram conferidas nesta passagem. Página stale é ponto de
-partida, não resposta.
+Nenhuma página deste wiki está `stale`: todas foram conferidas contra o código em
+2026-08-31.
 
 ---
 
@@ -124,7 +124,7 @@ partida, não resposta.
 
 ### Funcionalidades
 
-- [As 12 tools MCP](features/tools-mcp.md) — Superfície pública do servidor — 7 tools de leitura, 5 de escrita, e os resources.
+- [As 13 tools MCP](features/tools-mcp.md) — Superfície pública do servidor — 8 tools de leitura, 5 de escrita, e os resources.
 - [Busca](features/busca.md) — Tokenização, ranking BM25, recorte de trecho e o cache de duas camadas.
 - [Daemon e ponte](features/daemon-e-ponte.md) — Como N sessões do host compartilham um índice — socket AF_UNIX, handshake e ociosidade.
 - [Escrita](features/escrita.md) — As cinco tools de escrita, gravação atômica, travas por caminho e preservação de EOL/BOM.

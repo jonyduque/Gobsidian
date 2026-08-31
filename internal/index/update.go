@@ -5,7 +5,6 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
-	"strings"
 	"sync/atomic"
 	"time"
 
@@ -229,11 +228,10 @@ func (ix *Index) removeContributionsLocked(path vault.CanonicalPath) []string {
 			}
 		}
 
-		lower := strings.ToLower(string(path))
-		delete(ix.lowerPath, lower)
+		delete(ix.lowerPath, chaveDeCaminho(string(path)))
 
-		base := vault.CanonicalPath(filepath.ToSlash(filepath.Base(string(path))))
-		names := ix.byName[string(base)]
+		base := chaveDeNomeDeArquivo(filepath.Base(string(path)))
+		names := ix.byName[base]
 		filteredNames := make([]vault.CanonicalPath, 0, len(names))
 		for _, p := range names {
 			if p != path {
@@ -241,9 +239,9 @@ func (ix *Index) removeContributionsLocked(path vault.CanonicalPath) []string {
 			}
 		}
 		if len(filteredNames) == 0 {
-			delete(ix.byName, string(base))
+			delete(ix.byName, base)
 		} else {
-			ix.byName[string(base)] = filteredNames
+			ix.byName[base] = filteredNames
 		}
 
 		for _, alias := range oldNote.Aliases {
@@ -265,11 +263,10 @@ func (ix *Index) removeContributionsLocked(path vault.CanonicalPath) []string {
 
 	_, hadAsset := ix.assets[path]
 	if hadAsset {
-		lower := strings.ToLower(string(path))
-		delete(ix.lowerPath, lower)
+		delete(ix.lowerPath, chaveDeCaminho(string(path)))
 
-		base := vault.CanonicalPath(filepath.ToSlash(filepath.Base(string(path))))
-		names := ix.byName[string(base)]
+		base := chaveDeNomeDeArquivo(filepath.Base(string(path)))
+		names := ix.byName[base]
 		filteredNames := make([]vault.CanonicalPath, 0, len(names))
 		for _, p := range names {
 			if p != path {
@@ -277,9 +274,9 @@ func (ix *Index) removeContributionsLocked(path vault.CanonicalPath) []string {
 			}
 		}
 		if len(filteredNames) == 0 {
-			delete(ix.byName, string(base))
+			delete(ix.byName, base)
 		} else {
-			ix.byName[string(base)] = filteredNames
+			ix.byName[base] = filteredNames
 		}
 	}
 
@@ -579,12 +576,12 @@ func (ix *Index) MoveNote(v *vault.Vault, oldPath, newPath vault.CanonicalPath) 
 	}
 
 	// 2. Atualizar lowerPath
-	delete(ix.lowerPath, strings.ToLower(string(oldPath)))
-	ix.lowerPath[strings.ToLower(string(newPath))] = newPath
+	delete(ix.lowerPath, chaveDeCaminho(string(oldPath)))
+	ix.lowerPath[chaveDeCaminho(string(newPath))] = newPath
 
 	// 3. Atualizar byName
-	oldBase := vault.CanonicalPath(filepath.ToSlash(filepath.Base(string(oldPath))))
-	names := ix.byName[string(oldBase)]
+	oldBase := chaveDeNomeDeArquivo(filepath.Base(string(oldPath)))
+	names := ix.byName[oldBase]
 	filteredNames := make([]vault.CanonicalPath, 0, len(names))
 	for _, p := range names {
 		if p != oldPath {
@@ -592,12 +589,12 @@ func (ix *Index) MoveNote(v *vault.Vault, oldPath, newPath vault.CanonicalPath) 
 		}
 	}
 	if len(filteredNames) == 0 {
-		delete(ix.byName, string(oldBase))
+		delete(ix.byName, oldBase)
 	} else {
-		ix.byName[string(oldBase)] = filteredNames
+		ix.byName[oldBase] = filteredNames
 	}
-	newBase := vault.CanonicalPath(filepath.ToSlash(filepath.Base(string(newPath))))
-	ix.byName[string(newBase)] = append(ix.byName[string(newBase)], newPath)
+	newBase := chaveDeNomeDeArquivo(filepath.Base(string(newPath)))
+	ix.byName[newBase] = append(ix.byName[newBase], newPath)
 
 	// 4. Atualizar tags
 	for _, tag := range n.Tags {

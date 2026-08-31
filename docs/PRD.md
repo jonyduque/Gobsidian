@@ -129,6 +129,20 @@ Prioridades: **P0** bloqueia a v1.0; **P1** desejável na v1.0, aceitável na v1
 
 RF-17 merece ênfase: é a diferença entre um grafo de links correto e um grafo plausível. É também o requisito que inviabiliza extração por regex e obriga o uso de um parser real.
 
+**Nota convertida não tem heading Markdown.** RF-16 cobre a hierarquia de uma
+nota escrita no Obsidian; uma nota vinda de PDF, DOCX ou EPUB marca título com
+parágrafo em negrito ou com setext, e num cofre de estudo essas são a maioria.
+
+| ID | Requisito | Prioridade |
+|---|---|---|
+| RF-19.1 | Detecção de **candidatos** a título — parágrafo em negrito e setext — fora de bloco de código, com deslocamento absoluto e nível derivado da numeração hierárquica quando houver | P0 |
+
+O requisito é **detectar e rotular**, não promover. Candidato não entra na
+hierarquia de RF-16, nem no índice, nem no cache: uma resposta que afirma
+estrutura que o arquivo não tem é pior que uma que não responde, porque o cliente
+age sobre a afirmação. A separação entre o que é estrutura e o que é palpite é o
+requisito, e não um detalhe da implementação dele.
+
 ### 5.2.1 Resolução de referências
 
 Um wikilink não é um caminho, e resolvê-lo como se fosse produz um grafo que diverge do Obsidian de forma silenciosa. Estes requisitos existem separados do parsing porque são resolução, não sintaxe: dependem do conteúdo do cofre inteiro, não da nota que está sendo parseada.
@@ -139,6 +153,18 @@ Um wikilink não é um caminho, e resolvê-lo como se fosse produz um grafo que 
 | RF-61 | Resolução de embed para anexo, de modo que `![[diagrama.png]]` não seja contabilizado como link quebrado | P0 |
 | RF-62 | Resolução de wikilink pelo campo `aliases` do frontmatter da nota alvo — **divergência deliberada do Obsidian**, ver abaixo | P0 |
 | RF-63 | Validação da âncora: `[[nota#heading]]` e `[[nota#^bloco]]` marcados como âncora quebrada quando a nota resolve mas o alvo interno não existe | P1 |
+| RF-64 | Chaves de resolução normalizadas para **NFC**, de modo que uma nota gravada em NFD seja encontrada por um pedido em NFC e vice-versa | P0 |
+
+**RF-64 vale para a chave, nunca para o caminho guardado.** O caminho continua
+sendo a grafia do disco — normalizá-lo faria o servidor tentar abrir arquivo que
+não existe. E a normalização de chave **não remove acento**: remover é o que a
+busca faz (RF-23), e aplicá-lo aqui faria `Capitulo` e `Capítulo` colidirem numa
+entrada só, fundindo duas notas distintas.
+
+O cenário não é hipotético: um cofre sincronizado com macOS grava NFD e um
+cliente Windows pede NFC, e este é o cenário OneDrive que o produto suporta. Num
+cofre em português, onde acento é a regra, o efeito era `PATH_NOT_FOUND` para
+nota existente.
 
 RF-60 e RF-61 andam juntos. Sem indexar os anexos, todo embed de imagem vira link quebrado, `vault_stats` reporta centenas de falsos positivos e a métrica de saúde do cofre deixa de ter uso. O custo é baixo — o índice guarda apenas a entrada de diretório, nunca os bytes.
 
@@ -165,6 +191,13 @@ RF-63 vai além do que o próprio Obsidian expõe na interface, e é deliberado:
 | RF-24 | Busca exata por frase entre aspas | P1 |
 | RF-25 | Consulta estruturada apenas por metadados, servida do índice em memória sem tocar o índice de texto | P0 |
 | RF-26 | Busca por similaridade semântica via embeddings locais | P2 |
+| RF-27 | Cada resultado devolve o deslocamento absoluto do casamento no arquivo, na mesma coordenada que a leitura por offset aceita | P0 |
+
+RF-27 fecha o encadeamento que faltava. Encontrar o termo numa nota de 255 KB e
+não saber onde ele está deixa o cliente com uma escolha entre baixar o arquivo
+inteiro ou desistir — e numa sessão real de 2026-08-15 o modelo desistiu, e
+trocou este servidor por outro. O campo fica **ausente**, nunca zero, quando não
+houve ocorrência localizada: zero é um deslocamento válido.
 
 RF-23 não é opcional para um cofre em português. Buscar por "usucapiao" precisa encontrar "usucapião", e buscar por "Prescrição" precisa encontrar "prescrição".
 

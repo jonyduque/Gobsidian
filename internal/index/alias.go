@@ -8,9 +8,4 @@
 // contado como link quebrado.
 package index
 
-import "strings"
-
-// aliasKey normaliza a chave de byAlias. Toda escrita e toda leitura passam
-// por aqui: o boot indexava minusculo e Replace indexava cru, e a entrada
-// que Remove nao encontrava sobrevivia apontando para uma nota deletada.
-func aliasKey(alias string) string { return strings.ToLower(alias) }
+// aliasKey vive em chave.go, junto das outras chaves derivadas do indice.

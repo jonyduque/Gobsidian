@@ -125,7 +125,7 @@ level=INFO msg="construindo indice de busca em segundo plano" notas=3149
 level=INFO msg="indice de busca pronto" origem=construcao notas=3149 reaproveitadas_do_cache=399 duracao_ms=206267
 ```
 
-Enquanto isso, `vault_search` responde `INDEX_BUILDING`; as outras onze tools funcionam normalmente.
+Enquanto isso, `vault_search` responde `INDEX_BUILDING`; as outras doze tools funcionam normalmente.
 
 **Até 2026-08-03 este log enganava.** `index_ms` aparecia ao lado de "servidor pronto" e parecia ser o tempo de boot, mas o servidor só anunciava as tools depois de tokenizar o cofre inteiro — 219 s a mais num cofre de 109 MB. Quem lesse `index_ms=1275` concluiria que o boot levou 1,3 s.
 
@@ -249,7 +249,7 @@ O RNF-02 tinha o mesmo vício em escala menor: os 96,94 ms medem
 A construção do índice invertido passou a rodar em segundo plano
 (`cmd/gobsidian/serve.go`). Enquanto ela corre, `vault_search` devolve
 `INDEX_BUILDING` em vez de uma lista curta — "ainda não sei" e "não achei nada"
-pedem ações diferentes de quem chama. As outras onze tools funcionam desde o
+pedem ações diferentes de quem chama. As outras doze tools funcionam desde o
 primeiro segundo, porque dependem só do índice de metadados.
 
 **RNF-02 seguia não atingido a ~7 s contra 300 ms**, num cofre real de 109 MB
@@ -925,7 +925,7 @@ notas): **157,3 s** (binário anterior à Task 89, grava o formato 5) contra
 **157,9 s** (binário desta tarefa, grava o formato 6) — a diferença entre os
 dois é ruído; escrever a seção fixa adicional não mede no tempo de
 construção, que é dominado pela tokenização. Os dois rodam em segundo plano,
-com as outras onze tools respondendo desde o primeiro segundo (mesmo
+com as outras doze tools respondendo desde o primeiro segundo (mesmo
 mecanismo de sempre).
 
 **Custo em disco.** `inverted_cache.gob` do cofre real:
@@ -1773,7 +1773,7 @@ braço sem guarda tem ±12%, mas as alocações não deixam dúvida sobre o meca
 
 **Nada a fazer, e a decisão é essa por medição.** São 234 ms uma vez por cofre,
 numa construção em segundo plano que já leva 2,3 s e cujo resultado é cacheado;
-as outras onze tools respondem desde o primeiro segundo. A alternativa óbvia —
+as outras doze tools respondem desde o primeiro segundo. A alternativa óbvia —
 passar o `CloudOnly` que `vault.Walk` já calculou, em vez de reconsultar — moveria
 a guarda para os três chamadores, que é exatamente o que a Task 97 recusou. Um
 ganho de 234 ms por cofre não paga trocar guarda única por três cópias.

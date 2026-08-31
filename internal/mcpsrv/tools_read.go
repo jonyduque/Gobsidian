@@ -73,8 +73,45 @@ func (s *Server) registerReadToolsInternal() {
 
 	mcp.AddTool(s.mcp,
 		&mcp.Tool{
+			Name: "note_outline",
+			Description: "Mapa de uma nota: os headings Markdown reais e os CANDIDATOS a título — parágrafo em negrito e setext — que uma nota convertida de PDF, DOCX ou EPUB usa no lugar de '#'. " +
+				"Os offsets são absolutos: use 'start' em note_read(offset=start, max_bytes=end-start) para ler a seção.",
+		},
+		guard(s.log, "note_outline",
+			func(ctx context.Context, _ *mcp.CallToolRequest, in noteOutlineInput) (*mcp.CallToolResult, service.OutlineResult, error) {
+				maxCandidatos := 0
+				if in.MaxCandidates != nil {
+					maxCandidatos = *in.MaxCandidates
+				}
+				out, err := s.svc.Outline(ctx, service.OutlineRequest{
+					Path:          in.Path,
+					MaxCandidates: maxCandidatos,
+				})
+				if err != nil {
+					return nil, service.OutlineResult{}, toolErr(err)
+				}
+				return nil, out, nil
+			}),
+	)
+
+	// O schema de note_read e montado, e nao inferido, porque `paths` aceita
+	// string OU objeto — ver schemaDoNoteRead. O SDK so infere quando
+	// InputSchema e nil, entao preencher aqui e o que preserva o oneOf.
+	//
+	// Falha aqui e erro de PROGRAMACAO — a inferencia roda sobre um tipo
+	// estatico e so falha se noteReadInput ganhar um campo irrepresentavel.
+	// panic e o mesmo contrato de mcp.AddTool, que ja entra em panico por
+	// schema invalido; devolver erro exigiria mudar a assinatura de New, que
+	// nao tem como se recuperar disto de qualquer forma.
+	esquemaNoteRead, err := schemaDoNoteRead()
+	if err != nil {
+		panic(fmt.Sprintf("note_read: %v", err))
+	}
+	mcp.AddTool(s.mcp,
+		&mcp.Tool{
 			Name:        "note_read",
-			Description: "Lê uma nota inteira, uma seção, ou um bloco. Aceita 'paths' para ler várias notas numa só chamada.",
+			Description: "Lê uma nota inteira, uma seção, ou um bloco. Aceita 'paths' para ler várias notas numa só chamada; cada item de 'paths' pode ser um caminho ou um objeto que sobrepõe os campos de topo só para ele.",
+			InputSchema: esquemaNoteRead,
 		},
 		guard(s.log, "note_read",
 			func(ctx context.Context, _ *mcp.CallToolRequest, req noteReadInput) (*mcp.CallToolResult, any, error) {
@@ -98,8 +135,20 @@ func (s *Server) registerReadToolsInternal() {
 				}
 
 				if len(req.Paths) > 0 {
+					alvos := make([]service.ReadAlvo, len(req.Paths))
+					for i, a := range req.Paths {
+						alvos[i] = service.ReadAlvo{
+							Path:               a.Path,
+							Heading:            a.Heading,
+							HeadingLevel:       a.HeadingLevel,
+							BlockID:            a.BlockID,
+							Offset:             a.Offset,
+							MaxBytes:           a.MaxBytes,
+							IncludeFrontmatter: a.IncludeFrontmatter,
+						}
+					}
 					out := s.svc.ReadNotes(ctx, service.ReadBatchRequest{
-						Paths:              req.Paths,
+						Alvos:              alvos,
 						Heading:            req.Heading,
 						HeadingLevel:       req.HeadingLevel,
 						BlockID:            req.BlockID,
@@ -289,14 +338,14 @@ type vaultSearchInput struct {
 }
 
 type noteReadInput struct {
-	Path               string   `json:"path,omitempty" jsonschema:"Caminho de uma nota. Mutuamente exclusivo com paths."`
-	Paths              []string `json:"paths,omitempty" jsonschema:"Vários caminhos numa só chamada, até 50. Mutuamente exclusivo com path; falha de um item não derruba os demais."`
-	Heading            string   `json:"heading,omitempty" jsonschema:"Texto do heading. Lê a seção até o próximo heading de nível igual ou superior."`
-	HeadingLevel       int      `json:"heading_level,omitempty" jsonschema:"Desambigua quando o mesmo texto aparece em níveis diferentes."`
-	BlockID            string   `json:"block_id,omitempty" jsonschema:"Identificador de bloco, sem o circunflexo."`
-	Offset             *int64   `json:"offset,omitempty" jsonschema:"Offset de byte a partir do inicio da nota (byte 0). Mutuamente exclusivo com heading e block_id. Ignora include_frontmatter."`
-	IncludeFrontmatter *bool    `json:"include_frontmatter,omitempty"`
-	MaxBytes           *int     `json:"max_bytes,omitempty" jsonschema:"Aplica-se por nota, não ao lote inteiro."`
+	Path               string         `json:"path,omitempty" jsonschema:"Caminho de uma nota. Mutuamente exclusivo com paths."`
+	Paths              []noteReadAlvo `json:"paths,omitempty" jsonschema:"Vários caminhos numa só chamada, até 50. Cada item é um caminho ou um objeto que sobrepõe os campos de topo só para ele. Mutuamente exclusivo com path; falha de um item não derruba os demais."`
+	Heading            string         `json:"heading,omitempty" jsonschema:"Texto do heading. Lê a seção até o próximo heading de nível igual ou superior."`
+	HeadingLevel       int            `json:"heading_level,omitempty" jsonschema:"Desambigua quando o mesmo texto aparece em níveis diferentes."`
+	BlockID            string         `json:"block_id,omitempty" jsonschema:"Identificador de bloco, sem o circunflexo."`
+	Offset             *int64         `json:"offset,omitempty" jsonschema:"Offset de byte a partir do inicio da nota (byte 0). Mutuamente exclusivo com heading e block_id. Ignora include_frontmatter."`
+	IncludeFrontmatter *bool          `json:"include_frontmatter,omitempty"`
+	MaxBytes           *int           `json:"max_bytes,omitempty" jsonschema:"Aplica-se por nota, não ao lote inteiro."`
 }
 
 // noteReadValidationError monta o CallToolResult de erro a mao, em vez de
@@ -345,4 +394,12 @@ type tagListInput struct {
 	MinCount     *int   `json:"min_count,omitempty"`
 	Sort         string `json:"sort,omitempty" jsonschema:"Ordenação: 'name' (crescente por nome) ou 'count' (decrescente por contagem, desempate por nome). Padrão: 'name'."`
 	Hierarchical bool   `json:"hierarchical,omitempty" jsonschema:"Retorna árvore em vez de lista plana."`
+}
+
+type noteOutlineInput struct {
+	Path string `json:"path" jsonschema:"Caminho da nota."`
+	// Teto declarado, e nao silencioso: uma nota convertida de livro produz
+	// centenas de candidatos, e cortar sem dizer e a mesma classe de defeito
+	// que este projeto ja pagou em outros retornos paginados.
+	MaxCandidates *int `json:"max_candidates,omitempty" jsonschema:"Máximo de candidatos devolvidos. Padrão 200, teto 1000. O retorno traz 'truncated' quando corta."`
 }

@@ -1,7 +1,22 @@
 # Correções da revisão de 2026-08-15 (Tasks 104–123)
 
-Base: `b2be492`. Fonte: `docs/REVISAO-2026-08-15.md`, 48 itens. Índice do que
-está aberto: `docs/wiki/notes/achados-abertos.md`.
+> **ENTREGUE. Este plano está fechado em 2026-08-31.** As Tasks 104, 105, 106 e
+> 116 constam no ledger sob esta numeração; 110, 113, 118, 119, 120, 121, 122 e
+> 123 foram entregues sob a numeração da auditoria de 2026-08-25; e 107, 109,
+> 112 e 114 foram entregues em 2026-08-31, depois de uma auditoria achá-las **em
+> estado nenhum** — nem feitas, nem abertas, nem BLOCKED.
+>
+> Os briefs abaixo ficam como registro do desenho e das decisões D-R-1 a D-R-8.
+> **Não são fila.** Estado real: `.superpowers/sdd/2026-07-25-gobsidian-v01/progress.md`.
+>
+> Uma correção de rumo, para quem for reusar o desenho: o plano B da Task 109
+> (*"se `jsonschema-go` não suportar `oneOf`, descreva as duas formas na
+> descrição do campo"*) **teria quebrado todo cliente atual em silêncio** — o SDK
+> valida a entrada contra o `InputSchema` antes de chamar `UnmarshalJSON`. Ver
+> `docs/ARMADILHAS.md` § Contratos de API.
+
+Base: `b2be492`. Fonte: `docs/REVISAO-2026-08-15.md`, 48 itens. Registro dos
+achados, fechados e rejeitados: `docs/wiki/notes/achados-abertos.md`.
 
 Alvo deste lote: as duas superfícies com falha **observada** (o incidente de
 campo do Claude Desktop e a travessia de caminho na escrita), mais os gates que

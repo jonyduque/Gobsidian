@@ -22,6 +22,20 @@ type Snippet struct {
 	HighlightStart int
 	HighlightEnd   int
 	MatchedHeading string
+
+	// MatchOffset e o offset ABSOLUTO da ocorrencia no arquivo em disco, na
+	// mesma coordenada que note_read(offset=) aceita — byte 0 do arquivo,
+	// BOM incluido.
+	//
+	// E um campo NOVO, e nao uma releitura de HighlightStart, porque os dois
+	// medem coisas diferentes: HighlightStart e relativo ao TRECHO e ja tem
+	// leitor. Dois campos com o mesmo nome e origens diferentes e a
+	// divergencia que este projeto ja pagou tres vezes.
+	//
+	// Sem ele o cliente recebia um trecho e nenhuma forma de dizer onde ele
+	// esta num arquivo de 255 KB — que e o incidente de campo de 2026-08-15
+	// inteiro.
+	MatchOffset int64
 }
 
 // TermosDeTrecho e a lista de termos da consulta JA analisada e expandida.
@@ -208,6 +222,9 @@ func GenerateSnippet(ctx context.Context, v *vault.Vault, ix *Inverted, idx *ind
 		HighlightStart: relStart,
 		HighlightEnd:   relEnd,
 		MatchedHeading: matchedHeadingText,
+		// diskMatchStart, e nao winStart+relStart: o segundo e o inicio do
+		// TRECHO deslocado pelo aparo de UTF-8 parcial, nao o da ocorrencia.
+		MatchOffset: diskMatchStart,
 	}
 
 	// Guarda o que foi REALMENTE produzido, inclusive quando o recorte veio da

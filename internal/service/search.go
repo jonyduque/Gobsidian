@@ -90,6 +90,14 @@ type SearchHit struct {
 	Snippet         string   `json:"snippet"`
 	MatchedHeadings []string `json:"matched_headings"`
 	Modified        string   `json:"modified"`
+
+	// MatchOffset e o offset absoluto do casamento no arquivo, para alimentar
+	// note_read(offset=). Ponteiro e omitempty porque AUSENTE e diferente de
+	// ZERO: zero e um offset valido — o inicio do arquivo. Um hit sem trecho
+	// (nota somente-nuvem, nota ilegivel) nao tem onde apontar, e devolver 0
+	// ali mandaria o cliente ler o comeco de uma nota qualquer acreditando
+	// estar indo ao termo.
+	MatchOffset *int64 `json:"match_offset,omitempty"`
 }
 
 // SearchResult representa o retorno consolidado da tool vault_search.
@@ -304,6 +312,12 @@ func (s *Service) Search(ctx context.Context, opts SearchOptions) (SearchResult,
 			Snippet:         snip.Text,
 			MatchedHeadings: matchedHeadings,
 			Modified:        note.ModTime.UTC().Format(time.RFC3339),
+		}
+		// So quando ha trecho: sem trecho nao houve ocorrencia localizada, e o
+		// campo tem de ficar AUSENTE em vez de zero.
+		if snip.Text != "" {
+			offset := snip.MatchOffset
+			slots[i].hit.MatchOffset = &offset
 		}
 		slots[i].ok = true
 	}

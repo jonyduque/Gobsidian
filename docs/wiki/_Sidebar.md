@@ -7,7 +7,7 @@
 
 **Funcionalidades**
 
-- [As 12 tools MCP](features/tools-mcp.md)
+- [As 13 tools MCP](features/tools-mcp.md)
 - [Busca](features/busca.md)
 - [Daemon e ponte](features/daemon-e-ponte.md)
 - [Escrita](features/escrita.md)

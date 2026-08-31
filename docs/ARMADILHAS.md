@@ -393,6 +393,23 @@ quente, 765 ms.
 
 ## Contratos de API
 
+**O SDK de MCP valida a entrada contra o `InputSchema` ANTES de chamar o seu
+`UnmarshalJSON`.** Um `UnmarshalJSON` que aceita duas formas — string ou objeto —
+não basta: se o schema declarar só uma, a outra é reprovada na validação e o seu
+código nunca roda.
+
+O caso concreto (Task 109): `note_read.paths` passou a aceitar objeto por item. O
+schema inferido a partir do struct Go descreveria só o objeto, e **a lista de
+strings — a forma que todo cliente manda — quebraria em silêncio**, em produção,
+não em teste. A correção foi montar o schema com `oneOf`, aproveitando que
+`setSchema` só infere quando `Tool.InputSchema` é nil. A prova de mutação que
+removeu o braço `{"type":"string"}` derrubou o teste de compatibilidade; sem esse
+teste, a quebra teria saído no primeiro cliente antigo.
+
+Corolário: **inferência de schema descreve um tipo Go por propriedade.** Onde o
+contrato aceita mais de uma forma, a inferência mente por omissão, e a mentira
+tem força de rejeição — não é só documentação errada.
+
 **Handler que devolve `error` Go faz o SDK montar `IsError` sem
 `StructuredContent`.** Devolver resultado de erro com `Out` zerado manda
 `{"notes":0,...}` junto, e o cliente não distingue falha de cofre vazio no canal
@@ -447,6 +464,27 @@ a `config.Load` precisa preenchê-los com `cmd.Flags().Changed(nome)` — esquec
 em um subcomando faz a flag virar no-op silencioso. Vale também para
 `service.Options.SnippetCacheEntries`, que é `*int` pelo mesmo motivo: nil usa o
 padrão, zero explícito desliga o cache.
+
+---
+
+## Ledger e rastreio de tarefa
+
+**Tarefa entregue sob outra numeração some do ledger do plano que a originou, e
+o que some não é auditado.** Em 2026-08-31 quatro tarefas da revisão de
+2026-08-15 — 107, 109, 112 e 114 — estavam **em estado nenhum**: nem "feito", nem
+"aberto", nem "BLOCKED". As irmãs delas tinham sido entregues sob a numeração da
+auditoria de 2026-08-25, e o ledger registrou aquelas; estas simplesmente não
+apareciam em lugar algum.
+
+Duas semanas e ~70 commits depois, a documentação afirmava que a revisão tinha
+fechado. **Quem as achou foi conferir no código**, uma por uma: `match_offset`
+não existia em lugar nenhum, `Paths` ainda era `[]string`, `note_outline` não
+tinha nenhuma referência, `aliasKey` ainda fazia só `strings.ToLower`.
+
+A regra que sai daqui: **"o plano fechou" é afirmação de estado, e afirmação de
+estado se verifica.** A verificação barata é a do código — para cada entregável
+prometido, um `grep` pelo nome que ele criaria. O ledger diz o que alguém
+escreveu; o código diz o que existe.
 
 ---
 

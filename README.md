@@ -216,7 +216,8 @@ Contratos completos, schemas e códigos de erro em [`docs/TOOLS.md`](docs/TOOLS.
 | Tool | O que faz |
 |---|---|
 | `vault_search` | Busca BM25, frase exata, filtros de pasta, tag, frontmatter e data |
-| `note_read` | Nota inteira, uma seção por heading, ou um bloco por `^id` |
+| `note_read` | Nota inteira, uma seção por heading, ou um bloco por `^id`; várias notas numa chamada, com sobreposição por item |
+| `note_outline` | Mapa da nota: headings reais e candidatos a título de nota convertida de PDF/DOCX/EPUB |
 | `note_list` | Lista por glob, pasta, tag ou consulta de frontmatter |
 | `note_metadata` | Frontmatter, tags, links, backlinks, headings e blocos |
 | `link_graph` | Vizinhança de links, com direção e profundidade |

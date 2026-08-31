@@ -268,7 +268,7 @@ O tamanho é governado por `contextoBytes` (80 de cada lado) em
 `internal/index/contexto_link.go`, num lugar só, para poder ser discutido.
 
 **Toda troca de formato reconstrói o cache de todo cofre no boot seguinte**, em
-segundo plano, com as outras onze tools respondendo desde o primeiro segundo — e
+segundo plano, com as outras doze tools respondendo desde o primeiro segundo — e
 isso vale para quem atualizar de uma v1.0.x, que grava `gob` e invalida o cache
 desta versão a cada alternância.
 
@@ -326,20 +326,17 @@ o quarto, que é exatamente o defeito que ela existe para impedir.
 - **A corrida residual do daemon** (dois daemons vivos sob carga) segue
   registrada nos limites conhecidos de `OPERACAO.md`. O lock de escuta fechou a
   janela entre a sonda de órfão e o bind; o que resta é o caso sob carga.
-- **A auditoria de 2026-08-25 está fechada; a revisão de 2026-08-15 não.**
-  Quatro tarefas da revisão nunca foram entregues, conferido **no código** em
-  2026-08-31 (o ledger não as registra em nenhum estado):
-
-  | Task | O que falta |
-  |---|---|
-  | 107 | `vault_search` não devolve o offset do casamento (`match_offset` não existe) | <!-- check-doc-refs: ignore match_offset -- campo que a Task 107 criaria; a ausencia dele E o achado -->
-  | 109 | `note_read.paths` é `[]string`, sem offset por item do lote |
-  | 112 | `note_outline` não existe | <!-- check-doc-refs: ignore note_outline -- tool que a Task 112 criaria; a ausencia dela E o achado -->
-  | 114 | chaves do índice aplicam só caixa, sem NFC/NFD (`aliasKey`, `nomeChave`) |
-
-  As três primeiras são a superfície do incidente de campo de 2026-08-15.
-  Detalhe em `docs/wiki/notes/achados-abertos.md`; `docs/SUGESTOES.md` guarda as
-  decisões do dono sobre a auditoria.
+- **As duas listas de achados estão fechadas.** A auditoria de 2026-08-25 fechou
+  em 2026-08-27; as quatro tarefas restantes da revisão de 2026-08-15 — 107, 109,
+  112 e 114 — foram entregues em 2026-08-31, depois de uma auditoria do ledger
+  achá-las **em estado nenhum**: nem feito, nem aberto. Elas não estavam no
+  ledger porque as irmãs foram entregues sob a numeração da auditoria. Conferir
+  no código foi o que as achou.
+- **Uma questão que a Task 114 abriu e não fechou:** as chaves do índice
+  normalizam para NFC, mas o disco pode ter as duas formas ao mesmo tempo. Duas
+  notas cujos nomes só diferem na normalização são dois arquivos para o sistema
+  de arquivos e **uma chave só** para o índice; hoje a segunda ganha o lugar da
+  primeira em `lowerPath`. **Não medido** em cofre real.
 
 ---
 
