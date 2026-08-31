@@ -4163,8 +4163,9 @@ spawn) de **log com uma linha** (morte na montagem).
 - Consolidou **três** contas do caminho do log do daemon em
   `daemon.CaminhoDoLog`.
 - Ficou de fora: o item 4 do brief (`cmd/gobsidian/daemon.go` no lock de
-  `EnsureStarted`) e o teste da tempestade. Seguem abertos com o item 11 da
-  Fase 4.
+  `EnsureStarted`) e o teste da tempestade. **Os dois foram fechados na Task 143
+  (`530d655`)** — lock de escuta separado do de partida, para os dois nao
+  travarem um no outro.
 
 **Extra, fora das três tarefas — `varreDiretorioNovo`.** Investigando um estouro
 de prazo de `TestPastaQueChegaComArquivosDentro`, apareceu a armadilha do

@@ -1036,6 +1036,9 @@ tarefa (nova tool = contrato novo).
 
 ## Altos em aberto — alternativas de solução (2026-08-26)
 
+> **Histórico.** Os oito altos foram fechados nas Tasks 130–135. Esta seção fica
+> como registro das alternativas consideradas e do porquê de cada escolha.
+
 Escrito depois de fechar os três críticos. Cada mecanismo abaixo foi
 **reconferido no código nesta data**, não copiado da auditoria; onde a
 verificação mudou o achado, está dito.
