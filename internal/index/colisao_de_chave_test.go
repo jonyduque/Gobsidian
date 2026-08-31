@@ -3,6 +3,8 @@ package index_test
 import (
 	"context"
 	"errors"
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/jonyd/gobsidian/internal/index"
@@ -92,8 +94,19 @@ func TestColisaoDeNormalizacaoNaMesmaPasta(t *testing.T) {
 	const nfd = "Capi\u0301tulo.md" // i + acento combinante
 
 	root := t.TempDir()
-	writeFile(t, root, "livro/"+nfc, "# NFC"+"\n")
-	writeFile(t, root, "livro/"+nfd, "# NFD"+"\n")
+	writeFile(t, root, "livro/"+nfc, "# NFC\n")
+	writeFile(t, root, "livro/"+nfd, "# NFD\n")
+
+	// APFS coalesce as duas grafias num arquivo so, e la a colisao nao pode
+	// existir. A deteccao e por CAPACIDADE do sistema de arquivos, nao por
+	// runtime.GOOS: quem decide e o volume montado.
+	entradas, err := os.ReadDir(filepath.Join(root, "livro"))
+	if err != nil {
+		t.Fatalf("lendo o cofre: %v", err)
+	}
+	if len(entradas) < 2 {
+		t.Skipf("o sistema de arquivos normaliza o nome: %d arquivo(s) para duas grafias", len(entradas))
+	}
 
 	v, err := vault.New(root)
 	if err != nil {
