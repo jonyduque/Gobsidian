@@ -26,7 +26,7 @@ Registrado como armadilha em `docs/ARMADILHAS.md` § Ledger e rastreio de tarefa
 
 ## Task 114 — a chave do índice normaliza; o caminho, não
 
-### A medição, ANTES de corrigir
+### RED — a medição, ANTES de corrigir
 
 O brief manda medir antes. Contra o HEAD (`f7de8e81`):
 
@@ -81,7 +81,7 @@ isso. Uma sonda que imprimiu o comprimento em bytes pegou. O arquivo usa escapes
 Go agora (`í` e `́`), que é o que o brief pedia desde o começo — e o
 motivo de pedir era exatamente este.
 
-### Depois
+### GREEN — depois da correção
 
 ```
 --- PASS: TestCaminhoUnicodeIdaEVolta (0.07s)
@@ -116,6 +116,13 @@ chave só** para o índice; hoje a segunda ganha o lugar da primeira em
 ---
 
 ## Task 107 — `match_offset`
+
+**RED.** Contra o HEAD, `TestSearchMatchOffsetApontaParaOTermoNoArquivo` nem
+compilava: `SearchHit` não tinha o campo. O estado vermelho das Tasks 107, 109 e
+112 é o mesmo — o entregável não existia, conferido por busca no código antes de
+começar (`match_offset`, `Paths []string`, `note_outline`). **GREEN** é a saída
+colada em cada seção, e as provas de mutação são o que separa "passa" de
+"verifica".
 
 `Snippet.MatchOffset` sai de `diskMatchStart`, **não** de `winStart+relStart`: o
 segundo é o início do trecho depois do aparo de UTF-8 parcial, não o da
