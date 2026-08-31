@@ -40,8 +40,11 @@ Nasceu de três problemas concretos dos servidores MCP de Obsidian existentes:
 ### ✨ Funcionalidades
 
 - ⚡ **Leitura por offset.** Ler uma seção de 2 KB numa nota de 500 KB custa 2 KB de I/O, não 500 KB.
+- 🎯 **A busca diz ONDE.** `vault_search` devolve `match_offset`, o deslocamento absoluto do casamento, que alimenta `note_read(offset=…)` direto — achar o termo numa nota de 255 KB e ler só os bytes em volta dele.
+- 🗺️ **`note_outline` para nota convertida.** PDF, DOCX e EPUB viram nota sem heading `#` nenhum: o título é parágrafo em negrito. A tool separa os headings reais dos **candidatos** e diz qual é qual — nunca afirma estrutura que o arquivo não tem.
+- 📚 **Lote com sobreposição por item.** `note_read` aceita `["a.md", {"path":"b.md","heading":"X"}]` na mesma lista: seis capítulos com seis seções numa chamada, não seis.
 - 🔎 **Busca BM25** com pesos por campo, frase exata e filtros de pasta, tag, frontmatter e data.
-- 🇧🇷 **Analisador para português**: acentos, *case folding* e indexação dupla — forma crua e reduzida na mesma posting list.
+- 🇧🇷 **Analisador para português**: acentos, *case folding* e indexação dupla — forma crua e reduzida na mesma posting list. As chaves do índice normalizam para NFC, então uma nota gravada num Mac é encontrada por um pedido do Windows.
 - ✍️ **Escrita cirúrgica e atômica.** `note_append` e `note_patch` inserem por heading ou block-id; toda escrita passa por temporário + rename, para o Obsidian aberto ao lado nunca ver arquivo pela metade.
 - 🔗 **`note_move` reescreve os links**, preservando alias, âncora e forma original.
 - 👀 **Watcher incremental** com debounce e reconciliação por varredura quando o `fsnotify` estoura.
@@ -302,16 +305,19 @@ Cofre sintético determinístico de **5.000 notas**, notebook de 12 núcleos com
 | Requisito | Alvo | Medido | |
 |---|---|---|---|
 | Indexação a frio (metadados) | ≤ 3 s | **500 ms** | ✅ |
-| Boot com cache válido | ≤ 300 ms | 208–282 ms sintético; **371–472 ms** em cofre real | ❌ |
+| Boot com cache válido | ≤ 300 ms | 208–282 ms sintético; 179–193 ms a 1.254 notas; **891 ms** a 5.686 | ❌ |
 | `note_read` p95 | ≤ 15 ms | **345 µs** | ✅ |
 | `note_list` com filtro p95 | ≤ 10 ms | **534 µs** | ✅ |
-| `vault_search` p95 | ≤ 100 ms | 7 de 8 formatos; `limit: 200` em 119–123 ms | ⚠️ |
+| `vault_search` p95 | ≤ 100 ms | **8 de 8 formatos**; pior caso 43 ms | ✅ |
 | Reindexação de arquivo único | ≤ 20 ms | **335 µs** | ✅ |
-| RSS em repouso | ≤ 60 MB | **38 MB** com cache quente | ✅ |
+| Heap vivo em repouso | ≤ 8 MB + 32 KB × notas | **5 cofres reais passam**, folga de 15% a 64% | ✅ |
 | Processos órfãos após morte do host | 0 | **0 em 400 ciclos** | ✅ |
 
 > [!WARNING]
-> **Os dois requisitos não atingidos estão medidos, não estimados.** O boot em cofre real custa a varredura de `Stat` que confere o cache antes de aceitá-lo, mais cara em cofre sincronizado por nuvem. CPU em repouso e linearidade até 20.000 notas **não foram medidos**. A tabela dos 22 RNFs, cada um com número ou a palavra "não medido", está em [`docs/OPERACAO.md`](docs/OPERACAO.md).
+> **O requisito não atingido está medido, não estimado.** O boot escala com o cofre: passa com folga a 1.254 notas e custa 891 ms a 5.686, porque a varredura de `Stat` que confere o cache antes de aceitá-lo é mais cara em cofre sincronizado por nuvem. CPU em repouso e linearidade até 20.000 notas **não foram medidos**. A tabela dos 22 RNFs, cada um com número ou a palavra "não medido", está em [`docs/OPERACAO.md`](docs/OPERACAO.md).
+
+> [!NOTE]
+> **O requisito de memória mudou de métrica em 2026-08-30, e isso é uma correção, não uma flexibilização.** Ele era `RSS ≤ 60 MB`, e RSS no Go segue a **meta do coletor** — cerca de 2× o heap vivo do último ciclo —, então media a política do GC, não o volume de dado guardado. Passou a ser heap vivo, e a escalar com o cofre: um cofre de 5.686 notas não cabe no mesmo teto de um de 78.
 
 O CI compara seis benchmarks contra `docs/bench-baseline.json` e **reprova o build** em regressão acima de 20%.
 
