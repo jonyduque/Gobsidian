@@ -25,17 +25,23 @@ import (
 // abrir arquivo que nao existe.
 
 // chaveDeCaminho e a chave insensivel a caixa de um caminho inteiro — a de
-// lowerPath, escrita por publishNameLocked e lida por ResolvePath.
+// lowerPath, escrita por publicarNomeLocked e lida por ResolvePath.
 func chaveDeCaminho(path string) string {
 	return strings.ToLower(text.ParaNFC(filepath.ToSlash(path)))
 }
 
-// chaveDeNomeDeArquivo e a chave de byName, e ela preserva a caixa de proposito:
-// quem quer casar sem caixa passa por lowerPath, que ja e insensivel. Duas
-// chaves insensiveis para a mesma pergunta tornariam ErrAmbiguousPath
-// inalcancavel de novo.
+// chaveDeNomeDeArquivo e a chave de byName. Ela baixa a caixa desde 2026-08-31.
+//
+// Ate ali, guardava e lia a base CRUA, e o efeito era uma incoerencia visivel:
+// `ResolvePath("pasta/ACORDAO.MD")` resolvia, porque caminho completo passa por
+// lowerPath, e `ResolvePath("acordao")` NAO resolvia, porque nome nu passa por
+// aqui. Duas portas para a mesma pergunta, respondendo diferente.
+//
+// Baixar a caixa aqui so e seguro porque byName e uma LISTA e ResolvePath conta
+// os candidatos: onde duas notas passam a colidir na chave, a resposta e
+// ErrAmbiguousPath, e nao uma das duas escolhida em silencio.
 func chaveDeNomeDeArquivo(base string) string {
-	return text.ParaNFC(base)
+	return strings.ToLower(text.ParaNFC(base))
 }
 
 // aliasKey normaliza a chave de byAlias. Toda escrita e toda leitura passam

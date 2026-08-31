@@ -75,7 +75,7 @@ func TestMoveNote_EquivalentToRemoveReplace(t *testing.T) {
 	}
 
 	// 2. lowerPath
-	if p, ok := idx1.lowerPath["b.md"]; !ok || p != "b.md" {
+	if p := idx1.lowerPath["b.md"]; len(p) != 1 || p[0] != "b.md" {
 		t.Errorf("lowerPath mismatch idx1: %v", p)
 	}
 
@@ -150,10 +150,10 @@ func TestMoveNote_UpdatesLowerPath(t *testing.T) {
 	idx.MoveNote(v, "a.md", "b.md")
 
 	if p, ok := idx.lowerPath["a.md"]; ok {
-		t.Errorf("lowerPath structure survived mutation: a.md -> %s", p)
+		t.Errorf("lowerPath structure survived mutation: a.md -> %v", p)
 	}
-	if p, ok := idx.lowerPath["b.md"]; !ok || p != "b.md" {
-		t.Errorf("lowerPath structure: b.md -> %s (ok=%v)", p, ok)
+	if p := idx.lowerPath["b.md"]; len(p) != 1 || p[0] != "b.md" {
+		t.Errorf("lowerPath structure: b.md -> %v", p)
 	}
 }
 

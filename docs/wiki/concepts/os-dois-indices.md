@@ -39,7 +39,11 @@ das 13 tools; só `vault_search` precisa do outro.
 (índice reverso que permite reindexar um arquivo sem varrer o cofre).
 
 **As chaves dos derivados passam todas por `internal/index/chave.go`**, que
-aplica NFC além da caixa. Não é detalhe de estilo: sem NFC, uma nota gravada em
+aplica NFC além da caixa, e os quatro mapas de chave derivada são **listas** —
+nenhuma dessas chaves é única por construção. Publicar e remover são um par
+(`publishNameLocked` / `removerNomeLocked`): a remoção estava escrita três vezes
+— nota, anexo e rename — e bastava uma delas errada para uma entrada sobreviver
+apontando para nota deletada. Não é detalhe de estilo: sem NFC, uma nota gravada em
 NFD por um cofre sincronizado com macOS não é encontrada por um cliente que pede
 em NFC. Ver [Note e caminho](../entities/note-e-caminho.md).
 

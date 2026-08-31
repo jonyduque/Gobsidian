@@ -4657,3 +4657,89 @@ some do ledger do plano que a originou, e o que some não é auditado. "O plano
 fechou" é afirmação de estado, e afirmação de estado se verifica — a verificação
 barata é `grep` pelo nome que cada entregável teria criado. Registrada em
 `docs/ARMADILHAS.md`.
+
+---
+
+## Task 137 — a chave de resolução não é única, e o índice passou a admitir isso — 2026-08-31
+
+Fecha a pendência que a Task 114 abriu e não fechou, mais um defeito **presente**
+que a sonda achou de passagem.
+
+**Medi antes.** Colisão de chave nos quatro cofres reais, 5.186 notas:
+
+    Estudo           notas=2579   colisoes=0   arquivos_em_NFD=0
+    Jurisprudencia   notas=1254   colisoes=0   arquivos_em_NFD=0
+    Oral             notas=78     colisoes=0   arquivos_em_NFD=0
+    Revisao          notas=1275   colisoes=0   arquivos_em_NFD=0
+
+Zero. Faz sentido: NTFS torna a colisão por caixa impossível, e a de normalização
+precisa de um arquivo escrito por macOS. **Mas o NTFS aceita as duas formas na
+mesma pasta** — conferido: `Capítulo.md` em NFC e em NFD, 12 e 13 bytes, dois
+arquivos. A correção é contra o dia em que um desses cofres abrir num Mac.
+
+**O defeito presente, que a sonda achou:**
+
+    ResolvePath("pasta/ACORDAO.MD") -> "pasta/Acordao.md"
+    ResolvePath("acordao")          -> path not found
+
+Caminho completo resolvia sem caixa; nome nu não. Duas portas para a mesma
+pergunta respondendo diferente. `note_read("acordao")` falhava nos cofres do dono
+**hoje**.
+
+**A correção é uma só.** `lowerPath` passou de `map[string]CanonicalPath` a
+`map[string][]CanonicalPath`, como `byName` e `byAlias` já eram, e `ResolvePath`
+devolve `ErrAmbiguousPath` quando sobra mais de um vivo. Isso liberou baixar a
+caixa em `chaveDeNomeDeArquivo` — só seguro porque a ambiguidade passou a ser
+contada. `nomeDeArquivo` também comparava a extensão com caixa (`AcOrDaO.Md`
+virava `AcOrDaO.Md.md`); agora usa `EqualFold`.
+
+De brinde, a **conta única**: a remoção dos índices de nome estava escrita TRÊS
+vezes — nota, anexo e rename. Virou `removerNomeLocked`, par de
+`publishNameLocked`. `update.go` perdeu ~50 linhas.
+
+**Regressão medida, não presumida.** Baixar a caixa de `byName` pode tornar
+ambíguo um nome que hoje resolve. Nos quatro cofres: **zero novas ambiguidades**.
+(Estudo já tem 735 bases ambíguas, anterior a esta mudança.)
+
+**Custo de memória, medido intercalado em Jurisprudência, cache quente:**
+
+    antes    pronto 30 MB / servindo 40 MB   RSS 81,9 / 107,8
+    depois   pronto 30 MB / servindo 40 MB   RSS 82,5 / 107,7
+
+Abaixo da resolução do instrumento. A rodada 1 saiu com cache frio nos dois
+braços — reconstrução, não carga — e foi descartada.
+
+**Seis provas de mutação, todas EXIT=0:** a lista em `publishNameLocked`; o ramo
+de `ErrAmbiguousPath`; `removerDaLista` no `lowerPath`; o `if len(filtrada) == 0`
+como contrapeso; `strings.ToLower` em `chaveDeNomeDeArquivo`; e o `EqualFold` da
+extensão.
+
+**Uma prova saiu EXIT=1 primeiro, e a lição é a de sempre:** o teste de colisão
+punha as duas notas em pastas DIFERENTES, e ali as chaves diferem pelo diretório
+— não havia colisão nenhuma. A fixture não montava o teste. Corrigida para a
+mesma pasta.
+
+**E uma prova continua parcialmente descoberta, dito aqui em vez de escondido:**
+remover a entrada de `lowerPath` não é necessário para a resposta ficar certa,
+porque `vivosLocked` filtra caminho morto na leitura. Ela existe contra
+VAZAMENTO num daemon de vida longa, e é isso que
+`TestRemoverNomeNaoDeixaChaveOrfa` afirma — sobre o mapa, não sobre o que
+`ResolvePath` devolve.
+
+**Correção de documentação encontrada no caminho.** O item de dívida do RNF-07
+em `ESTADO.md` começava por "não é atingido em Jurisprudência" e dizia, duas
+linhas abaixo, que os cinco cofres passam. O título era resíduo da redação
+anterior à redefinição do requisito. Re-medido hoje: 30/40 MB contra teto de
+47,2. `OPERACAO.md` sempre esteve certo.
+
+**Um flake de gate apareceu no caminho, e virou correcao.**
+`TestDezPontesIniciamUmDaemonSo` reprovou no `go test -race ./...`
+(`iniciar foi chamado 2 vez(es)`) e passou 5 de 5 isolado. Nao era desta
+mudanca — `internal/daemon` nao importa `internal/index` — era o
+`time.Sleep(200ms)` do proprio teste, cujo comentario ja previa "maquina sob
+carga" e ainda assim sincronizava por relogio. Trocado por espera das nove
+goroutines RETORNAREM: quem retornou de `EnsureStarted` ja tentou o lock, por
+definicao. Prova de mutacao contra `adquirirLock` sempre-verdadeiro:
+`iniciar foi chamado 10 vez(es)` — o teste nao ficou vazio.
+
+`verify.ps1` 13 de 13. PRD ganhou RF-65 e RF-66.

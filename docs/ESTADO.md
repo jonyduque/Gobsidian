@@ -316,13 +316,19 @@ o quarto, que é exatamente o defeito que ela existe para impedir.
 
 - **`scripts/measure.ps1` continua fora de gate nenhum.** É o único instrumento
   que responde por RNF-01 e RNF-07, e roda quando alguém lembra.
-- **O RNF-07 não é atingido no cofre Jurisprudência com uma busca servida.** O
-  requisito foi redefinido em 2026-08-30 — heap vivo ≤ 8 MB + 32 KB × notas, nos
-  estados `pronto` e `servindo`, decisão do dono — e por ele os cinco cofres
-  reais passam. O que segue aberto é o caminho para folga maior: o índice de
+- **A folga do RNF-07 em Jurisprudência é de 15%, a mais apertada das cinco.**
+  O requisito foi redefinido em 2026-08-30 — heap vivo ≤ 8 MB + 32 KB × notas,
+  nos estados `pronto` e `servindo`, decisão do dono — e **os cinco cofres reais
+  passam**. O que segue aberto é o caminho para folga maior: o índice de
   metadados é **67% do heap vivo**, e dentro dele `Link.Raw` repete `Link.Target`
   em **100,0% dos 28.045 links** medidos, o que vale ~3,3 MB sem perder
-  informação. Medido em 2026-08-30; ver `OPERACAO.md`.
+  informação. Medido em 2026-08-30; tabela em `OPERACAO.md`.
+
+  > Uma correção do próprio texto: até 2026-08-31 este item começava por "o
+  > RNF-07 **não é atingido** em Jurisprudência", e o corpo dele dizia, duas
+  > linhas abaixo, que os cinco passam. O título era resíduo da redação anterior
+  > à redefinição do requisito, quando o alvo era RSS ≤ 60 MB. Re-medido em
+  > 2026-08-31: `pronto` 30 MB, `servindo` 40 MB, contra teto de 47,2 MB.
 - **A corrida residual do daemon** (dois daemons vivos sob carga) segue
   registrada nos limites conhecidos de `OPERACAO.md`. O lock de escuta fechou a
   janela entre a sonda de órfão e o bind; o que resta é o caso sob carga.

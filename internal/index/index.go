@@ -19,7 +19,7 @@ type Index struct {
 
 	notes     map[vault.CanonicalPath]*Note
 	assets    map[vault.CanonicalPath]*Asset
-	lowerPath map[string]vault.CanonicalPath
+	lowerPath map[string][]vault.CanonicalPath
 	byName    map[string][]vault.CanonicalPath
 	byAlias   map[string][]vault.CanonicalPath
 	backlinks map[vault.CanonicalPath][]Backlink
@@ -49,7 +49,7 @@ func New() *Index {
 	return &Index{
 		notes:           make(map[vault.CanonicalPath]*Note),
 		assets:          make(map[vault.CanonicalPath]*Asset),
-		lowerPath:       make(map[string]vault.CanonicalPath),
+		lowerPath:       make(map[string][]vault.CanonicalPath),
 		byName:          make(map[string][]vault.CanonicalPath),
 		byAlias:         make(map[string][]vault.CanonicalPath),
 		backlinks:       make(map[vault.CanonicalPath][]Backlink),
@@ -204,11 +204,47 @@ func (ix *Index) publishAssetLocked(a *Asset) {
 
 // publishNameLocked povoa lowerPath e byName, comuns a nota e anexo. Exige
 // ix.mu ja travado.
+//
+// O par dele e removerNomeLocked, e os dois existem para que inserir e remover
+// nao possam divergir: a remocao estava escrita TRES vezes — nota, anexo e
+// rename — e uma delas errada bastaria para uma entrada sobreviver apontando
+// para nota deletada, que e o defeito [[STJ]] de novo.
 func (ix *Index) publishNameLocked(path vault.CanonicalPath) {
-	ix.lowerPath[chaveDeCaminho(string(path))] = path
+	chave := chaveDeCaminho(string(path))
+	ix.lowerPath[chave] = append(ix.lowerPath[chave], path)
 
 	base := chaveDeNomeDeArquivo(filepath.Base(string(path)))
 	ix.byName[base] = append(ix.byName[base], path)
+}
+
+// removerNomeLocked desfaz publishNameLocked. Exige ix.mu ja travado.
+func (ix *Index) removerNomeLocked(path vault.CanonicalPath) {
+	removerDaLista(ix.lowerPath, chaveDeCaminho(string(path)), path)
+	removerDaLista(ix.byName, chaveDeNomeDeArquivo(filepath.Base(string(path))), path)
+}
+
+// removerDaLista tira um caminho de um indice de chave para lista, apagando a
+// chave quando ela fica vazia.
+//
+// Apagar a chave vazia nao e higiene: uma chave que sobrevive apontando para
+// lista vazia faz `len(candidatos) == 0` e `chave ausente` responderem por
+// caminhos diferentes, e um deles acaba esquecido.
+func removerDaLista(m map[string][]vault.CanonicalPath, chave string, path vault.CanonicalPath) {
+	lista, ok := m[chave]
+	if !ok {
+		return
+	}
+	filtrada := make([]vault.CanonicalPath, 0, len(lista))
+	for _, p := range lista {
+		if p != path {
+			filtrada = append(filtrada, p)
+		}
+	}
+	if len(filtrada) == 0 {
+		delete(m, chave)
+		return
+	}
+	m[chave] = filtrada
 }
 
 // Paths devolve todos os caminhos indexados, notas E anexos, ordenados.

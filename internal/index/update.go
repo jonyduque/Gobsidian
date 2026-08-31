@@ -4,7 +4,6 @@ import (
 	"context"
 	"log/slog"
 	"os"
-	"path/filepath"
 	"sync/atomic"
 	"time"
 
@@ -228,21 +227,7 @@ func (ix *Index) removeContributionsLocked(path vault.CanonicalPath) []string {
 			}
 		}
 
-		delete(ix.lowerPath, chaveDeCaminho(string(path)))
-
-		base := chaveDeNomeDeArquivo(filepath.Base(string(path)))
-		names := ix.byName[base]
-		filteredNames := make([]vault.CanonicalPath, 0, len(names))
-		for _, p := range names {
-			if p != path {
-				filteredNames = append(filteredNames, p)
-			}
-		}
-		if len(filteredNames) == 0 {
-			delete(ix.byName, base)
-		} else {
-			ix.byName[base] = filteredNames
-		}
+		ix.removerNomeLocked(path)
 
 		for _, alias := range oldNote.Aliases {
 			key := aliasKey(alias)
@@ -263,21 +248,7 @@ func (ix *Index) removeContributionsLocked(path vault.CanonicalPath) []string {
 
 	_, hadAsset := ix.assets[path]
 	if hadAsset {
-		delete(ix.lowerPath, chaveDeCaminho(string(path)))
-
-		base := chaveDeNomeDeArquivo(filepath.Base(string(path)))
-		names := ix.byName[base]
-		filteredNames := make([]vault.CanonicalPath, 0, len(names))
-		for _, p := range names {
-			if p != path {
-				filteredNames = append(filteredNames, p)
-			}
-		}
-		if len(filteredNames) == 0 {
-			delete(ix.byName, base)
-		} else {
-			ix.byName[base] = filteredNames
-		}
+		ix.removerNomeLocked(path)
 	}
 
 	delete(ix.notes, path)
@@ -575,26 +546,10 @@ func (ix *Index) MoveNote(v *vault.Vault, oldPath, newPath vault.CanonicalPath) 
 		}
 	}
 
-	// 2. Atualizar lowerPath
-	delete(ix.lowerPath, chaveDeCaminho(string(oldPath)))
-	ix.lowerPath[chaveDeCaminho(string(newPath))] = newPath
-
-	// 3. Atualizar byName
-	oldBase := chaveDeNomeDeArquivo(filepath.Base(string(oldPath)))
-	names := ix.byName[oldBase]
-	filteredNames := make([]vault.CanonicalPath, 0, len(names))
-	for _, p := range names {
-		if p != oldPath {
-			filteredNames = append(filteredNames, p)
-		}
-	}
-	if len(filteredNames) == 0 {
-		delete(ix.byName, oldBase)
-	} else {
-		ix.byName[oldBase] = filteredNames
-	}
-	newBase := chaveDeNomeDeArquivo(filepath.Base(string(newPath)))
-	ix.byName[newBase] = append(ix.byName[newBase], newPath)
+	// 2 e 3. Atualizar lowerPath e byName — o par publicar/remover, e nao seis
+	// linhas de mapa a mao. Um rename e uma remocao seguida de uma publicacao.
+	ix.removerNomeLocked(oldPath)
+	ix.publishNameLocked(newPath)
 
 	// 4. Atualizar tags
 	for _, tag := range n.Tags {

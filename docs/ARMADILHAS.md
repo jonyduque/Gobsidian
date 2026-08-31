@@ -465,6 +465,22 @@ em um subcomando faz a flag virar no-op silencioso. Vale também para
 `service.Options.SnippetCacheEntries`, que é `*int` pelo mesmo motivo: nil usa o
 padrão, zero explícito desliga o cache.
 
+**Teste que passa por folga de relogio reprova por falta dela.**
+`TestDezPontesIniciamUmDaemonSo` sincronizava com `time.Sleep(200ms)` e um
+comentario dizendo que era "o suficiente para sobreviver a uma maquina sob
+carga". Nao era: o gate reprovou com `iniciar foi chamado 2 vez(es)` durante um
+`go test -race ./...`, que e exatamente a carga prevista. O defeito nao estava na
+exclusao mutua — estava no teste, que soltava o vencedor antes de uma das nove
+concorrentes ter tentado o lock.
+
+A troca foi de espera por tempo para espera por **evento**: o teste aguarda as
+nove RETORNAREM de `EnsureStarted`, porque quem retornou ja tentou o lock por
+definicao. E deterministico, e nao ficou vazio — com a exclusao mutua quebrada,
+`iniciar` e chamado dez vezes.
+
+**Gate que reprova ao acaso ensina a re-rodar ate ficar verde**, e e assim que uma
+falha real passa despercebida. Flake em gate e defeito do gate.
+
 ---
 
 ## Ledger e rastreio de tarefa

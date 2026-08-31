@@ -154,6 +154,8 @@ Um wikilink não é um caminho, e resolvê-lo como se fosse produz um grafo que 
 | RF-62 | Resolução de wikilink pelo campo `aliases` do frontmatter da nota alvo — **divergência deliberada do Obsidian**, ver abaixo | P0 |
 | RF-63 | Validação da âncora: `[[nota#heading]]` e `[[nota#^bloco]]` marcados como âncora quebrada quando a nota resolve mas o alvo interno não existe | P1 |
 | RF-64 | Chaves de resolução normalizadas para **NFC**, de modo que uma nota gravada em NFD seja encontrada por um pedido em NFC e vice-versa | P0 |
+| RF-65 | Colisão de chave de resolução — por caixa ou por normalização — devolve ambiguidade nomeada, nunca um dos candidatos escolhido em silêncio | P0 |
+| RF-66 | Resolução por nome de arquivo insensível a maiúsculas, igual à resolução por caminho completo | P1 |
 
 **RF-64 vale para a chave, nunca para o caminho guardado.** O caminho continua
 sendo a grafia do disco — normalizá-lo faria o servidor tentar abrir arquivo que
@@ -165,6 +167,18 @@ O cenário não é hipotético: um cofre sincronizado com macOS grava NFD e um
 cliente Windows pede NFC, e este é o cenário OneDrive que o produto suporta. Num
 cofre em português, onde acento é a regra, o efeito era `PATH_NOT_FOUND` para
 nota existente.
+
+**RF-65 é o par de RF-64, e sem ele a normalização piora o problema.** Normalizar
+faz duas notas distintas passarem a dividir uma chave — e o NTFS **aceita**
+`Capítulo.md` em NFC e em NFD na mesma pasta, conferido em 2026-08-31. Se a chave
+guardar um valor só, a segunda nota toma o lugar da primeira e remover uma apaga
+a entrada da outra. A resposta é a mesma que homônimo em pastas diferentes já
+recebia: nomear a ambiguidade.
+
+**RF-66 é coerência, e ela faltava.** `pasta/ACORDAO.MD` resolvia e `acordao`
+não, porque caminho completo e nome nu passam por mapas diferentes e só o
+primeiro baixava a caixa. Medido nos quatro cofres reais: a mudança não cria
+ambiguidade nova em nenhum deles.
 
 RF-60 e RF-61 andam juntos. Sem indexar os anexos, todo embed de imagem vira link quebrado, `vault_stats` reporta centenas de falsos positivos e a métrica de saúde do cofre deixa de ter uso. O custo é baixo — o índice guarda apenas a entrada de diretório, nunca os bytes.
 

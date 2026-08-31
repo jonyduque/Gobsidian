@@ -53,6 +53,31 @@ moram em `internal/index/chave.go`, e **todas** passam por lá, inclusive as que
 já estavam certas. Não é para consertar as erradas: é para tornar a próxima
 divergência impossível sem tocar na função.
 
+### A chave não é única, e o índice passou a admitir isso
+
+`lowerPath` era `map[string]CanonicalPath`. A chave dele **não** é única por
+construção, ao contrário do que o comentário dele afirmava: duas notas colidem
+nela por caixa (`Nota.md` e `nota.md` — impossível no NTFS, possível em ext4 e
+APFS) ou por normalização (`Capítulo` em NFC e em NFD, que o NTFS **aceita** na
+mesma pasta como dois arquivos, conferido em 2026-08-31: 12 e 13 bytes).
+
+Com valor único, a segunda nota tomava o lugar da primeira em silêncio, e
+remover uma apagava a entrada da outra. Desde 2026-08-31 ele é
+`map[string][]CanonicalPath`, como `byName` e `byAlias` já eram, e `ResolvePath`
+devolve `ErrAmbiguousPath` quando sobra mais de um vivo — a mesma resposta que
+homônimo em pastas diferentes já recebia.
+
+**E a chave de `byName` passou a baixar a caixa.** Antes, `pasta/ACORDAO.MD`
+resolvia e `acordao` não: duas portas para a mesma pergunta respondendo
+diferente. Só é seguro baixá-la porque `byName` é lista e a ambiguidade é
+contada. (`nomeDeArquivo` também comparava a extensão com caixa, então
+`AcOrDaO.Md` virava `AcOrDaO.Md.md`; agora usa `EqualFold`.)
+
+Medido em 2026-08-31 nos quatro cofres reais, 5.186 notas: **zero colisões**,
+zero arquivos em NFD, e **zero novas ambiguidades** por causa da caixa. O custo
+de memória ficou abaixo da resolução do instrumento — `pronto` 30 MB e
+`servindo` 40 MB nos dois braços, medidos intercalados em Jurisprudência.
+
 ## Confinamento em duas camadas
 
 `vault.Resolve(root, input)` é o portão. Duas verificações, e as duas são

@@ -237,13 +237,41 @@ func (ix *Index) candidatosPorNomeLocked(name string, isNote bool) []vault.Canon
 	return valid
 }
 
+// vivosLocked filtra os caminhos que ainda estao indexados, nota OU anexo.
+//
+// Uma lista de indice derivado pode carregar caminho ja removido — o watcher
+// roda em paralelo, e a remocao chega por um caminho diferente do da leitura.
+// Devolver um deles seria apontar para nota que nao existe mais, que e o defeito
+// [[STJ]]; e conta-lo como candidato faria a ambiguidade aparecer onde ha uma
+// nota so.
+//
+// Exige ix.mu ja tomado.
+func (ix *Index) vivosLocked(paths []vault.CanonicalPath) []vault.CanonicalPath {
+	if len(paths) == 0 {
+		return nil
+	}
+	vivos := make([]vault.CanonicalPath, 0, len(paths))
+	for _, p := range paths {
+		_, ehNota := ix.notes[p]
+		_, ehAnexo := ix.assets[p]
+		if ehNota || ehAnexo {
+			vivos = append(vivos, p)
+		}
+	}
+	return vivos
+}
+
 // nomeDeArquivo aplica a mesma normalizacao que resolveByName usa: nota ganha
 // ".md" quando nao o tem; anexo exige extensao explicita. Uma conta so.
 func nomeDeArquivo(target string, isNote bool) string {
 	if !isNote {
 		return target
 	}
-	if strings.HasSuffix(target, ".md") {
+	// EqualFold, e nao HasSuffix: `AcOrDaO.Md` tem a extensao, e compara-la com
+	// caixa a fazia virar `AcOrDaO.Md.md` — um nome que nao existe em cofre
+	// nenhum. O defeito ficou escondido enquanto a chave de byName tambem era
+	// sensivel a caixa, porque a entrada ja falhava antes de chegar aqui.
+	if strings.EqualFold(filepath.Ext(target), ".md") {
 		return target
 	}
 	return target + ".md"
@@ -323,10 +351,21 @@ func (ix *Index) tiebreak(candidates []vault.CanonicalPath, origin vault.Canonic
 // # ErrAmbiguousPath so aparece onde a ambiguidade existe
 //
 // O ramo insensivel a maiusculas varria o mapa INTEIRO comparando chave por
-// chave, e devolvia ErrAmbiguousPath se achasse duas — inalcancavel, porque
-// `lowerPath` tem chave unica por construcao (`publishNameLocked`). Agora e um
-// lookup direto, e o erro de ambiguidade vive onde ela e real: nome e alias, que
-// podem casar mais de uma nota e passam pelo desempate de `tiebreak`.
+// chave, e devolvia ErrAmbiguousPath se achasse duas. A varredura virou lookup
+// direto em 2026-08-27.
+//
+// Em 2026-08-31 `lowerPath` passou de `map[string]CanonicalPath` a
+// `map[string][]CanonicalPath`, e o erro voltou a ser alcancavel por este ramo —
+// porque a chave dele NAO e unica por construcao, ao contrario do que este
+// comentario afirmava. Duas notas colidem nela por caixa (`Nota.md` e `nota.md`,
+// impossivel no NTFS e possivel em ext4 e APFS) ou por normalizacao Unicode
+// (`Capítulo` em NFC e em NFD, que e o que um cofre sincronizado com macOS
+// produz). Com o mapa de valor unico, a segunda nota tomava o lugar da primeira
+// em silencio, e remover uma apagava a entrada da outra.
+//
+// Medido em 2026-08-31: zero colisoes em 5.186 notas nos quatro cofres reais,
+// todos NTFS e todos em NFC. A correcao e contra o dia em que um deles abrir num
+// Mac, e o custo dela e um cabecalho de slice por chave.
 func (ix *Index) ResolvePath(input string) (vault.CanonicalPath, error) {
 	ix.mu.RLock()
 	defer ix.mu.RUnlock()
@@ -340,8 +379,13 @@ func (ix *Index) ResolvePath(input string) (vault.CanonicalPath, error) {
 	}
 
 	// Insensivel a maiusculas: lookup direto, nao varredura.
-	if canonico, ok := ix.lowerPath[chaveDeCaminho(input)]; ok {
-		return canonico, nil
+	switch candidatos := ix.vivosLocked(ix.lowerPath[chaveDeCaminho(input)]); len(candidatos) {
+	case 0:
+		// segue para a proxima forma
+	case 1:
+		return candidatos[0], nil
+	default:
+		return "", ErrAmbiguousPath
 	}
 
 	// Nome de arquivo, com ou sem ".md" — e depois anexo, que exige extensao.
