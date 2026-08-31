@@ -16,7 +16,6 @@ import (
 
 	"github.com/jonyd/gobsidian/internal/config"
 	"github.com/jonyd/gobsidian/internal/daemon"
-	"github.com/jonyd/gobsidian/internal/ipc"
 	"github.com/jonyd/gobsidian/internal/lifecycle"
 	"github.com/jonyd/gobsidian/internal/mcpsrv"
 	"github.com/spf13/cobra"
@@ -126,7 +125,13 @@ func novoLoggerDoDaemon(vaultPath string, level slog.Level) (*slog.Logger, func(
 // jeito que confere os outros tres motivos (ver
 // scripts/test_orphans.ps1, cenario "daemon-idle").
 func runDaemon(parent context.Context, cfg config.Config, ociosidade time.Duration, log *slog.Logger) error {
-	ln, sockPath, err := ipc.Listen(cfg.VaultPath)
+	// A sonda de orfao e o bind vao sob o MESMO lock.
+	//
+	// ipc.Listen ja prova que o socket esta orfao antes de desvincula-lo, mas a
+	// sonda e o bind nao sao atomicos entre si: dois daemons lancados no mesmo
+	// instante podem ambos sondar "ninguem escuta" antes de qualquer um bindar.
+	// E o item 4 do brief da Task 126, a metade que a prova de orfao nao fecha.
+	ln, sockPath, err := daemon.EscutarComLock(cfg.VaultPath)
 	if err != nil {
 		// Todo caminho de saida do daemon loga a causa ANTES de sair.
 		//

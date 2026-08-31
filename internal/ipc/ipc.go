@@ -20,6 +20,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -30,7 +31,11 @@ import (
 // Task 92, decisao 4: ponte e daemon de versoes diferentes nao se falam —
 // a ponte cai para o modo em processo em vez de arriscar um protocolo que
 // os dois lados entendem diferente.
-const ProtocolVersion = "1"
+// 1 -> 2 em 2026-08-28: a saudacao passou a carregar max_results (achado M9).
+// Uma ponte de versao 1 e um daemon de versao 2 nao se entendem sobre o campo
+// novo, e o portao de versao ja recusa o par — que e o comportamento certo: a
+// ponte cai para o modo em processo com a propria configuracao.
+const ProtocolVersion = "2"
 
 // greetingPrefix comeca a unica linha que este pacote interpreta. Depois
 // dela a conexao vira bytes crus: quem fala JSON-RPC de verdade e o lado
@@ -174,6 +179,18 @@ func alguemEscuta(path string) bool {
 type HandshakeConfig struct {
 	ReadOnly bool
 	VaultKey string
+	// MaxResults e o teto de resultados por consulta com que o DAEMON subiu.
+	//
+	// Ate 2026-08-28 a flag --max-results da ponte era no-op silencioso no modo
+	// daemon: nao ia para o spawn e nao entrava no handshake, entao valia o cfg
+	// do PRIMEIRO daemon e a segunda ponte era atendida com um teto que ninguem
+	// pediu (achado M9) — a mesma classe de ReadOnlySet/DebounceMSSet.
+	//
+	// O handshake e unidirecional, entao a ponte nao tem como IMPOR o dela. O
+	// desenho segue o precedente do ReadOnly: o daemon anuncia o seu, e a ponte
+	// que quer outro RECUSA a conexao e cai para o modo em processo, onde a
+	// configuracao dela vale. Divergencia visivel e melhor que silencio.
+	MaxResults int
 }
 
 // Greet escreve a saudacao de versao e configuracao que readGreeting espera
@@ -186,7 +203,8 @@ func Greet(w io.Writer, cfg HandshakeConfig) error {
 	if cfg.ReadOnly {
 		ro = 1
 	}
-	_, err := fmt.Fprintf(w, "%s%s ro=%d vault=%s\n", greetingPrefix, ProtocolVersion, ro, cfg.VaultKey)
+	_, err := fmt.Fprintf(w, "%s%s ro=%d vault=%s max_results=%d\n",
+		greetingPrefix, ProtocolVersion, ro, cfg.VaultKey, cfg.MaxResults)
 	return err
 }
 
@@ -195,7 +213,7 @@ func Greet(w io.Writer, cfg HandshakeConfig) error {
 // conexao recusada, prazo excedido, ou versao incompativel — devolve um
 // erro nao-nil; quem chama decide o fallback (ver servePonte em
 // cmd/gobsidian/ponte.go, que cai para o modo em processo nos tres casos).
-func DialAndHandshake(ctx context.Context, vaultPath string, readOnly bool, timeout time.Duration) (Conn, error) {
+func DialAndHandshake(ctx context.Context, vaultPath string, readOnly bool, maxResults int, timeout time.Duration) (Conn, error) {
 	path, err := SocketPath(vaultPath)
 	if err != nil {
 		return nil, err
@@ -213,7 +231,7 @@ func DialAndHandshake(ctx context.Context, vaultPath string, readOnly bool, time
 		_ = raw.Close()
 		return nil, fmt.Errorf("configurando prazo do handshake: %w", err)
 	}
-	want := HandshakeConfig{ReadOnly: readOnly, VaultKey: config.VaultKey(vaultPath)}
+	want := HandshakeConfig{ReadOnly: readOnly, VaultKey: config.VaultKey(vaultPath), MaxResults: maxResults}
 	if err := readGreeting(raw, want); err != nil {
 		_ = raw.Close()
 		return nil, err
@@ -317,6 +335,12 @@ func parseHandshakeFields(fields []string) (HandshakeConfig, error) {
 			}
 		case "vault":
 			cfg.VaultKey = value
+		case "max_results":
+			n, err := strconv.Atoi(value)
+			if err != nil {
+				return HandshakeConfig{}, fmt.Errorf("valor invalido para max_results: %q", value)
+			}
+			cfg.MaxResults = n
 		default:
 			return HandshakeConfig{}, fmt.Errorf("campo desconhecido: %q", key)
 		}

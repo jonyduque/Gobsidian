@@ -10,6 +10,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -76,7 +77,7 @@ func EnsureStarted(ctx context.Context, cfg config.Config, prazo time.Duration, 
 	// de servePonte). Esta segunda checagem fecha essa janela: se alguem
 	// mais ja subiu o daemon enquanto esta chamada esperava a vez, usa
 	// esse, e nunca chama iniciar.
-	if conn, err := ipc.DialAndHandshake(ctx, cfg.VaultPath, cfg.ReadOnly, dialProbeTimeout); err == nil {
+	if conn, err := ipc.DialAndHandshake(ctx, cfg.VaultPath, cfg.ReadOnly, cfg.MaxResults, dialProbeTimeout); err == nil {
 		return conn.Close()
 	}
 
@@ -206,7 +207,7 @@ func esperarSocket(ctx context.Context, cfg config.Config, prazo time.Duration) 
 
 	var ultimoErr error
 	for {
-		conn, err := ipc.DialAndHandshake(ctx, cfg.VaultPath, cfg.ReadOnly, dialProbeTimeout)
+		conn, err := ipc.DialAndHandshake(ctx, cfg.VaultPath, cfg.ReadOnly, cfg.MaxResults, dialProbeTimeout)
 		if err == nil {
 			return conn.Close()
 		}
@@ -232,4 +233,75 @@ func esperarSocket(ctx context.Context, cfg config.Config, prazo time.Duration) 
 		case <-time.After(pollInterval):
 		}
 	}
+}
+
+// ComLockDeEscuta serializa a sequencia "ninguem escuta? entao escuto eu" de
+// DOIS processos de daemon do mesmo cofre.
+//
+// # Por que um segundo lock, e nao o de EnsureStarted
+//
+// O lock de EnsureStarted responde "quem LANCA o daemon". Este responde "quem
+// ABRE o socket". Sao perguntas diferentes, e usar o mesmo arquivo para as duas
+// trava uma na outra: EnsureStarted segura o lock ate esperarSocket devolver, e
+// esperarSocket espera o socket que o daemon recem-lancado so pode abrir depois
+// de adquirir o lock. Deadlock, com o prazo inteiro do EnsureStarted de sintoma.
+//
+// # O que ele fecha
+//
+// ipc.Listen prova que o socket esta orfao antes de desvincula-lo (Task 133), o
+// que impede uma ponte de roubar o socket de um daemon vivo. Mas a sonda e o
+// Listen NAO sao atomicos entre si: dois daemons lancados no mesmo instante
+// podem ambos sondar "ninguem escuta" antes de qualquer um dos dois bindar.
+// Segurar este lock durante o par fecha essa janela — o segundo entra depois do
+// primeiro ter bindado, a sonda dele encontra o ouvinte, e ele recusa subir.
+//
+// Quem nao consegue o lock NAO espera: outro daemon do mesmo cofre esta subindo
+// agora, e o certo e sair, nao competir. O erro devolvido diz isso.
+func ComLockDeEscuta(vaultPath string, fn func() error) error {
+	sock, err := ipc.SocketPath(vaultPath)
+	if err != nil {
+		return err
+	}
+	// Deriva do MESMO caminho do socket, nunca de uma segunda conta do hash do
+	// cofre — a licao do byAlias que config.VaultKey registra.
+	path := sock + ".listen.lock"
+
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
+	if err != nil {
+		if errors.Is(err, os.ErrExist) {
+			if !lockObsoleto(path) {
+				return fmt.Errorf("outro daemon deste cofre esta abrindo o socket agora")
+			}
+			// Obsoleto: o dono morreu sem liberar. Remove e tenta uma vez.
+			if rmErr := os.Remove(path); rmErr != nil && !errors.Is(rmErr, os.ErrNotExist) {
+				return fmt.Errorf("removendo lock de escuta obsoleto: %w", rmErr)
+			}
+			f, err = os.OpenFile(path, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
+		}
+		if err != nil {
+			return fmt.Errorf("adquirindo lock de escuta: %w", err)
+		}
+	}
+	_, _ = fmt.Fprintf(f, "%d\n", os.Getpid())
+	_ = f.Close()
+	defer func() { _ = os.Remove(path) }()
+
+	return fn()
+}
+
+// EscutarComLock e ipc.Listen sob o lock de escuta.
+//
+// Existe para que cmd/gobsidian nao precise nomear net.Listener: RNF-30 diz que
+// nenhum pacote sob cmd/ ou internal/ importa net fora do IPC local, e um tipo
+// de retorno arrasta o import junto. O daemon ja depende deste pacote, e este
+// pacote ja fala IPC.
+func EscutarComLock(vaultPath string) (net.Listener, string, error) {
+	var ln net.Listener
+	var sock string
+	err := ComLockDeEscuta(vaultPath, func() error {
+		var e error
+		ln, sock, e = ipc.Listen(vaultPath)
+		return e
+	})
+	return ln, sock, err
 }

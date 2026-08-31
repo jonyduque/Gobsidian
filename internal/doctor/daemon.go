@@ -107,7 +107,7 @@ func checkSocketPath(_ context.Context, cfg config.Config) Result {
 func checkDaemonVivo(ctx context.Context, cfg config.Config) Result {
 	const name = "daemon respondendo"
 
-	conn, err := ipc.DialAndHandshake(ctx, cfg.VaultPath, cfg.ReadOnly, prazoDeSondaDoDaemon)
+	conn, err := ipc.DialAndHandshake(ctx, cfg.VaultPath, cfg.ReadOnly, cfg.MaxResults, prazoDeSondaDoDaemon)
 	if err == nil {
 		_ = conn.Close()
 		return Result{Name: name, Status: StatusOK, Detail: "handshake completo"}

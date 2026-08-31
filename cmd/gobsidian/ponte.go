@@ -80,7 +80,7 @@ func servePonte(ctx context.Context, cfg config.Config, log *slog.Logger) error 
 		return serveEmProcesso(ctx, cfg, log)
 	}
 
-	conn, err := ipc.DialAndHandshake(ctx, cfg.VaultPath, cfg.ReadOnly, ipcDialTimeout)
+	conn, err := ipc.DialAndHandshake(ctx, cfg.VaultPath, cfg.ReadOnly, cfg.MaxResults, ipcDialTimeout)
 	if err == nil {
 		log.Info("conectado ao daemon via socket")
 		return servePonteRemota(ctx, conn, os.Stdin, os.Stdout, log)
@@ -95,7 +95,7 @@ func servePonte(ctx context.Context, cfg config.Config, log *slog.Logger) error 
 		return serveEmProcesso(ctx, cfg, log)
 	}
 
-	conn, err = ipc.DialAndHandshake(ctx, cfg.VaultPath, cfg.ReadOnly, ipcDialTimeout)
+	conn, err = ipc.DialAndHandshake(ctx, cfg.VaultPath, cfg.ReadOnly, cfg.MaxResults, ipcDialTimeout)
 	if err != nil {
 		log.Info("daemon nao respondeu apos iniciar; servindo em processo",
 			"err", err, "errno", errnoDe(err))
@@ -186,6 +186,10 @@ func servePonteRemota(parent context.Context, conn ipc.Conn, stdin io.Reader, st
 	}()
 
 	var loopErr error
+	// fimDoHost diz que a copia host->daemon terminou — tipicamente EOF do
+	// stdin, que e como o host MCP encerra. So nesse caso o meio-fechamento
+	// tem sentido: se quem caiu foi o daemon, nao ha resposta para esperar.
+	fimDoHost := false
 	select {
 	case err := <-daemonParaHost:
 		// O daemon fechou a conexao (ou ela quebrou): e o equivalente, na
@@ -193,12 +197,41 @@ func servePonteRemota(parent context.Context, conn ipc.Conn, stdin io.Reader, st
 		loopErr = err
 	case err := <-hostParaDaemon:
 		loopErr = err
+		fimDoHost = true
 	case <-ctx.Done():
 	}
 
 	lifecycle.Shutdown(ctx, log, 6*time.Second,
 		lifecycle.Step{Name: "close-pipe", Budget: 500 * time.Millisecond, Fn: func(context.Context) error {
 			return pw.Close()
+		}},
+		// MEIO-FECHAMENTO antes de fechar a conexao inteira.
+		//
+		// `ipc.Conn` exige `CloseWrite` desde sempre — `DialAndHandshake`
+		// RECUSA uma conexao que nao o suporte — e nada nunca o chamava
+		// (achado M8). No EOF do stdin a ponte fechava a conexao inteira, e
+		// toda resposta do daemon ainda em voo era descartada: exatamente o que
+		// o meio-fechamento existe para evitar.
+		//
+		// Fechar so a direcao de escrita sinaliza EOF ao daemon; ele termina o
+		// que estava respondendo e fecha do lado dele, o que encerra a copia
+		// daemon->host naturalmente. O orcamento existe porque um daemon travado
+		// nao pode segurar o encerramento da ponte para sempre.
+		lifecycle.Step{Name: "half-close", Budget: 2 * time.Second, Fn: func(sctx context.Context) error {
+			if !fimDoHost {
+				return nil
+			}
+			if err := conn.CloseWrite(); err != nil {
+				return err
+			}
+			select {
+			case <-daemonParaHost:
+				return nil
+			case <-sctx.Done():
+				// Orcamento estourado: o close-conn abaixo corta o que sobrou.
+				// Perder uma resposta aqui e visivel no log, e nao silencioso.
+				return sctx.Err()
+			}
 		}},
 		lifecycle.Step{Name: "close-conn", Budget: 500 * time.Millisecond, Fn: func(context.Context) error {
 			return conn.Close()

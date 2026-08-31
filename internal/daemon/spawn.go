@@ -33,6 +33,25 @@ func SpawnDetached(cfg config.Config, idleSeconds int, logLevel string) error {
 		return fmt.Errorf("resolvendo caminho do proprio executavel: %w", err)
 	}
 
+	args := ArgsDoDaemon(cfg, idleSeconds, logLevel)
+
+	cmd := exec.Command(exe, args...) // #nosec G204 -- exe e o proprio binario, args sao construidos aqui, nao vem de entrada externa
+	applyDetachAttrs(cmd)
+	// Stdin/Stdout/Stderr ficam nil de proposito: o daemon nao herda nada
+	// do stdio desta ponte, que carrega o JSON-RPC da sessao MCP em curso.
+	// os/exec conecta um Reader/Writer nil ao dispositivo nulo.
+
+	return cmd.Start()
+}
+
+// ArgsDoDaemon monta a linha de comando do processo do daemon.
+//
+// Extraida de SpawnDetached para ser TESTAVEL: o defeito que ela carrega e
+// sempre uma flag que a ponte recebeu e nao encaminhou — --eager-search ja
+// tinha sido esquecida assim, e --max-results estava esquecida ate 2026-08-28
+// (achado M9). Um teste que so observa o processo lancado nao consegue dizer
+// QUAL argumento faltou.
+func ArgsDoDaemon(cfg config.Config, idleSeconds int, logLevel string) []string {
 	args := []string{
 		"daemon",
 		"--vault", cfg.VaultPath,
@@ -51,15 +70,17 @@ func SpawnDetached(cfg config.Config, idleSeconds int, logLevel string) error {
 		// CLAUDE.md registra para ReadOnlySet/DebounceMSSet.
 		args = append(args, "--eager-search")
 	}
+	if cfg.MaxResults > 0 {
+		// Sem isto a flag --max-results da ponte era no-op silencioso no modo
+		// daemon: o daemon subia com o padrao e a ponte que a pediu era
+		// atendida com outro teto (achado M9). Mesma classe de
+		// ReadOnlySet/DebounceMSSet, e mesma correcao que --eager-search ja
+		// tinha recebido acima.
+		args = append(args, "--max-results", strconv.Itoa(cfg.MaxResults))
+	}
 	if logLevel != "" {
 		args = append(args, "--log-level", logLevel)
 	}
 
-	cmd := exec.Command(exe, args...) // #nosec G204 -- exe e o proprio binario, args sao construidos aqui, nao vem de entrada externa
-	applyDetachAttrs(cmd)
-	// Stdin/Stdout/Stderr ficam nil de proposito: o daemon nao herda nada
-	// do stdio desta ponte, que carrega o JSON-RPC da sessao MCP em curso.
-	// os/exec conecta um Reader/Writer nil ao dispositivo nulo.
-
-	return cmd.Start()
+	return args
 }

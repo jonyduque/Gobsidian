@@ -58,7 +58,7 @@ func TestDialAndHandshakeSocketAusente(t *testing.T) {
 	vault := t.TempDir()
 
 	start := time.Now()
-	conn, err := ipc.DialAndHandshake(context.Background(), vault, false, 200*time.Millisecond)
+	conn, err := ipc.DialAndHandshake(context.Background(), vault, false, 0, 200*time.Millisecond)
 	elapsed := time.Since(start)
 
 	if err == nil {
@@ -97,7 +97,7 @@ func TestDialAndHandshakeRoundTrip(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), boundedWait)
 	defer cancel()
 
-	conn, err := ipc.DialAndHandshake(ctx, vault, false, boundedWait)
+	conn, err := ipc.DialAndHandshake(ctx, vault, false, 0, boundedWait)
 	if err != nil {
 		t.Fatalf("DialAndHandshake() error = %v", err)
 	}
@@ -167,7 +167,7 @@ func TestDialAndHandshakeVersaoDiferente(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), boundedWait)
 	defer cancel()
 
-	conn, err := ipc.DialAndHandshake(ctx, vault, false, boundedWait)
+	conn, err := ipc.DialAndHandshake(ctx, vault, false, 0, boundedWait)
 	if err == nil {
 		_ = conn.Close()
 		t.Fatal("DialAndHandshake() error = nil, esperado ErrVersionMismatch")
@@ -209,7 +209,7 @@ func TestDialAndHandshakeConfigDivergente(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), boundedWait)
 	defer cancel()
 
-	conn, err := ipc.DialAndHandshake(ctx, vault, false, boundedWait)
+	conn, err := ipc.DialAndHandshake(ctx, vault, false, 0, boundedWait)
 	if err == nil {
 		_ = conn.Close()
 		t.Fatal("DialAndHandshake() error = nil, esperado ErrConfigMismatch")
@@ -226,7 +226,7 @@ func TestDialAndHandshakeRespeitaContext(t *testing.T) {
 	cancel() // ja cancelado antes de discar
 
 	start := time.Now()
-	conn, err := ipc.DialAndHandshake(ctx, vault, false, boundedWait)
+	conn, err := ipc.DialAndHandshake(ctx, vault, false, 0, boundedWait)
 	elapsed := time.Since(start)
 
 	if err == nil {

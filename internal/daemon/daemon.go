@@ -233,6 +233,12 @@ func (d *Daemon) handleConn(ctx context.Context, conn net.Conn) {
 	saudacao := ipc.HandshakeConfig{
 		ReadOnly: d.cfg.Vault.ReadOnly,
 		VaultKey: config.VaultKey(d.cfg.Vault.VaultPath),
+		// O daemon ANUNCIA o teto com que subiu; a ponte que quer outro recusa
+		// a conexao e cai para o modo em processo, onde a configuracao dela
+		// vale (achado M9). O handshake e unidirecional, entao impor o da ponte
+		// exigiria protocolo bidirecional — e divergencia visivel ja e melhor
+		// que o silencio de antes.
+		MaxResults: d.cfg.Vault.MaxResults,
 	}
 	if err := ipc.Greet(conn, saudacao); err != nil {
 		d.log.Warn("saudacao ao cliente falhou", "err", err)

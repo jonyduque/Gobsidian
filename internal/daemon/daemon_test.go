@@ -70,7 +70,7 @@ func (nopWriteCloser) Close() error { return nil }
 func connectMCPClient(ctx context.Context, t *testing.T, vaultPath string) (*mcp.ClientSession, ipc.Conn) {
 	t.Helper()
 
-	conn, err := ipc.DialAndHandshake(ctx, vaultPath, false, boundedWait)
+	conn, err := ipc.DialAndHandshake(ctx, vaultPath, false, 0, boundedWait)
 	if err != nil {
 		t.Fatalf("DialAndHandshake: %v", err)
 	}
@@ -150,7 +150,7 @@ func TestDaemonNaoSaiComClienteConectado(t *testing.T) {
 	// A conexao fica aberta (handshake IPC completo, nenhuma chamada MCP
 	// feita) por mais que OciosidadeMax -- se "ativos" nao fosse conferido,
 	// o daemon sairia por ociosidade mesmo com um cliente pendurado.
-	conn, err := ipc.DialAndHandshake(context.Background(), vaultDir, false, boundedWait)
+	conn, err := ipc.DialAndHandshake(context.Background(), vaultDir, false, 0, boundedWait)
 	if err != nil {
 		t.Fatalf("DialAndHandshake: %v", err)
 	}
