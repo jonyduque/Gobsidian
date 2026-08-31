@@ -75,7 +75,15 @@ func Reduce(raw string) string {
 // Analyze tokeniza o texto de entrada extraindo sequências alfanuméricas,
 // aplicando normalização e redução conservadora com offsets exatos em bytes.
 func Analyze(text string) []Token {
-	var tokens []Token
+	// Pre-alocacao pelo tamanho do texto (achado P12).
+	//
+	// `var tokens []Token` fazia o slice crescer por realocacao: para um corpo
+	// de 35 KB sao ~12 dobras, cada uma copiando tudo o que ja havia. A media de
+	// bytes por token neste corpus fica perto de 8 — palavra curta mais o
+	// separador —, entao text/8 acerta a ordem de grandeza sem exagerar. Errar
+	// para menos so devolve o comportamento antigo a partir dali; errar para
+	// mais desperdicaria memoria numa funcao que roda sobre o cofre inteiro.
+	tokens := make([]Token, 0, len(text)/8+1)
 	start := -1
 	byteOffset := 0
 
@@ -92,7 +100,24 @@ func Analyze(text string) []Token {
 		}
 	}
 
-	for len(text[byteOffset:]) > 0 {
+	for byteOffset < len(text) {
+		// Caminho rapido ASCII (achado P12): utf8.DecodeRuneInString e
+		// unicode.IsLetter sao chamadas de funcao com tabela por tras, e a
+		// esmagadora maioria dos bytes de uma nota e ASCII. Um byte < 0x80 nao
+		// precisa de decodificacao nem de tabela.
+		if c := text[byteOffset]; c < utf8.RuneSelf {
+			if ehAlfanumericoASCII(c) {
+				if start < 0 {
+					start = byteOffset
+				}
+			} else if start >= 0 {
+				emit(start, byteOffset)
+				start = -1
+			}
+			byteOffset++
+			continue
+		}
+
 		r, size := utf8.DecodeRuneInString(text[byteOffset:])
 		if unicode.IsLetter(r) || unicode.IsDigit(r) {
 			if start < 0 {
@@ -112,4 +137,12 @@ func Analyze(text string) []Token {
 	}
 
 	return tokens
+}
+
+// ehAlfanumericoASCII e o predicado do caminho rapido. Ele TEM de concordar
+// com unicode.IsLetter/IsDigit para os bytes < 0x80, ou a tokenizacao passaria
+// a depender de o byte ser ASCII — dois resultados para a mesma pergunta.
+// TestAnalyzeCaminhoRapidoConcordaComOLento confere isso byte a byte.
+func ehAlfanumericoASCII(c byte) bool {
+	return c >= '0' && c <= '9' || c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z'
 }

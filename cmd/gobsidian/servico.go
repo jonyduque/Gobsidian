@@ -57,6 +57,28 @@ func construirServico(ctx context.Context, cfg config.Config, log *slog.Logger) 
 	// misturando boot do Go e handshake do MCP com o que o alvo cobre.
 	// Logar aqui torna a medicao reproduzivel e recorta exatamente o
 	// trecho que o requisito nomeia.
+	// A varredura de temporarios roda EM PARALELO com a carga do indice, e nao
+	// depois dela (achado P15).
+	//
+	// Ela percorre o cofre inteiro, e estava no caminho critico antes de montar
+	// watcher e servico — recuperacao de crash que nao e pre-requisito para
+	// responder o initialize. Numa partida simultanea de varias instancias eram
+	// N varreduras seriais disputando disco antes do primeiro byte.
+	//
+	// A garantia documentada em writer/atomic.go continua valendo: "o unico
+	// lugar sem escrita em voo e o boot". As duas metades do boot continuam
+	// antes de o servidor servir, e o join abaixo acontece antes de watcher.New
+	// — nada que escreva chegou a existir ainda.
+	type varreduraFeita struct {
+		res writer.SweepResult
+		err error
+	}
+	varredura := make(chan varreduraFeita, 1)
+	go func() {
+		r, err := writer.SweepStaleTempFiles(ctx, cfg.VaultPath)
+		varredura <- varreduraFeita{res: r, err: err}
+	}()
+
 	buildStart := time.Now()
 	idx, usouCache := carregarIndiceDoCache(ctx, v, cfg, log)
 	indexOrigin := "cache"
@@ -72,12 +94,15 @@ func construirServico(ctx context.Context, cfg config.Config, log *slog.Logger) 
 	}
 	indexMS := time.Since(buildStart).Milliseconds()
 
-	// Recuperacao de crash: um processo morto no meio de uma escrita nao
-	// roda defer, e deixa o temporario no cofre. Aqui e o unico lugar sem
-	// escrita em voo, entao e o unico lugar onde varrer o diretorio nao
-	// corre risco de apagar o temporario de outra escrita. Ver
+	// JOIN da varredura, antes de qualquer coisa que escreva.
+	//
+	// Recuperacao de crash: um processo morto no meio de uma escrita nao roda
+	// defer, e deixa o temporario no cofre. O boot e o unico momento sem
+	// escrita em voo, e por isso o unico em que varrer o diretorio nao corre
+	// risco de apagar o temporario de outra escrita. Ver
 	// writer.CleanStaleTempFiles.
-	if varr, err := writer.SweepStaleTempFiles(ctx, cfg.VaultPath); err != nil {
+	feita := <-varredura
+	if varr, err := feita.res, feita.err; err != nil {
 		log.Warn("varredura de temporarios interrompida", "err", err)
 	} else if varr.Removidos > 0 || varr.NaoRemovidos > 0 || varr.Inacessiveis > 0 {
 		// Os tres numeros, e nao so os removidos: "varri e nao achei nada" e

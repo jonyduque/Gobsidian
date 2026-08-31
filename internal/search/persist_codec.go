@@ -224,8 +224,6 @@ func escreveCache(
 	// existe para ser mapeada em modo leitura: um array varint com delta não é
 	// mapeável direto, mas quem só quer economia de disco nem olha para cá — o
 	// varint acima continua sendo o que a decodificação integral usa.
-	fixedSec := make([]byte, totPos*16)
-	var fixedCursor int
 
 	// O pathID passa a ser a POSIÇÃO no vetor ordenado, e não a ordem de
 	// descoberta. É o que faz "postings ordenadas por pathID" e "resultado
@@ -264,20 +262,9 @@ func escreveCache(
 	sort.Strings(termosOrd)
 
 	e.uvarint(uint64(len(termos)))
-	ids := make([]uint64, 0, 64)
-	for _, termo := range termosOrd {
-		docs := termos[termo]
-		e.str(termo)
-		e.uvarint(uint64(len(docs)))
-
-		ids = ids[:0]
-		for path := range docs {
-			ids = append(ids, idPorCaminho[path])
-		}
-		sort.Slice(ids, func(i, j int) bool { return ids[i] < ids[j] })
-
-		for _, id := range ids {
-			pos := docs[caminhos[id]]
+	paraCadaPosting(termos, termosOrd, caminhos, idPorCaminho,
+		func(termo string, nDocs int) { e.str(termo); e.uvarint(uint64(nDocs)) },
+		func(id uint64, pos []TokenPosition) {
 			e.uvarint(id)
 			e.uvarint(uint64(len(pos)))
 			// Delta contra o Start anterior. Posições de um mesmo termo numa
@@ -290,13 +277,8 @@ func escreveCache(
 				e.varint(p.Start - anterior)
 				e.varint(p.End - p.Start)
 				anterior = p.Start
-
-				binary.LittleEndian.PutUint64(fixedSec[fixedCursor:], uint64(p.Start))
-				binary.LittleEndian.PutUint64(fixedSec[fixedCursor+8:], uint64(p.End))
-				fixedCursor += 16
 			}
-		}
-	}
+		})
 
 	// Alinhamento de 8 bytes ANTES da seção fixa. A leitura mapeada
 	// reinterpreta esses bytes como []TokenPosition via unsafe.Slice, e isso
@@ -307,7 +289,39 @@ func escreveCache(
 		e.raw([]byte{0})
 	}
 	posArrayOffset := e.n
-	e.raw(fixedSec)
+
+	// SEGUNDA PASSADA, em blocos — e nao um buffer do tamanho da secao.
+	//
+	// Ate 2026-08-28 esta secao era montada num `make([]byte, totPos*16)` dentro
+	// do laco acima: no cofre de referencia sao ~18,2 milhoes de posicoes,
+	// 291 MB vivos na heap durante CADA salvamento, ao lado do indice — e
+	// justamente no regime em que a arena mapeada existe para economizar RAM
+	// (achado P7). Os salvamentos periodicos da construcao em segundo plano
+	// repetem o pico a cada 60 s.
+	//
+	// A ORDEM das duas passadas tem de ser identica, byte a byte, ou o array
+	// mapeado passa a apontar para a posicao de outro termo — sem erro nenhum.
+	// Por isso ela mora em paraCadaPosting e nao esta duplicada aqui: e a mesma
+	// disciplina de "uma conta por regra" que o comentario original invocava
+	// para justificar manter tudo num laco so.
+	bloco := make([]byte, 0, 8*1024)
+	paraCadaPosting(termos, termosOrd, caminhos, idPorCaminho,
+		func(string, int) {},
+		func(_ uint64, pos []TokenPosition) {
+			for _, p := range pos {
+				var b [16]byte
+				binary.LittleEndian.PutUint64(b[0:], uint64(p.Start))
+				binary.LittleEndian.PutUint64(b[8:], uint64(p.End))
+				bloco = append(bloco, b[:]...)
+				if len(bloco) >= cap(bloco) {
+					e.raw(bloco)
+					bloco = bloco[:0]
+				}
+			}
+		})
+	if len(bloco) > 0 {
+		e.raw(bloco)
+	}
 
 	// Rodapé fixo, sempre nos ÚLTIMOS 24 bytes do arquivo — ver footerBytes.
 	var rodape [footerBytes]byte
@@ -600,4 +614,40 @@ func decodificaCache(dados []byte, arena []TokenPosition) (CacheHeader, *baseSoA
 	b.montaIndiceDireto()
 
 	return h, b, nil
+}
+
+// paraCadaPosting percorre as postings na ORDEM CANONICA do formato.
+//
+// E a UNICA conta dessa ordem, e as duas passadas de escritaCache a chamam: a
+// que grava os deltas varint e a que grava a secao fixa mapeavel. As duas
+// precisam produzir exatamente a mesma sequencia — o array mapeado e indexado
+// pelos offsets que a primeira gravou, e uma divergencia faria Positions
+// devolver a posicao de outro termo, sem erro nenhum.
+//
+// Antes as duas viviam num laco so, o que garantia a mesma ordem ao preco de
+// materializar a secao fixa inteira em RAM. Extrair a ordem preserva a garantia
+// e devolve o streaming.
+func paraCadaPosting(
+	termos map[string]map[string][]TokenPosition,
+	termosOrd []string,
+	caminhos []string,
+	idPorCaminho map[string]uint64,
+	aoTermo func(termo string, nDocs int),
+	aoPosting func(id uint64, pos []TokenPosition),
+) {
+	ids := make([]uint64, 0, 64)
+	for _, termo := range termosOrd {
+		docs := termos[termo]
+		aoTermo(termo, len(docs))
+
+		ids = ids[:0]
+		for path := range docs {
+			ids = append(ids, idPorCaminho[path])
+		}
+		sort.Slice(ids, func(i, j int) bool { return ids[i] < ids[j] })
+
+		for _, id := range ids {
+			aoPosting(id, docs[caminhos[id]])
+		}
+	}
 }

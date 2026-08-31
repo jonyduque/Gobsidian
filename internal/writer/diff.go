@@ -197,7 +197,17 @@ func UnifiedDiff(aName, bName, aText, bText string, contextLines int) string {
 	fmt.Fprintf(&sb, "+++ %s\n", bName)
 
 	for _, h := range hunks {
-		fmt.Fprintf(&sb, "@@ -%d,%d +%d,%d @@\n", h.aStart, h.aLen, h.bStart, h.bLen)
+		// Comprimento ZERO exige inicio ZERO — nao o numero da linha seguinte.
+		//
+		// O formato unified define, para um lado de comprimento 0, que o inicio
+		// e a linha ANTES do ponto de insercao. Numa insercao em arquivo vazio
+		// isso da "@@ -0,0 +1,1 @@"; ate 2026-08-28 saia "@@ -1,0 +1,1 @@"
+		// (achado B8), que o GNU patch recusa como cabecalho invalido. O diff
+		// era legivel na tela e nao aplicavel — e dry_run existe justamente para
+		// o cliente poder aplicar ou revisar o que viu.
+		fmt.Fprintf(&sb, "@@ -%d,%d +%d,%d @@\n",
+			inicioDeHunk(h.aStart, h.aLen), h.aLen,
+			inicioDeHunk(h.bStart, h.bLen), h.bLen)
 		for _, line := range h.lines {
 			sb.WriteString(line)
 			sb.WriteString("\n")
@@ -299,4 +309,16 @@ func buildHunks(edits []Edit, contextLines int) []hunk {
 	}
 
 	return hunks
+}
+
+// inicioDeHunk devolve o numero de linha que o cabecalho de hunk deve trazer.
+//
+// Uma conta so para os dois lados do "@@": lado com comprimento zero comeca em
+// zero, os demais na propria linha. Duplicar a regra nos dois argumentos do
+// Fprintf e como o achado B8 poderia voltar pela metade.
+func inicioDeHunk(inicio, comprimento int) int {
+	if comprimento == 0 {
+		return inicio - 1
+	}
+	return inicio
 }

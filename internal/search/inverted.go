@@ -246,7 +246,29 @@ func (ix *Inverted) Postings(term string) []Posting {
 				if ix.sombra[path] {
 					continue
 				}
+				// COPIA quando a arena esta mapeada; janela direta quando nao
+				// esta (achado B2).
+				//
+				// posicoesDaPosting devolve uma fatia PARA DENTRO da arena
+				// mapeada, e quem chama itera essa fatia depois de soltar o
+				// RLock. promoverArenaSePresente copia a arena para a heap e
+				// DESMAPEIA — o Unmap acontece fora do lock, de proposito, para
+				// nao segura-lo durante uma syscall. Um leitor que ainda
+				// segurasse a janela antiga passaria a ler memoria desmapeada:
+				// falha de protecao de pagina, nao dado errado — o processo
+				// morre sem log.
+				//
+				// Hoje isso e barrado so pelo gate Building(), que impede busca
+				// enquanto a construcao roda. E uma dependencia entre dois
+				// arquivos que nada testava, e invariante que nao se testa nao
+				// dura. A copia custa uma alocacao por posting, e SO no ramo
+				// mapeado — o ramo sem arena continua devolvendo a janela.
 				pos := ix.base.posicoesDaPosting(j)
+				if ix.base.arenaFechar != nil {
+					copia := make([]TokenPosition, len(pos))
+					copy(copia, pos)
+					pos = copia
+				}
 				doBase = append(doBase, Posting{
 					Path:      path,
 					Positions: pos,

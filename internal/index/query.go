@@ -1,6 +1,7 @@
 package index
 
 import (
+	"cmp"
 	"path"
 	"path/filepath"
 	"reflect"
@@ -193,6 +194,36 @@ func (ix *Index) Tags(prefix string, minCount int) []TagCount {
 // List aplica a consulta e devolve as notas junto do total ANTES do limite —
 // sem esse total o cliente nao sabe que existe mais do que ele recebeu.
 func (ix *Index) List(q Query) ([]*Note, int) {
+	// O LOCK cobre so a coleta. A ordenacao e a paginacao rodam fora dele.
+	//
+	// Ate 2026-08-28 o RLock ia da primeira linha ao return, entao o sort — que
+	// e O(n log n) e o trecho mais caro da funcao — rodava com o indice travado
+	// para escrita, prolongando a retencao contra o watcher (achado P4).
+	//
+	// E seguro porque os `*Note` sao publicados por COPIA: um ponteiro obtido
+	// sob o RLock continua apontando para uma nota coerente depois de solta-lo,
+	// e e a mesma garantia de que service.Search ja depende ao ler note.Path
+	// fora do lock.
+	notes := ix.coletarLocked(q)
+
+	sortAndPaginate(notes, q)
+	total := len(notes)
+	if q.Offset > 0 {
+		if q.Offset >= len(notes) {
+			notes = nil
+		} else {
+			notes = notes[q.Offset:]
+		}
+	}
+	if q.Limit > 0 && len(notes) > q.Limit {
+		notes = notes[:q.Limit]
+	}
+	return notes, total
+}
+
+// coletarLocked reune os candidatos que passam pelos filtros. Toma o RLock e o
+// solta ao devolver: nada aqui ordena nem pagina.
+func (ix *Index) coletarLocked(q Query) []*Note {
 	ix.mu.RLock()
 	defer ix.mu.RUnlock()
 
@@ -353,29 +384,38 @@ func (ix *Index) List(q Query) ([]*Note, int) {
 	for _, c := range candidates {
 		notes = append(notes, ix.notes[c])
 	}
+	return notes
+}
 
-	// Sort
+// sortAndPaginate ordena a lista fora do lock do indice.
+func sortAndPaginate(notes []*Note, q Query) {
 	if q.Sort != "" {
 		order := strings.ToLower(q.Order)
+		// ICADO do comparador (achado P4). `q.Order` ja estava fora; `q.Sort`
+		// nao, e ToLower alocava e percorria a string uma vez por COMPARACAO —
+		// O(n log n) vezes por consulta, sempre com o mesmo resultado.
+		criterio := strings.ToLower(q.Sort)
 		slices.SortStableFunc(notes, func(a, b *Note) int {
-			cmp := 0
-			switch strings.ToLower(q.Sort) {
+			ordem := 0
+			switch criterio {
 			case "title":
-				cmp = strings.Compare(a.Title, b.Title)
+				ordem = strings.Compare(a.Title, b.Title)
 			case "path":
-				cmp = strings.Compare(string(a.Path), string(b.Path))
+				ordem = strings.Compare(string(a.Path), string(b.Path))
 			case "modified":
-				cmp = a.ModTime.Compare(b.ModTime)
+				ordem = a.ModTime.Compare(b.ModTime)
 			case "size":
-				cmp = int(a.Size - b.Size)
+				// cmp.Compare, e nao int(a.Size-b.Size): a subtracao transborda
+				// em build 32-bit e devolve a ordem invertida em silencio.
+				ordem = cmp.Compare(a.Size, b.Size)
 			}
-			if cmp == 0 {
-				cmp = strings.Compare(string(a.Path), string(b.Path))
+			if ordem == 0 {
+				ordem = strings.Compare(string(a.Path), string(b.Path))
 			}
 			if order == "desc" {
-				return -cmp
+				return -ordem
 			}
-			return cmp
+			return ordem
 		})
 	} else {
 		slices.SortStableFunc(notes, func(a, b *Note) int {
@@ -383,19 +423,4 @@ func (ix *Index) List(q Query) ([]*Note, int) {
 		})
 	}
 
-	total := len(notes)
-
-	// Pagination
-	if q.Offset > 0 {
-		if q.Offset >= len(notes) {
-			notes = nil
-		} else {
-			notes = notes[q.Offset:]
-		}
-	}
-	if q.Limit > 0 && len(notes) > q.Limit {
-		notes = notes[:q.Limit]
-	}
-
-	return notes, total
 }
