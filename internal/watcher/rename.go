@@ -26,8 +26,16 @@ func CorrelateRenames(ctx context.Context, batch []vault.CanonicalPath, v *vault
 	type addedInfo struct {
 		path vault.CanonicalPath
 		abs  string
+		size int64
 	}
 	var addedCandidates []addedInfo
+
+	// tamanhosAusentes guarda os tamanhos das notas removidas. Rename preserva
+	// o conteudo, logo preserva o tamanho: candidata com tamanho que nao casa
+	// nenhuma remocao NAO PODE ser o outro lado de um rename, e ler o arquivo
+	// dela e I/O jogado fora (achado P9). Num lote grande com uma remocao so,
+	// isso era o cofre inteiro do lote lido para nada.
+	tamanhosAusentes := make(map[int64]struct{})
 
 	// 1. Laço único sobre o batch para classificar ausentes (do índice) e novos (do disco)
 	for _, p := range batch {
@@ -38,6 +46,7 @@ func CorrelateRenames(ctx context.Context, batch []vault.CanonicalPath, v *vault
 				n, ok := idx.Get(p)
 				if ok && n.Hash != 0 && n.Size > 0 {
 					missingHashes[n.Hash] = append(missingHashes[n.Hash], p)
+					tamanhosAusentes[n.Size] = struct{}{}
 				}
 			}
 			continue
@@ -48,7 +57,7 @@ func CorrelateRenames(ctx context.Context, batch []vault.CanonicalPath, v *vault
 		}
 
 		if vault.Classify(p) == vault.ClassNote && !vault.IsCloudOnly(abs) {
-			addedCandidates = append(addedCandidates, addedInfo{path: p, abs: abs})
+			addedCandidates = append(addedCandidates, addedInfo{path: p, abs: abs, size: info.Size()})
 		}
 	}
 
@@ -60,6 +69,12 @@ func CorrelateRenames(ctx context.Context, batch []vault.CanonicalPath, v *vault
 	// 2. Ler conteúdo apenas das notas adicionadas elegíveis quando há remoções
 	addedHashes := make(map[uint64][]vault.CanonicalPath)
 	for _, cand := range addedCandidates {
+		// O pre-filtro por tamanho e exato, nao heuristico: hashes iguais
+		// exigem bytes iguais, que exigem tamanho igual. Descartar aqui nunca
+		// perde um rename de verdade.
+		if _, possivel := tamanhosAusentes[cand.size]; !possivel {
+			continue
+		}
 		data, rErr := v.ReadAll(ctx, cand.path)
 		if rErr == nil && len(data) > 0 {
 			h := xxhash.Sum64(data)

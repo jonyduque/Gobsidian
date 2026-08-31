@@ -43,8 +43,18 @@ const (
 // filter verifica se o evento do fsnotify e relevante.
 // Retorna um evento de dominio, um booleano indicando se deve ser emitido, e o motivo do descarte caso contrario.
 func filter(e fsnotify.Event, root string, log *slog.Logger) (Event, bool, DropReason) {
-	if e.Op&fsnotify.Chmod == fsnotify.Chmod {
-		// Ignora mudanca de permissao que e muito comum e irrelevante para conteudo.
+	// Chmod SOZINHO e irrelevante para conteudo e muito comum. Chmod
+	// ACOMPANHADO de Write ou Create nao e: o evento traz uma mudanca de
+	// conteudo junto.
+	//
+	// Ate 2026-08-28 o teste era `e.Op&Chmod == Chmod`, que e verdadeiro para
+	// qualquer mascara QUE CONTENHA Chmod — entao um `Write|Chmod` era
+	// descartado inteiro e a nota so voltava ao indice no proximo boot (achado
+	// M11). No Windows o backend raramente compoe mascaras, o que conteve o
+	// dano; em kqueue (macOS, BSD) compor e o padrao, e linux/darwin sao alvos
+	// declarados que nao tem reconciliacao por overflow — la nao ha rede de
+	// seguranca nenhuma.
+	if e.Op == fsnotify.Chmod {
 		return Event{}, false, DropChmod
 	}
 
