@@ -363,7 +363,11 @@ func (s *Service) PatchNote(_ context.Context, req PatchNoteRequest) (PatchNoteR
 		proposed = writer.PatchSectionContent(raw, *h, req.Content)
 
 	default:
-		return PatchNoteResult{}, Errorf(CodeInternal, "modo de patch %q invalido", req.Mode)
+		// INVALID_ARGUMENT, e nao INTERNAL: o modo veio do cliente, e INTERNAL
+		// diz a ele que o servidor quebrou — o que faz o host tentar de novo
+		// em vez de corrigir o pedido (achado B4).
+		return PatchNoteResult{}, Errorf(CodeInvalidArgument,
+			"mode = %q invalido; aceitos: replace_heading_and_section, append_to_heading, replace_block, append_to_note", req.Mode)
 	}
 
 	if req.DryRun {

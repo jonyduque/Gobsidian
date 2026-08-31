@@ -26,15 +26,14 @@ func newTestService(t *testing.T, root string) *Service {
 		t.Fatalf("vault.New(%q): %v", root, err)
 	}
 
-	// How to build an index for tests? We should probably just use index.Build
 	ix := index.New()
 	err = ix.Build(context.Background(), v)
 	if err != nil {
 		t.Fatalf("index.Build: %v", err)
 	}
 
-	// I need to use the interface Index if we didn't add the methods to Index yet.
-	// We'll update the Index interface in service.go.
+	// inverted e watcher nil: os testes de leitura não tocam busca nem estatística
+	// de watcher, e injetar dublês aqui esconderia um uso acidental deles.
 	return New(v, ix, nil, nil, Options{})
 }
 

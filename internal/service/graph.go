@@ -95,17 +95,14 @@ func (s *Service) LinkGraph(_ context.Context, req GraphRequest) (GraphResult, e
 		depth = 3
 	}
 
-	limit := req.Limit
-	if limit <= 0 {
-		limit = 100
-	}
-	if limit > 500 {
-		limit = 500
-	}
+	// Mesma conta de teto que note_list. Estava inline aqui, com os números
+	// mágicos repetidos, enquanto note_list não clampava nada — os dois
+	// declaram `"maximum": 500` no schema (achado B4).
+	limit := ComTeto(req.Limit)
 
-	direction := req.Direction
-	if direction == "" {
-		direction = "both"
+	direction, err := ValidarEnum("direction", req.Direction, "both", "both", "outgoing", "incoming")
+	if err != nil {
+		return GraphResult{}, err
 	}
 
 	startPath, err := s.index.ResolvePath(req.Path)
@@ -305,6 +302,12 @@ func (s *Service) TagList(_ context.Context, req TagRequest) (TagResult, error) 
 	if s.index == nil {
 		return TagResult{}, fmt.Errorf("index not available")
 	}
+	sortTags, err := ValidarEnum("sort", req.Sort, "name", "name", "count")
+	if err != nil {
+		return TagResult{}, err
+	}
+	req.Sort = sortTags
+
 	if req.Hierarchical {
 		return s.tagListHierarchical(req), nil
 	}
@@ -452,7 +455,23 @@ func (s *Service) ListNotes(_ context.Context, req ListRequest) (ListResult, err
 		return ListResult{}, fmt.Errorf("index not available")
 	}
 
-	notes, total := s.index.List(req.Query)
+	// O teto e os enums são conferidos AQUI, e não no boundary MCP, porque o
+	// CLI (`gobsidian index`, `search`) chega pelo mesmo caminho. Validar só na
+	// borda deixaria a segunda porta sem guarda (achado B4).
+	q := req.Query
+	q.Limit = ComTeto(q.Limit)
+	var err error
+	if q.TagMode, err = ValidarEnum("tag_mode", q.TagMode, "all", "all", "any"); err != nil {
+		return ListResult{}, err
+	}
+	if q.Sort, err = ValidarEnum("sort", q.Sort, "path", "path", "modified", "size", "title"); err != nil {
+		return ListResult{}, err
+	}
+	if q.Order, err = ValidarEnum("order", q.Order, "asc", "asc", "desc"); err != nil {
+		return ListResult{}, err
+	}
+
+	notes, total := s.index.List(q)
 
 	items := make([]ListItem, 0, len(notes))
 	for _, n := range notes {

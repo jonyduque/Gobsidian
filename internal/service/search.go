@@ -100,6 +100,15 @@ type SearchResult struct {
 	Truncated           bool        `json:"truncated"`
 	SnippetCharsEfetivo int         `json:"effective_snippet_chars"`
 	LimitEfetivo        int         `json:"effective_limit"`
+	// TrechosIndisponiveis conta os resultados desta página cujo corpo não
+	// pôde ser lido para montar o trecho — nota travada por outro processo,
+	// cofre desmontado no meio da resposta.
+	//
+	// O resultado CONTINUA na página, com trecho vazio: uma nota ilegível não
+	// pode apagar as outras 199. Mas zero e "não consegui ler três delas" não
+	// podem sair iguais (achado B3), e sem este campo saíam — o chamador
+	// escrevia `snip, _ :=` e a falha desaparecia.
+	TrechosIndisponiveis int `json:"unavailable_snippets,omitempty"`
 }
 
 // Search executa a busca full-text com ranking BM25 e filtros de metadados.
@@ -258,6 +267,10 @@ func (s *Service) Search(ctx context.Context, opts SearchOptions) (SearchResult,
 	slots := make([]struct {
 		hit SearchHit
 		ok  bool
+		// semTrecho marca o resultado cujo corpo nao pode ser lido. E por slot,
+		// e nao um contador compartilhado, porque montaSlot roda em varias
+		// goroutines — um contador simples aqui seria corrida de dados.
+		semTrecho bool
 	}, len(pagedHits))
 
 	// montaSlot é o ÚNICO lugar que constrói um SearchHit. O caminho sequencial
@@ -274,7 +287,12 @@ func (s *Service) Search(ctx context.Context, opts SearchOptions) (SearchResult,
 		// mesmo que a nota tenha saído do mapa no instante seguinte. O
 		// resultado é de um instante ligeiramente anterior — que é o que
 		// qualquer busca devolve, com ou sem o segundo Get.
-		snip, _ := search.GenerateSnippet(ctx, s.vault, s.inverted, idxImpl, h.Path, termosDoTrecho, opts.SnippetChars, s.trechos)
+		snip, errTrecho := search.GenerateSnippet(ctx, s.vault, s.inverted, idxImpl, h.Path, termosDoTrecho, opts.SnippetChars, s.trechos)
+		if errTrecho != nil {
+			// A nota fica na pagina, com trecho vazio: uma nota travada nao
+			// pode apagar as outras 199. Mas a falha e CONTADA (achado B3).
+			slots[i].semTrecho = true
+		}
 		var matchedHeadings []string
 		if snip.MatchedHeading != "" {
 			matchedHeadings = append(matchedHeadings, snip.MatchedHeading)
@@ -324,19 +342,24 @@ func (s *Service) Search(ctx context.Context, opts SearchOptions) (SearchResult,
 	}
 
 	results := make([]SearchHit, 0, len(slots))
+	semTrecho := 0
 	for _, sl := range slots {
+		if sl.semTrecho {
+			semTrecho++
+		}
 		if sl.ok {
 			results = append(results, sl.hit)
 		}
 	}
 
 	return SearchResult{
-		Hits:                results,
-		Results:             results,
-		Total:               total,
-		Truncated:           truncated,
-		SnippetCharsEfetivo: opts.SnippetChars,
-		LimitEfetivo:        opts.Limit,
+		Hits:                 results,
+		Results:              results,
+		Total:                total,
+		Truncated:            truncated,
+		SnippetCharsEfetivo:  opts.SnippetChars,
+		LimitEfetivo:         opts.Limit,
+		TrechosIndisponiveis: semTrecho,
 	}, nil
 }
 

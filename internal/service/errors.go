@@ -6,6 +6,7 @@ package service
 import (
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/jonyd/gobsidian/internal/index"
@@ -125,4 +126,50 @@ func ErroDeResolucao(entrada string, err error) error {
 	default:
 		return Errorf(CodeNoteNotFound, "nota %q nao encontrada no indice", entrada)
 	}
+}
+
+// LimitePadrao e LimiteTeto são os valores que `docs/TOOLS.md` publica para as
+// tools de lista. Ficam aqui, e não repetidos em cada tool, porque o teto
+// declarado no schema e o teto aplicado no código têm de ser o mesmo número —
+// o achado B4 era exatamente os dois divergindo: `note_list` declarava
+// `"maximum": 500` e nunca clampava.
+const (
+	LimitePadrao = 100
+	LimiteTeto   = 500
+)
+
+// ComTeto aplica o padrão e o teto de um `limit`.
+//
+// É a ÚNICA conta desse clamp. `link_graph` fazia o dele inline com números
+// mágicos e `note_list` não fazia nenhum, apesar de os dois declararem o mesmo
+// `"maximum": 500` no schema. Schema que promete um teto e código que não o
+// aplica é a mesma classe do achado M4: o cliente lê o schema para decidir.
+func ComTeto(pedido int) int {
+	if pedido <= 0 {
+		return LimitePadrao
+	}
+	if pedido > LimiteTeto {
+		return LimiteTeto
+	}
+	return pedido
+}
+
+// ValidarEnum confere um parâmetro de conjunto fechado.
+//
+// Vazio significa "não informado" e devolve o padrão — é assim que o CLI e o
+// boundary MCP chegam aqui quando o campo foi omitido. Valor FORA do conjunto
+// é erro, e não silêncio: até 2026-08-28 `tag_mode`, `sort`, `order` e
+// `direction` caíam num `default` do switch e o pedido virava outra coisa sem
+// aviso (achado B4). O modelo do outro lado lê o enum do schema para decidir o
+// que pedir; se um valor inválido responde como se fosse válido, ele não tem
+// como saber que o pedido não fez o que dizia.
+func ValidarEnum(campo, valor, padrao string, aceitos ...string) (string, error) {
+	if valor == "" {
+		return padrao, nil
+	}
+	if slices.Contains(aceitos, valor) {
+		return valor, nil
+	}
+	return "", Errorf(CodeInvalidArgument, "%s = %q invalido; aceitos: %s",
+		campo, valor, strings.Join(aceitos, ", "))
 }

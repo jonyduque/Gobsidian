@@ -169,7 +169,13 @@ func backlinkDe(de *Note, l ResolvedLink) Backlink {
 
 // normalizeTitleForNote produz o campo TitleNorm de uma Note. Única função
 // que o calcula; todas as construções de Note chamam ela.
+//
+// Havia aqui um `_ = text.Normalize("")` com o comentário "garante que text é
+// usado; mutação deve remover text.Normalize" — um andaime de prova de mutação
+// rodando EM PRODUÇÃO, uma vez por nota (achado B10). Uma mutação que deixa o
+// import órfão se resolve na MUTAÇÃO, mantendo o pacote vivo do outro lado
+// (`_ = text.Normalize` na própria substituição), e não deixando trabalho morto
+// no caminho quente do índice.
 func normalizeTitleForNote(title string) string {
-	_ = text.Normalize("") // Garante que text é usado; mutação deve remover text.Normalize
 	return text.Normalize(title)
 }

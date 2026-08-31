@@ -473,8 +473,8 @@ não fazer sem ele. Detalhe no plano, Fase 2.4.
   leitor recusar TODO save novo, rebuild a cada boot, sem log. CONFIRMADO.
 - **B12** `resolveAllLinks` muta Note publicada fora de `mutarNotaLocked`; seguro hoje
   por ordem de chamadas, não por construção (`resolve.go:59-69`). CONFIRMADO.
-- **B13** `index/assets.go` é um arquivo-inteiro-comentário; package doc já vive em
-  `alias.go`. CONFIRMADO.
+- **B13** `index/assets.go` é um arquivo-inteiro-comentário; package doc já vive em <!-- check-doc-refs: ignore index/assets.go -- FECHADO em 2026-08-28: o arquivo foi apagado, e e por isso que a referencia nao resolve -->
+  `alias.go`. **FECHADO em 2026-08-28** — apagado.
 - **B14** Comentário de `parser/types.go:103-108` afirma que offsets de link Markdown
   ficam em `offsetUnknown`; código e teste dizem o contrário
   (`ast.go:45-58`, `markdown_link_test.go:71-82`). CONFIRMADO.
@@ -906,7 +906,7 @@ ou tira do schema e do TOOLS.md** — nunca deixar prometido e ignorado.
    diferente em `mutate.ps1`), os comentários-pergunta de `read_test.go:29-37` e
    reescrever as narrativas datadas como justificativas presentes.
 10. **B11**: uma constante exportada (`IndexCacheFormatVersion`) consumida pelo codec.
-11. **B13**: apagar `assets.go`.
+11. **B13**: apagar `assets.go`. **FEITO em 2026-08-28.** <!-- check-doc-refs: ignore assets.go -- arquivo apagado; a referencia e historica -->
 12. **B16**: `MoveNote` devolve `(bool moved, error)`; caller deixa de contar às cegas;
     exigir `*vault.Vault` não-nil (remover ramo `v==nil`).
 13. **B18**: decisão do dono sobre a redação da regra; atualizar AGENTS.md/CLAUDE.md

@@ -180,8 +180,20 @@ func GenerateSnippet(ctx context.Context, v *vault.Vault, ix *Inverted, idx *ind
 		data, readErr := v.ReadAll(ctx, cPath)
 		if readErr != nil {
 			// Falha de leitura é transitória — cofre desmontado, arquivo em uso.
-			// Guardar o vazio aqui congelaria a falha até a nota mudar de hash.
-			return Snippet{}, nil
+			// Guardar o vazio aqui congelaria a falha até a nota mudar de hash,
+			// então NÃO entra no cache.
+			//
+			// O erro é DEVOLVIDO, e não engolido (achado B3). Até 2026-08-28
+			// todos os ramos desta função devolviam nil e o chamador escrevia
+			// `snip, _ :=`: uma nota ilegível produzia trecho vazio,
+			// indistinguível de "o termo não aparece no corpo". "Cofre
+			// inacessível e cofre vazio não podem dar a mesma resposta" é regra
+			// desta base, e ela vale para uma nota também.
+			//
+			// Quem chama NÃO deve derrubar a página por causa disto: uma nota
+			// travada pelo Obsidian não pode apagar as outras 199. Ver
+			// Service.Search, que conta as falhas e as publica.
+			return Snippet{}, readErr
 		}
 		buf = data
 		winStart = 0
