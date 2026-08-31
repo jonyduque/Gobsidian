@@ -2,6 +2,7 @@ package writer_test
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"os"
 	"path/filepath"
@@ -47,7 +48,7 @@ func TestPatchSectionUnderBOMAndCRLFWritesTheRightBytes(t *testing.T) {
 	novoContent := "conteudo novo\r\n"
 	patched := writer.PatchSectionContent(rawDisk, *h, novoContent)
 
-	if err := writer.WriteAtomic(alvo, patched); err != nil {
+	if err := writer.WriteAtomic(context.Background(), alvo, patched); err != nil {
 		t.Fatalf("WriteAtomic falhou: %v", err)
 	}
 
@@ -100,7 +101,7 @@ func TestPatchSection_WithoutBOM_LF(t *testing.T) {
 	}
 
 	patched := writer.PatchSectionContent(rawDisk, *h, "conteudo novo\n")
-	_ = writer.WriteAtomic(alvo, patched)
+	_ = writer.WriteAtomic(context.Background(), alvo, patched)
 
 	depois, _ := os.ReadFile(alvo)
 	s := string(depois)
@@ -143,7 +144,7 @@ func TestAppendSection_NoteEndAndHeadingEnd(t *testing.T) {
 
 	// 1. Append no final da nota
 	appendedEnd := writer.AppendSectionContent(rawDisk, nil, "linha2")
-	_ = writer.WriteAtomic(alvo, appendedEnd)
+	_ = writer.WriteAtomic(context.Background(), alvo, appendedEnd)
 
 	depois1, _ := os.ReadFile(alvo)
 	s1 := string(depois1)
@@ -154,7 +155,7 @@ func TestAppendSection_NoteEndAndHeadingEnd(t *testing.T) {
 	// 2. Append no final da secao Secao1
 	h, _ := writer.FindHeading(note.Headings, "Secao1")
 	appendedSec := writer.AppendSectionContent(rawDisk, h, "linha_anexada_na_secao")
-	_ = writer.WriteAtomic(alvo, appendedSec)
+	_ = writer.WriteAtomic(context.Background(), alvo, appendedSec)
 
 	depois2, _ := os.ReadFile(alvo)
 	s2 := string(depois2)

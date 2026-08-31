@@ -65,19 +65,42 @@ func chavesDaNota(n *Note) []string {
 	return chaves
 }
 
+// resolveAllLinks resolve os links de TODAS as notas.
+//
+// Escreve por CÓPIA, via mutarNotaLocked, e não no lugar.
+//
+// Até 2026-08-28 ela mutava `n.Links[i]` direto na Note já publicada no mapa
+// (achado B12). Sob o lock de escrita, o que é seguro contra outra escrita — mas
+// não contra LEITURA: `idx.Get` devolve o ponteiro sob RLock e quem chamou lê os
+// campos depois de soltar o lock. É exatamente a corrida que o detector já
+// apontou uma vez em `MoveNote`, e que a disciplina de cópia existe para evitar.
+//
+// Era "seguro por ORDEM DE CHAMADAS, não por construção": os dois chamadores —
+// `Build` e `LoadIndexCache` — rodam antes de o índice ser visível a qualquer
+// consulta. Invariante que depende de ninguém mudar a ordem de chamada não
+// sobrevive à próxima pessoa; agora ela não é mais necessária.
 func (ix *Index) resolveAllLinks() {
 	ix.mu.Lock()
 	defer ix.mu.Unlock()
 
-	for _, n := range ix.notes {
-		for i := range n.Links {
-			resolved, via, state := ix.resolveTarget(n.Links[i].Target, n.Path)
-			n.Links[i].Resolved = resolved
-			n.Links[i].Via = via
-			n.Links[i].State = state
+	for path, atual := range ix.notes {
+		// Nota sem link nenhum nao precisa de copia: nada seria escrito nela.
+		if len(atual.Links) == 0 {
+			continue
+		}
+		// Uma cópia por nota, no máximo: mutarNotaLocked devolve a mesma
+		// enquanto o acumulador não for nil.
+		var copia *Note
+		alvo := ix.mutarNotaLocked(path, &copia)
+
+		for i := range alvo.Links {
+			resolved, via, state := ix.resolveTarget(alvo.Links[i].Target, alvo.Path)
+			alvo.Links[i].Resolved = resolved
+			alvo.Links[i].Via = via
+			alvo.Links[i].State = state
 
 			if state == LinkOK {
-				ix.resolveAnchor(&n.Links[i])
+				ix.resolveAnchor(&alvo.Links[i])
 			}
 		}
 	}

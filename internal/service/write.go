@@ -98,7 +98,7 @@ func (s *Service) checkWritable() error {
 }
 
 // CreateNote cria uma nova nota no cofre. Falha se a nota ja existir.
-func (s *Service) CreateNote(_ context.Context, req CreateNoteRequest) (CreateNoteResult, error) {
+func (s *Service) CreateNote(ctx context.Context, req CreateNoteRequest) (CreateNoteResult, error) {
 	if err := s.checkWritable(); err != nil {
 		return CreateNoteResult{}, err
 	}
@@ -146,7 +146,7 @@ func (s *Service) CreateNote(_ context.Context, req CreateNoteRequest) (CreateNo
 		return CreateNoteResult{Path: req.Path, Diff: diff, Created: false, Hash: hashDoConteudo([]byte(fullContent))}, nil
 	}
 
-	if err := writer.WriteAtomic(absPath, []byte(fullContent)); err != nil {
+	if err := writer.WriteAtomic(ctx, absPath, []byte(fullContent)); err != nil {
 		return CreateNoteResult{}, Errorf(CodeInternal, "escrevendo nota %q: %v", req.Path, err)
 	}
 
@@ -154,7 +154,7 @@ func (s *Service) CreateNote(_ context.Context, req CreateNoteRequest) (CreateNo
 }
 
 // AppendNote anexa conteudo a uma nota ou secao existente.
-func (s *Service) AppendNote(_ context.Context, req AppendNoteRequest) (AppendNoteResult, error) {
+func (s *Service) AppendNote(ctx context.Context, req AppendNoteRequest) (AppendNoteResult, error) {
 	if err := s.checkWritable(); err != nil {
 		return AppendNoteResult{}, err
 	}
@@ -245,7 +245,7 @@ func (s *Service) AppendNote(_ context.Context, req AppendNoteRequest) (AppendNo
 		return AppendNoteResult{Path: req.Path, Diff: diff, Appended: false, Hash: hashDoConteudo(proposed)}, nil
 	}
 
-	if err := writer.WriteAtomic(absPath, proposed); err != nil {
+	if err := writer.WriteAtomic(ctx, absPath, proposed); err != nil {
 		return AppendNoteResult{}, Errorf(CodeInternal, "escrevendo nota %q: %v", req.Path, err)
 	}
 
@@ -253,7 +253,7 @@ func (s *Service) AppendNote(_ context.Context, req AppendNoteRequest) (AppendNo
 }
 
 // PatchNote substitui uma secao, cabeçalho ou bloco de uma nota.
-func (s *Service) PatchNote(_ context.Context, req PatchNoteRequest) (PatchNoteResult, error) {
+func (s *Service) PatchNote(ctx context.Context, req PatchNoteRequest) (PatchNoteResult, error) {
 	if err := s.checkWritable(); err != nil {
 		return PatchNoteResult{}, err
 	}
@@ -375,7 +375,7 @@ func (s *Service) PatchNote(_ context.Context, req PatchNoteRequest) (PatchNoteR
 		return PatchNoteResult{Path: req.Path, Diff: diff, Patched: false, Hash: hashDoConteudo(proposed)}, nil
 	}
 
-	if err := writer.WriteAtomic(absPath, proposed); err != nil {
+	if err := writer.WriteAtomic(ctx, absPath, proposed); err != nil {
 		return PatchNoteResult{}, Errorf(CodeInternal, "escrevendo nota %q: %v", req.Path, err)
 	}
 
@@ -410,7 +410,7 @@ type MoveNoteResult struct {
 }
 
 // MoveNote renomeia ou move uma nota e reescreve os links que apontam para ela.
-func (s *Service) MoveNote(_ context.Context, req MoveNoteRequest) (MoveNoteResult, error) {
+func (s *Service) MoveNote(ctx context.Context, req MoveNoteRequest) (MoveNoteResult, error) {
 	if err := s.checkWritable(); err != nil {
 		return MoveNoteResult{}, err
 	}
@@ -577,7 +577,7 @@ func (s *Service) MoveNote(_ context.Context, req MoveNoteRequest) (MoveNoteResu
 	// agora sobra link apontando para o caminho antigo, que e VISIVEL e
 	// recuperavel, em vez de nota duplicada, que e silenciosa. Nao e nada de
 	// graca — e menos grave, e esta escrito.
-	if err := s.moverCorpo(canonicalFrom, canonicalTo, absTo); err != nil {
+	if err := s.moverCorpo(ctx, canonicalFrom, canonicalTo, absTo); err != nil {
 		return MoveNoteResult{
 			From:          string(canonicalFrom),
 			To:            string(canonicalTo),
@@ -616,7 +616,7 @@ func (s *Service) MoveNote(_ context.Context, req MoveNoteRequest) (MoveNoteResu
 			}, Errorf(CodeInternal, "reescrevendo links em %q: %v", refPath, err)
 		}
 
-		if err := writer.WriteAtomic(absRef, rewritten); err != nil {
+		if err := writer.WriteAtomic(ctx, absRef, rewritten); err != nil {
 			unlock()
 			return MoveNoteResult{
 				From:          string(canonicalFrom),
@@ -661,7 +661,7 @@ type DeleteNoteResult struct {
 }
 
 // DeleteNote exclui uma nota do cofre (por padrao movendo para a lixeira .trash/).
-func (s *Service) DeleteNote(_ context.Context, req DeleteNoteRequest) (DeleteNoteResult, error) {
+func (s *Service) DeleteNote(ctx context.Context, req DeleteNoteRequest) (DeleteNoteResult, error) {
 	if err := s.checkWritable(); err != nil {
 		return DeleteNoteResult{}, err
 	}
@@ -748,7 +748,7 @@ func (s *Service) DeleteNote(_ context.Context, req DeleteNoteRequest) (DeleteNo
 			return DeleteNoteResult{}, Errorf(CodeInternal, "lendo nota %q: %v", req.Path, err)
 		}
 
-		if err := writer.WriteAtomic(absTrash, raw); err != nil {
+		if err := writer.WriteAtomic(ctx, absTrash, raw); err != nil {
 			return DeleteNoteResult{}, Errorf(CodeInternal, "movendo nota para lixeira: %v", err)
 		}
 
@@ -800,7 +800,9 @@ func (s *Service) DeleteNote(_ context.Context, req DeleteNoteRequest) (DeleteNo
 // os.Rename primeiro: no mesmo volume ele e atomico, entao "duplicada" deixa de
 // ser um estado possivel. O fallback copia-e-remove existe para volume
 // diferente, e ali o remove e conferido.
-func (s *Service) moverCorpo(de, para vault.CanonicalPath, absTo string) error {
+// Recebe ctx porque a copia de fallback passa por WriteAtomic, que espera de
+// verdade — laco de rename com recuo (achado M13).
+func (s *Service) moverCorpo(ctx context.Context, de, para vault.CanonicalPath, absTo string) error {
 	// Travas em ordem determinada pela chave, nao pela direcao do move.
 	//
 	// Adquirir sempre from->to permite o deadlock AB-BA entre dois moves
@@ -827,7 +829,7 @@ func (s *Service) moverCorpo(de, para vault.CanonicalPath, absTo string) error {
 	if err != nil {
 		return Errorf(CodeInternal, "lendo nota de origem %q: %v", de, err)
 	}
-	if err := writer.WriteAtomic(absTo, fromRaw); err != nil {
+	if err := writer.WriteAtomic(ctx, absTo, fromRaw); err != nil {
 		return Errorf(CodeInternal, "escrevendo destino %q: %v", absTo, err)
 	}
 	if err := os.Remove(absFrom); err != nil {

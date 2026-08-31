@@ -3,6 +3,7 @@ package writer
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
@@ -121,7 +122,17 @@ func SweepStaleTempFiles(ctx context.Context, root string) (SweepResult, error) 
 // 3. Executa Sync() (fsync) para garantir a gravacao fisica no disco contra quedas de energia.
 // 4. Fecha o temporario.
 // 5. Executa rename atomico sobre o arquivo de destino, com retry em caso de bloqueio temporario (Windows).
-func WriteAtomic(targetPath string, data []byte) error {
+// WriteAtomic recebe ctx porque ESPERA DE VERDADE: o laco de rename abaixo
+// dorme ate 100 ms tentando de novo, e a escrita em si pode bloquear num share
+// de rede. A regra desta base e "ctx onde ha espera real" (achado M13).
+//
+// Cancelar NAO desfaz um rename ja aplicado — a escrita e atomica, nao
+// transacional. O ctx e conferido nos pontos em que ainda nao houve efeito
+// visivel, e entre as tentativas.
+func WriteAtomic(ctx context.Context, targetPath string, data []byte) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	dir := filepath.Dir(targetPath)
 
 	// Nenhuma varredura aqui: ver o comentario de CleanStaleTempFiles. O
@@ -132,6 +143,27 @@ func WriteAtomic(targetPath string, data []byte) error {
 		return fmt.Errorf("criando temporario em %q: %w", dir, err)
 	}
 	tmpName := tmpFile.Name()
+
+	// os.CreateTemp cria com 0600. Sem restaurar o modo do ALVO, um rename por
+	// cima de uma nota 0644 a deixa 0600 — a escrita "preserva o conteudo" e
+	// muda a permissao pelas costas (achado M12). Em cofre compartilhado por
+	// grupo, a nota some para os outros.
+	//
+	// Alvo inexistente e nota nova: 0644, o mesmo que o resto do projeto usa.
+	// No Windows o modo e quase todo ignorado pelo runtime do Go — so o bit de
+	// somente-leitura mapeia —, mas o cofre pode estar num share lido de Linux,
+	// e a chamada e barata.
+	modo := os.FileMode(0644)
+	if info, err := os.Stat(targetPath); err == nil {
+		modo = info.Mode().Perm()
+	}
+	if err := tmpFile.Chmod(modo); err != nil {
+		// Nao e fatal. Ha sistema de arquivos que nao suporta Chmod, e recusar
+		// a escrita inteira por causa da permissao perderia o conteudo, que e o
+		// que o usuario pediu para gravar. Fica registrado.
+		slog.Debug("nao foi possivel aplicar o modo do alvo ao temporario",
+			"alvo", targetPath, "modo", modo, "err", err)
+	}
 
 	cleanup := true
 	defer func() {
@@ -159,12 +191,33 @@ func WriteAtomic(targetPath string, data []byte) error {
 	var renameErr error
 
 	for i := 0; i < maxRetries; i++ {
+		// Entre tentativas, e nao dentro: uma tentativa ja iniciada termina.
+		if err := ctx.Err(); err != nil {
+			return err
+		}
 		renameErr = os.Rename(tmpName, targetPath)
 		if renameErr == nil {
 			cleanup = false
+			// O Sync do arquivo garante os DADOS; o rename e uma mudanca de
+			// DIRETORIO, e sem sincronizar o diretorio uma queda de energia
+			// logo depois pode deixar o alvo com o conteudo antigo — ou
+			// nenhum — apesar de a escrita ter reportado sucesso (achado M12).
+			//
+			// Falha aqui nao desfaz o rename, que ja aconteceu: e reportada
+			// como aviso, nao como erro da escrita.
+			if err := sincronizarDiretorio(dir); err != nil {
+				slog.Debug("nao foi possivel sincronizar o diretorio apos o rename",
+					"dir", dir, "err", err)
+			}
 			return nil
 		}
-		time.Sleep(retryDelay)
+		// Dormir com select, e nao time.Sleep: um cancelamento durante a
+		// espera nao pode ficar 100 ms sem resposta.
+		select {
+		case <-time.After(retryDelay):
+		case <-ctx.Done():
+			return ctx.Err()
+		}
 	}
 
 	return fmt.Errorf("falha ao renomear %q para %q apos %d tentativas: %w", tmpName, targetPath, maxRetries, renameErr)

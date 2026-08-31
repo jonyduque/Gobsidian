@@ -510,6 +510,12 @@ func (ix *Index) MoveNote(v *vault.Vault, oldPath, newPath vault.CanonicalPath) 
 
 	original, hasNote := ix.notes[oldPath]
 	if !hasNote {
+		// "Movi" e "nao havia nada para mover" davam a mesma resposta — nenhuma
+		// (achado B16). Quem chama nao tinha como distinguir o rename aplicado
+		// de um evento sobre caminho que o indice nunca viu, e o segundo caso e
+		// sinal de que o watcher e o indice divergiram.
+		slog.Debug("MoveNote ignorado: origem nao esta no indice",
+			"de", oldPath, "para", newPath)
 		return
 	}
 
@@ -529,19 +535,27 @@ func (ix *Index) MoveNote(v *vault.Vault, oldPath, newPath vault.CanonicalPath) 
 	movida.Path = newPath
 	n := &movida
 
-	var info os.FileInfo
-	var err error
+	// Sem cofre nao ha Stat.
+	//
+	// O ramo `v == nil` fazia `os.Stat(string(newPath))` — um caminho
+	// CANONICO, que e RELATIVO a raiz do cofre, resolvido contra o diretorio
+	// de trabalho do processo (achado B16). No melhor caso falhava; no pior
+	// encontrava um arquivo homonimo em outro lugar do disco e copiava ModTime
+	// e Size DELE para a nota. Zerar o ModTime forca reindexacao, que e a
+	// resposta honesta para "nao sei".
 	if v != nil {
-		info, err = os.Stat(v.Abs(newPath))
-	} else {
-		info, err = os.Stat(string(newPath))
-	}
-	if err == nil {
-		n.ModTime = info.ModTime()
-		n.Size = info.Size()
+		if info, err := os.Stat(v.Abs(newPath)); err == nil {
+			n.ModTime = info.ModTime()
+			n.Size = info.Size()
+		} else {
+			n.ModTime = time.Time{}
+			slog.Debug("MoveNote: Stat falhou, zerando ModTime para forcar reindexacao",
+				"path", newPath, "err", err)
+		}
 	} else {
 		n.ModTime = time.Time{}
-		slog.Debug("MoveNote stat failed, zeroing ModTime to force reindex", "path", newPath, "err", err)
+		slog.Debug("MoveNote sem cofre: nao da para resolver o caminho absoluto, "+
+			"zerando ModTime para forcar reindexacao", "path", newPath)
 	}
 
 	ix.notes[newPath] = n

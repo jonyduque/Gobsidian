@@ -34,7 +34,7 @@ func TestMain(m *testing.M) {
 			fmt.Print(avisoPronto)
 			_ = os.Stdout.Sync()
 
-			_ = writer.WriteAtomic(targetPath, data)
+			_ = writer.WriteAtomic(context.Background(), targetPath, data)
 		}
 		os.Exit(0)
 	}
@@ -228,7 +228,7 @@ func TestWriteAtomic_TempInSameDir(t *testing.T) {
 	alvo := filepath.Join(dir, "nota.md")
 	data := []byte("conteudo de teste")
 
-	if err := writer.WriteAtomic(alvo, data); err != nil {
+	if err := writer.WriteAtomic(context.Background(), alvo, data); err != nil {
 		t.Fatalf("WriteAtomic: %v", err)
 	}
 
@@ -252,7 +252,7 @@ func TestWriteAtomic_CreatesTempInTargetDir(t *testing.T) {
 
 	done := make(chan error, 1)
 	go func() {
-		done <- writer.WriteAtomic(alvo, data)
+		done <- writer.WriteAtomic(context.Background(), alvo, data)
 	}()
 
 	foundInDir := false
@@ -281,7 +281,7 @@ func TestWriteAtomic_PreservesBOMAndCRLF(t *testing.T) {
 	// BOM + CRLF
 	data := []byte("\xef\xbb\xbf# Nota com BOM\r\n\r\nLinha 1\r\nLinha 2\r\n")
 
-	if err := writer.WriteAtomic(alvo, data); err != nil {
+	if err := writer.WriteAtomic(context.Background(), alvo, data); err != nil {
 		t.Fatalf("WriteAtomic: %v", err)
 	}
 
@@ -310,7 +310,7 @@ func TestWriteAtomic_RenameRetryOnLock(t *testing.T) {
 
 	done := make(chan error, 1)
 	go func() {
-		done <- writer.WriteAtomic(alvo, []byte("substituido"))
+		done <- writer.WriteAtomic(context.Background(), alvo, []byte("substituido"))
 	}()
 
 	// Solta o bloqueio apos 30ms para exercitar o retry do rename
@@ -360,7 +360,7 @@ func TestWriteAtomicConcurrentSameDirectory(t *testing.T) {
 			alvo := filepath.Join(dir, fmt.Sprintf("nota%02d.md", w))
 			esperado := []byte(fmt.Sprintf("conteudo do escritor %02d\r\n", w))
 			for i := 0; i < porEscritor; i++ {
-				if err := writer.WriteAtomic(alvo, esperado); err != nil {
+				if err := writer.WriteAtomic(context.Background(), alvo, esperado); err != nil {
 					erros <- fmt.Errorf("escritor %d, iteracao %d: %w", w, i, err)
 					return
 				}
