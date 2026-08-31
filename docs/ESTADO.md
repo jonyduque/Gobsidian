@@ -138,13 +138,17 @@ estrutura do índice invertido — não o requisito.
 
 `docs/SUGESTOES.md` levantou 61 achados. Em 2026-08-27 o quadro é:
 
-| Severidade | Fechados | Abertos |
-|---|---|---|
-| Críticos | 3 de 3 | — |
-| Altos | 8 de 8 | — |
-| Médios | 7 (M2–M5, M7, M14, M15, M17) | 8 |
-| Desempenho | 8 (P1, P2, P3, P5, P6, P8, P10, P13, P14) | 6 |
-| Baixos | 8 (B5, B6, B7, B9, B11, B14, B17, B1) | 8 |
+| Severidade | Fechados | Rejeitados após verificação | Abertos |
+|---|---|---|---|
+| Críticos | 3 de 3 | — | — |
+| Altos | 8 de 8 | — | — |
+| Médios | 15 | M1 | **—** |
+| Desempenho | 14 | P11 | **—** |
+| Baixos | 17 | B15 | **—** |
+
+**Todos os 61 achados estão fechados ou rejeitados com fundamento** (2026-08-31).
+Fecharam também o item 4 do brief da Task 126 (o lock do `EnsureStarted`) e o
+teste da tempestade.
 
 Dois foram **rejeitados depois de verificados**, e a verificação é o registro que
 importa: **M1** estava prescrito ao contrário, e **P11** partia de uma premissa

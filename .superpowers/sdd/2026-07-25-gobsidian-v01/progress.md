@@ -4542,6 +4542,46 @@ desempenho da série.**
   a API de `Inverted`. O ganho veio sem isso, então a mudança maior segue
   disponível e não foi gasta.
 
-**Os três críticos e os oito altos estão fechados.** Seguem abertos: **8 médios,
-6 de desempenho, 8 baixos**, mais o item do lock de `EnsureStarted` e o teste da
-tempestade. Quadro por severidade em `docs/ESTADO.md`.
+**Tasks 140–145 — os 24 achados restantes** (`83bdbaf`, `6e5c15e`, `a313412`,
+`530d655`, `26a0369`, `78a3ac7`). **Não resta nenhum achado aberto.**
+
+- **Contratos (B3, B4)**: teto de `limit` declarado no schema e nunca aplicado;
+  enums caindo em `default` sem aviso; `note_patch` respondendo INTERNAL para
+  erro do cliente, o que faz o host TENTAR DE NOVO em vez de corrigir. O erro
+  morto do `GenerateSnippet` virou contagem publicada: apagar o retorno seria
+  menor e errado, porque tornaria a falha invisível.
+- **Higiene (B10, B13)**: um **andaime de prova de mutação rodando em produção,
+  uma vez por nota**. Mutação que órfã um import se resolve NA MUTAÇÃO — lição
+  que esta sessão aprendeu duas vezes.
+- **Índice e escrita (B12, B16, M12, M13)**: `resolveAllLinks` mutava Note
+  publicada; `MoveNote` fazia `Stat` de caminho RELATIVO contra o CWD, capaz de
+  copiar metadado de um arquivo de fora do cofre; `WriteAtomic` deixava o alvo
+  0600 e não sincronizava o diretório; `ctx` descartado em cinco métodos.
+- **Parser e busca (M10, M16, M6)**: `findMarkdownLinkSpan` dava span do link
+  ERRADO — sondado, dois links de texto vazio recebiam o mesmo. A âncora do
+  trecho passou a ser a janela com mais termos distintos, fechando a causa do
+  incidente de campo de 2026-08-15. `ResolvePath` passou a resolver as três
+  formas que o comentário dela prometia.
+- **Daemon e IPC (M8, M9, lock, tempestade)**: `CloseWrite` era exigido pelo
+  handshake e nunca chamado; `--max-results` era no-op silencioso; a sonda de
+  órfão e o bind não eram atômicos. Protocolo 1 → 2.
+- **Watcher (M11, P9)**: `Write|Chmod` era descartado inteiro — sem rede de
+  segurança em linux/darwin. Pré-filtro por tamanho: **−69,9% de tempo**.
+- **Desempenho (P4, P7, P12, P15, B2, B8)**: medições em `docs/OPERACAO.md`.
+
+**Três defeitos de teste apareceram no caminho, e valem mais que os achados:**
+`TestBM25WeightHeadings` não podia falhar (fixture de comprimentos diferentes, e
+o BM25 normaliza por comprimento); o teste de peso de título passava pelo
+frontmatter ser tokenizado no corpo; e o teste do handshake do M9 passava pelo
+lado errado — só o contrapeso o pegava.
+
+**Duas medições estavam certas e mediam a coisa errada:** a primeira correção do
+P2 custou +38% e foi refeita; o P15 pareceu regressão porque `index_ms` deixou de
+cobrir o mesmo trecho — o boot até servir caiu 26%.
+
+**Três achados REJEITADOS com fundamento**: M1 (prescrito ao contrário), P11
+(premissa falsa sobre MAX_PATH no Go, reprovado pela própria prova de mutação) e
+B15 (rename no nível do sistema de arquivos É delete+create com bytes iguais).
+
+**Os 61 achados da auditoria estão fechados ou rejeitados.** Quadro em
+`docs/ESTADO.md`; medições e rejeições em `docs/OPERACAO.md`.

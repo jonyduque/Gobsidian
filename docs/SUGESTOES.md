@@ -30,7 +30,13 @@ severidade contra o fonte. **Nenhum código foi alterado.**
 > O aviso está aqui em vez de a seção ter sido reescrita porque riscar dezenas de
 > achados a mão é o tipo de edição em que um fica para trás — e um achado marcado
 > como fechado sem ter sido é pior que um marcado como aberto tendo sido.
-> Continuam **abertos e válidos**: 8 médios, 6 de desempenho e 8 baixos.
+> **Em 2026-08-31 não resta nenhum achado aberto.** Os 61 estão fechados, ou
+> **rejeitados com fundamento verificado** — e são três: **M1** (prescrito ao
+> contrário), **P11** (premissa falsa sobre MAX_PATH no Go) e **B15** (um rename
+> no nível do sistema de arquivos É um delete mais um create com bytes iguais;
+> não há sinal que os separe, a guarda de cardinalidade já exclui o caso comum,
+> e nada reescreve conteúdo). Cada rejeição está detalhada em
+> `docs/OPERACAO.md` com a sondagem que a sustenta.
 
 - Base da análise: HEAD `1cbb007` (merge Task 106).
 - **Nada aqui é número medido.** Nenhum build, teste ou benchmark rodou nesta auditoria.

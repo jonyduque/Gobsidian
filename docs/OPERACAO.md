@@ -2372,3 +2372,70 @@ O `baseSoA` já trabalha em IDs `int32` internamente; o que se perde é na volta
 porque `Postings` reconverte para string. Fechar isso de ponta a ponta mudaria a
 API de `Inverted`, o que atinge trecho, serviço e testes. **O ganho medido veio
 sem isso**, então a mudança maior segue disponível e não foi gasta.
+
+---
+
+## Fechamento dos achados restantes (2026-08-31)
+
+Os 61 achados da auditoria estão fechados ou rejeitados. As medições dos que
+tinham custo, todas intercaladas com binários construídos lado a lado:
+
+| Achado | Medida | Veredito |
+|---|---|---|
+| **P9** — pré-filtro por tamanho na correlação de renames | 70,11 → **21,07 ms** e 744,5 → **247,4 KB/op** (lote de 300 notas, 1 remoção) | **−69,9% / −66,8%** |
+| **P12** — `Analyze` com pré-alocação e caminho rápido ASCII | 3,46 → **3,12 ms**, 3,15 → **2,70 MB/op** | −9,7% / −14,3% |
+| **P15** — varredura de temporários sobreposta à carga do índice | boot até servir: 770 → **570 ms** (TJSP 192) | **−26%** |
+| **B2** — cópia das posições quando a arena está mapeada | 10,86 → **11,48 ms**, +11,1% de alocação | **+5,7%, pago de propósito** |
+| **P4, P7** | sem medição isolada | ver abaixo |
+
+### P15 mediu a coisa errada na primeira tentativa
+
+A primeira leitura disse que a sobreposição era **regressão**: `index_ms` foi de
+225 para 277 ms no TJSP 192. O número estava certo e a métrica errada — a
+varredura rodava **depois** da janela que o `index_ms` cobre, e passou a rodar
+**dentro** dela. O que o P15 promete é o tempo até o servidor responder, e esse
+caiu 26%.
+
+Consequência para o RNF-01: `index_ms` agora inclui a disputa por disco da
+varredura concorrente. O alvo é 3.000 ms e o cofre maior mede 277 ms, então a
+folga cobre a mudança — mas o número deixou de ser só a carga do índice.
+
+### B2 é a única troca que piora um número de propósito
+
+`Postings` devolvia uma janela **para dentro da arena mapeada**, e quem chama a
+itera depois de soltar o RLock, enquanto `promoverArenaSePresente` desmapeia fora
+do lock. Um leitor com a janela antiga lê memória desmapeada: **falha de proteção
+de página, que mata o processo sem log** — não dado errado. Isso era barrado só
+pelo gate `Building()`, uma dependência entre dois arquivos que nada testava.
+
+Os +5,7% compram a remoção disso. A busca continua ~27% mais rápida que no início
+desta série, mesmo com a cópia.
+
+### P7 e P4 não têm medição isolada, e está dito assim
+
+**P7** troca um `make([]byte, totPos*16)` — 291 MB no cofre de referência,
+número documentado no próprio código — por escrita em blocos de 8 KB. O pico
+evitado é certo pela aritmética; **não foi medido em relógio**, porque ele só
+aparece durante os salvamentos periódicos da construção em segundo plano, e
+reproduzir esse regime custaria uma indexação completa do cofre de 109 MB.
+
+**P4** é um conjunto de custos constantes dentro de laços quentes, e os
+benchmarks existentes cobrem `note_list` de forma indireta demais para atribuir
+o ganho. O que sustenta a mudança não é velocidade medida: é que
+`int(a.Size - b.Size)` **transborda em build 32-bit e inverte a ordem em
+silêncio**, e que o sort deixou de rodar com o índice travado contra escritores.
+
+### As três rejeições, com o que as derrubou
+
+**M1** estava prescrito ao contrário — mandava `note_delete` usar o critério do
+`note_move`, escondendo as âncoras que quebram por causa do delete.
+
+**P11** partia de premissa falsa: o pacote `os` do Go já aplica o prefixo de
+caminho longo, e a correção foi reprovada pela própria prova de mutação.
+
+**B15** não tem correção melhor disponível. Um rename no nível do sistema de
+arquivos **é** um delete mais um create com bytes idênticos — não há sinal nessa
+camada que os separe. A guarda de cardinalidade 1-para-1 já exclui o caso comum
+(N arquivos iguais de um modelo), e `apply.go` diz na própria linha que renames
+são processados *sem reescrever conteúdo*: uma inferência errada custa uma
+entrada de índice, corrigida na próxima reindexação.
