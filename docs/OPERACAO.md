@@ -2455,3 +2455,70 @@ camada que os separe. A guarda de cardinalidade 1-para-1 já exclui o caso comum
 (N arquivos iguais de um modelo), e `apply.go` diz na própria linha que renames
 são processados *sem reescrever conteúdo*: uma inferência errada custa uma
 entrada de índice, corrigida na próxima reindexação.
+
+---
+
+## Onde mora o heap vivo, e o que compraria mais folga no RNF-07 (2026-08-31)
+
+**O RNF-07 está ATINGIDO nos cinco cofres** — folga de 15% a 64%. Esta seção
+responde outra pergunta: se for preciso mais folga, onde cortar. Ela é medida,
+não estimada.
+
+Perfil de heap com o índice VIVO, cofre `Obsidian\Jurisprudência` (1.254 notas,
+28.045 links — o de folga mais apertada), estado `servindo`, heap vivo 37,4 MB.
+O instrumento é `TestPerfilDeHeapServindo` em `internal/search`, que pula sem
+`COFRE`/`CACHE` apontados.
+
+| origem | MB | % do heap |
+|---|---|---|
+| `index.leitor.str` — strings do cache de metadados | 19,46 | **53,7%** |
+| ↳ dentro dela, `leitor.links` | 18,95 | 52,3% |
+| `search.decodificaCache` | 9,77 | 26,9% |
+| `mutarNotaLocked`, via `resolveAllLinks` | 3,42 | 9,5% |
+| `baseSoA.montaIndiceDireto` | 2,41 | 6,6% |
+| **`LoadIndexCache` no total** | **24,43** | **67,4%** |
+
+**O índice de METADADOS é dois terços do heap, e não o de busca.** Isso contraria
+a intuição — o cache invertido tem 134,9 MB em disco contra 19,1 MB do de
+metadados —, e a explicação é a arena mapeada: as posições do índice de busca
+vivem num arquivo mapeado, fora da heap do Go.
+
+### Dentro dos registros de link, por campo
+
+| campo | total | distintos | economia por interning |
+|---|---|---|---|
+| **`Context`** | **9.485 KB** | — | — |
+| `Raw` | 2.895 KB | 17.328 (1.767 KB) | 1.128 KB |
+| `Target` | 2.895 KB | 17.328 (1.766 KB) | 1.128 KB |
+| `Alias` | 2.299 KB | — | — |
+| `Anchor` | 0 KB | — | — |
+| cabeçalhos de string (5 campos × 16 B) | 2.191 KB | — | — |
+
+### As três alavancas, em ordem do que cada uma devolve
+
+**1. `contextoBytes` — 9,3 MB, 25% do heap vivo.** É a maior de longe. Cortar de
+80 para 40 devolve ~4,6 MB; remover o campo devolve 9,3 MB. O dono escolheu 80 em
+2026-08-26 com o custo de DISCO na mão; o custo de heap é este, e é maior em
+proporção.
+
+**2. `Raw` duplica `Target` — 2,9 MB de dados mais ~0,4 MB de cabeçalhos.**
+Medido: **`Raw == Target` em 28.036 dos 28.045 links, 100,0%**. O parser faz
+`Raw = Destination` e `Target = PercentDecode(Destination)`, então os dois só
+diferem quando há percent-encoding. Guardar um ponteiro para o outro quando são
+iguais devolve ~3,3 MB, **9% do heap**, sem perder informação nenhuma.
+
+A economia depende da grafia dos links do cofre: aqui é 100% porque este cofre é
+todo de links Markdown. Num cofre de wikilinks o `Raw` traz `[[Alvo]]` contra
+`Alvo` do `Target`, e a duplicação some.
+
+**3. Interning de `Raw`/`Target` — 2,2 MB, 6%.** Menos do que parece: são 17.328
+alvos distintos para 28.045 links, repetição de só 1,6×.
+
+### O que NÃO vale a pena, e por quê
+
+O índice de busca responde por 33% do heap e já paga o preço certo — a arena
+mapeada tira as posições da heap. Mexer nele para ganhar memória atacaria a
+metade menor.
+
+**Nada disto foi implementado**: são medições para uma decisão que é do dono. A
+alavanca 2 é a única que não custa informação nenhuma.
