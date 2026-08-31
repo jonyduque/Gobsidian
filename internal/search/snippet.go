@@ -2,6 +2,7 @@ package search
 
 import (
 	"context"
+	"sort"
 	"unicode/utf8"
 
 	"github.com/jonyd/gobsidian/internal/index"
@@ -100,28 +101,28 @@ func GenerateSnippet(ctx context.Context, v *vault.Vault, ix *Inverted, idx *ind
 		return Snippet{}, nil
 	}
 
-	// 2. Coleta posições do primeiro termo correspondente no índice invertido
-	type matchPos struct {
-		term  string
-		start int64
-		end   int64
-	}
-
-	var bestMatch *matchPos
-
+	// 2. Escolhe ONDE ancorar o trecho.
+	//
+	// Até 2026-08-28 a âncora era a primeira ocorrência do PRIMEIRO termo que
+	// tivesse posting, na ordem em que a consulta os escreveu (achado M16).
+	// Buscar `13.1.10 Substituição de candidatos` ancorava no `13` do topo do
+	// documento, e o trecho devolvido não continha a frase — foi a causa direta
+	// do incidente de campo de 2026-08-15.
+	//
+	// Agora a âncora é a janela do documento que reúne MAIS TERMOS DISTINTOS da
+	// consulta. É a informação que o usuário pediu: o lugar onde os termos dele
+	// convergem, e não onde o primeiro deles aparece por acaso.
 	// A analise e a expansao ja aconteceram uma vez, em NovosTermosDeTrecho.
 	// Aqui sobra so a consulta ao indice.
+	var todas []ocorrenciaAncora
 	for _, t := range queryTerms.termos {
-		posicoes := ix.Positions(t, string(cPath))
-		if len(posicoes) > 0 {
-			bestMatch = &matchPos{
-				term:  t,
-				start: posicoes[0].Start,
-				end:   posicoes[0].End,
-			}
-			break
+		for _, p := range ix.Positions(t, string(cPath)) {
+			todas = append(todas, ocorrenciaAncora{term: t, start: p.Start, end: p.End})
 		}
 	}
+	sort.Slice(todas, func(i, j int) bool { return todas[i].start < todas[j].start })
+
+	bestMatch := melhorJanela(todas, int64(maxChars))
 
 	// Nenhum termo ocorre na nota: nada foi lido do disco, e um trecho vazio não
 	// vale entrada no cache — despejaria trecho útil para guardar o que custa zero.
@@ -251,4 +252,60 @@ func adjustUTF8Highlight(buf []byte, winStart, matchStart, matchEnd int64) (stri
 	}
 
 	return text, relStart, relEnd
+}
+
+// ocorrenciaAncora é a ocorrência em que o trecho será centrado.
+type ocorrenciaAncora struct {
+	term  string
+	start int64
+	end   int64
+}
+
+// melhorJanela escolhe a ocorrência que abre a janela mais informativa.
+//
+// Percorre as ocorrências em ordem de posição com dois ponteiros e, para cada
+// início possível, conta quantos TERMOS DISTINTOS cabem numa janela de
+// `larguraMax` bytes. Ganha a janela com mais termos distintos; empate fica com
+// a mais à esquerda, que é a ordem de leitura do documento.
+//
+// É O(n) amortizado sobre as ocorrências do documento — os dois ponteiros só
+// avançam —, com um mapa de contagem cujo tamanho é o número de termos da
+// consulta, não do documento.
+//
+// Devolve nil quando não há ocorrência nenhuma: nenhum termo da consulta está
+// nesta nota, e o chamador trata isso como "sem trecho".
+func melhorJanela(todas []ocorrenciaAncora, larguraMax int64) *ocorrenciaAncora {
+	if len(todas) == 0 {
+		return nil
+	}
+	if larguraMax <= 0 {
+		return &todas[0]
+	}
+
+	contagem := make(map[string]int, 8)
+	distintos := 0
+	melhorIni, melhorDistintos := 0, 0
+
+	j := 0
+	for i := range todas {
+		// Estende a janela enquanto couber a partir de i.
+		for j < len(todas) && todas[j].start-todas[i].start <= larguraMax {
+			if contagem[todas[j].term] == 0 {
+				distintos++
+			}
+			contagem[todas[j].term]++
+			j++
+		}
+		if distintos > melhorDistintos {
+			melhorDistintos = distintos
+			melhorIni = i
+		}
+		// Tira o início atual antes de avançar.
+		contagem[todas[i].term]--
+		if contagem[todas[i].term] == 0 {
+			distintos--
+		}
+	}
+
+	return &todas[melhorIni]
 }

@@ -193,22 +193,35 @@ func (ix *Index) resolveExplicit(target string) (vault.CanonicalPath, bool) {
 }
 
 func (ix *Index) resolveByName(target string, isNote bool, origin vault.CanonicalPath) (vault.CanonicalPath, bool) {
-	var name string
-	if isNote {
-		if strings.HasSuffix(target, ".md") {
-			name = target
-		} else {
-			name = target + ".md"
-		}
-	} else {
-		name = target // assets require explicit extension
-	}
+	name := nomeDeArquivo(target, isNote)
 
-	paths, ok := ix.byName[name]
-	if !ok || len(paths) == 0 {
+	valid := ix.candidatosPorNomeLocked(name, isNote)
+	if len(valid) == 0 {
 		return "", false
 	}
+	if len(valid) == 1 {
+		return valid[0], true
+	}
 
+	return ix.tiebreak(valid, origin), true
+}
+
+// candidatosPorNomeLocked devolve TODOS os caminhos vivos que casam um nome de
+// arquivo, sem desempatar.
+//
+// Separada de resolveByName porque os dois chamadores querem coisas diferentes
+// da mesma busca. O wikilink QUER o desempate por proximidade — e o
+// comportamento documentado de `[[nota]]` num cofre com homonimos. Uma chamada
+// de tool nao tem nota de origem para medir proximidade, e escolher um dos
+// candidatos ali seria devolver um valor arbitrario com cara de resposta.
+// ResolvePath usa esta lista para poder dizer "ambiguo" em vez de chutar.
+//
+// Exige ix.mu ja tomado.
+func (ix *Index) candidatosPorNomeLocked(name string, isNote bool) []vault.CanonicalPath {
+	paths, ok := ix.byName[name]
+	if !ok || len(paths) == 0 {
+		return nil
+	}
 	var valid []vault.CanonicalPath
 	for _, p := range paths {
 		if isNote {
@@ -221,15 +234,19 @@ func (ix *Index) resolveByName(target string, isNote bool, origin vault.Canonica
 			}
 		}
 	}
+	return valid
+}
 
-	if len(valid) == 0 {
-		return "", false
+// nomeDeArquivo aplica a mesma normalizacao que resolveByName usa: nota ganha
+// ".md" quando nao o tem; anexo exige extensao explicita. Uma conta so.
+func nomeDeArquivo(target string, isNote bool) string {
+	if !isNote {
+		return target
 	}
-	if len(valid) == 1 {
-		return valid[0], true
+	if strings.HasSuffix(target, ".md") {
+		return target
 	}
-
-	return ix.tiebreak(valid, origin), true
+	return target + ".md"
 }
 
 func (ix *Index) resolveByAlias(target string, origin vault.CanonicalPath) (vault.CanonicalPath, bool) {
@@ -290,8 +307,26 @@ func (ix *Index) tiebreak(candidates []vault.CanonicalPath, origin vault.Canonic
 }
 
 // ResolvePath traduz o que o cliente escreveu — caminho, nome de arquivo ou
-// alias — no caminho canonico da nota. Devolve ErrAmbiguousPath quando mais de
-// um arquivo casa e o desempate nao decide.
+// alias — no caminho canonico da nota.
+//
+// # As tres formas, nesta ordem
+//
+// Ate 2026-08-28 o comentario prometia as tres e o corpo fazia DUAS: caminho
+// exato e caminho insensivel a maiusculas (achado M6). Nome de arquivo e alias
+// nao resolviam, embora `resolveTarget` — que serve os wikilinks — soubesse
+// faze-lo desde sempre. O resultado era que `[[STJ]]` numa nota resolvia e
+// `note_read` com "STJ" nao, apesar de esta ser a porta UNICA de todas as tools.
+//
+// A ordem importa e e do mais especifico para o menos: caminho exato nunca pode
+// perder para um alias homonimo.
+//
+// # ErrAmbiguousPath so aparece onde a ambiguidade existe
+//
+// O ramo insensivel a maiusculas varria o mapa INTEIRO comparando chave por
+// chave, e devolvia ErrAmbiguousPath se achasse duas — inalcancavel, porque
+// `lowerPath` tem chave unica por construcao (`publishNameLocked`). Agora e um
+// lookup direto, e o erro de ambiguidade vive onde ela e real: nome e alias, que
+// podem casar mais de uma nota e passam pelo desempate de `tiebreak`.
 func (ix *Index) ResolvePath(input string) (vault.CanonicalPath, error) {
 	ix.mu.RLock()
 	defer ix.mu.RUnlock()
@@ -304,22 +339,47 @@ func (ix *Index) ResolvePath(input string) (vault.CanonicalPath, error) {
 		return p, nil
 	}
 
+	// Insensivel a maiusculas: lookup direto, nao varredura.
 	lower := strings.ToLower(filepath.ToSlash(input))
+	if canonico, ok := ix.lowerPath[lower]; ok {
+		return canonico, nil
+	}
 
-	var matches []vault.CanonicalPath
-	for lowerPath, realPath := range ix.lowerPath {
-		if lowerPath == lower {
-			matches = append(matches, realPath)
+	// Nome de arquivo, com ou sem ".md" — e depois anexo, que exige extensao.
+	//
+	// Aqui NAO ha desempate por proximidade: a chamada de tool nao tem nota de
+	// origem, e escolher um entre homonimos devolveria um caminho arbitrario com
+	// cara de resposta. Dois candidatos e ambiguidade de verdade, e e isto que
+	// mantem ErrAmbiguousPath vivo depois que a varredura insensivel a
+	// maiusculas — onde ele era inalcancavel — deixou de existir.
+	for _, isNote := range []bool{true, false} {
+		candidatos := ix.candidatosPorNomeLocked(nomeDeArquivo(input, isNote), isNote)
+		switch len(candidatos) {
+		case 0:
+			// segue para a proxima forma
+		case 1:
+			return candidatos[0], nil
+		default:
+			return "", ErrAmbiguousPath
 		}
 	}
 
-	if len(matches) == 0 {
-		return "", ErrPathNotFound
+	// Alias do frontmatter, com o mesmo criterio.
+	if paths, ok := ix.byAlias[aliasKey(input)]; ok {
+		var vivos []vault.CanonicalPath
+		for _, p := range paths {
+			if _, existe := ix.notes[p]; existe {
+				vivos = append(vivos, p)
+			}
+		}
+		switch len(vivos) {
+		case 0:
+		case 1:
+			return vivos[0], nil
+		default:
+			return "", ErrAmbiguousPath
+		}
 	}
 
-	if len(matches) > 1 {
-		return "", ErrAmbiguousPath
-	}
-
-	return matches[0], nil
+	return "", ErrPathNotFound
 }

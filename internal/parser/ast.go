@@ -28,7 +28,7 @@ func collect(doc gast.Node, body []byte, bodyOffset int64, note *ParsedNote) {
 			})
 
 		case *gast.Image:
-			start, end := findMarkdownLinkSpan(node, true, body)
+			start, end := findMarkdownLinkSpan(node, true, body, node.Destination)
 			if start != offsetUnknown {
 				start += bodyOffset
 				end += bodyOffset
@@ -43,7 +43,7 @@ func collect(doc gast.Node, body []byte, bodyOffset int64, note *ParsedNote) {
 			})
 
 		case *gast.Link:
-			start, end := findMarkdownLinkSpan(node, false, body)
+			start, end := findMarkdownLinkSpan(node, false, body, node.Destination)
 			if start != offsetUnknown {
 				start += bodyOffset
 				end += bodyOffset
@@ -263,7 +263,7 @@ func unhexDigit(c byte) (byte, bool) {
 // de um link ou embed Markdown na slice body (ex: "[texto](destino)" ou
 // "![alt](imagem.png)"). Se nao conseguir determinar de forma confiavel,
 // devolve (offsetUnknown, offsetUnknown).
-func findMarkdownLinkSpan(n gast.Node, isEmbed bool, body []byte) (int64, int64) {
+func findMarkdownLinkSpan(n gast.Node, isEmbed bool, body, destino []byte) (int64, int64) {
 	minStart := -1
 	maxEnd := -1
 
@@ -320,30 +320,77 @@ func findMarkdownLinkSpan(n gast.Node, isEmbed bool, body []byte) (int64, int64)
 	}
 
 	if startIdx == -1 {
-		prefix := "[]("
-		if isEmbed {
-			prefix = "![]("
+		// Link SEM filhos de texto — "[](alvo.md)". Nao ha segmento nenhum de
+		// onde partir, entao a ancora e o DESTINO, e nao o prefixo.
+		//
+		// Ate 2026-08-28 isto era `strings.Index(body, "[](")`: a PRIMEIRA
+		// ocorrencia do corpo inteiro (achado M10). Sondado, num corpo com dois
+		// links de texto vazio, os DOIS recebiam o span do primeiro —
+		// "[](um.md)" para o link de dois.md. Nao e offset ausente: e offset
+		// plausivel e errado, que alimenta reescrita de link e note_move.
+		//
+		// A busca por "](destino)" e especifica o bastante para distinguir os
+		// dois. Quando o MESMO destino aparece duas vezes com texto vazio ela
+		// volta a ser ambigua, e ai a resposta e offsetUnknown, que e honesta.
+		alvo := "](" + string(destino) + ")"
+		idx := strings.Index(string(body), alvo)
+		if idx != -1 && strings.Count(string(body), alvo) == 1 {
+			abre := idx
+			if isEmbed {
+				// "![](x)": o '[' esta em idx, o '!' antes dele.
+				if abre >= 1 && body[abre-1] == '[' && abre >= 2 && body[abre-2] == '!' {
+					startIdx = abre - 2
+					maxEnd = idx
+				}
+			} else if abre >= 0 && body[abre] == ']' && abre >= 1 && body[abre-1] == '[' {
+				startIdx = abre - 1
+				maxEnd = idx
+			}
 		}
-		idx := strings.Index(string(body), prefix)
-		if idx != -1 {
-			startIdx = idx
-			maxEnd = startIdx + len(prefix) - 2
-		}
+	}
+
+	// Imagem aninhada dentro de link: "[![alt](img.png)](dest.md)".
+	//
+	// A recursao desce na imagem e acha o texto "alt", entao minStart aponta
+	// para dentro dela e o '[' um byte antes e o da IMAGEM — nao o do link
+	// externo. Sondado em 2026-08-28: o link para dest.md recebia o span
+	// "[alt](img.png)", truncado E sobreposto ao do embed (achado M10).
+	//
+	// Um '[' precedido de "![" so pode ser o da imagem, e o link externo abre
+	// dois bytes antes. O laco cobre aninhamento repetido.
+	for !isEmbed && startIdx >= 2 && body[startIdx-1] == '!' && body[startIdx-2] == '[' {
+		startIdx -= 2
 	}
 
 	if startIdx == -1 {
 		return offsetUnknown, offsetUnknown
 	}
 
-	searchStart := maxEnd
-	if searchStart < startIdx {
-		searchStart = startIdx
-	}
-
+	// O ']' do rotulo e o que CASA com o '[' de startIdx, e nao o primeiro
+	// depois do texto.
+	//
+	// Ate 2026-08-28 a busca comecava em maxEnd — o fim do ultimo segmento de
+	// texto encontrado — e parava no primeiro ']'. Em "[![alt](img.png)](dest.md)"
+	// esse primeiro ']' e o da IMAGEM, e o span saia truncado: "[![alt](img.png)"
+	// em vez do link inteiro (achado M10). Contar profundidade resolve o
+	// aninhamento em qualquer nivel.
 	closeBracket := -1
-	for p := searchStart; p < len(body); p++ {
-		if body[p] == ']' {
-			closeBracket = p
+	profundidade := 0
+	for p := startIdx; p < len(body); p++ {
+		switch body[p] {
+		case '\\':
+			// Escape consome o proximo byte: um colchete escapado nao fecha
+			// nem abre rotulo.
+			p++
+		case '[':
+			profundidade++
+		case ']':
+			profundidade--
+			if profundidade == 0 {
+				closeBracket = p
+			}
+		}
+		if closeBracket != -1 {
 			break
 		}
 	}
