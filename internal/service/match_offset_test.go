@@ -10,16 +10,12 @@ import (
 	"github.com/jonyd/gobsidian/internal/service"
 )
 
-// TestSearchMatchOffsetApontaParaOTermoNoArquivo prova o encadeamento inteiro,
-// que e o que o incidente de 2026-08-15 pediu: buscar, pegar o offset, ler ali,
-// achar o termo.
+// TestSearchMatchOffsetApontaParaOTermoNoArquivo prova o encadeamento: buscar,
+// pegar o offset, ler ali, achar o termo.
 //
-// A asserção NAO e sobre o VALOR do offset — numero conferido a mao vira
-// tautologia na primeira mudanca de fixture. A asserção e que LER o arquivo
-// naquele offset devolve o termo procurado.
-//
-// O enchimento antes do termo e obrigatorio: com o termo perto do inicio, um
-// match_offset errado (zero, por exemplo) passaria por acidente.
+// A asserção nao e sobre o VALOR do offset — numero conferido a mao vira
+// tautologia na primeira mudanca de fixture. O enchimento antes do termo e
+// obrigatorio: perto do inicio, um offset errado passaria por acidente.
 func TestSearchMatchOffsetApontaParaOTermoNoArquivo(t *testing.T) {
 	corpo := strings.Repeat("enchimento sem valor nenhum\n", 1500) +
 		"a palavra procurada e xifopago aqui\n"
@@ -99,19 +95,11 @@ func TestSearchMatchOffsetDentroDosLimites(t *testing.T) {
 	}
 }
 
-// TestSearchMatchOffsetAusenteQuandoNaoHaTrecho e a outra metade do contrato, e
-// a que um teste so de caminho feliz nao pega: "ausente" e "zero" tem de ser
-// distinguiveis.
+// TestSearchMatchOffsetAusenteQuandoNaoHaTrecho: "ausente" e "zero" tem de ser
+// distinguiveis, porque zero e um offset VALIDO — o inicio do arquivo.
 //
-// Zero e um offset VALIDO — o inicio do arquivo. Um hit sem ocorrencia
-// localizada e um hit que aponta para o byte 0 sao coisas diferentes, e
-// devolver zero nos dois casos manda o cliente ler o comeco de uma nota
-// qualquer acreditando estar indo ao termo.
-//
-// O cenario e real: a nota sai do disco entre o indice e o recorte — o Obsidian
-// a trava, o OneDrive a evita, o usuario a apaga. GenerateSnippet devolve erro,
-// Search mantem o hit na pagina com trecho vazio (uma nota travada nao apaga as
-// outras 199), e e exatamente ai que o campo tem de ficar ausente.
+// O cenario e real: a nota sai do disco entre o indice e o recorte, o hit fica
+// na pagina com trecho vazio, e e ai que o campo nao pode virar zero.
 func TestSearchMatchOffsetAusenteQuandoNaoHaTrecho(t *testing.T) {
 	svc, v, _, _ := createSearchService(t, map[string]string{
 		"some.md":  "o termo xifopago mora aqui\n",

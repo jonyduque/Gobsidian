@@ -33,20 +33,9 @@ var travessiaSoNoWindows = []string{
 // TestEscritaRecusaTravessiaComSeparadorDoWindows cobre a forma com barra
 // invertida, que e a que escapa.
 //
-// A versao anterior rodava a lista inteira nos tres sistemas, com o comentario
-// de que ficava sem `runtime.GOOS` de proposito porque "a asserção 'recusou'
-// vale nos dois, e no Linux ela e trivialmente verdadeira". Era o contrario: no
-// Linux ela e trivialmente FALSA para os casos de barra invertida, porque ali
-// nao ha travessia nenhuma a recusar. O teste passava no Windows e reprovava em
-// ubuntu e macos — e so apareceu quando o ramo foi empurrado pela primeira vez,
-// porque o CI e o unico Linux deste projeto.
-//
-// A preocupacao original — "um teste que so roda no Windows e um teste que
-// ninguem ve reprovar" — continua legitima e esta respondida de outro jeito: o
-// caso nao e PULADO fora do Windows, ele troca de asserção. Onde o nome e legal,
-// o produto tem de ACEITA-LO e gravar DENTRO do cofre. Recusar ali seria tornar
-// inalcancavel uma nota de nome legitimo, que e a mesma razao pela qual
-// `validatePlatformPath` so vale no Windows.
+// Fora do Windows o caso nao e PULADO, ele troca de asserção: onde o nome e
+// legal, o produto tem de aceita-lo e gravar dentro do cofre. Recusar ali
+// tornaria inalcancavel uma nota de nome legitimo.
 func TestEscritaRecusaTravessiaComSeparadorDoWindows(t *testing.T) {
 	for _, c := range travessiaUniversal {
 		t.Run("universal/"+c, func(t *testing.T) {
@@ -66,8 +55,7 @@ func TestEscritaRecusaTravessiaComSeparadorDoWindows(t *testing.T) {
 }
 
 // exigeRecusa prova que o caminho e recusado E que nada foi escrito fora do
-// cofre. A segunda metade importa: um erro devolvido DEPOIS da escrita passaria
-// pela primeira.
+// cofre — um erro devolvido DEPOIS da escrita passaria so pela primeira metade.
 func exigeRecusa(t *testing.T, caminho string) {
 	t.Helper()
 	cofreRoot := t.TempDir()
@@ -86,10 +74,8 @@ func exigeRecusa(t *testing.T, caminho string) {
 	exigeNadaForaDoCofre(t, cofreRoot, caminho)
 }
 
-// exigeAceitacaoDentroDoCofre e o contrapeso: onde o nome e legal, recusar e o
-// defeito. Sem esta metade, uma implementacao que recusasse barra invertida em
-// todo sistema passaria no teste e tornaria inalcancaveis notas de nome legitimo
-// num cofre Linux.
+// exigeAceitacaoDentroDoCofre e o contrapeso: sem ele, recusar barra invertida
+// em todo sistema passaria no teste.
 func exigeAceitacaoDentroDoCofre(t *testing.T, caminho string) {
 	t.Helper()
 	cofreRoot := t.TempDir()

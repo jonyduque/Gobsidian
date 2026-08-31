@@ -7,15 +7,12 @@ import (
 	"testing"
 )
 
-// TestCaminhoUnicodeIdaEVolta e o teste CRUZADO: o que importa nao e criar e ler
-// com a MESMA string, e sim criar numa forma de normalizacao e ler na outra.
+// TestCaminhoUnicodeIdaEVolta e o teste CRUZADO: criar numa forma de
+// normalizacao e ler na OUTRA. Criar e ler com a mesma string nao prova nada —
+// as duas pontas derivam a chave do mesmo texto.
 //
-// Criar e ler com a mesma string passa hoje e nao prova nada — as duas pontas
-// derivam a chave do mesmo texto. O cruzado e o que um cofre sincronizado com
-// macOS produz, e este e um cofre em portugues, onde acento e a regra.
-//
-// A reindexacao entre escrever e ler e feita construindo um Service NOVO sobre a
-// mesma raiz — NUNCA por time.Sleep esperando watcher, que mede a maquina.
+// A reindexacao e um Service NOVO sobre a mesma raiz, nunca time.Sleep
+// esperando watcher, que mediria a maquina.
 func TestCaminhoUnicodeIdaEVolta(t *testing.T) {
 	const nfc = "Cap\u00edtulo I.md"  // í precomposto, U+00ED
 	const nfd = "Capi\u0301tulo I.md" // i + acento combinante, U+0301
@@ -82,14 +79,10 @@ func TestCaminhoUnicodeSobreviveAoMove(t *testing.T) {
 
 // TestCaminhoUnicodePorCaminhoCompletoComHomonimo isola a rota de lowerPath.
 //
-// Necessario porque ResolvePath tem TRES rotas — caminho exato, lowerPath e
-// byName — e a fixture acima passa por byName quando a nota esta na raiz: o
-// nome de arquivo e o caminho inteiro. Uma prova de mutacao em chaveDeCaminho
-// saiu EXIT=1 exatamente por isso, com byName respondendo pela regra mutada.
-//
-// Com DOIS homonimos em pastas diferentes, byName devolve ambiguidade e para de
-// responder. Sobra o caminho completo — e ele so casa entre formas de
-// normalizacao diferentes se lowerPath estiver normalizado.
+// ResolvePath tem tres rotas, e na raiz do cofre o nome de arquivo E o caminho
+// inteiro — entao byName responde e mascara a regra. Uma prova de mutacao saiu
+// EXIT=1 por isso. Com dois homonimos, byName vira ambiguo e sobra o caminho
+// completo, que so casa entre formas diferentes se lowerPath normalizar.
 func TestCaminhoUnicodePorCaminhoCompletoComHomonimo(t *testing.T) {
 	const nfc = "Cap\u00edtulo I.md"
 	const nfd = "Capi\u0301tulo I.md"

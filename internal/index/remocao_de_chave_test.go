@@ -9,13 +9,9 @@ import (
 
 // TestRemoverNomeNaoDeixaChaveOrfa cobre o que a resolucao NAO cobre.
 //
-// `vivosLocked` filtra caminho ja removido na hora de responder, entao uma
-// entrada orfa em lowerPath nao produz resposta errada — o teste de colisao
-// passa mesmo sem a remocao. O que ela evita e VAZAMENTO: num daemon de vida
-// longa, cada nota apagada ou renomeada deixaria uma entrada para sempre, e o
-// indice derivado cresceria sem limite enquanto o cofre encolhe.
-//
-// Por isso a asserção e sobre o MAPA, e nao sobre o que ResolvePath devolve.
+// `vivosLocked` filtra caminho morto na leitura, entao uma entrada orfa nao
+// produz resposta errada — ela VAZA, num daemon de vida longa. Por isso a
+// asserção e sobre o MAPA, e nao sobre o que ResolvePath devolve.
 func TestRemoverNomeNaoDeixaChaveOrfa(t *testing.T) {
 	root := t.TempDir()
 	writeFileHelper(t, root, "pasta/Nota.md", "# N\n")

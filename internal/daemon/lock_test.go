@@ -76,21 +76,13 @@ func TestDezPontesIniciamUmDaemonSo(t *testing.T) {
 		}()
 	}
 
-	// Espera as nove RETORNAREM, e nao um sono de duracao arbitraria.
+	// Espera as nove RETORNAREM, e nao um sono de duracao arbitraria: quem
+	// retornou de EnsureStarted ja tentou adquirirLock, entao nao pode mais
+	// vencer uma corrida nova. Nenhuma delas depende do vencedor soltar o lock
+	// -- todas desistem sozinhas esperando um socket que nao vai existir.
 	//
-	// Ate 2026-08-31 aqui havia `time.Sleep(200ms)` com o comentario de que
-	// precisava ser "o suficiente para sobreviver a uma maquina sob carga".
-	// Nao era: o gate reprovou com `iniciar foi chamado 2 vez(es)` durante uma
-	// rodada de `go test -race ./...`, que e exatamente a carga que o
-	// comentario previa. Um teste que passa por folga de relogio reprova por
-	// falta dela, e um gate que reprova ao acaso ensina a re-rodar ate ficar
-	// verde -- que e como uma falha real passa despercebida.
-	//
-	// A espera e deterministica porque uma goroutine que JA RETORNOU de
-	// EnsureStarted por definicao ja tentou adquirirLock: ela nao pode mais
-	// vencer uma corrida nova. E nenhuma delas depende do vencedor soltar o
-	// lock para retornar -- todas desistem sozinhas em esperarSocket, porque
-	// socket nenhum vai existir.
+	// O `time.Sleep(200ms)` que estava aqui reprovou o gate sob carga, que era
+	// exatamente a condicao que o comentario dele previa.
 	perdedores.Wait()
 	close(vencedorPodeSair)
 

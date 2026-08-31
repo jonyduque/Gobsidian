@@ -9,12 +9,9 @@ import (
 	"github.com/jonyd/gobsidian/internal/vault"
 )
 
-// TestResolvePathNomeNuIgnoraCaixa fecha a incoerencia que a sonda de 2026-08-31
-// achou: `pasta/ACORDAO.MD` resolvia e `acordao` nao.
-//
-// As duas entradas fazem a MESMA pergunta — "qual nota e essa?" — por portas
-// diferentes: caminho completo passa por lowerPath, nome nu passa por byName. A
-// primeira baixava a caixa desde sempre; a segunda comparava a base crua.
+// TestResolvePathNomeNuIgnoraCaixa fecha uma incoerencia: `pasta/ACORDAO.MD`
+// resolvia e `acordao` nao. As duas fazem a MESMA pergunta por portas
+// diferentes — lowerPath baixava a caixa, byName comparava a base crua.
 func TestResolvePathNomeNuIgnoraCaixa(t *testing.T) {
 	root := t.TempDir()
 	writeFile(t, root, "pasta/Acordao.md", "# A\n")
@@ -45,14 +42,10 @@ func TestResolvePathNomeNuIgnoraCaixa(t *testing.T) {
 	}
 }
 
-// TestResolvePathColisaoDeChaveENomeada e a outra metade: baixar a caixa da
-// chave de byName cria colisoes que antes nao existiam, e colisao tem de virar
-// ErrAmbiguousPath — nunca uma das duas escolhida em silencio.
-//
-// Duas notas com o mesmo nome em pastas diferentes ja colidiam; o caso NOVO e
-// caixa diferente. No NTFS os dois arquivos nao podem existir na MESMA pasta,
-// entao a fixture os poe em pastas distintas, que e o cenario real de um cofre
-// com "Civil/Prescricao.md" e "Penal/prescricao.md".
+// TestResolvePathColisaoDeChaveENomeada e o preco da metade acima: baixar a
+// caixa cria colisoes novas, e colisao tem de virar ErrAmbiguousPath — nunca
+// uma das duas escolhida em silencio. Pastas distintas porque o NTFS nao aceita
+// as duas grafias na mesma.
 func TestResolvePathColisaoDeChaveENomeada(t *testing.T) {
 	root := t.TempDir()
 	writeFile(t, root, "civil/Prescricao.md", "# Civil\n")
@@ -87,17 +80,13 @@ func TestResolvePathColisaoDeChaveENomeada(t *testing.T) {
 
 // TestColisaoDeNormalizacaoNaMesmaPasta cobre as duas metades do mapa de lista.
 //
-// `Capítulo.md` em NFC e em NFD sao DOIS arquivos no NTFS — conferido em
-// 2026-08-31: 12 e 13 bytes, na mesma pasta — e UMA chave no indice. Com
-// lowerPath sendo map[string]CanonicalPath, a segunda nota tomava o lugar da
-// primeira em silencio, e remover qualquer uma apagava a entrada da outra.
+// `Capítulo.md` em NFC e em NFD sao DOIS arquivos no NTFS — 12 e 13 bytes — e
+// UMA chave no indice. Com valor unico, a segunda tomava o lugar da primeira e
+// remover qualquer uma apagava a entrada da outra.
 //
-// A fixture poe as duas na MESMA pasta de proposito: em pastas diferentes as
-// chaves diferem pelo diretorio e a colisao nao existe. Uma versao anterior
-// deste teste errou exatamente nisso e passou com a regra mutada.
-//
-// Medido nos quatro cofres reais: zero ocorrencias, todos NTFS e todos em NFC.
-// Isto guarda o dia em que um deles abrir num Mac.
+// As duas ficam na MESMA pasta de proposito: em pastas diferentes as chaves
+// diferem pelo diretorio e nao ha colisao. Uma versao anterior errou nisso e
+// passou com a regra mutada.
 func TestColisaoDeNormalizacaoNaMesmaPasta(t *testing.T) {
 	const nfc = "Cap\u00edtulo.md"  // í precomposto
 	const nfd = "Capi\u0301tulo.md" // i + acento combinante
