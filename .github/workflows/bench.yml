@@ -30,9 +30,20 @@ jobs:
         env:
           GOBSIDIAN_BENCH_VAULT: ${{ runner.temp }}/vault_bench
         # -run '^$' porque `go test -bench` roda os testes junto por padrao, e
-        # os testes deste pacote levam minutos. -benchtime 5x fixa o numero de
+        # os testes deste pacote levam minutos. -benchtime fixa o numero de
         # iteracoes: o padrao e por tempo, e numero de iteracoes variavel entre
         # rodadas e mais uma fonte de ruido num runner compartilhado.
+        #
+        # 20x, e nao 5x, desde 2026-09-01. Com 5x uma amostra de
+        # SearchDoisTermos era 5 buscas de ~2 ms -- 10 ms de trabalho, onde o
+        # ruido do escalonador domina. A dispersao DENTRO de uma rodada era de
+        # 1,87 a 3,40 milhoes de ns/op, 81%, e o gate reprovou com +52,6% sem
+        # mudanca de codigo nenhuma.
+        #
+        # Esta e a TERCEIRA vez que este benchmark reprova por ruido. Nas duas
+        # anteriores a resposta foi subir o teto, e a nota da referencia
+        # registra que isso trata sintoma. 20x quadruplica o trabalho por
+        # amostra e ataca a causa: amostra curta demais para o que se mede.
         #
         # -count 5 porque UMA amostra nao decide nada neste runner. Com amostra
         # unica o gate reprovou duas vezes sem mudanca de codigo -- +45,5% em
@@ -41,7 +52,7 @@ jobs:
         # usa a MEDIANA das amostras; antes ele deixava a ultima vencer, entao
         # -count sozinho teria dado falsa sensacao de robustez.
         run: |
-          go test -run '^$' -bench . -benchtime 5x -count 5 ./internal/service/ | tee bench.txt
+          go test -run '^$' -bench . -benchtime 20x -count 5 ./internal/service/ | tee bench.txt
           # tee nao propaga a falha do go test; PIPESTATUS propaga.
           exit ${PIPESTATUS[0]}
 
