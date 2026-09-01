@@ -314,14 +314,16 @@ o quarto, que é exatamente o defeito que ela existe para impedir.
 
 ## Dívidas abertas
 
-- **Com cache frio o RNF-07 estoura nos cinco cofres**, de 5× a 12× o valor de
-  cache quente — Estudo 58 → 706 MB, TJSP 127 → 1.180 MB. O requisito diz "nos
-  estados `pronto` e `servindo`" e não diz "com cache válido", então pela letra
-  estes números o violam, e o cenário é a primeira partida depois de trocar de
-  versão. **Decisão do dono pendente**, com as três saídas escritas em
-  `OPERACAO.md`: o requisito nomear o estado, valer para os dois (e aí há
-  trabalho de produto no invertido), ou ficar como está com o registro. Medido em
-  2026-09-01; mecanismo inferido, não perfilado.
+- **O pico de memória da reconstrução do índice não tem requisito, por decisão.**
+  Com cache frio o `servindo` fica de 5× a 12× acima do alvo de cache quente —
+  Estudo 58 → 706 MB, TJSP 127 → 1.180 MB. O RNF-07 passou a nomear "com cache
+  válido" (2026-09-01); criar um RNF-07b com teto de 12× foi **descartado pelo
+  dono**, porque um alvo igual ao pior caso medido não pode ser violado e
+  descreve em vez de exigir. O pico está nos limites conhecidos de `OPERACAO.md`.
+
+  O que atacaria a causa, e não tem prazo nem requisito: construir o índice
+  invertido direto na forma achatada, em vez de montar mapas e só depois
+  compactar. Mecanismo inferido, **não perfilado**.
 - **`measure.ps1` rotula como RNF-01 um número que, com cache quente, é RNF-02.**
   O `index_ms` da partida `pronto` mede carga de cache e é comparado ao teto de
   3.000 ms em vez do de 300 ms. Registrado em `OPERACAO.md`.

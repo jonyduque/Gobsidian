@@ -279,7 +279,6 @@ Cofre de referência para todas as medições: 5.000 notas Markdown, 50 MB de te
 | RNF-05 | `note_list` com filtro de metadados, p95 | ≤ 10 ms | 30 ms |
 | RNF-06 | Reindexação de arquivo único | ≤ 20 ms | 100 ms |
 | RNF-07 | Heap vivo em repouso, **com cache válido** | ≤ 8 MB + 32 KB × notas | 2× o alvo |
-| RNF-07b | Heap vivo em repouso, **durante a reconstrução do índice** | ≤ 12× o alvo do RNF-07 | — |
 | RNF-08 | CPU em repouso | < 0,5 % | 2 % |
 | RNF-09 | Escalabilidade | linear até 20.000 notas | — |
 
@@ -309,29 +308,20 @@ de 5.000 notas; num cofre real de 5.686 notas o mesmo protocolo dá 129,6 MB de 
 Teto absoluto num produto que indexa de 78 a 5.686 notas mede o tamanho do cofre,
 não a qualidade do servidor.
 
-**4. Em 2026-09-01 o requisito foi partido em dois, por cenário de cache.** A
-redação anterior dizia "nos estados `pronto` e `servindo`" e não dizia nada sobre
-o cache. Medido nos cinco cofres reais: com o cache **apagado**, o `servindo`
-estoura o alvo em **todos**, de 5× a 12× — Estudo 58 → 706 MB, TJSP 127 → 1.180 MB.
-O `pronto` mal se move, então o custo é a construção do índice de **busca**, não a
-do de metadados.
+**4. Em 2026-09-01 o requisito passou a nomear o cenário de cache.** A redação
+anterior dizia "nos estados `pronto` e `servindo`" e não dizia nada sobre o
+cache, e pela letra os números de cache frio a violavam.
 
-Os dois cenários são regimes diferentes e não cabem no mesmo número:
+O alvo vale **com cache válido**, que é o regime permanente: o servidor passa
+nele praticamente toda a vida útil, e é o que uma sessão real encontra.
 
-- **RNF-07 (cache válido)** é o regime permanente. O servidor passa nele
-  praticamente todo o tempo de vida, e é o que uma sessão real encontra.
-- **RNF-07b (reconstrução)** é transitório e inevitável: acontece na primeira
-  partida após trocar de versão, e depois de invalidação de cache. Ele existe para
-  o pico ter um teto **declarado** em vez de nenhum — 12× é o pior caso medido, e
-  publicá-lo é o que impede alguém tratar 20× como aceitável por falta de régua.
-
-Mecanismo do pico: efeito medido, causa **inferida e não perfilada** — recém
-construído, o índice invertido vive na forma de mapas do delta; carregado do
-cache, vem nos arrays achatados com arena mapeada.
-
-**O que não foi medido:** quanto o pico dura, e se o coletor devolve a memória
-antes da primeira consulta do usuário. Os números são de `servindo` logo após uma
-`vault_search`, não de um regime observado ao longo de minutos.
+**Durante a reconstrução do índice não há requisito, e isso é deliberado.**
+Medido nos cinco cofres com o cache apagado, o `servindo` fica de 5× a 12× acima
+do alvo — Estudo 58 → 706 MB, TJSP 127 → 1.180 MB. Transformar esse pico em
+requisito exigiria um alvo, e o único número honesto disponível seria "o pior que
+já medimos" — um requisito que ninguém pode violar por construção descreve, não
+exige, e vira ruído na tabela. **Decisão do dono em 2026-09-01.** O pico está nos
+limites conhecidos de `OPERACAO.md`, com os números por cofre.
 
 A base de 8 MB cobre o runtime do Go e o que não escala com o cofre. Medido em
 2026-08-28, estado `servindo`, nos cinco cofres do dono:

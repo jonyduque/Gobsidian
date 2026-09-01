@@ -4930,3 +4930,48 @@ não usamos `pull_request_target` nem `workflow_run`, única mudança de
 comportamento da v7 do checkout.
 
 `verify.ps1` 13 de 13.
+
+---
+
+## Promoção de candidato na LEITURA — a forma (b) da alternativa E — 2026-09-01
+
+O plano tratava a alternativa E como uma coisa só: `Heading.Synthetic` no parser,
+persistido no cache, visível a todo consumidor. Ela não é uma coisa só. Separadas,
+a leitura e a escrita têm custos e riscos de ordens diferentes, e o dono escolheu
+a leitura.
+
+**O que entrou.** `note_read(heading=)` resolve CANDIDATO quando nenhum heading
+ATX casa. Calculado na chamada, sobre os bytes da nota, só no caminho de
+fallback — leitura que casa no índice não paga a leitura extra.
+
+**O que NÃO entrou, e é a linha inteira da decisão.** A escrita. `note_patch` sob
+candidato reescreveria uma região cujos limites são heurística (`end` é o próximo
+candidato de nível menor ou igual). Ler no lugar errado devolve o parágrafo
+errado; escrever no lugar errado apaga trabalho, sem desfazer.
+
+**O que não mudou, de propósito:** o parser, o cache, `IndexCacheParserVersion` e
+os 48 golden files. Nenhum cofre reconstrói por causa disto. O campo novo,
+`SectionSynthetic`, vive em `ReadResult` e não em `parser.Heading` — Heading é
+persistido, e acrescentar campo nele subiria a versão do formato.
+
+**Alcance medido:** 3.433 de 10.871 notas (32%) têm ao menos um candidato — não
+os 3,6% que contavam só onde o candidato é a ÚNICA estrutura. Em Revisão são
+100% das notas: todas têm ATX e negrito, e a subestrutura de 1.273 delas passa a
+ser endereçável.
+
+**Uma prova de mutação saiu EXIT=1 e revelou lacuna real.** Mutar o filtro de
+texto (`parser.Slug(c.Text) != targetSlug`) passava no teste de ambiguidade:
+com TRÊS candidatos, remover a conferência deixa os três casando e a resposta
+continua "ambíguo". O teste que pega tem UM candidato só — sem o filtro, pedir
+qualquer heading devolveria a seção dele, inventando resposta para pergunta que
+a nota não tem.
+
+**Três provas EXIT=0:** a promoção em si, o campo `section_synthetic`, e o filtro
+de texto.
+
+**Decisão do dono no mesmo dia: o RNF-07b foi descartado.** O RNF-07 passa a
+nomear "com cache válido"; o pico da reconstrução fica nos limites conhecidos de
+`OPERACAO.md`, sem status de requisito, porque alvo igual ao pior caso medido
+descreve em vez de exigir.
+
+`verify.ps1` 13 de 13.

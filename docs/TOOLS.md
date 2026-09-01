@@ -100,7 +100,17 @@ Lê uma nota inteira, uma seção, ou um bloco — ou várias notas numa só cha
 }
 ```
 
-**Retorno com `path`.** `content`, `hash`, `total_size`, `next_offset` (quando houver mais conteúdo), `truncated`, e — quando `heading` foi usado — `section` com nível, texto e faixa de offsets. Corresponde a `service.ReadResult`.
+**Retorno com `path`.** `content`, `hash`, `total_size`, `next_offset` (quando houver mais conteúdo), `truncated`, e — quando `heading` foi usado — `section` com nível, texto e faixa de offsets, mais `section_synthetic`. Corresponde a `service.ReadResult`.
+
+**`heading` resolve candidato quando não há heading Markdown que case.** Numa nota convertida de PDF, DOCX ou EPUB o título é parágrafo em negrito, e `note_read(heading="13.1 Substituição")` passa a funcionar nela — antes exigia `note_outline` seguido de leitura por offset, duas chamadas para o que o heading resolve em uma.
+
+Três regras, e as três importam:
+
+- **Heading Markdown sempre vence.** O candidato só é consultado depois de nenhum `#` casar. Estrutura de verdade nunca perde para palpite.
+- **O retorno diz que é palpite.** `section_synthetic: true` acompanha toda seção vinda de candidato. Sem ele a tool afirmaria estrutura que o arquivo não tem, que é o defeito que `note_outline` existe para não cometer. Em `section.level`, zero significa "candidato sem numeração hierárquica", não "nível zero".
+- **A escrita fica de fora.** `note_patch` e `note_append` não resolvem candidato, e isso é deliberado: os limites de um candidato são heurística — `end` é o próximo candidato de nível menor ou igual —, e ler no lugar errado devolve o parágrafo errado enquanto escrever no lugar errado apaga trabalho sem desfazer.
+
+Candidatos são calculados **na chamada**, sobre os bytes da nota, e só no caminho de fallback: uma leitura por heading que casa no índice não paga por essa leitura. Nada é persistido, e o formato do cache não muda.
 
 **Retorno com `paths`.** `items`, uma lista na mesma ordem e do mesmo tamanho de `paths`. Cada item tem `path` e, ou os campos de sucesso (`content`, `hash`, `total_size`, `next_offset`, `truncated`, `section`), ou `error` com `code` e `message` — uma nota que falha não derruba as demais e não desaparece da lista: o item aparece na posição de origem, com `error` preenchido. Corresponde a `service.ReadBatchResult`.
 

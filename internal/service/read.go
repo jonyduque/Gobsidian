@@ -6,7 +6,9 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/jonyd/gobsidian/internal/index"
 	"github.com/jonyd/gobsidian/internal/parser"
+	"github.com/jonyd/gobsidian/internal/vault"
 )
 
 // ReadRequest sao os parametros de note_read. Heading e BlockID sao
@@ -32,6 +34,21 @@ type ReadResult struct {
 	Truncated  bool            `json:"truncated,omitempty"`
 	TotalSize  int64           `json:"total_size"`
 	NextOffset *int64          `json:"next_offset,omitempty"`
+
+	// SectionSynthetic diz que a secao devolvida veio de um CANDIDATO a titulo
+	// — paragrafo em negrito ou setext — e nao de um heading Markdown.
+	//
+	// Ele e obrigatorio para esta leitura ser honesta. Sem ele, `note_read`
+	// voltaria a afirmar estrutura que o arquivo nao tem, que e exatamente o
+	// defeito que `note_outline` existe para nao cometer. O cliente que recebe
+	// `section_synthetic: true` sabe que os limites da secao sao um palpite, e
+	// nao uma linha `##` que alguem escreveu.
+	//
+	// O campo vive AQUI, e nao em parser.Heading, de proposito: Heading e
+	// persistido no cache, e acrescentar campo nele subiria a versao do formato
+	// e reconstruiria o indice de todo cofre. A promocao de candidato e de
+	// LEITURA; ela nao toca no parser nem no cache.
+	SectionSynthetic bool `json:"section_synthetic,omitempty"`
 }
 
 // ReadAlvo e um item do lote de note_read: o caminho, e o que sobrepoe os
@@ -244,6 +261,7 @@ func (s *Service) ReadNote(ctx context.Context, req ReadRequest) (ReadResult, er
 	start := int64(0)
 	end := note.Size
 	var matchedHeading *parser.Heading
+	var secaoSintetica bool
 
 	switch {
 	case req.Heading != "":
@@ -255,6 +273,53 @@ func (s *Service) ReadNote(ctx context.Context, req ReadRequest) (ReadResult, er
 				if req.HeadingLevel == 0 || h.Level == req.HeadingLevel {
 					matches = append(matches, h)
 				}
+			}
+		}
+
+		// Sem heading ATX que case: tenta os CANDIDATOS a titulo.
+		//
+		// Promocao de candidato na LEITURA, e so nela. Uma nota convertida de
+		// PDF, DOCX ou EPUB marca titulo com paragrafo em negrito, e ate
+		// 2026-09-01 a unica saida era `note_outline` seguido de leitura por
+		// offset -- duas chamadas para o que o heading resolve em uma.
+		//
+		// A ESCRITA fica de fora, e essa e a linha inteira desta decisao. Ler no
+		// lugar errado devolve o paragrafo errado; escrever no lugar errado
+		// apaga trabalho do usuario, sem desfazer. Os limites de um candidato
+		// sao heuristica -- `end` e o proximo candidato de nivel menor ou igual
+		// --, e heuristica nao guia `note_patch`.
+		//
+		// Calculado na hora, sobre os bytes da nota, e nao persistido: o parser
+		// nao muda e IndexCacheParserVersion nao sobe.
+		var sintetico *parser.Heading
+		if len(matches) == 0 {
+			cands, errCand := s.candidatosDaNota(ctx, canonical, note)
+			if errCand != nil {
+				return ReadResult{}, errCand
+			}
+			var casaram []parser.Heading
+			for _, c := range cands {
+				if parser.Slug(c.Text) != targetSlug {
+					continue
+				}
+				if req.HeadingLevel != 0 && (c.Level == nil || *c.Level != req.HeadingLevel) {
+					continue
+				}
+				casaram = append(casaram, parser.Heading{
+					Text:  c.Text,
+					Slug:  parser.Slug(c.Text),
+					Start: c.Start,
+					End:   c.End,
+					Level: nivelOuZero(c.Level),
+				})
+			}
+			if len(casaram) > 1 {
+				return ReadResult{}, Errorf(CodeAmbiguousHeading,
+					"candidato a titulo %q ambiguo (%d ocorrencias)", req.Heading, len(casaram))
+			}
+			if len(casaram) == 1 {
+				sintetico = &casaram[0]
+				matches = casaram
 			}
 		}
 
@@ -286,6 +351,7 @@ func (s *Service) ReadNote(ctx context.Context, req ReadRequest) (ReadResult, er
 		matchedHeading = &matches[0]
 		start = int64(matchedHeading.Start)
 		end = int64(matchedHeading.End)
+		secaoSintetica = sintetico != nil
 
 	case req.BlockID != "":
 		found := false
@@ -339,10 +405,49 @@ func (s *Service) ReadNote(ctx context.Context, req ReadRequest) (ReadResult, er
 		Section:   matchedHeading,
 		Truncated: truncou,
 		TotalSize: note.Size,
+
+		SectionSynthetic: secaoSintetica,
 	}
 	if truncou {
 		res.NextOffset = &end
 	}
 
 	return res, nil
+}
+
+// nivelOuZero converte o nivel de um candidato para a forma que Heading usa.
+//
+// Candidato sem numeracao hierarquica nao tem nivel a afirmar, e o ponteiro nil
+// diz isso. Heading nao tem como dizer, entao vira zero -- e o retorno traz
+// `section_synthetic` para o cliente saber que o zero ali significa "sem nivel",
+// e nao "nivel zero".
+func nivelOuZero(n *int) int {
+	if n == nil {
+		return 0
+	}
+	return *n
+}
+
+// candidatosDaNota le a nota e calcula os candidatos a titulo.
+//
+// Le o disco, e por isso so e chamada no caminho de FALLBACK -- depois de a
+// busca por heading ATX ja ter falhado. Uma leitura por heading que casa no
+// indice nunca paga por isto.
+func (s *Service) candidatosDaNota(ctx context.Context, canonical vault.CanonicalPath, note *index.Note) ([]parser.Candidate, error) {
+	// Quem roda antes do guarda precisa do mesmo guarda: abrir um placeholder
+	// do OneDrive dispara download sincrono.
+	if note.CloudOnly {
+		return nil, Errorf(CodeCloudOnlyFile, "nota %q e apenas online (CloudOnly)", canonical)
+	}
+	dados, err := s.vault.ReadAll(ctx, canonical)
+	if err != nil {
+		return nil, Errorf(CodeVaultUnavailable, "lendo nota %q para procurar candidatos: %v", canonical, err)
+	}
+	corpo, tinhaBOM := vault.StripBOM(dados)
+	var bomOffset int64
+	if tinhaBOM {
+		bomOffset = int64(vault.BOMLen)
+	}
+	_, corpoSemFM, deslocamentoDoFM := parser.SplitFrontmatter(corpo)
+	return parser.DetectCandidates(corpoSemFM, bomOffset+deslocamentoDoFM), nil
 }

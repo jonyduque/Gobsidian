@@ -2664,17 +2664,17 @@ inferência é coerente com isso e **não foi medida por perfil**.
 cenário não é de laboratório: acontece na primeira partida depois de trocar de
 versão, que é o que toda máquina faz ao atualizar.
 
-**As três saídas, e a escolha é do dono:**
+**Decidido em 2026-09-01: o RNF-07 nomeia "com cache válido", e a reconstrução
+NÃO vira requisito.**
 
-1. **O requisito passa a nomear o estado**, como já nomeia `pronto` e `servindo`:
-   "com cache válido". Fica honesto e mede o regime permanente, que é onde o
-   servidor passa 99% do tempo. O custo é que a primeira partida deixa de ter
-   requisito de memória.
-2. **O requisito vale para os dois**, e aí há trabalho de produto: construir o
-   invertido direto na forma achatada, ou em blocos, em vez de montar mapas e só
-   depois compactar.
-3. **Fica como está**, com esta seção registrando que o número publicado é o de
-   cache quente e que o frio custa de 5× a 12×.
+A opção descartada era criar um RNF-07b com teto de 12×. O 12 seria o pior caso
+medido, e requisito cujo alvo é "o pior que já medimos" **não pode ser violado por
+construção** — ele descreve em vez de exigir, e vira ruído na tabela de RNFs. O
+pico fica aqui, nos limites conhecidos, com os números por cofre.
+
+Segue em aberto, sem prazo: **construir o invertido direto na forma achatada**, ou
+em blocos, em vez de montar mapas e só depois compactar. É o que atacaria o pico
+na causa. Não há requisito cobrando isso.
 
 **Não medido:** quanto tempo o pico dura, e se o coletor devolve a memória antes
 da primeira consulta do usuário. Os números acima são de `servindo` logo após uma
