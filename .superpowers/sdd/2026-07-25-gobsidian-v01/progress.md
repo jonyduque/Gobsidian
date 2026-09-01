@@ -4842,3 +4842,42 @@ commitá-los.
 de fechar existe, mas compraria detecção de regressão em cofre sintético, não
 validação dos números de RNF-07, que vêm dos cofres reais do dono. Está escrito
 assim no `ESTADO.md` para ninguém ler depois como "RNF-07 está em gate".
+
+---
+
+## Medição dos cinco cofres reais, e o que o cache frio revelou — 2026-09-01
+
+Pedido do dono depois de perguntar se o `measure.ps1` ainda tem razão de existir.
+A resposta é que tem: **nada mais mede heap vivo** — `bench_compare.ps1` compara
+só tempo, e a referência não guarda `B/op`.
+
+**RNF-07 re-medido, cache quente, `origem do indice: cache` nos cinco.** Os cinco
+passam; a tabela publicada está confirmada, com duas contagens de notas
+atualizadas porque os cofres mudaram. **Nenhuma mudança de 2026-08-31 moveu o
+heap de forma mensurável** — o `lowerPath` virar lista acrescenta um cabeçalho de
+slice por nota, e Estudo deu 18 e 21 MB em duas execuções do mesmo binário no
+mesmo cofre, o que é a largura do ruído.
+
+**O achado maior veio da passada fria**, que eu rodei só para pegar o RNF-01 de
+verdade. Com o cache apagado, o `servindo` estoura o RNF-07 nos CINCO cofres, de
+5× a 12×: Estudo 58 → 706 MB, TJSP 127 → 1.180 MB. O `pronto` mal se move, então
+é a construção do índice de BUSCA que custa.
+
+Efeito medido, **causa inferida e dita como inferência**: recém-construído o
+invertido vive na forma de mapas do delta, e carregado vem nos arrays achatados.
+Não perfilei.
+
+Não fechei a questão. O requisito diz "nos estados `pronto` e `servindo`" e não
+diz "com cache válido"; pela letra estes números o violam, e o cenário é a
+primeira partida depois de trocar de versão. As três saídas estão escritas em
+`OPERACAO.md` e a decisão é do dono.
+
+**E um defeito no próprio instrumento.** Na mesma linha de relatório,
+`origem do indice` vem da partida `servindo` e `RNF-01 indice` vem da partida
+`pronto`. Com cache quente o `index_ms` mede CARGA de cache — grandeza do RNF-02,
+teto de 300 ms — e é comparado contra o teto do RNF-01, 3.000 ms. Mesma classe
+que este documento já registra duas vezes: medir o que é fácil em vez do que o
+requisito nomeia.
+
+Cache isolado por cofre em todas as execuções, para não invalidar os caches das
+sessões vivas do dono — a precaução que o `OPERACAO.md` já prescrevia.

@@ -314,6 +314,17 @@ o quarto, que é exatamente o defeito que ela existe para impedir.
 
 ## Dívidas abertas
 
+- **Com cache frio o RNF-07 estoura nos cinco cofres**, de 5× a 12× o valor de
+  cache quente — Estudo 58 → 706 MB, TJSP 127 → 1.180 MB. O requisito diz "nos
+  estados `pronto` e `servindo`" e não diz "com cache válido", então pela letra
+  estes números o violam, e o cenário é a primeira partida depois de trocar de
+  versão. **Decisão do dono pendente**, com as três saídas escritas em
+  `OPERACAO.md`: o requisito nomear o estado, valer para os dois (e aí há
+  trabalho de produto no invertido), ou ficar como está com o registro. Medido em
+  2026-09-01; mecanismo inferido, não perfilado.
+- **`measure.ps1` rotula como RNF-01 um número que, com cache quente, é RNF-02.**
+  O `index_ms` da partida `pronto` mede carga de cache e é comparado ao teto de
+  3.000 ms em vez do de 300 ms. Registrado em `OPERACAO.md`.
 - **`scripts/measure.ps1` continua fora de gate nenhum.** É o único instrumento
   que responde por RNF-01 e RNF-07, e roda quando alguém lembra. A forma de
   fechar existe — `gen_vault.ps1` produz cofre determinístico, e `bench.yml` já

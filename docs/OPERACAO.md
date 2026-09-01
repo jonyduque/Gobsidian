@@ -2191,15 +2191,24 @@ está na seção seguinte, que é a investigação; esta é a medição sob a re
 **Alvo: `≤ 8 MB + 32 KB × notas` de heap vivo, no estado `servindo`.** A
 redação normativa, com os três motivos da troca, está em `docs/PRD.md` §6.1.
 
-Medido por `pwsh -File scripts/measure.ps1 -Vault <x>`, que passou a medir isto:
+Medido por `pwsh -File scripts/measure.ps1 -Vault <x>`, que passou a medir isto.
+Re-medido em 2026-09-01, depois das chaves em NFC, do `lowerPath` como lista e da
+troca do lock por trava do kernel — **cache quente, `origem do indice: cache` nos
+cinco**:
 
 | Cofre | notas | `pronto` | `servindo` | teto | folga | RSS `servindo` |
 |---|---|---|---|---|---|---|
-| Oral | 78 | 5 MB | 7 MB | 10,4 MB | 33% | 31,6 MB |
-| Revisão | 1.275 | 9 MB | 17 MB | 47,8 MB | 64% | 46,7 MB |
-| Jurisprudência | 1.254 | 32 MB | 40 MB | 47,2 MB | **15%** | 96,3 MB |
-| Estudo | 2.557 | 16 MB | 58 MB | 87,9 MB | 34% | 161,6 MB |
-| TJSP 192 | 5.686 | 53 MB | 126 MB | 185,7 MB | 32% | 292,8 MB |
+| Oral | 78 | 4 MB | 7 MB | 10,4 MB | 33% | 35,5 MB |
+| Revisão | 1.275 | 9 MB | 17 MB | 47,8 MB | 64% | 46,4 MB |
+| Jurisprudência | 1.254 | 30 MB | 40 MB | 47,2 MB | **15%** | 108,0 MB |
+| Estudo | 2.579 | 18–21 MB | 58 MB | 88,6 MB | 35% | 175,2 MB |
+| TJSP 192 | 5.685 | 51–53 MB | 127 MB | 185,7 MB | 32% | 313,7 MB |
+
+Duas contagens mudaram porque os cofres mudaram (Estudo 2.557 → 2.579, TJSP
+5.686 → 5.685), o que move o teto junto. **Nenhuma das mudanças de 2026-08-31
+moveu o heap de forma mensurável**: o `lowerPath` virar lista acrescenta um
+cabeçalho de slice por nota, e o efeito não aparece — Estudo deu 18 MB e 21 MB em
+duas execuções do MESMO binário no MESMO cofre, e essa é a largura do ruído.
 
 **Os cinco passam.** A folga mais apertada é a de Jurisprudência, 15%, e ela é
 explicada: o cofre é denso em links e o `Context` do backlink acrescenta ali ~6 MB
@@ -2620,3 +2629,74 @@ dono, o que não foi feito.
 `docs/WINDOWS.md` §MAX_PATH continua correto e recomenda ligar a chave; esta
 seção explica por que a recomendação também afeta o que este projeto consegue
 medir sobre si mesmo.
+
+---
+
+## Com cache frio o RNF-07 estoura nos cinco cofres (2026-09-01)
+
+**Pergunta em aberto, deliberadamente não fechada aqui.** O requisito não foi
+mexido; o que segue é a medição e o que ela levanta.
+
+O RNF-07 sempre foi medido com **cache quente**, e a tabela publicada acima diz
+isso agora explicitamente. Medindo os mesmos cinco cofres com o cache **apagado**
+— mesmo binário, mesmo cofre, única diferença é o índice ser construído em vez de
+carregado:
+
+| Cofre | `servindo` quente | `servindo` frio | fator | teto |
+|---|---|---|---|---|
+| Oral | 7 MB | 43 MB | 6× | 10,4 MB |
+| Revisão | 17 MB | 88 MB | 5× | 47,8 MB |
+| Jurisprudência | 40 MB | 275 MB | 7× | 47,2 MB |
+| Estudo | 58 MB | 706 MB | **12×** | 88,6 MB |
+| TJSP 192 | 127 MB | **1.180 MB** | 9× | 185,7 MB |
+
+O estado `pronto` mal se move (4 / 8 / 39 / 18 / 55 MB). **É a construção do
+índice de busca que custa**, não a do índice de metadados.
+
+**Mecanismo: efeito medido, causa inferida.** Recém-construído, o invertido vive
+na forma de mapas do delta; carregado do cache, vem nos arrays achatados com
+arena mapeada. As duas representações e a diferença de ordem de grandeza entre
+elas já estão descritas neste documento, na seção do formato do cache. A
+inferência é coerente com isso e **não foi medida por perfil**.
+
+**Por que isso importa.** O RNF-07 redefinido diz "nos estados `pronto` e
+`servindo`" — não diz "com cache válido". Pela letra, estes números o violam. E o
+cenário não é de laboratório: acontece na primeira partida depois de trocar de
+versão, que é o que toda máquina faz ao atualizar.
+
+**As três saídas, e a escolha é do dono:**
+
+1. **O requisito passa a nomear o estado**, como já nomeia `pronto` e `servindo`:
+   "com cache válido". Fica honesto e mede o regime permanente, que é onde o
+   servidor passa 99% do tempo. O custo é que a primeira partida deixa de ter
+   requisito de memória.
+2. **O requisito vale para os dois**, e aí há trabalho de produto: construir o
+   invertido direto na forma achatada, ou em blocos, em vez de montar mapas e só
+   depois compactar.
+3. **Fica como está**, com esta seção registrando que o número publicado é o de
+   cache quente e que o frio custa de 5× a 12×.
+
+**Não medido:** quanto tempo o pico dura, e se o coletor devolve a memória antes
+da primeira consulta do usuário. Os números acima são de `servindo` logo após uma
+`vault_search`, não de um regime observado ao longo de minutos.
+
+---
+
+## `measure.ps1` chama de RNF-01 um número que às vezes é RNF-02 (2026-09-01)
+
+Na mesma linha de relatório, `origem do indice` vem da partida **`servindo`** e
+`RNF-01 indice` vem da partida **`pronto`**. Com cache quente — que é a condição
+que o próprio script recomenda para o RNF-07 — o `index_ms` da partida `pronto` é
+o tempo de **carregar o cache**, que é a grandeza do RNF-02, e ele é comparado
+contra o teto do RNF-01 (3.000 ms em vez de 300 ms).
+
+Medido em 2026-09-01, cache quente: 54, 93, 164, 134 e **514 ms**. Todos passam
+folgado no teto de 3.000 ms que o script cobra, e o de 5.685 notas **não** passa
+no teto de 300 ms do RNF-02, que é o requisito que aquele número realmente nomeia.
+
+Com o cache apagado, o mesmo campo passa a medir construção: 726, 474, 2.658, 747
+e **6.052 ms** — e aí o TJSP estoura o teto de 3.000 ms. **Amostra única por
+cofre, e o TJSP está em OneDrive**; não vira número publicado sem repetição.
+
+É a mesma classe que este documento já registra duas vezes: medir o que é fácil
+em vez do que o requisito nomeia.
