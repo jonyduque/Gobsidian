@@ -361,11 +361,17 @@ o quarto, que é exatamente o defeito que ela existe para impedir.
   achá-las **em estado nenhum**: nem feito, nem aberto. Elas não estavam no
   ledger porque as irmãs foram entregues sob a numeração da auditoria. Conferir
   no código foi o que as achou.
-- **Uma questão que a Task 114 abriu e não fechou:** as chaves do índice
-  normalizam para NFC, mas o disco pode ter as duas formas ao mesmo tempo. Duas
-  notas cujos nomes só diferem na normalização são dois arquivos para o sistema
-  de arquivos e **uma chave só** para o índice; hoje a segunda ganha o lugar da
-  primeira em `lowerPath`. **Não medido** em cofre real.
+- ~~**Uma questão que a Task 114 abriu**~~ **decidida em 2026-09-01: fica
+  documentada, sem detecção.** Duas notas cujos nomes só diferem na normalização
+  Unicode são dois arquivos para o sistema de arquivos e **uma chave só** para o
+  índice. O comportamento já está correto desde que `lowerPath` virou lista:
+  `ResolvePath` devolve `ErrAmbiguousPath` em vez de escolher uma em silêncio, e
+  remover uma não apaga a entrada da outra. **Medido: zero ocorrências** nos cinco
+  cofres reais, 5.186 notas, todos NTFS e todos em NFC.
+
+  Decisão do dono: **não vale detectar e avisar.** O custo seria uma varredura a
+  mais no boot para um caso que não ocorre, e a resposta já é a certa quando
+  ocorre. Registrado em `docs/wiki/entities/note-e-caminho.md`.
 
 ---
 

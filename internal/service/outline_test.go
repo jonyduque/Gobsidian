@@ -215,3 +215,51 @@ func TestOutlineListasVaziasNaoSaoNulas(t *testing.T) {
 		t.Error("Candidates nil: serializa como null, e null nao e lista vazia")
 	}
 }
+
+// TestOutlineNaoInventaCandidatoNoFrontmatter fixa o defeito que foi publicado
+// na v1.3.0 e na v1.3.1.
+//
+// O `---` que FECHA o frontmatter e um sublinhado setext valido, e passar o
+// arquivo inteiro a DetectCandidates promovia a ultima linha do frontmatter a
+// titulo. Medido nos cofres reais em 2026-09-01: um falso por nota com
+// frontmatter, 1.274 em 1.275 notas no cofre Revisao.
+//
+// Nenhum teste desta tool tinha frontmatter, e foi so por isso que passou.
+func TestOutlineNaoInventaCandidatoNoFrontmatter(t *testing.T) {
+	root := t.TempDir()
+	writeFile(t, root, "fm.md", "---\ntitle: Minha Nota\ntags: [a, b]\n---\n\nTexto corrido, sem titulo nenhum.\n")
+	svc := newTestService(t, root)
+
+	out, err := svc.Outline(context.Background(), OutlineRequest{Path: "fm.md"})
+	if err != nil {
+		t.Fatalf("Outline: %v", err)
+	}
+	if len(out.Candidates) != 0 {
+		t.Fatalf("frontmatter comum produziu %d candidato(s): %+v", len(out.Candidates), out.Candidates)
+	}
+}
+
+// TestOutlineOffsetCorretoDepoisDoFrontmatter e o contrapeso: pular o
+// frontmatter nao pode deslocar os offsets do corpo, senao a correcao troca um
+// candidato inventado por um candidato que aponta para o lugar errado.
+func TestOutlineOffsetCorretoDepoisDoFrontmatter(t *testing.T) {
+	root := t.TempDir()
+	writeFile(t, root, "fm2.md", "---\ntitle: X\n---\n\n**13.1 Secao de verdade**\n\ncorpo da secao\n")
+	svc := newTestService(t, root)
+
+	out, err := svc.Outline(context.Background(), OutlineRequest{Path: "fm2.md"})
+	if err != nil {
+		t.Fatalf("Outline: %v", err)
+	}
+	if len(out.Candidates) != 1 {
+		t.Fatalf("candidatos = %d, quer 1: %+v", len(out.Candidates), out.Candidates)
+	}
+	c := out.Candidates[0]
+	lido, err := svc.ReadNote(context.Background(), ReadRequest{Path: "fm2.md", Offset: &c.Start, MaxBytes: 26})
+	if err != nil {
+		t.Fatalf("ReadNote(offset=%d): %v", c.Start, err)
+	}
+	if !strings.HasPrefix(lido.Content, "**13.1") {
+		t.Fatalf("ler no offset do candidato deu %q", lido.Content)
+	}
+}

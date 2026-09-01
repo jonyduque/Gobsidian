@@ -78,6 +78,13 @@ zero arquivos em NFD, e **zero novas ambiguidades** por causa da caixa. O custo
 de memória ficou abaixo da resolução do instrumento — `pronto` 30 MB e
 `servindo` 40 MB nos dois braços, medidos intercalados em Jurisprudência.
 
+**Decidido em 2026-09-01: não há detecção, e é deliberado.** O cofre pode, em
+tese, ter as duas grafias ao mesmo tempo — o NTFS aceita. Quando isso acontece a
+resposta já é a certa: `ErrAmbiguousPath`, e remover uma não apaga a entrada da
+outra. Avisar exigiria uma varredura a mais no boot para um caso medido em zero
+ocorrências, e a ambiguidade nomeada já diz ao usuário o que ele precisa saber no
+momento em que precisa.
+
 ## Confinamento em duas camadas
 
 `vault.Resolve(root, input)` é o portão. Duas verificações, e as duas são

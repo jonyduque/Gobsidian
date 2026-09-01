@@ -4881,3 +4881,52 @@ requisito nomeia.
 
 Cache isolado por cofre em todas as execuções, para não invalidar os caches das
 sessões vivas do dono — a precaução que o `OPERACAO.md` já prescrevia.
+
+---
+
+## Lote de 2026-09-01: RNF partido, vocabulário do gerador, actions, e um defeito publicado
+
+**O defeito publicado veio primeiro, e não estava no pedido.** Medindo quantos
+candidatos sintéticos aparecem num cofre real — número que o plano diz decidir a
+alternativa E — apareceu 1 candidato setext por nota com frontmatter. Causa: o
+`---` que FECHA o frontmatter é sublinhado setext válido, e `service.Outline`
+passava o arquivo INTEIRO a `DetectCandidates` em vez do corpo, quebrando o
+padrão que `ExtractHeadings` segue. Publicado na v1.3.0 e na v1.3.1.
+
+Escala: Revisão tinha 1.274 setext em 1.275 notas; depois da correção, **zero**.
+Jurisprudência, 1.172 → 13.
+
+Nenhum teste da tool tinha frontmatter, e foi só por isso que passou. Corrigido
+com `SplitFrontmatter`, dois testes novos e prova de mutação.
+
+**O número da alternativa E, corrigido:** notas em que o candidato é a ÚNICA
+estrutura caem de 49,4% para **5,4%** no Estudo e de 24,3% para **4,3%** no TJSP.
+Total: 386 de 10.871 notas, **3,6%**. E 1.152 notas do Estudo (44,7%) não têm
+estrutura de tipo nenhum — a E não as alcança. Não implementei: a decisão do dono
+foi tomada sobre o número contaminado, e levei o corrigido de volta a ele.
+
+**RNF-07 partido em dois.** `RNF-07` passa a nomear "com cache válido";
+`RNF-07b` cobre a reconstrução, com teto de 12× — o pior caso medido. Os dois
+regimes não cabem no mesmo número, e o de reconstrução é inevitável: acontece na
+primeira partida depois de trocar de versão.
+
+**Colisão de normalização: documentada, sem detecção.** Decisão do dono. O
+comportamento já é o certo, e avisar custaria varredura de boot para um caso
+medido em zero ocorrências.
+
+**Vocabulário do `gen_vault.ps1`: 50 → 43.291 termos, 93% do cofre real.** Três
+dimensões combinatórias. Isto era o pré-requisito para um gate de heap sobre
+cofre sintético significar alguma coisa.
+
+**E um erro meu, com a mesma forma de um já registrado.** A primeira versão dava
+20 termos em 2.000 frases: nomeei o parâmetro `$R` e escrevi `$r = $R.Next(0,4)`,
+e **PowerShell não distingue caixa em nome de variável** — a primeira linha da
+função sobrescrevia o gerador com um inteiro. O `install.ps1` já registra
+exatamente isto para `$Pid`. Renomeado para `$Gerador`.
+
+**Actions do CI nas majors atuais** — `checkout@v7`, `setup-go@v7`,
+`upload-artifact@v7`, `gh-release@v3`, `golangci-lint-action@v9`. Conferido que
+não usamos `pull_request_target` nem `workflow_run`, única mudança de
+comportamento da v7 do checkout.
+
+`verify.ps1` 13 de 13.

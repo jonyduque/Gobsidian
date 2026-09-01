@@ -72,12 +72,23 @@ func (s *Service) Outline(ctx context.Context, req OutlineRequest) (OutlineResul
 	}
 
 	corpo, tinhaBOM := vault.StripBOM(dados)
-	var bodyOffset int64
+	var bomOffset int64
 	if tinhaBOM {
-		bodyOffset = int64(vault.BOMLen)
+		bomOffset = int64(vault.BOMLen)
 	}
 
-	candidatos := parser.DetectCandidates(corpo, bodyOffset)
+	// O CORPO, sem o frontmatter — a mesma entrada que ExtractHeadings recebe.
+	//
+	// Passar o arquivo inteiro fazia o `---` que FECHA o frontmatter virar
+	// sublinhado setext, promovendo a ultima linha dele a titulo: uma nota com
+	// `tags: [x]` na ultima linha do frontmatter devolvia "tags: [x]" como
+	// candidato. Medido em 2026-09-01 nos cofres reais: um falso por nota com
+	// frontmatter — 1.274 em 1.275 notas no cofre Revisao.
+	//
+	// E o defeito que esta tool existe para nao cometer: afirmar estrutura que o
+	// arquivo nao tem. Publicado na v1.3.0 e v1.3.1.
+	_, corpoSemFM, deslocamentoDoFM := parser.SplitFrontmatter(corpo)
+	candidatos := parser.DetectCandidates(corpoSemFM, bomOffset+deslocamentoDoFM)
 
 	teto := req.MaxCandidates
 	if teto <= 0 {

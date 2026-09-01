@@ -56,13 +56,78 @@ $Folders = @(
 $PopularTags = @("projeto", "golang", "obsidian", "mcp", "estudo", "documentacao", "tarefa", "bug", "revisao", "ideia", "refatoracao", "teste")
 $LongTailTags = 1..100 | ForEach-Object { "tag_raridade_$_" }
 
-$Snippets = @(
-    "Esta e uma nota automatica com acentuacao portuguesa: verificacao, execucao, organizacao.",
-    "O servidor MCP expoe o cofre local via JSON-RPC sobre stdio no ambiente Windows.",
-    "Decisoes arquiteturais AD-01 a AD-09 regulam o comportamento do watcher e do indice.",
-    "A busca full-text utiliza o algoritmo BM25 com pesos customizados para titulo e headings.",
-    "Varredura incremental mantem o indice atualizado em tempo real com fsnotify."
+# VOCABULARIO, e nao um punhado de frases fixas.
+#
+# Ate 2026-09-01 este script tinha cinco frases repetidas ate encher o corpo, o
+# que dava 50 termos distintos no cofre inteiro. Medido no mesmo dia: um cofre
+# real do dono tem 46.786 termos distintos em 1.254 notas -- 936x mais.
+#
+# Por que isso importa mais do que parece: o indice invertido e construido sobre
+# termos DISTINTOS. Com 50 termos cada um aparece em quase toda nota, e o
+# resultado e uma tabela de termos minuscula com posting lists maximamente
+# densas -- a forma OPOSTA de um cofre real, onde a tabela e enorme e a
+# distribuicao e de Zipf. Medir memoria de busca contra esse cofre responde
+# outra pergunta.
+#
+# As pecas se combinam em TRES dimensoes: prefixo x radical x sufixo. Sem o
+# prefixo eram 60 x 40 = 2.400 formas, e o cofre saturava em 2.491 termos --
+# medido, 5% do real. Com ele o espaco vai a ~48.000, que e a ordem de grandeza
+# dos 46.786 termos de um cofre real de 1.254 notas.
+#
+# O texto nao precisa fazer sentido; precisa ter a CARDINALIDADE certa, porque e
+# ela que dimensiona a tabela de termos do indice invertido.
+$Prefixos = @(
+    "", "", "", "in", "re", "sub", "inter", "contra", "pre", "pos", "extra",
+    "infra", "supra", "anti", "co", "des", "im", "ultra", "retro", "trans"
 )
+$Radicais = @(
+    "prescric", "decadenc", "usucapi", "servid", "enfiteus", "hipotec", "penhor",
+    "anticres", "comodat", "mutu", "deposit", "mandat", "gestao", "corretag",
+    "transport", "seguro", "fianc", "aval", "endoss", "protest", "falenc",
+    "recuperac", "concordat", "insolvenc", "arrematac", "adjudicac", "remicao",
+    "evicc", "redibitori", "empreitad", "locac", "arrendament", "parcer",
+    "condomini", "incorporac", "loteament", "desapropriac", "tombament",
+    "servidao", "alienac", "fiduciari", "leasing", "factoring", "franquia",
+    "concessao", "permissao", "autorizac", "licenc", "outorg", "delegac",
+    "avocac", "revogac", "anulac", "convalidac", "homologac", "ratificac",
+    "denunciac", "resilic", "resoluc", "rescis"
+)
+$Sufixos = @(
+    "ao", "oes", "ista", "istas", "ario", "arios", "aria", "arias", "avel",
+    "aveis", "ivo", "ivos", "iva", "ivas", "ante", "antes", "ente", "entes",
+    "encia", "encias", "ancia", "ancias", "mento", "mentos", "dade", "dades",
+    "izacao", "izacoes", "ismo", "ismos", "idade", "idades", "orio", "orios",
+    "atorio", "atorios", "ional", "ionais", "itude", "itudes"
+)
+$Qualificadores = @(
+    "civil", "penal", "tributaria", "administrativa", "processual", "material",
+    "constitucional", "trabalhista", "previdenciaria", "ambiental", "eleitoral",
+    "empresarial", "consumerista", "internacional", "sumaria", "ordinaria",
+    "cautelar", "executiva", "monitoria", "declaratoria", "constitutiva",
+    "condenatoria", "mandamental", "preventiva", "repressiva", "originaria",
+    "derivada", "solidaria", "subsidiaria", "concorrente"
+)
+
+# Monta uma frase nova a cada chamada. A semente e a mesma, entao o cofre
+# continua deterministico -- o que muda e a CARDINALIDADE do vocabulario.
+function New-Frase {
+    # $Gerador, e nao $R: nome de variavel no PowerShell NAO distingue caixa,
+    # entao `$r = $R.Next(...)` sobrescreve o proprio gerador com um inteiro na
+    # primeira linha. Medido: 2.000 frases produziam 20 termos distintos em vez
+    # de milhares. Mesma armadilha que o install.ps1 registra para $Pid.
+    param([System.Random]$Gerador)
+    $forma = $Gerador.Next(0, 4)
+    $t1 = $Prefixos[$Gerador.Next($Prefixos.Count)] + $Radicais[$Gerador.Next($Radicais.Count)] + $Sufixos[$Gerador.Next($Sufixos.Count)]
+    $t2 = $Prefixos[$Gerador.Next($Prefixos.Count)] + $Radicais[$Gerador.Next($Radicais.Count)] + $Sufixos[$Gerador.Next($Sufixos.Count)]
+    $q1 = $Qualificadores[$Gerador.Next($Qualificadores.Count)]
+    $q2 = $Qualificadores[$Gerador.Next($Qualificadores.Count)]
+    switch ($forma) {
+        0 { "A $t1 $q1 nao afasta a $t2 $q2 quando o prazo ja se consumou." }
+        1 { "Discute-se a $t1 $q1 em face da $t2, com efeitos sobre a $q2." }
+        2 { "O acordao firmou que a $t1 $q1 precede a $t2 $q2 na ordem de exame." }
+        default { "Cabe $t1 $q1 contra a decisao que reconheceu a $t2 $q2." }
+    }
+}
 
 $FileInfos = [System.Collections.Generic.List[PSCustomObject]]::new()
 for ($i = 1; $i -le $Notes; $i++) {
@@ -112,7 +177,7 @@ foreach ($info in $FileInfos) {
     $fm += "---`n"
 
     $body = "# Heading Principal`n`n"
-    $body += $Snippets[$rand.Next($Snippets.Count)] + "`n`n"
+    $body += (New-Frase -Gerador $rand) + "`n`n"
 
     $numLinks = $rand.Next(1, 4)
     for ($l = 0; $l -lt $numLinks; $l++) {
@@ -144,7 +209,7 @@ foreach ($info in $FileInfos) {
         $alvoBytes = $BodyKB * 1024
         $sb = New-Object System.Text.StringBuilder
         while ($sb.Length -lt $alvoBytes) {
-            [void]$sb.AppendLine($Snippets[$rand.Next($Snippets.Count)])
+            [void]$sb.AppendLine((New-Frase -Gerador $rand))
         }
         $body += "`n" + $sb.ToString()
     }
