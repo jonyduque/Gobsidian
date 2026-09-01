@@ -1,19 +1,19 @@
 {
   "runner": "ubuntu-latest (GitHub-hosted, 4 vCPU), go 1.25, GOMAXPROCS=4",
-  "commit": "3363445",
-  "nota": "mediana de 5 amostras da rodada 33529773618 do bench.yml, 2026-09-01. REFERENCIA REFEITA porque o CORPUS mudou: gen_vault.ps1 passou de cinco frases fixas (50 termos distintos no cofre inteiro) para um vocabulario de tres dimensoes (43.291 termos, 93% de um cofre real de 1.254 notas). Comparar contra a referencia anterior mediria a troca de corpus, nao regressao de codigo. Os deltas contra ela sao coerentes com a mudanca e ficam registrados aqui: InvertedLoad +15% (tabela de termos maior, mais a carregar), buscas de -24% a -45% (com 43 mil termos a consulta casa poucas notas em vez de quase todas), IndexBuild -2% (o indice de metadados nao depende do vocabulario). SearchFraseExata nao e comparavel: a consulta tambem mudou, porque a frase antiga saia do corpus antigo. SearchFiltroFrontmatter nao existia na referencia anterior. As duas referencias anteriores saiam de amostra UNICA por rodada, e o gate reprovou duas vezes sem mudanca de codigo por causa disso: SearchDoisTermos +45,5% e depois SearchTermoAmploCache +39,1%.",
+  "commit": "887739c",
+  "nota": "mediana de 5 amostras de -benchtime 20x, rodada 33530490812 do bench.yml, 2026-09-01. REFERENCIA REFEITA por DUAS razoes no mesmo dia. (1) O CORPUS mudou: gen_vault.ps1 passou de cinco frases fixas (50 termos distintos no cofre inteiro) para um vocabulario de tres dimensoes (43.291 termos, 93% de um cofre real de 1.254 notas), e comparar contra a referencia anterior mediria a troca de corpus, nao regressao de codigo. Deltas coerentes com a troca: InvertedLoad +15% (tabela de termos maior), buscas de -24% a -45% (com 43 mil termos a consulta casa poucas notas em vez de quase todas), IndexBuild -2% (o indice de metadados nao depende do vocabulario). (2) A AMOSTRA ficou mais longa: -benchtime subiu de 5x para 20x. Com 5x uma amostra de SearchDoisTermos era 10 ms de trabalho e o ruido do escalonador dominava -- dispersao de 81% DENTRO de uma rodada, e o gate reprovou com +52,6% sem mudanca de codigo. Com 20x a dispersao caiu para 27%, e SearchTermoAmplo de 40% para 3%. Foi a TERCEIRA vez que este benchmark reprovou por ruido; nas duas anteriores subiu-se o teto, o que trata sintoma. Desta vez mexeu-se na amostra.",
   "tolerancia_pct": 20,
   "unidade": "ns/op",
   "benchmarks": {
-    "BenchmarkIndexBuild": 144487004.0,
-    "BenchmarkInvertedLoad": 8500169.0,
-    "BenchmarkSearchTermoAmplo": 5588718.0,
-    "BenchmarkSearchDoisTermos": 2064258.0,
-    "BenchmarkSearchFraseExata": 13689170.0,
-    "BenchmarkSearchLimit200": 7976931.0,
-    "BenchmarkSearchLimit200Cache": 5608819.0,
-    "BenchmarkSearchTermoAmploCache": 4671425.0,
-    "BenchmarkSearchLimit200CacheTrechoRepetido": 4353002.0,
-    "BenchmarkSearchFiltroFrontmatter": 11502540.0
+    "BenchmarkIndexBuild": 138709375.0,
+    "BenchmarkInvertedLoad": 8485612.0,
+    "BenchmarkSearchTermoAmplo": 5235290.0,
+    "BenchmarkSearchDoisTermos": 2184481.0,
+    "BenchmarkSearchFraseExata": 12138657.0,
+    "BenchmarkSearchLimit200": 6397495.0,
+    "BenchmarkSearchLimit200Cache": 4966362.0,
+    "BenchmarkSearchTermoAmploCache": 3935384.0,
+    "BenchmarkSearchLimit200CacheTrechoRepetido": 4015645.0,
+    "BenchmarkSearchFiltroFrontmatter": 9843915.0
   }
 }
