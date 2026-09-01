@@ -169,12 +169,19 @@ func BenchmarkSearchTermoAmplo(b *testing.B) {
 	benchBusca(b, benchServico(b), service.SearchOptions{Query: "nota"}, 10)
 }
 
+// As consultas destes benchmarks saem do texto FIXO dos templates de
+// gen_vault.ps1 — nunca do vocabulario combinatorio, que muda com a semente.
+//
+// Em 2026-09-01 o gerador trocou cinco frases fixas por um vocabulario de tres
+// dimensoes, e `"algoritmo BM25 com pesos"` deixou de existir no cofre. O
+// benchmark reprovou com "a consulta casou 0 resultados", que e a guarda
+// fazendo o trabalho dela: benchmark que nao casa nada mede o caminho vazio.
 func BenchmarkSearchDoisTermos(b *testing.B) {
-	benchBusca(b, benchServico(b), service.SearchOptions{Query: "servidor mcp"}, 1)
+	benchBusca(b, benchServico(b), service.SearchOptions{Query: "acordao firmou"}, 1)
 }
 
 func BenchmarkSearchFraseExata(b *testing.B) {
-	benchBusca(b, benchServico(b), service.SearchOptions{Query: `"algoritmo BM25 com pesos"`}, 1)
+	benchBusca(b, benchServico(b), service.SearchOptions{Query: `"contra a decisao que reconheceu"`}, 1)
 }
 
 func BenchmarkSearchLimit200(b *testing.B) {
