@@ -59,25 +59,24 @@ jobs:
           path: bench.txt
           if-no-files-found: warn
 
-  # FASE DE MEDICAO -- este job ainda NAO e gate.
-  #
   # Os tres tetos de latencia so sao cobrados sem `-race`, porque o detector
-  # multiplica o tempo; por isso o teste faz `if raceEnabled || p95 <= teto`. E o
-  # `ci.yml` roda SO `go test -race ./...`. Resultado: os tetos existem, o
-  # verify.ps1 os cobra na maquina do dono, e o CI nao cobra nenhum -- "teto que
-  # nao e cobrado em lugar nenhum nao e teto".
+  # multiplica o tempo -- o teste le `if raceEnabled || p95 <= teto`. E o
+  # `ci.yml` roda SO `go test -race ./...`. Ate 2026-09-01 o resultado era que
+  # os tetos existiam, o verify.ps1 os cobrava na maquina do dono, e o CI nao
+  # cobrava nenhum: "teto que nao e cobrado em lugar nenhum nao e teto".
   #
-  # Ligar isso direto seria repetir o erro de hoje. O teto do TestBM25KernelLatency
-  # foi dimensionado nesta maquina, e o proprio verify.ps1 registra que no runner
-  # do CI o mesmo teste mediu p95 de 107,1 ms SEM regressao nenhuma. Um gate
-  # calibrado na maquina errada reprova ao acaso, e gate que reprova ao acaso
-  # ensina a re-rodar ate ficar verde.
+  # Antes de ligar, mediu-se. O receio era concreto: o proprio verify.ps1
+  # registra que TestBM25KernelLatency mediu p95 de 107,1 ms num runner do CI
+  # sem regressao nenhuma, e um gate calibrado na maquina errada reprova ao
+  # acaso. Medido aqui em tres rodadas, SEM -race:
   #
-  # Entao primeiro se MEDE o que este runner produz -- tres rodadas, numeros
-  # impressos, `continue-on-error` para nao pintar o workflow de vermelho. Com os
-  # numeros na mao decide-se se o teto atual cabe ou se ele vira entrada da
-  # referencia commitada, como ja e para os benchmarks. Tirar o
-  # `continue-on-error` e o que transforma este job em gate.
+  #   TestRNF04VaultSearchLatencyP95        pior p95 1,64 ms   teto 100 ms   ~60x
+  #   TestRNF04SnippetConcurrencyLimit200   pior p95 1,79 ms   teto  22 ms   ~12x
+  #   TestBM25KernelLatency                 pior p95  143 us   teto  80 ms  ~550x
+  #
+  # Os 107,1 ms eram COM -race, e o comentario do verify.ps1 diz isso. Sem o
+  # detector o runner e rapido e consistente, entao os tetos atuais cabem e nao
+  # ha o que recalibrar. A folga mais apertada e 12x.
   #
   # Mesmo runner do job acima, e pela mesma razao: comparar numero de ubuntu com
   # numero de windows mede a diferenca entre runners.
@@ -93,13 +92,26 @@ jobs:
       # cofre sintetico que o job de bench monta.
       #
       # Tres rodadas porque UMA amostra nao decide nada neste runner -- a mesma
-      # licao que levou o job de bench a usar `-count 5` e mediana.
-      - name: medir os tetos de latencia, sem -race
-        continue-on-error: true
+      # licao que levou o job de bench a usar `-count 5` e mediana. Reprova se
+      # QUALQUER rodada reprovar.
+      - name: tetos de latencia, sem -race
         run: |
+          falhou=0
           for i in 1 2 3; do
             echo "::group::rodada $i"
-            go test -count=1 -v -run 'TestRNF04VaultSearchLatencyP95|TestRNF04SnippetConcurrencyLimit200' ./internal/service/ 2>&1 | grep -E 'mediana|p95|RNF-04|--- (FAIL|PASS)' || true
-            go test -count=1 -v -run 'TestBM25KernelLatency' ./internal/search/ 2>&1 | grep -E 'Mediana|p95|--- (FAIL|PASS)' || true
+            # A saida vai para arquivo e o filtro roda DEPOIS, de proposito.
+            # `go test ... | grep ...` devolveria o status do grep, e com um
+            # `|| true` no fim o passo nunca reprovaria -- um gate que nao pode
+            # reprovar e pior que gate nenhum. Ver docs/ARMADILHAS.md.
+            if ! go test -count=1 -v -run 'TestRNF04VaultSearchLatencyP95|TestRNF04SnippetConcurrencyLimit200' ./internal/service/ > servico.txt 2>&1; then
+              falhou=1
+            fi
+            grep -E 'mediana|p95|RNF-04|--- (FAIL|PASS)' servico.txt || true
+
+            if ! go test -count=1 -v -run 'TestBM25KernelLatency' ./internal/search/ > busca.txt 2>&1; then
+              falhou=1
+            fi
+            grep -E 'Mediana|p95|--- (FAIL|PASS)' busca.txt || true
             echo "::endgroup::"
           done
+          exit $falhou
