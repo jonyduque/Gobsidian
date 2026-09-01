@@ -67,9 +67,11 @@ internal/
   vault/           raiz, caminho canônico e confinamento, walk com exclusões,
                    EOL, detecção de somente-nuvem
   parser/          goldmark + extensões [[wikilink]], ^blockid, #tag,
-                   campo::inline; headings com offsets de byte
+                   campo::inline; headings com offsets de byte; candidatos a
+                   título (negrito, setext) que NUNCA viram Heading
   index/           Note, RWMutex, build com worker pool, update incremental,
-                   backlinks, resolve, alias, query
+                   backlinks, resolve, alias, query; chave.go é a conta única
+                   das chaves derivadas (NFC + caixa)
   search/          analyzer, índice invertido base/delta, BM25, trecho,
                    cache binário formato 6 + arena mmap
   watcher/         fsnotify, debounce, filtro de relevância, apply,
@@ -80,7 +82,8 @@ internal/
   mcpsrv/          ÚNICO pacote onde tipos do SDK de MCP existem
   console/         marcadores ASCII e cor decidida pelo destino de saída
   ipc/             transporte local: socket, saudação, handshake
-  daemon/          N conexões sobre um índice; lock anti-corrida; spawn
+  daemon/          N conexões sobre um índice; spawn; posse por trava do
+                   kernel (flock / LockFileEx), nunca por arquivo com PID
   doctor/          diagnóstico de ambiente e do runtime do daemon
   text/            normalização
 docs/              normativa, papéis, história, wiki
@@ -93,11 +96,28 @@ scripts/           gates e utilitários PowerShell — ver Comandos
 .superpowers/sdd/  briefs e ledger
 ```
 
-Grafo de dependências, acíclico e conferido em revisão:
-`mcpsrv → service → {index, search, writer, vault, parser}`; `index → {parser,
-vault}`; `search → parser`; `writer → vault`; `watcher → {vault, index, search}`;
-`doctor → {vault, config, ipc, daemon}`. `parser` e `vault` são folhas.
-**Aresta nova precisa de justificativa — folhas não ganham import.**
+Grafo de dependências, acíclico e **extraído dos imports em 2026-09-01** — a
+versão anterior deste parágrafo omitia `text` inteiro, dizia que `parser` era
+folha quando ele já importava `text`, e listava `search → parser` quando são
+quatro arestas:
+
+```
+text  vault  config  console  lifecycle      folhas
+parser   → text
+ipc      → config
+writer   → parser, vault
+index    → parser, text, vault
+search   → index, parser, text, vault
+watcher  → index, search, vault
+service  → index, parser, search, vault, writer
+mcpsrv   → config, index, parser, search, service, vault, watcher
+daemon   → config, ipc, mcpsrv, service, vault
+doctor   → config, daemon, ipc, vault
+```
+
+**Aresta nova precisa de justificativa — folha não ganha import.** E o parágrafo
+que descreve o grafo não vale mais que os imports: este foi conferido contra eles,
+e o anterior dizia ter sido também.
 
 ---
 

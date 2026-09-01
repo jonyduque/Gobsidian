@@ -43,7 +43,7 @@ Nasceu de três problemas concretos dos servidores MCP de Obsidian existentes:
 
 - ⚡ **Leitura por offset.** Ler uma seção de 2 KB numa nota de 500 KB custa 2 KB de I/O, não 500 KB.
 - 🎯 **A busca diz ONDE.** `vault_search` devolve `match_offset`, o deslocamento absoluto do casamento, que alimenta `note_read(offset=…)` direto — achar o termo numa nota de 255 KB e ler só os bytes em volta dele.
-- 🗺️ **`note_outline` para nota convertida.** PDF, DOCX e EPUB viram nota sem heading `#` nenhum: o título é parágrafo em negrito. A tool separa os headings reais dos **candidatos** e diz qual é qual — nunca afirma estrutura que o arquivo não tem.
+- 🗺️ **Nota convertida recupera a estrutura.** PDF, DOCX e EPUB viram nota sem heading `#` nenhum: o título é parágrafo em negrito. O `note_outline` mapeia, separando headings reais de **candidatos** e dizendo qual é qual, e o `note_read(heading=…)` lê a seção do candidato direto quando nenhum heading Markdown casa — o retorno traz `section_synthetic`, para palpite nunca passar por estrutura. A escrita fica de fora de propósito: ler no lugar errado devolve o parágrafo errado, escrever no lugar errado apaga trabalho.
 - 📚 **Lote com sobreposição por item.** `note_read` aceita `["a.md", {"path":"b.md","heading":"X"}]` na mesma lista: seis capítulos com seis seções numa chamada, não seis.
 - 🔎 **Busca BM25** com pesos por campo, frase exata e filtros de pasta, tag, frontmatter e data.
 - 🇧🇷 **Analisador para português**: acentos, *case folding* e indexação dupla — forma crua e reduzida na mesma posting list. As chaves do índice normalizam para NFC, então uma nota gravada num Mac é encontrada por um pedido do Windows.

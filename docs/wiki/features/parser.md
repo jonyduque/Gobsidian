@@ -113,6 +113,11 @@ que já vinha pronto do disco.
 não tem nenhum: ela marca título com parágrafo em negrito
 (`**13.1.10 Substituição de candidatos**`) ou com setext.
 
+Desde 2026-09-01 o candidato também resolve em `note_read(heading=)`, quando
+nenhum heading ATX casa — mas **na leitura apenas**, e ainda assim sem virar
+`Heading`: `service` converte na hora, e o retorno declara
+`section_synthetic`.
+
 `outline.go` detecta essas duas formas e devolve `[]Candidate` — **e o tipo é
 outro de propósito**. Candidato não é `Heading`, não entra no índice e não entra
 no cache. O parser não muda por causa dele, e `IndexCacheParserVersion` não sobe:

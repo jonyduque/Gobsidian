@@ -43,7 +43,7 @@ It came out of three concrete problems with the existing Obsidian MCP servers:
 
 - ⚡ **Reading by offset.** Reading a 2 KB section out of a 500 KB note costs 2 KB of I/O, not 500 KB.
 - 🎯 **Search tells you WHERE.** `vault_search` returns `match_offset`, the absolute offset of the match, which feeds `note_read(offset=…)` directly — find a term in a 255 KB note and read only the bytes around it.
-- 🗺️ **`note_outline` for converted notes.** PDF, DOCX and EPUB become notes with no `#` heading at all: the title is a bold paragraph. The tool separates real headings from **candidates** and says which is which — it never asserts structure the file does not have.
+- 🗺️ **Converted notes get their structure back.** PDF, DOCX and EPUB become notes with no `#` heading at all: the title is a bold paragraph. `note_outline` maps them, separating real headings from **candidates** and saying which is which, and `note_read(heading=…)` reads a candidate's section directly when no Markdown heading matches — the reply carries `section_synthetic` so a guess is never passed off as structure. Writing stays out on purpose: reading the wrong place returns the wrong paragraph, writing the wrong place destroys work.
 - 📚 **Batch reads with per-item overrides.** `note_read` accepts `["a.md", {"path":"b.md","heading":"X"}]` in one list: six chapters with six sections in one call, not six.
 - 🔎 **BM25 search** with field weights, exact phrase, and folder, tag, frontmatter and date filters.
 - 🇧🇷 **Portuguese analyzer**: accents, case folding, and dual indexing — raw and reduced forms in the same posting list. Index keys normalize to NFC, so a note written on a Mac is found by a request from Windows.

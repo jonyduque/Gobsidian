@@ -136,12 +136,25 @@ parágrafo em negrito ou com setext, e num cofre de estudo essas são a maioria.
 | ID | Requisito | Prioridade |
 |---|---|---|
 | RF-19.1 | Detecção de **candidatos** a título — parágrafo em negrito e setext — fora de bloco de código, com deslocamento absoluto e nível derivado da numeração hierárquica quando houver | P0 |
+| RF-19.2 | Leitura por heading resolve **candidato** quando nenhum heading Markdown casa, com o retorno declarando que a seção veio de palpite | P1 |
 
 O requisito é **detectar e rotular**, não promover. Candidato não entra na
 hierarquia de RF-16, nem no índice, nem no cache: uma resposta que afirma
 estrutura que o arquivo não tem é pior que uma que não responde, porque o cliente
 age sobre a afirmação. A separação entre o que é estrutura e o que é palpite é o
 requisito, e não um detalhe da implementação dele.
+
+**RF-19.2 promove o candidato na LEITURA, e só nela.** Ler uma seção de nota
+convertida exigia duas chamadas — descobrir o offset, depois ler ali. Passa a
+exigir uma, e três regras tornam isso honesto: heading Markdown sempre vence, o
+retorno traz `section_synthetic` para o cliente saber que os limites são palpite,
+e o candidato precisa casar o texto pedido.
+
+**A escrita fica de fora, e é decisão, não omissão.** Os limites de um candidato
+são heurística — `end` é o próximo candidato de nível menor ou igual. Ler no
+lugar errado devolve o parágrafo errado; escrever no lugar errado apaga trabalho
+do usuário, sem desfazer. Medido em 2026-09-01 nos cinco cofres reais: 3.433 de
+10.871 notas (32%) têm ao menos um candidato, e num cofre são 100% delas.
 
 ### 5.2.1 Resolução de referências
 

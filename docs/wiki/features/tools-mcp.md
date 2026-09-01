@@ -49,6 +49,14 @@ capítulos com seis headings diferentes numa chamada, e não seis. Os campos do
 objeto são ponteiros porque `max_bytes: 0` ("sem teto") é um pedido diferente de
 omitir `max_bytes` (herdar o do topo).
 
+**`note_read(heading=)` resolve CANDIDATO quando nenhum heading Markdown casa**,
+desde 2026-09-01. Heading de verdade sempre vence; o retorno traz
+`section_synthetic` para palpite não passar por estrutura; e a ESCRITA fica de
+fora, porque os limites de um candidato são heurística — ler no lugar errado
+devolve o parágrafo errado, escrever no lugar errado apaga trabalho. Calculado na
+chamada e só no caminho de fallback: leitura que casa no índice não paga por
+isso, e nada é persistido.
+
 `note_outline` é a única que lê a nota **inteira**, e por isso recusa
 somente-nuvem. Ela existe porque `parseATXHeading` só aceita `#`, e nota
 convertida de PDF/DOCX/EPUB marca título com parágrafo em negrito — nessas notas,
