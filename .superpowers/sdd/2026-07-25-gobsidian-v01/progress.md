@@ -4799,3 +4799,46 @@ a trava do kernel órfão não existe, e a pergunta útil se responde tentando
 adquirir.
 
 `verify.ps1` 13 de 13.
+
+---
+
+## Task 139 — os tetos de latência passaram a ser cobrados por gate — 2026-09-01
+
+Fecha a dívida "teto que não é cobrado em lugar nenhum não é teto", que o próprio
+`verify.ps1` nomeia no comentário da etapa 3.
+
+**O problema.** Os três tetos só valem sem `-race` — o teste lê
+`if raceEnabled || p95 <= teto`, porque o detector multiplica o tempo. E o
+`ci.yml` roda só `go test -race ./...`. Resultado: existiam, o gate local os
+cobrava, e o CI não cobrava nenhum.
+
+**Mediu-se antes de ligar**, e o receio era concreto: o `verify.ps1` registra
+que `TestBM25KernelLatency` mediu p95 de 107,1 ms num runner do CI sem regressão
+nenhuma, e gate calibrado na máquina errada reprova ao acaso. Três rodadas no
+runner, sem `-race`:
+
+    TestRNF04VaultSearchLatencyP95        pior p95 1,64 ms   teto 100 ms   ~60x
+    TestRNF04SnippetConcurrencyLimit200   pior p95 1,79 ms   teto  22 ms   ~12x
+    TestBM25KernelLatency                 pior p95  143 us   teto  80 ms  ~550x
+
+**Os 107,1 ms eram COM `-race`** — o comentário do `verify.ps1` diz isso, e eu
+tinha lido como se fosse sem. Sem o detector o runner é rápido e consistente, os
+tetos atuais cabem, e não houve o que recalibrar.
+
+**Um defeito meu, achado antes de commitar.** A fase de medição rodava
+`go test ... | grep ... || true`, que descarta o código de saída duas vezes: o
+pipe devolve o status do `grep`, e o `|| true` joga fora o que sobrou. Inofensivo
+enquanto era só olhar número; como gate seria **verificação que não pode
+reprovar**. O `ARMADILHAS.md` já tem a entrada ("pipe engole código de saída") e
+eu caí nela mesmo assim. Corrigido com saída em arquivo e status capturado por
+`if !`, e **provado** replicando o bloco com um stub que reprova: sai 1.
+
+Vive no `bench.yml`, e não no `ci.yml`, porque é número que depende da máquina —
+e o `bench.yml` já resolve isso: um runner só, referência commitada que nomeia a
+máquina, e `workflow_dispatch` para gerar números de máquina nova antes de
+commitá-los.
+
+**A outra dívida, `measure.ps1` fora de gate, fica aberta de propósito.** A forma
+de fechar existe, mas compraria detecção de regressão em cofre sintético, não
+validação dos números de RNF-07, que vêm dos cofres reais do dono. Está escrito
+assim no `ESTADO.md` para ninguém ler depois como "RNF-07 está em gate".

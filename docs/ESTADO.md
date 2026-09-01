@@ -315,7 +315,17 @@ o quarto, que é exatamente o defeito que ela existe para impedir.
 ## Dívidas abertas
 
 - **`scripts/measure.ps1` continua fora de gate nenhum.** É o único instrumento
-  que responde por RNF-01 e RNF-07, e roda quando alguém lembra.
+  que responde por RNF-01 e RNF-07, e roda quando alguém lembra. A forma de
+  fechar existe — `gen_vault.ps1` produz cofre determinístico, e `bench.yml` já
+  tem a disciplina de um runner só com referência commitada —, mas o que isso
+  compraria é **detecção de regressão em cofre sintético**, não validação dos
+  números publicados de RNF-07, que vêm dos cinco cofres reais do dono.
+- ~~**Os tetos de latência não eram cobrados por gate nenhum.**~~ **Fechado em
+  2026-09-01.** Eles só valem sem `-race`, e o `ci.yml` roda só com `-race`.
+  Agora há o job `tetos-de-latencia` no `bench.yml`. O runner foi **medido antes
+  de ligar**: pior p95 de 1,64 ms / 1,79 ms / 143 µs contra tetos de 100 ms /
+  22 ms / 80 ms — folga de 12× a 550×. Os 107,1 ms que assustavam eram uma
+  medição COM `-race`.
 - **A folga do RNF-07 em Jurisprudência é de 15%, a mais apertada das cinco.**
   O requisito foi redefinido em 2026-08-30 — heap vivo ≤ 8 MB + 32 KB × notas,
   nos estados `pronto` e `servindo`, decisão do dono — e **os cinco cofres reais
