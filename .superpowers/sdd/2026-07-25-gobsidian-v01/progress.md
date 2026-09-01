@@ -4975,3 +4975,51 @@ nomear "com cache válido"; o pico da reconstrução fica nos limites conhecidos
 descreve em vez de exigir.
 
 `verify.ps1` 13 de 13.
+
+---
+
+## Piso de 5 caracteres para candidato a título — 2026-09-01
+
+Veio de uma pergunta do dono depois de eu observar, num teste contra cofre real,
+que o candidato encontrado era a ficha do autor e não uma seção: **"consegue
+medir isso? mesmo que seja por amostragem"**.
+
+Deu para medir sem amostragem, e o resultado desmentiu uma hipótese minha.
+
+**A precisão varia enormemente por cofre.** O ruído tinha um nome só: `**V:**`,
+marcador de VERSO de flashcard, sozinho na linha — o par `**F:**` escapa porque a
+pergunta vem na mesma linha. Ele respondia por **14.940 dos 14.940** candidatos
+do cofre Revisão e por **14.961 dos 22.180** do TJSP.
+
+**O que eu propus primeiro e a medição recusou:**
+
+- **"repetido em 5+ notas = boilerplate"** marcava 28,7% do Estudo, e o que
+  marcava era `1. Objetividade jurídica` (152x), `3. Sujeito ativo` (127x),
+  `5. Consumação` (126x) — a estrutura de sete partes que um tratado de direito
+  penal repete a cada crime. **Repetição ali é sinal de livro bem estruturado.**
+  O proxy estava invertido.
+- **"termina com dois-pontos"** descartaria 222 candidatos legítimos do Estudo:
+  `Jurisprudência:`, `Constituição Federal de 1988:`, `Lei n. 12.651/2012 —
+  Código Florestal:` — rótulos de subseção de verdade.
+
+**O que sobreviveu: comprimento.** Piso de 5 caracteres (runes, não bytes: `Não.`
+tem 4 caracteres e 5 bytes).
+
+| Cofre | antes | depois | numerados |
+|---|---|---|---|
+| Estudo | 6.228 | 6.137 (−1,5%) | 63,6% → 64,0% |
+| Revisão | 14.940 | **0** | — |
+| TJSP | 22.180 | 7.786 (−65%) | → 69,8% |
+
+A fração com numeração hierárquica — sinal forte de seção real — **subiu** nos
+dois cofres restantes: cortou ruído, não sinal. Os 91 do Estudo que caíram eram
+`Não.`, `SIM.`, `22` — respostas de flashcard também.
+
+Piso numa conta só, valendo para negrito E setext. Duas provas de mutação: a
+função sempre-verdadeira, e a guarda do ramo setext removida (sem ela o piso
+valeria só para negrito).
+
+Os dois filtros recusados estão escritos no comentário do código e no
+`TOOLS.md`, com o motivo medido, para não voltarem.
+
+`verify.ps1` 13 de 13.

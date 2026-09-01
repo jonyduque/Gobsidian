@@ -33,6 +33,36 @@ type Candidate struct {
 	End   int64 `json:"end"`
 }
 
+// comprimentoMinimoDeTitulo e o piso de CARACTERES para um texto poder ser
+// titulo. Runes, e nao bytes: `Nao.` tem 4 caracteres e 5 bytes.
+//
+// Cinco, e o numero saiu de medicao, nao de gosto. Nos tres cofres reais do dono
+// em 2026-09-01, o ruido da deteccao tinha um nome so: `**V:**`, o marcador de
+// VERSO de flashcard. Ele fica sozinho na linha -- o par dele, `**F:**`, escapa
+// porque a pergunta vem na mesma linha -- e respondia por 14.940 dos 14.940
+// candidatos do cofre Revisao e por 14.961 dos 22.180 do TJSP.
+//
+// O piso de 5 descarta, nos tres cofres: 100% dos candidatos de Revisao, 68% dos
+// do TJSP, e 1,6% dos do Estudo -- e os 91 do Estudo sao `Nao.`, `SIM.`, `22`,
+// tambem respostas de flashcard. Nenhuma secao legitima medida se perde.
+//
+// Dois filtros que foram MEDIDOS E RECUSADOS, para nao voltarem:
+//
+//   - "termina com dois-pontos" descartaria 222 candidatos legitimos do Estudo,
+//     como `Jurisprudencia:` e `Constituicao Federal de 1988:`, que sao rotulos
+//     de subsecao de verdade.
+//   - "repetido em muitas notas" marcaria 28,7% do Estudo, e o que ele marca sao
+//     `1. Objetividade juridica` (152x), `3. Sujeito ativo` (127x) -- a estrutura
+//     de sete partes que um tratado de direito penal repete a cada crime.
+//     Repeticao ali e sinal de livro bem estruturado, nao de ruido.
+const comprimentoMinimoDeTitulo = 5
+
+// ehTextoDeTitulo e a conta UNICA do piso, e vale para as duas formas: um setext
+// de duas letras nao e mais titulo que um negrito de duas letras.
+func ehTextoDeTitulo(t string) bool {
+	return len([]rune(strings.TrimSpace(t))) >= comprimentoMinimoDeTitulo
+}
+
 // nivelDeCandidatoSemNumero e o nivel de trabalho de um candidato sem numeracao
 // no calculo de End.
 //
@@ -96,7 +126,7 @@ func DetectCandidates(body []byte, bodyOffset int64) []Candidate {
 
 		// Setext: a linha de sublinhado transforma a ANTERIOR em titulo.
 		if anteriorValida {
-			if nivel, ok := sublinhadoSetext(texto); ok {
+			if nivel, ok := sublinhadoSetext(texto); ok && ehTextoDeTitulo(anteriorTexto) {
 				n := nivel
 				out = append(out, Candidate{
 					Kind:  "setext",
@@ -111,7 +141,7 @@ func DetectCandidates(body []byte, bodyOffset int64) []Candidate {
 			}
 		}
 
-		if titulo, ok := paragrafoEmNegrito(texto); ok {
+		if titulo, ok := paragrafoEmNegrito(texto); ok && ehTextoDeTitulo(titulo) {
 			c := Candidate{
 				Kind:  "strong_paragraph",
 				Text:  titulo,
