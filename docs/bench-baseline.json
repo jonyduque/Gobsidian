@@ -1,18 +1,19 @@
 {
   "runner": "ubuntu-latest (GitHub-hosted, 4 vCPU), go 1.25, GOMAXPROCS=4",
-  "commit": "2a14832",
-  "nota": "mediana de 5 amostras da rodada 31697933573 do bench.yml, 2026-08-13. As duas referencias anteriores saiam de amostra UNICA por rodada, e o gate reprovou duas vezes sem mudanca de codigo por causa disso: SearchDoisTermos +45,5% e depois SearchTermoAmploCache +39,1%. Nas duas o teto foi subido, o que tratou sintoma; a causa era a amostragem. bench.yml passou a rodar -count 5 e bench_compare.ps1 passou a usar a MEDIANA das amostras (antes a ultima vencia em silencio). Com mediana de 5 a comparacao ficou dentro de +-10% em 8 dos 9 benchmarks contra a referencia de pior-caso anterior. ATENCAO ao comparar com a referencia de 580c0aa: aquela foi medida em 2 vCPU com GOMAXPROCS=2 e o runner passou a dar 4 -- parte da queda entre as duas e maquina, nao codigo.",
+  "commit": "3363445",
+  "nota": "mediana de 5 amostras da rodada 33529773618 do bench.yml, 2026-09-01. REFERENCIA REFEITA porque o CORPUS mudou: gen_vault.ps1 passou de cinco frases fixas (50 termos distintos no cofre inteiro) para um vocabulario de tres dimensoes (43.291 termos, 93% de um cofre real de 1.254 notas). Comparar contra a referencia anterior mediria a troca de corpus, nao regressao de codigo. Os deltas contra ela sao coerentes com a mudanca e ficam registrados aqui: InvertedLoad +15% (tabela de termos maior, mais a carregar), buscas de -24% a -45% (com 43 mil termos a consulta casa poucas notas em vez de quase todas), IndexBuild -2% (o indice de metadados nao depende do vocabulario). SearchFraseExata nao e comparavel: a consulta tambem mudou, porque a frase antiga saia do corpus antigo. SearchFiltroFrontmatter nao existia na referencia anterior. As duas referencias anteriores saiam de amostra UNICA por rodada, e o gate reprovou duas vezes sem mudanca de codigo por causa disso: SearchDoisTermos +45,5% e depois SearchTermoAmploCache +39,1%.",
   "tolerancia_pct": 20,
   "unidade": "ns/op",
   "benchmarks": {
-    "BenchmarkIndexBuild": 147998738.0,
-    "BenchmarkInvertedLoad": 7402957.0,
-    "BenchmarkSearchTermoAmplo": 9629236.0,
-    "BenchmarkSearchDoisTermos": 3626841.0,
-    "BenchmarkSearchFraseExata": 10078101.0,
-    "BenchmarkSearchLimit200": 10554694.0,
-    "BenchmarkSearchLimit200Cache": 7936039.0,
-    "BenchmarkSearchTermoAmploCache": 7593989.0,
-    "BenchmarkSearchLimit200CacheTrechoRepetido": 7934389.0
+    "BenchmarkIndexBuild": 144487004.0,
+    "BenchmarkInvertedLoad": 8500169.0,
+    "BenchmarkSearchTermoAmplo": 5588718.0,
+    "BenchmarkSearchDoisTermos": 2064258.0,
+    "BenchmarkSearchFraseExata": 13689170.0,
+    "BenchmarkSearchLimit200": 7976931.0,
+    "BenchmarkSearchLimit200Cache": 5608819.0,
+    "BenchmarkSearchTermoAmploCache": 4671425.0,
+    "BenchmarkSearchLimit200CacheTrechoRepetido": 4353002.0,
+    "BenchmarkSearchFiltroFrontmatter": 11502540.0
   }
 }
