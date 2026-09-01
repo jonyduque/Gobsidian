@@ -147,10 +147,10 @@ gobsidian/
 │   ├── daemon/
 │   │   ├── daemon.go             laço de aceitação de N conexões sobre um índice
 │   │   ├── log.go                caminho do log e as últimas linhas, para o doctor
-│   │   ├── pidvivo.go            "este PID ainda responde?" — conta única
-│   │   ├── pidvivo_windows.go    OpenProcess + exitTime (build tag windows)
-│   │   ├── pidvivo_unix.go       idem (build tag !windows)
 │   │   ├── lock.go               corrida de inicialização: um daemon por cofre
+│   │   ├── trava.go              posse por trava de kernel; o arquivo nunca e removido
+│   │   ├── trava_unix.go         flock LOCK_EX|LOCK_NB (build tag !windows)
+│   │   ├── trava_windows.go      LockFileEx no byte 1<<62 (build tag windows)
 │   │   ├── spawn.go              lançamento do processo, e o padrão de ociosidade
 │   │   ├── spawn_windows.go      desanexação do processo (build tag windows)
 │   │   └── spawn_unix.go         desanexação do processo (build tag !windows)

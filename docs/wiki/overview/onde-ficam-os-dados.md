@@ -63,9 +63,17 @@ aceitar um parcial como completo faria a busca servir menos notas do que existem
 ```
 
 Em Unix o socket é restrito a `0600`; no Windows a garantia vem da ACL herdada do
-diretório. O lock de inicialização guarda o PID justamente para poder ser
-**reivindicado** quando o dono morreu — um lock com PID morto já deixou o daemon
-desligado por três dias.
+diretório.
+
+**Os dois `.lock` nunca são removidos, e isso é deliberado.** A posse é uma trava
+do kernel (`flock` / `LockFileEx`) desde 2026-08-31; o arquivo é só o token dela.
+Remover era a origem de uma corrida que reprovava 55% das vezes em Linux — e sob
+`flock` remover é pior ainda, porque quem detém fica com a trava sobre o inode
+desvinculado enquanto o próximo trava um inode novo no mesmo caminho.
+
+O PID lá dentro é **informativo**: `doctor` o mostra, e nenhuma decisão de
+exclusão o consulta. Antes ele decidia a posse, e um lock com PID morto já deixou
+o daemon desligado por três dias.
 
 **São dois locks, e não podem ser um.** O de escuta fechou a janela entre a sonda
 de órfão e o bind: `ipc.Listen` prova que o socket está órfão antes de

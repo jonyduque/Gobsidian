@@ -103,6 +103,31 @@ Quem os substitui é a ociosidade: sem nenhum cliente por `OciosidadeMax` (padr�
 de cancelamento e log que sinal usa, para o gate de órfãos conferir `reason=` do
 mesmo jeito nos quatro mecanismos.
 
+## A posse é uma trava do kernel
+
+`flock` no Unix, `LockFileEx` no Windows, desde 2026-08-31. Até ali era um
+arquivo criado com `O_CREATE|O_EXCL` guardando o PID do dono, e quem o achasse
+ocupado lia o PID, perguntava se aquele processo vivia e, se não, **removia o
+lock e tomava o lugar**.
+
+Esse esquema reprovava **55% das vezes** num teste de dez daemons concorrentes em
+Linux, com até quatro dentro da região crítica. Duas corridas nele foram achadas
+e corrigidas; sobrou uma terceira que três rodadas de instrumentação não
+nomearam — e o ponto é que cada remendo comprava uma corrida a menos e nenhuma
+garantia. O Windows mascarava tudo por acidente: lá `os.Remove` de arquivo com
+handle aberto falha.
+
+Com a trava do kernel **não existe lock obsoleto**: o sistema operacional a solta
+quando o dono morre. Sem lock obsoleto não há recuperação, sem recuperação não há
+PID a parsear, e a classe inteira de corrida some — junto com `lockObsoleto`,
+`pidVivo` e ~120 linhas. Medido depois: **0 de 40**.
+
+**O arquivo nunca é removido**, e é isso que fecha a corrida. Remover era a
+origem dela — e sob `flock` é pior: quem detém continua com a trava sobre o inode
+desvinculado enquanto o próximo trava um inode novo no mesmo caminho, dando dois
+donos. O que sobra é um arquivo de poucos bytes com o PID dentro, **só para
+diagnóstico**.
+
 ## Dois locks, e por que não podem ser um
 
 `EnsureStarted` tem um lock; **escutar tem outro**, em `<sock>.listen.lock`.

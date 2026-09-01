@@ -4743,3 +4743,59 @@ definicao. Prova de mutacao contra `adquirirLock` sempre-verdadeiro:
 `iniciar foi chamado 10 vez(es)` — o teste nao ficou vazio.
 
 `verify.ps1` 13 de 13. PRD ganhou RF-65 e RF-66.
+
+---
+
+## Task 138 — a posse do lock do daemon passou a ser do kernel — 2026-08-31
+
+Fecha a corrida residual do daemon, que estava nos limites conhecidos do
+`OPERACAO.md` desde antes desta sessão.
+
+**Como cheguei aqui.** Rodar os testes em WSL (pedido do dono) expôs
+`TestLockDeEscutaSerializaSondaEBind` reprovando em Linux — 11 de 20, com até
+quatro daemons dentro da região crítica. O CI passava no mesmo teste em ubuntu
+por sorte; o runner macOS o pegou.
+
+**Duas corridas achadas e corrigidas no esquema antigo:**
+
+1. O lock ficava OBSERVÁVEL VAZIO entre o `O_EXCL` e a escrita do PID. Quem caía
+   ali lia vazio, `lockObsoleto` não parseava um PID, concluía "obsoleto" e
+   removia o lock alheio. Corrigido com `os.Link` (nome só aparece com conteúdo).
+2. O `os.Remove` da recuperação apagava o que estivesse no caminho, inclusive um
+   lock recém-adquirido. Corrigido com `rename`, que tem um vencedor só.
+
+Medido: 55% → 20% → 12%. **E sobrou uma terceira que três rodadas de
+instrumentação não nomearam.**
+
+**A instrumentação tinha ela própria um defeito**, e vale registrar: eu atribuía
+o número de sequência DENTRO do logger, depois da syscall, então a ordem do log
+não era a ordem real. Li "dois LINK-ok sem LIBERA entre eles" e **retratei** —
+aquela conclusão não era válida daquele instrumento.
+
+**A troca.** `flock` (Unix) e `LockFileEx` (Windows). Toda a maquinaria antiga
+imitava mal o que o kernel já faz. Apagados: `lockObsoleto`,
+`criarLockExclusivo`, `reivindicarObsoleto`, `pidvivo.go`, `pidvivo_unix.go`,
+`pidvivo_windows.go` e o teste do `exitTime` — cujo sujeito deixou de existir, e
+cuja lição continua em `ARMADILHAS.md`.
+
+**Medido depois: 0 de 40 em Linux, 0 de 10 em Windows**, suíte completa de todos
+os 15 pacotes verde nos dois.
+
+**Três detalhes que a implementação teve de acertar:**
+
+- **O arquivo nunca é removido.** Remover era a origem da corrida — e sob `flock`
+  é pior: quem detém fica com a trava sobre o inode desvinculado enquanto o
+  próximo trava um inode novo no mesmo caminho. Por isso `install.ps1` parou de
+  limpar locks.
+- **No Windows a faixa travada recusa leitura alheia.** Descoberto por um teste
+  que tentou ler o PID e recebeu "another process has locked a portion of the
+  file". A trava mora em `1<<62`.
+- **Os testes antigos simulavam a disputa escrevendo um PID num arquivo**, o que
+  sob `flock` não representa nada. Reescritos com um processo FILHO real que
+  segura a trava — que é a única montagem em que a garantia pode ser observada.
+
+**`doctor` mudou de pergunta:** "locks órfãos" virou "travas em uso", porque sob
+a trava do kernel órfão não existe, e a pergunta útil se responde tentando
+adquirir.
+
+`verify.ps1` 13 de 13.

@@ -167,13 +167,22 @@ func checkDaemonLog(_ context.Context, cfg config.Config) Result {
 	return Result{Name: name, Status: StatusOK, Detail: b.String()}
 }
 
-// checkLocksOrfaos acusa lock de inicialização cujo dono já morreu.
+// checkLocksDeDaemon diz quais travas de inicialização estão em uso.
 //
-// Medido em 2026-08-26 na máquina do dono: cinco deles, de 15 a 19 de agosto,
-// todos com PID morto. A liveness vem de daemon.PIDVivo — a mesma conta que o
-// próprio lock usa, nunca uma segunda.
-func checkLocksOrfaos(_ context.Context, cfg config.Config) Result {
-	const name = "locks de daemon orfaos"
+// Até 2026-08-31 esta checagem se chamava "locks órfãos" e decidia lendo o PID
+// gravado dentro do arquivo: PID morto significava lock abandonado. Ela media
+// cinco deles na máquina do dono em 2026-08-26, de 15 a 19 de agosto.
+//
+// Com a trava do kernel (`flock`/`LockFileEx`) **lock órfão deixou de existir**:
+// quando o dono morre, o sistema operacional solta a trava, e o arquivo que
+// sobra não bloqueia ninguém. A pergunta útil mudou junto — não é mais "este
+// PID vive?", é "alguém detém esta trava?" —, e a resposta vem de tentar
+// adquiri-la, que é a mesma conta que o daemon usa, nunca uma segunda.
+//
+// O arquivo remanescente não é achado nem defeito: é o token da trava, e ele
+// persistir entre execuções é o que elimina a corrida de remover-e-recriar.
+func checkLocksDeDaemon(_ context.Context, cfg config.Config) Result {
+	const name = "travas de daemon em uso"
 
 	sock, err := ipc.SocketPath(cfg.VaultPath)
 	if err != nil {
@@ -189,32 +198,38 @@ func checkLocksOrfaos(_ context.Context, cfg config.Config) Result {
 		return Result{Name: name, Status: StatusWarn, Detail: fmt.Sprintf("%s: %v", dir, err)}
 	}
 
-	var orfaos []string
+	var emUso []string
 	for _, e := range entradas {
 		if e.IsDir() || !strings.HasSuffix(e.Name(), ".sock.lock") {
 			continue
 		}
-		dados, err := os.ReadFile(filepath.Join(dir, e.Name()))
+		caminho := filepath.Join(dir, e.Name())
+		ocupada, err := daemon.TravaEmUso(caminho)
 		if err != nil {
+			emUso = append(emUso, fmt.Sprintf("%s (nao foi possivel consultar: %v)", e.Name(), err))
 			continue
 		}
-		pid, err := strconv.Atoi(strings.TrimSpace(string(dados)))
-		if err != nil {
-			orfaos = append(orfaos, fmt.Sprintf("%s (conteudo ilegivel)", e.Name()))
+		if !ocupada {
 			continue
 		}
-		if !daemon.PIDVivo(pid) {
-			orfaos = append(orfaos, fmt.Sprintf("%s (PID %d morto)", e.Name(), pid))
+		// O PID e informativo, e por isso a falha em le-lo nao muda o veredito:
+		// quem responde se a trava esta tomada e a propria trava.
+		detalhe := e.Name()
+		if dados, err := os.ReadFile(caminho); err == nil {
+			if pid, err := strconv.Atoi(strings.TrimSpace(string(dados))); err == nil {
+				detalhe = fmt.Sprintf("%s (PID %d)", e.Name(), pid)
+			}
 		}
+		emUso = append(emUso, detalhe)
 	}
 
-	if len(orfaos) == 0 {
-		return Result{Name: name, Status: StatusOK, Detail: "nenhum"}
+	if len(emUso) == 0 {
+		return Result{Name: name, Status: StatusOK, Detail: "nenhuma trava em uso"}
 	}
 	return Result{
 		Name:   name,
-		Status: StatusWarn,
-		Detail: fmt.Sprintf("%d em %s: %s", len(orfaos), dir, strings.Join(orfaos, ", ")),
+		Status: StatusOK,
+		Detail: fmt.Sprintf("%d em %s: %s", len(emUso), dir, strings.Join(emUso, ", ")),
 	}
 }
 

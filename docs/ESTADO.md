@@ -329,9 +329,11 @@ o quarto, que é exatamente o defeito que ela existe para impedir.
   > linhas abaixo, que os cinco passam. O título era resíduo da redação anterior
   > à redefinição do requisito, quando o alvo era RSS ≤ 60 MB. Re-medido em
   > 2026-08-31: `pronto` 30 MB, `servindo` 40 MB, contra teto de 47,2 MB.
-- **A corrida residual do daemon** (dois daemons vivos sob carga) segue
-  registrada nos limites conhecidos de `OPERACAO.md`. O lock de escuta fechou a
-  janela entre a sonda de órfão e o bind; o que resta é o caso sob carga.
+- ~~**A corrida residual do daemon**~~ **fechada em 2026-08-31.** A posse virou
+  trava do kernel (`flock` / `LockFileEx`), e com ela não existe lock obsoleto
+  nem recuperação — a classe inteira de corrida sumiu junto com
+  `lockObsoleto`, `pidVivo` e ~120 linhas. Medido: **0 de 40** em Linux, contra
+  11 de 20 antes. Tabela completa em `OPERACAO.md`.
 - **As duas listas de achados estão fechadas.** A auditoria de 2026-08-25 fechou
   em 2026-08-27; as quatro tarefas restantes da revisão de 2026-08-15 — 107, 109,
   112 e 114 — foram entregues em 2026-08-31, depois de uma auditoria do ledger

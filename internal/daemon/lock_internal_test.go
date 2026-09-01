@@ -1,7 +1,6 @@
 package daemon
 
 import (
-	"os"
 	"testing"
 )
 
@@ -48,13 +47,9 @@ func TestAdquirirLockLiberarPermiteNovaTentativa(t *testing.T) {
 	}
 	liberar1()
 
-	path, err := lockPath(vault)
-	if err != nil {
-		t.Fatalf("lockPath: %v", err)
-	}
-	if _, err := os.Stat(path); !os.IsNotExist(err) {
-		t.Fatalf("arquivo de lock ainda existe apos liberar(): err=%v", err)
-	}
+	// O arquivo NAO some, e nao deve: remove-lo era a origem das corridas do
+	// esquema anterior. O que libera e a trava do kernel, nao a ausencia do
+	// arquivo — e e por isso que a asserção abaixo e sobre adquirir de novo.
 
 	adquiriu2, liberar2, err := adquirirLock(vault)
 	if err != nil {

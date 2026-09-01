@@ -97,7 +97,7 @@ func Run(ctx context.Context, cfg config.Config) []Result {
 		checkSocketPath(ctx, cfg),
 		checkDaemonVivo(ctx, cfg),
 		checkDaemonLog(ctx, cfg),
-		checkLocksOrfaos(ctx, cfg),
+		checkLocksDeDaemon(ctx, cfg),
 	)
 	out = append(out, platformChecks(scan)...)
 

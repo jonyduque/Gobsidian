@@ -87,41 +87,25 @@ function Test-Interactive {
 }
 
 function Remove-StaleLocks {
-    # Lock de inicializacao do daemon cujo PID ja morreu.
+    # Nao ha mais lock obsoleto a remover, e remover passou a ser PERIGOSO.
     #
-    # internal/daemon.adquirirLock cria o arquivo com O_CREATE|O_EXCL e grava o
-    # PID dentro, mas NUNCA le esse PID de volta: se o arquivo existe, a ponte
-    # conclui "outra ja esta subindo o daemon" e so espera. O `defer liberar()`
-    # que deveria remove-lo nao roda quando o processo e MORTO -- e matar
-    # processos e exatamente o que este instalador faz logo acima.
+    # Ate a v1.3.0 o lock era um arquivo criado com O_CREATE|O_EXCL contendo o
+    # PID do dono, e a ponte concluia "outra ja esta subindo o daemon" so pela
+    # existencia dele. Um lock de 11/08 com PID morto deixou o daemon desligado
+    # por tres dias numa maquina real -- e era isto que esta funcao limpava.
     #
-    # Resultado medido numa maquina real: um lock de 11/08 com PID morto deixou
-    # o daemon desligado por tres dias. Toda sessao MCP esperava 10 s em vao e
-    # depois construia o proprio indice, perdendo os -60% e -74% de memoria que
-    # o daemon existe para dar.
+    # Desde 2026-08-31 a posse e uma trava do KERNEL (flock / LockFileEx). O
+    # sistema operacional a solta quando o dono morre, entao lock obsoleto
+    # deixou de existir: o arquivo que sobra e so o token da trava, e ele nao
+    # bloqueia ninguem.
     #
-    # Remove SO o que tem PID morto. Lock com processo vivo e uma ponte
-    # legitima subindo o daemon agora, e apaga-lo abriria a corrida que o lock
-    # existe para fechar.
-    $RunDir = Join-Path $env:LOCALAPPDATA "gobsidian\run"
-    if (-not (Test-Path $RunDir)) { return }
-
-    $Removidos = 0
-    foreach ($Lock in Get-ChildItem -Path $RunDir -Filter "*.lock" -ErrorAction SilentlyContinue) {
-        # $LockPid, e nao $Pid: $PID e variavel automatica do PowerShell (o
-        # PID do proprio processo), e sombrea-la e pedir um bug silencioso.
-        $LockPid = (Get-Content -Path $Lock.FullName -ErrorAction SilentlyContinue | Select-Object -First 1)
-        $LockPid = ($LockPid -as [int])
-        if ($LockPid -and (Get-Process -Id $LockPid -ErrorAction SilentlyContinue)) {
-            Write-Info "Lock $($Lock.Name) pertence ao PID $LockPid, que esta vivo; mantido."
-            continue
-        }
-        Remove-Item -Path $Lock.FullName -Force -ErrorAction SilentlyContinue
-        $Removidos++
-    }
-    if ($Removidos -gt 0) {
-        Write-Ok "$Removidos lock(s) obsoleto(s) do daemon removido(s)"
-    }
+    # E apaga-lo seria abrir a corrida de volta: em Unix, quem detem a trava
+    # continua com ela sobre o inode DESVINCULADO, enquanto o proximo processo
+    # cria um arquivo novo no mesmo caminho e trava um inode DIFERENTE -- dois
+    # donos ao mesmo tempo, que e exatamente o que a trava existe para impedir.
+    #
+    # A funcao fica, vazia e nomeada, em vez de sumir: quem for procurar por que
+    # o instalador parou de limpar locks encontra a resposta aqui.
 }
 
 function Test-Admin {

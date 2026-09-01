@@ -11,10 +11,6 @@ import (
 	"errors"
 	"fmt"
 	"net"
-	"os"
-	"path/filepath"
-	"strconv"
-	"strings"
 	"time"
 
 	"github.com/jonyd/gobsidian/internal/config"
@@ -87,103 +83,28 @@ func EnsureStarted(ctx context.Context, cfg config.Config, prazo time.Duration, 
 	return esperarSocket(ctx, cfg, prazo)
 }
 
-// adquirirLock tenta se tornar quem inicia o daemon deste cofre, via
-// criacao exclusiva (O_EXCL) de um arquivo. O caminho deriva de
-// ipc.SocketPath -- a MESMA chave que nomeia o socket, nunca uma segunda
-// conta do mesmo hash (ver o comentario de config.VaultKey sobre a licao
-// do byAlias em CLAUDE.md: duas contas do mesmo valor concordam por
-// coincidencia ate que uma delas mude sozinha).
+// adquirirLock tenta se tornar quem inicia o daemon deste cofre.
+//
+// O caminho deriva de ipc.SocketPath -- a MESMA chave que nomeia o socket,
+// nunca uma segunda conta do mesmo hash (ver config.VaultKey sobre a licao do
+// byAlias: duas contas do mesmo valor concordam por coincidencia ate que uma
+// delas mude sozinha).
+//
+// Nao ha volta de repeticao nem recuperacao de lock obsoleto: com a trava do
+// kernel, o lock de um processo morto ja esta livre quando o proximo pergunta.
 func adquirirLock(vaultPath string) (adquiriu bool, liberar func(), err error) {
 	path, err := lockPath(vaultPath)
 	if err != nil {
 		return false, nil, err
 	}
-	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
-		return false, nil, fmt.Errorf("criando diretorio do lock: %w", err)
-	}
-
-	// Duas voltas no maximo: a primeira tenta criar, a segunda so existe para
-	// tentar de novo DEPOIS de recuperar um lock obsoleto. Mais que isso seria
-	// disputa com outra ponte, e quem perde a disputa deve esperar, nao
-	// insistir.
-	for tentativa := 0; tentativa < 2; tentativa++ {
-		f, err := os.OpenFile(path, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
-		if err == nil {
-			_, _ = fmt.Fprintf(f, "%d\n", os.Getpid())
-			_ = f.Close()
-			// liberar remove o arquivo SEMPRE que a tentativa termina, tenha
-			// ela dado certo ou nao: um lock que sobrevive a uma tentativa
-			// fracassada de iniciar o daemon travaria toda ponte seguinte.
-			return true, func() { _ = os.Remove(path) }, nil
-		}
-		if !errors.Is(err, os.ErrExist) {
-			return false, nil, fmt.Errorf("criando lock %s: %w", path, err)
-		}
-		if tentativa > 0 {
-			// Ja recuperei um obsoleto e o arquivo voltou a existir: outra
-			// ponte venceu. Perder aqui e o comportamento correto.
-			return false, nil, nil
-		}
-		if !lockObsoleto(path) {
-			return false, nil, nil
-		}
-		// Obsoleto: remove e tenta de novo na volta seguinte.
-		if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
-			return false, nil, fmt.Errorf("removendo lock obsoleto %s: %w", path, err)
-		}
-	}
-	return false, nil, nil
-}
-
-// lockObsoleto diz se o arquivo de lock pertence a um processo que ja morreu.
-//
-// # Por que isto existe
-//
-// O `defer liberar()` de EnsureStarted e a unica coisa que removia o lock, e
-// ele NAO roda quando o processo e morto — encerramento da maquina, ou o
-// proprio instalador matando os `gobsidian` em execucao para poder substituir
-// o binario. Medido numa maquina real: um lock com PID morto deixou o daemon
-// desligado por TRES DIAS. Toda ponte lia "outra ja esta subindo", esperava
-// 10 s e servia em processo, perdendo os -60% e -74% de memoria que o daemon
-// existe para dar — em silencio, porque o fallback em processo e silencioso
-// por desenho.
-//
-// O PID sempre foi gravado no arquivo. O que faltava era le-lo de volta.
-//
-// # As duas decisoes que este corpo toma
-//
-// Conteudo ilegivel ou vazio conta como OBSOLETO. Um dono legitimo escreve o
-// PID no instante seguinte a criacao; um arquivo sem PID legivel nao pode ser
-// provado vivo, e tratar o caso como "vivo" devolveria o travamento
-// permanente que esta funcao existe para impedir. O caso e real, nao teorico:
-// o processo pode morrer ENTRE o O_EXCL e o Fprintf, deixando um arquivo de
-// zero byte para sempre.
-//
-// PID reciclado conta como VIVO, e isso e conservador de proposito. Se o SO
-// tiver reatribuido o PID do dono morto a outro processo, esta funcao devolve
-// false e a ponte espera — exatamente o comportamento de hoje, para esse caso
-// so. Degradar para o estado anterior e aceitavel; roubar o lock de um dono
-// legitimo nao e.
-//
-// # A janela que fica
-//
-// Entre ler o arquivo aqui e remove-lo la em cima, outra ponte pode ter criado
-// um lock novo e legitimo, que este Remove apagaria. A janela e de
-// microssegundos e a consequencia dela ja tem anteparo: EnsureStarted disca de
-// novo DEPOIS de adquirir o lock, e quem encontrar um daemon vivo nunca chama
-// iniciar. E a mesma corrida residual que docs/OPERACAO.md ja registra para a
-// inicializacao do daemon, com a mesma mitigacao.
-func lockObsoleto(path string) bool {
-	dados, err := os.ReadFile(path)
+	trava, tomou, err := tentarTravar(path)
 	if err != nil {
-		// Sumiu entre o O_EXCL e esta leitura: nao ha dono a respeitar.
-		return true
+		return false, nil, err
 	}
-	pid, err := strconv.Atoi(strings.TrimSpace(string(dados)))
-	if err != nil {
-		return true
+	if !tomou {
+		return false, nil, nil
 	}
-	return !pidVivo(pid)
+	return true, trava.Liberar, nil
 }
 
 // lockPath deriva do MESMO caminho que ipc.SocketPath calcula, trocando so
@@ -266,25 +187,14 @@ func ComLockDeEscuta(vaultPath string, fn func() error) error {
 	// cofre — a licao do byAlias que config.VaultKey registra.
 	path := sock + ".listen.lock"
 
-	f, err := os.OpenFile(path, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
+	trava, tomou, err := tentarTravar(path)
 	if err != nil {
-		if errors.Is(err, os.ErrExist) {
-			if !lockObsoleto(path) {
-				return fmt.Errorf("outro daemon deste cofre esta abrindo o socket agora")
-			}
-			// Obsoleto: o dono morreu sem liberar. Remove e tenta uma vez.
-			if rmErr := os.Remove(path); rmErr != nil && !errors.Is(rmErr, os.ErrNotExist) {
-				return fmt.Errorf("removendo lock de escuta obsoleto: %w", rmErr)
-			}
-			f, err = os.OpenFile(path, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
-		}
-		if err != nil {
-			return fmt.Errorf("adquirindo lock de escuta: %w", err)
-		}
+		return err
 	}
-	_, _ = fmt.Fprintf(f, "%d\n", os.Getpid())
-	_ = f.Close()
-	defer func() { _ = os.Remove(path) }()
+	if !tomou {
+		return fmt.Errorf("outro daemon deste cofre esta abrindo o socket agora")
+	}
+	defer trava.Liberar()
 
 	return fn()
 }

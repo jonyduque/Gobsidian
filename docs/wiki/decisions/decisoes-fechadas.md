@@ -123,6 +123,21 @@ Uma tool que afirma estrutura que o arquivo não tem é pior que uma que não
 responde: o cliente age sobre a afirmação. Errar na detecção de um candidato não
 causa dano — apresentá-lo como heading, sim.
 
+## A posse do lock é do kernel, não de um arquivo com PID
+
+`flock` / `LockFileEx`, decidido em 2026-08-31 depois de três remendos no
+esquema anterior comprarem cada um uma corrida a menos e nenhuma garantia:
+55% → 20% → 12% de reprovação, com a causa do resto sem nome.
+
+A alternativa — um quarto remendo, com instrumentação melhor — foi rejeitada
+porque o esquema inteiro imita o que o kernel já faz. **Sem lock obsoleto não há
+recuperação, e era na recuperação que as corridas moravam.**
+
+Consequências que não se re-litigam: o arquivo de trava **nunca é removido**
+(remover é a origem da corrida, e sob `flock` cria dois donos); o PID lá dentro é
+**diagnóstico**, nunca decisão; e a trava do Windows fica no byte `1<<62` porque
+faixa travada recusa leitura alheia.
+
 ## Task 82 revertida
 
 `benchstat` deu `~`. **Mudança sem ganho significativo é dívida pura.**

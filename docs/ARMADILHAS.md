@@ -483,6 +483,45 @@ falha real passa despercebida. Flake em gate e defeito do gate.
 
 ---
 
+## Exclusao mutua entre processos
+
+**Arquivo-com-PID nao e trava; e uma imitacao dela, e a imitacao tem corridas.**
+O esquema "crio o lock com O_EXCL, gravo meu PID, e quem achar ocupado le o PID,
+pergunta se aquele processo vive e, se nao, remove e toma o lugar" reprovava
+**55% das vezes** num teste de dez concorrentes em Linux, com ate quatro dentro
+da regiao critica.
+
+Duas corridas nele foram achadas e corrigidas — o lock observavel VAZIO entre o
+`O_EXCL` e a escrita do PID, e o `os.Remove` da recuperacao apagando um lock
+recem-adquirido — e sobrou uma terceira que tres rodadas de instrumentacao nao
+nomearam. O ponto nao e qual era a terceira: e que **cada remendo comprava uma
+corrida a menos e nenhuma garantia**.
+
+`flock` e `LockFileEx` dao a garantia por construcao: o kernel solta a trava
+quando o dono morre. Sem lock obsoleto, sem PID a parsear, sem recuperacao — e
+sem a classe de corrida inteira. Medido depois: 0 de 40.
+
+**O Windows mascarava o defeito**, e por acidente do sistema de arquivos: la
+`os.Remove` de um arquivo com handle aberto falha, entao o intruso era barrado
+sem que ninguem soubesse por que. Todo defeito de exclusao mutua tem de ser
+medido em Linux, e o CI e o unico Linux deste projeto.
+
+**Nao remova o arquivo de trava.** Remover era a origem das corridas, e sob
+`flock` remover e pior: quem detem continua com a trava sobre o inode
+DESVINCULADO, enquanto o proximo cria um arquivo novo no mesmo caminho e trava
+um inode DIFERENTE — dois donos ao mesmo tempo. Foi por isso que `install.ps1`
+parou de limpar locks.
+
+**No Windows, a faixa travada recusa leitura alheia.** Travar o byte 0 tornaria
+o PID de diagnostico ilegivel para o `doctor`; a trava mora em `1<<62`, onde
+conteudo nenhum alcanca.
+
+**Instrumento tambem se audita.** A sonda que escrevi para achar a terceira
+corrida atribuia o numero de sequencia DEPOIS da syscall, entao a ordem do log
+nao era a ordem real — e uma conclusao minha baseada nela teve de ser retratada.
+
+---
+
 ## Ledger e rastreio de tarefa
 
 **Tarefa entregue sob outra numeração some do ledger do plano que a originou, e

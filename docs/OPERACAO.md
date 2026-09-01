@@ -1886,6 +1886,51 @@ corretamente.
 usa duas notas. Com N=2 o custo quadrático é invisível. Benchmark que não cobre
 um formato de consulta é um formato de consulta sem gate.
 
+## A trava do daemon passou a ser do kernel (2026-08-31)
+
+O esquema de arquivo-com-PID descrito nas duas seções abaixo **foi substituído**
+por `flock` (Unix) e `LockFileEx` (Windows).
+
+**O que motivou.** O teste de dez daemons concorrentes reprovava em Linux e no
+runner macOS do CI. Medido:
+
+| Versão | Reprovações | Máx. simultâneos |
+|---|---|---|
+| esquema original | **11 de 20** (55%) | 4 |
+| + criação com conteúdo (`os.Link`) | 8 de 40 (20%) | 2 |
+| + reivindicação atômica (`rename`) | 3 de 25 (12%) | 2 |
+| **trava do kernel** | **0 de 40** | 1 |
+
+Duas corridas foram achadas e corrigidas no esquema antigo — o lock observável
+vazio entre o `O_EXCL` e a escrita do PID, e o `os.Remove` da recuperação
+apagando um lock recém-adquirido — e **ainda restava uma que três rodadas de
+instrumentação não nomearam**. A instrumentação, aliás, tinha ela própria um
+defeito: o número de sequência era atribuído depois da syscall, então a ordem do
+log não era a ordem real, e uma leitura minha baseada nela foi retratada.
+
+**Por que a troca, e não um terceiro remendo.** Toda aquela maquinaria —
+`lockObsoleto`, `pidVivo`, `criarLockExclusivo`, a recuperação — imita mal o que
+o kernel já faz: soltar a trava quando o dono morre. Com a trava do kernel não
+existe lock obsoleto, então não existe recuperação, e a classe inteira de corrida
+some junto. Foram apagados três arquivos e ~120 linhas.
+
+**O arquivo de lock nunca mais é removido.** Remover era a origem das corridas.
+O que sobra é um arquivo de poucos bytes no diretório de runtime, com o PID do
+dono dentro **para diagnóstico apenas** — nenhuma decisão de exclusão o consulta.
+No Windows a trava fica no byte `1<<62`, longe dos dados, porque uma faixa
+travada recusa leitura alheia e `doctor` precisa ler esse PID.
+
+**`doctor` mudou de pergunta.** A checagem "locks órfãos" virou "travas em uso":
+sob a trava do kernel, órfão não existe, e a pergunta útil — "alguém detém?" — se
+responde tentando adquirir.
+
+**`install.ps1` parou de limpar locks.** Sob a trava do kernel isso seria
+perigoso: em Unix, quem detém continua com a trava sobre o inode desvinculado
+enquanto o próximo cria um arquivo novo no mesmo caminho e trava um inode
+diferente — dois donos ao mesmo tempo.
+
+---
+
 ## O lock de inicialização do daemon desligou o daemon por três dias (2026-08-13)
 
 Diagnosticado numa máquina real, testando o servidor MCP contra um cofre de
