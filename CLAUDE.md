@@ -40,6 +40,7 @@ fato divergem e a menos consultada é a que fica errada.
 | [`docs/ARMADILHAS.md`](docs/ARMADILHAS.md) | Todo defeito que já custou caro aqui, com o mecanismo. **Releia antes de commitar.** |
 | [`docs/ESTADO.md`](docs/ESTADO.md) | Marcos, medições, formato de cache, gates e dívidas abertas |
 | [`docs/SUGESTOES.md`](docs/SUGESTOES.md) | Auditoria de 2026-08-25, com as decisões do dono registradas |
+| [`docs/segregacao.md`](docs/segregacao.md) | Como o código se agrupa por função e por proximidade; os candidatos a extração, medidos, com decisão pendente |
 | [`docs/REVISAO-2026-08-15.md`](docs/REVISAO-2026-08-15.md) | Revisão anterior, com código e trade-offs |
 
 ### Derivada
@@ -96,10 +97,8 @@ scripts/           gates e utilitários PowerShell — ver Comandos
 .superpowers/sdd/  briefs e ledger
 ```
 
-Grafo de dependências, acíclico e **extraído dos imports em 2026-09-01** — a
-versão anterior deste parágrafo omitia `text` inteiro, dizia que `parser` era
-folha quando ele já importava `text`, e listava `search → parser` quando são
-quatro arestas:
+Grafo de dependências, acíclico e **extraído dos imports de produção em
+2026-09-02** — `go list -f '{{.Imports}}'`, que NÃO enxerga arquivo `_test.go`:
 
 ```
 text  vault  config  console  lifecycle      folhas
@@ -110,14 +109,28 @@ index    → parser, text, vault
 search   → index, parser, text, vault
 watcher  → index, search, vault
 service  → index, parser, search, vault, writer
-mcpsrv   → config, index, parser, search, service, vault, watcher
-daemon   → config, ipc, mcpsrv, service, vault
+mcpsrv   → config, index, parser, service, vault
+daemon   → config, ipc, mcpsrv
 doctor   → config, daemon, ipc, vault
 ```
 
+Quatro arestas existem **só em teste**, e ficam fora do grafo acima de
+propósito — teste pode montar o mundo inteiro sem que isso vire acoplamento do
+produto:
+
+```
+mcpsrv  → search, watcher     (só em _test)
+daemon  → service, vault      (só em _test)
+```
+
+A versão anterior deste bloco somava as duas listas numa só e, com isso,
+atribuía ao `daemon` um conhecimento de `service` e de `vault` que ele não tem —
+ele fala com `mcpsrv` e mais nada do domínio. Antes dela, outra omitia `text`
+inteiro e chamava `parser` de folha quando ele já importava `text`.
+
 **Aresta nova precisa de justificativa — folha não ganha import.** E o parágrafo
-que descreve o grafo não vale mais que os imports: este foi conferido contra eles,
-e o anterior dizia ter sido também.
+que descreve o grafo não vale mais que os imports: dizer "conferido" não é
+conferir, e as duas versões anteriores diziam.
 
 ---
 
