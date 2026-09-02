@@ -619,7 +619,27 @@ for ($i = 1; $i -le $Cycles; $i++) {
         }
     }
 
-    Start-Sleep -Milliseconds $SettleMs
+    # Espera o processo SAIR, ate o prazo -- e nao dorme o prazo inteiro.
+    #
+    # O prazo do parent-death precisa caber DUAS coisas em serie, e a versao
+    # anterior contava so uma. A vigilia do pai consulta a cada 5 s
+    # (lifecycle.ParentCheckInterval), entao um pai que morre logo depois de uma
+    # consulta leva ate 5 s para ser notado; so entao comeca o encerramento, que
+    # tem guarda-chuva de 6 s. Pior caso 11 s, contra os 8 s que a janela dava --
+    # e o comentario que a dimensionava dizia "> o guarda-chuva de 6s", sem somar
+    # a deteccao. Resultado medido no runner do CI: 2 orfaos em 100 ciclos, com
+    # o produto dentro do orcamento dele.
+    #
+    # Esperar por EVENTO em vez de por relogio tambem devolve tempo: o caso comum
+    # sai em ~1 s, e antes pagava a janela inteira em todos os 100 ciclos.
+    $PrazoMs = $SettleMs
+    if ($Scenario -eq "parent-death") { $PrazoMs = $SettleMs + 7000 }
+    $Relogio = [System.Diagnostics.Stopwatch]::StartNew()
+    while ($Relogio.ElapsedMilliseconds -lt $PrazoMs) {
+        $P = Get-Process -Id $ServerPid -ErrorAction SilentlyContinue
+        if (-not ($P -and $P.ProcessName -eq "gobsidian" -and $P.StartTime -eq $ServerAlive.StartTime)) { break }
+        Start-Sleep -Milliseconds 150
+    }
 
     # Mesma checagem de identidade da varredura final (linhas 174-179): so o
     # PID reaparecer nao basta. O filho pode ter morrido nos ~100ms apos o
@@ -715,9 +735,9 @@ foreach ($Idx in $MeasuredCycleIndices) {
     # trava. Isso produz "reason=" (a etapa que travou pode ja ter sido
     # logada antes de travar) e zero orfaos — a rodada ficaria verde com o
     # encerramento ordenado quebrado e so o botao de panico tendo salvo o
-    # ciclo. $SettleMs = 8000 (> o guarda-chuva de 6s) da exatamente o espaco
-    # pra isso acontecer dentro da janela medida, entao esta checagem precisa
-    # estar na mesma varredura.
+    # ciclo. A janela medida (8 s, e 15 s no parent-death, onde a deteccao pode
+    # levar 5 s antes de o encerramento comecar) da o espaco pra isso acontecer
+    # dentro dela, entao esta checagem precisa estar na mesma varredura.
     if (Select-String -Path $Log -Pattern 'encerramento travou alem do limite rigido' -Quiet -ErrorAction SilentlyContinue) {
         $HardLimitCycles++
     }
