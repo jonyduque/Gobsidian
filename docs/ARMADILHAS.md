@@ -325,6 +325,18 @@ teto: vazamento real, `reason=` errado, e **zero ciclos medidos**.
 Redirecione para arquivo e leia o `$?` do comando. Vale também para
 `run_in_background` com `| tail`. <!-- check-doc-refs: ignore run_in_background -- parametro da ferramenta Bash do Claude Code, nao identificador deste codebase -->
 
+**Régua que soma só metade do orçamento acusa o produto no lugar dela.** O gate
+de órfãos concedia 8 s ao cenário `parent-death`, e o comentário que dimensionou
+a janela dizia "> o guarda-chuva de 6s" — somou o ENCERRAMENTO e esqueceu a
+DETECÇÃO. A vigília do pai consulta a cada 5 s, então o pior caso é 5 + 6 = 11 s.
+Resultado: 2 órfãos em 100 ciclos no runner do CI, com o produto dentro do
+orçamento dele, e o MESMO commit passando e reprovando em rodadas diferentes.
+
+Antes de crer num vazamento, some todos os intervalos **em série** que o
+mecanismo atravessa. E espere por EVENTO, não por relógio: dormir a janela
+inteira e conferir uma vez dá o mesmo veredito no pior caso e paga o prazo cheio
+em todos os ciclos.
+
 **Não rode gate concorrente com medição.** O gate de órfãos rodando em paralelo
 com medições teve seus processos mortos por uma rotina de limpeza, o que
 produziria **falso verde** — o harness procura sobrevivente e não acha nenhum
