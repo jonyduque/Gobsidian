@@ -48,6 +48,23 @@ func TestNoteListAplicaOTetoDeLimit(t *testing.T) {
 	}
 }
 
+func TestPatchNoteHeadingEBlockIDEhInvalidArgument(t *testing.T) {
+	root := t.TempDir()
+	writeFile(t, root, "a.md", "# H\n\ntexto ^b1\n")
+	svc := newTestService(t, root)
+
+	_, err := svc.PatchNote(context.Background(), PatchNoteRequest{
+		Path: "a.md", Heading: "H", BlockID: "b1", Content: "x",
+	})
+	if err == nil {
+		t.Fatal("heading e block_id juntos foram aceitos")
+	}
+	if got := CodeOf(err); got != CodeInvalidArgument {
+		t.Errorf("codigo = %s, queria %s: INTERNAL manda o host tentar de novo o mesmo pedido\nerro: %v",
+			got, CodeInvalidArgument, err)
+	}
+}
+
 // TestEnumInvalidoNaoViraSilencio é a outra metade do B4.
 //
 // `tag_mode`, `sort`, `order` e `direction` caíam no `default` de um switch e o

@@ -408,7 +408,7 @@ O retorno traz `hash`, o xxhash do conteúdo **gravado** — é o valor a passar
 }
 ```
 
-**Notas.** `replace_section` preserva a linha do heading e substitui apenas o conteúdo abaixo dela, incluindo subseções. `replace_heading_and_section` substitui também a linha do heading.
+**Notas.** `replace_section` preserva a linha do heading e substitui apenas o conteúdo abaixo dela, incluindo subseções. `replace_heading_and_section` substitui também a linha do heading. `heading` e `block_id` juntos são `INVALID_ARGUMENT`.
 
 `expected_hash` implementa concorrência otimista. Obtido de `note_metadata` ou `note_read`, garante que a nota não mudou entre a leitura e a escrita. Recomendado sempre que houver possibilidade de o Obsidian estar aberto na nota.
 

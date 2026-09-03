@@ -259,7 +259,7 @@ func (s *Service) PatchNote(ctx context.Context, req PatchNoteRequest) (PatchNot
 	}
 
 	if req.Heading != "" && req.BlockID != "" {
-		return PatchNoteResult{}, Errorf(CodeInternal, "heading e block_id sao mutuamente exclusivos em note_patch")
+		return PatchNoteResult{}, Errorf(CodeInvalidArgument, "heading e block_id sao mutuamente exclusivos em note_patch")
 	}
 
 	canonical, err := s.index.ResolvePath(req.Path)
