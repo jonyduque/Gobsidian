@@ -146,28 +146,30 @@ func pedidoDoAlvo(padrao ReadBatchRequest, alvo ReadAlvo) ReadRequest {
 // de dez nao pode custar as outras nove, mas tambem nao pode desaparecer da
 // lista sem dizer nada.
 type ReadNoteItem struct {
-	Path       string          `json:"path"`
-	Content    string          `json:"content,omitempty"`
-	Hash       string          `json:"hash,omitempty"`
-	Section    *parser.Heading `json:"section,omitempty"`
-	Truncated  bool            `json:"truncated,omitempty"`
-	TotalSize  int64           `json:"total_size,omitempty"`
-	NextOffset *int64          `json:"next_offset,omitempty"`
-	Err        error           `json:"-"`
+	Path             string          `json:"path"`
+	Content          string          `json:"content,omitempty"`
+	Hash             string          `json:"hash,omitempty"`
+	Section          *parser.Heading `json:"section,omitempty"`
+	SectionSynthetic bool            `json:"section_synthetic,omitempty"`
+	Truncated        bool            `json:"truncated,omitempty"`
+	TotalSize        int64           `json:"total_size,omitempty"`
+	NextOffset       *int64          `json:"next_offset,omitempty"`
+	Err              error           `json:"-"`
 }
 
 // readNoteItemWire e a forma serializada de ReadNoteItem. Err e um error Go
 // sem campos exportados: sem este tipo auxiliar, json.Marshal produziria
 // "error":{} e o codigo/mensagem se perderiam no canal que o cliente le.
 type readNoteItemWire struct {
-	Path       string          `json:"path"`
-	Content    string          `json:"content,omitempty"`
-	Hash       string          `json:"hash,omitempty"`
-	Section    *parser.Heading `json:"section,omitempty"`
-	Truncated  bool            `json:"truncated,omitempty"`
-	TotalSize  int64           `json:"total_size,omitempty"`
-	NextOffset *int64          `json:"next_offset,omitempty"`
-	Error      *itemErrorWire  `json:"error,omitempty"`
+	Path             string          `json:"path"`
+	Content          string          `json:"content,omitempty"`
+	Hash             string          `json:"hash,omitempty"`
+	Section          *parser.Heading `json:"section,omitempty"`
+	SectionSynthetic bool            `json:"section_synthetic,omitempty"`
+	Truncated        bool            `json:"truncated,omitempty"`
+	TotalSize        int64           `json:"total_size,omitempty"`
+	NextOffset       *int64          `json:"next_offset,omitempty"`
+	Error            *itemErrorWire  `json:"error,omitempty"`
 }
 
 type itemErrorWire struct {
@@ -180,13 +182,14 @@ type itemErrorWire struct {
 // vez de exigir parsear a mensagem.
 func (i ReadNoteItem) MarshalJSON() ([]byte, error) {
 	wire := readNoteItemWire{
-		Path:       i.Path,
-		Content:    i.Content,
-		Hash:       i.Hash,
-		Section:    i.Section,
-		Truncated:  i.Truncated,
-		TotalSize:  i.TotalSize,
-		NextOffset: i.NextOffset,
+		Path:             i.Path,
+		Content:          i.Content,
+		Hash:             i.Hash,
+		Section:          i.Section,
+		SectionSynthetic: i.SectionSynthetic,
+		Truncated:        i.Truncated,
+		TotalSize:        i.TotalSize,
+		NextOffset:       i.NextOffset,
 	}
 	if i.Err != nil {
 		wire.Error = &itemErrorWire{Code: string(CodeOf(i.Err)), Message: i.Err.Error()}
@@ -216,13 +219,14 @@ func (s *Service) ReadNotes(ctx context.Context, req ReadBatchRequest) ReadBatch
 			continue
 		}
 		out[i] = ReadNoteItem{
-			Path:       p,
-			Content:    res.Content,
-			Hash:       res.Hash,
-			Section:    res.Section,
-			Truncated:  res.Truncated,
-			TotalSize:  res.TotalSize,
-			NextOffset: res.NextOffset,
+			Path:             p,
+			Content:          res.Content,
+			Hash:             res.Hash,
+			Section:          res.Section,
+			SectionSynthetic: res.SectionSynthetic,
+			Truncated:        res.Truncated,
+			TotalSize:        res.TotalSize,
+			NextOffset:       res.NextOffset,
 		}
 	}
 	return ReadBatchResult{Items: out}

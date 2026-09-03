@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"encoding/json"
 	"strings"
 	"testing"
 )
@@ -118,5 +119,44 @@ func TestReadNotesFormaAntigaContinuaValendo(t *testing.T) {
 	})
 	if len(out.Items) != 2 || out.Items[0].Err != nil || out.Items[1].Err != nil {
 		t.Fatalf("lote simples quebrou: %+v", out.Items)
+	}
+}
+
+// TestReadNotesLotePropagaSectionSynthetic: o item do lote nasceu sem o campo
+// que a leitura simples ja tinha. Sem ele, seis secoes por candidato numa
+// chamada so chegam como estrutura afirmada.
+func TestReadNotesLotePropagaSectionSynthetic(t *testing.T) {
+	root := t.TempDir()
+	writeFile(t, root, "conv.md",
+		"**13 Registro**\n\ntexto do capitulo\n\n**13.1 Substituicao**\n\no texto da subsecao\n")
+	writeFile(t, root, "real.md",
+		"# 13 Registro\n\ntexto do capitulo\n\n## 13.1 Substituicao\n\no texto da subsecao\n")
+	svc := newTestService(t, root)
+
+	out := svc.ReadNotes(context.Background(), ReadBatchRequest{
+		Heading: "13.1 Substituicao",
+		Alvos:   []ReadAlvo{{Path: "conv.md"}, {Path: "real.md"}},
+	})
+	if len(out.Items) != 2 {
+		t.Fatalf("items = %d, quer 2", len(out.Items))
+	}
+	for i, it := range out.Items {
+		if it.Err != nil {
+			t.Fatalf("item %d: %v", i, it.Err)
+		}
+	}
+	if !out.Items[0].SectionSynthetic {
+		t.Error("conv.md: secao veio de candidato e o item do lote nao diz section_synthetic")
+	}
+	if out.Items[1].SectionSynthetic {
+		t.Error("real.md: heading ATX de verdade marcado como sintetico")
+	}
+
+	b, err := json.Marshal(out.Items[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(b), `"section_synthetic":true`) {
+		t.Errorf("MarshalJSON nao serializa o campo: %s", b)
 	}
 }

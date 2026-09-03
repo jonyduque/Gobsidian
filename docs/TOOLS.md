@@ -112,7 +112,7 @@ Três regras, e as três importam:
 
 Candidatos são calculados **na chamada**, sobre os bytes da nota, e só no caminho de fallback: uma leitura por heading que casa no índice não paga por essa leitura. Nada é persistido, e o formato do cache não muda.
 
-**Retorno com `paths`.** `items`, uma lista na mesma ordem e do mesmo tamanho de `paths`. Cada item tem `path` e, ou os campos de sucesso (`content`, `hash`, `total_size`, `next_offset`, `truncated`, `section`), ou `error` com `code` e `message` — uma nota que falha não derruba as demais e não desaparece da lista: o item aparece na posição de origem, com `error` preenchido. Corresponde a `service.ReadBatchResult`.
+**Retorno com `paths`.** `items`, uma lista na mesma ordem e do mesmo tamanho de `paths`. Cada item tem `path` e, ou os campos de sucesso (`content`, `hash`, `total_size`, `next_offset`, `truncated`, `section`, `section_synthetic`), ou `error` com `code` e `message` — uma nota que falha não derruba as demais e não desaparece da lista: o item aparece na posição de origem, com `error` preenchido. `section_synthetic: true` acompanha toda seção vinda de candidato. Corresponde a `service.ReadBatchResult`.
 
 > A linha acima já listou `path` e `total_bytes` no retorno de `path` único. <!-- check-doc-refs: ignore total_bytes -- este bloco existe para dizer que o campo NAO existe no retorno -->
 > Nenhum dos dois existe como campo do retorno em si: `note_read` devolve
