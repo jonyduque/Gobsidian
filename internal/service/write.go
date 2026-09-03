@@ -503,28 +503,29 @@ func (s *Service) MoveNote(ctx context.Context, req MoveNoteRequest) (MoveNoteRe
 	}
 
 	if req.DryRun {
-		diffs := make(map[string]string)
+		// A origem nao entra em diffs: mover nao altera o conteudo dela, e
+		// UnifiedDiff de um texto contra ele mesmo e "" — um item vazio que
+		// dizia "esta nota nao muda" sobre a nota que muda de lugar. A
+		// leitura continua para que uma origem ilegivel falhe aqui, e nao so
+		// na execucao real.
 		absFrom := s.vault.Abs(canonicalFrom)
-		// O erro de leitura SOBE. Ate 2026-08-26 era `fromRaw, _ :=`, e o
-		// dry-run seguia produzindo um diff de "" contra "" — vazio, mas
-		// apresentado como resultado legitimo. Quem le um dry-run vazio conclui
-		// que a operacao nao muda nada, que e o oposto do que aconteceria.
-		fromRaw, err := os.ReadFile(absFrom)
-		if err != nil {
+		if _, err := os.ReadFile(absFrom); err != nil {
 			return MoveNoteResult{}, Errorf(CodeInternal,
 				"lendo nota de origem %q para o dry-run: %v", canonicalFrom, err)
 		}
-		diffs[string(canonicalFrom)] = writer.UnifiedDiff(string(canonicalFrom), string(canonicalTo), string(fromRaw), string(fromRaw), 3)
 
+		diffs := make(map[string]string, len(affectedNotes))
 		for refPath, replacements := range affectedNotes {
-			absRef := s.vault.Abs(refPath)
-			raw, err := os.ReadFile(absRef)
+			raw, err := os.ReadFile(s.vault.Abs(refPath))
 			if err != nil {
-				continue
+				// Ate 2026-09-02 era `continue`: a referenciadora sumia do
+				// dry-run e quem lia concluia que ela nao seria tocada.
+				return MoveNoteResult{}, Errorf(CodeInternal, "lendo referenciadora %q para o dry-run: %v", refPath, err)
 			}
 			rewritten, err := writer.RewriteLinks(raw, replacements)
 			if err != nil {
-				continue
+				return MoveNoteResult{}, Errorf(CodeInternal,
+					"reescrevendo links de %q para o dry-run: %v", refPath, err)
 			}
 			diffs[string(refPath)] = writer.UnifiedDiff(string(refPath), string(refPath), string(raw), string(rewritten), 3)
 		}

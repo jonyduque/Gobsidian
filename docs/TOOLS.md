@@ -432,7 +432,7 @@ Sem `expected_hash`, o servidor ainda verifica internamente se o conteúdo mudou
 }
 ```
 
-**Retorno.** Caminho novo, lista de notas cujos links foram reescritos, contagem de links atualizados, âncoras quebradas (`broken_anchors`, listando referências para headings ou blocos inexistentes) e, em `dry_run`, o diff de cada nota afetada.
+**Retorno.** Caminho novo, lista de notas cujos links foram reescritos, contagem de links atualizados, âncoras quebradas (`broken_anchors`, listando referências para headings ou blocos inexistentes) e, em `dry_run`, `diffs`: mapa caminho → diff unificado, uma entrada por referenciadora que seria reescrita. A origem não entra: mover não altera o conteúdo dela. Uma referenciadora ilegível é erro do dry-run, não omissão.
 
 **Notas.** A reescrita preserva a forma original de cada link: alias, âncora de heading ou de bloco, e a escolha entre wikilink e link Markdown. Um `[[Civil/PONTO 03|Ponto 3 — Obrigações]]` continua com o mesmo alias após a movimentação.
 

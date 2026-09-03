@@ -338,3 +338,54 @@ func TestMoveNote_HappyPathActuallyMovesTheFile(t *testing.T) {
 	// 2026-07-30; fechar isso e tarefa, nao assercao para este teste de unidade.
 	_ = idx
 }
+
+// TestMoveNoteDryRunNaoFabricaDiffVazioDaOrigem cobre a Task 152.
+//
+// UnifiedDiff devolve "" para textos iguais, e a origem entrava sempre em
+// diffs com esse diff vazio: um item que diz "esta nota nao muda" sobre a
+// nota que vai mudar de lugar.
+func TestMoveNoteDryRunNaoFabricaDiffVazioDaOrigem(t *testing.T) {
+	svc, _, _, _ := createMoveService(t, map[string]string{
+		"origem.md":  "# Origem\n\ncorpo\n",
+		"citante.md": "ver [[origem]]\n",
+	})
+
+	res, err := svc.MoveNote(context.Background(), service.MoveNoteRequest{
+		From: "origem.md", To: "destino.md", UpdateLinks: true, DryRun: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if d, ok := res.Diffs["origem.md"]; ok {
+		t.Fatalf("a origem entrou em diffs com %q: um item vazio diz que a nota nao muda", d)
+	}
+	if d := res.Diffs["citante.md"]; !strings.Contains(d, "destino") {
+		t.Fatalf("a referenciadora nao tem diff util: %q", d)
+	}
+}
+
+// TestMoveNoteDryRunNaoEngoleReferenciadoraIlegivel cobre a Task 152.
+//
+// `continue` num ReadFile que falhou fazia a referenciadora sumir do
+// dry-run em silencio, e quem lia concluia que ela nao seria tocada, quando
+// na execucao real ela seria (ou a execucao real falharia).
+func TestMoveNoteDryRunNaoEngoleReferenciadoraIlegivel(t *testing.T) {
+	svc, _, _, root := createMoveService(t, map[string]string{
+		"origem.md":  "# Origem\n\ncorpo\n",
+		"citante.md": "ver [[origem]]\n",
+	})
+	// Indexada, depois apagada do disco: ReadFile falha no dry-run.
+	if err := os.Remove(filepath.Join(root, "citante.md")); err != nil {
+		t.Fatal(err)
+	}
+
+	res, err := svc.MoveNote(context.Background(), service.MoveNoteRequest{
+		From: "origem.md", To: "destino.md", UpdateLinks: true, DryRun: true,
+	})
+	if err == nil {
+		t.Fatalf("dry-run devolveu sucesso com uma referenciadora ilegivel; diffs=%v", res.Diffs)
+	}
+	if !strings.Contains(err.Error(), "citante.md") {
+		t.Fatalf("o erro nao nomeia a referenciadora: %v", err)
+	}
+}
