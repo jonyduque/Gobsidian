@@ -5023,3 +5023,64 @@ Os dois filtros recusados estão escritos no comentário do código e no
 `TOOLS.md`, com o motivo medido, para não voltarem.
 
 `verify.ps1` 13 de 13.
+
+## Plano `2026-09-02-topografia-e-limpeza` — Tasks 146 a 181 — 2026-09-02
+
+Orquestração por subagente (subagent-driven-development), um implementador por
+vez, na árvore principal, em `master` — como todo o histórico deste projeto.
+Base de cada Task gravada por `sdd.ps1 base N`; brief por `sdd.ps1 brief N`;
+revisão por `sdd.ps1 review N`. Relatórios em
+`.superpowers/sdd/2026-09-02-topografia-e-limpeza/task-N-report.md`.
+
+Ruling: executar em `master`, sem branch — a convenção do repositório é commit
+direto em `master` com gate verde; uma branch aqui seria a primeira do projeto e
+o dono pediu delegação, não uma mudança de fluxo — custo se errado: reverter é
+`git revert` por commit, todos pequenos.
+
+Ruling: renumeração — o plano foi escrito como 140–175 mas o ledger já tinha
+Tasks 140–145 (lote de 2026-09-01 sem plano próprio). Plano renumerado para
+146–181 antes de qualquer despacho — custo se errado: nenhum, nada foi
+despachado com o número antigo.
+
+Pré-voo (tabela de conflitos entre Tasks que partilham arquivo/interface):
+
+| Tasks | Arquivo/interface partilhado | Produz × consome | Achado |
+|---|---|---|---|
+| 149, 150, 151, 152 | `internal/service/write.go` | 149 muda um código de erro (:262); 150 troca o switch de mode (:300-307); 151 reestrutura `DeleteNote`/`moverCorpo`; 152 muda `MoveNote` dry-run | regiões disjuntas; sequenciais, sem conflito de conteúdo. Cada uma commita antes da próxima. |
+| 147 (vault) ↔ 147 (watcher) | `vault.FalhaNaRaiz(raiz, caminho string, d fs.DirEntry) bool` | vault produz; watcher consome no mesmo commit | assinatura igual nos dois trechos do brief. OK |
+| 153, 154 | `internal/doctor/` | 153 muda `daemon.go`; 154 apaga `doctor.go:25-35` + teste | arquivos distintos. OK |
+| 155, 156 | `cmd/gobsidian/` | 155 toca `serve.go`, `ponte.go`; 156 toca `search.go`, `index.go`, `inspect.go` | disjuntos. OK |
+| 153 | `daemon.CaminhoDoLog` já existe (`daemon/log.go:20`) | consome | confirmado no código. OK |
+| 148 | `ReadNoteItem`/`readNoteItemWire` | campo `SectionSynthetic` nos dois, tag igual | consistente. OK |
+| 146 | baseline no plano × `docs/ESTADO.md` | brief manda copiar do plano; o brief não contém a tabela | o despacho aponta a seção do plano por caminho — ruling abaixo |
+
+Ruling: a Task 146 lê a seção `## Baseline medida` do plano diretamente (só
+essa seção), porque a tabela está fora do brief e duplicá-la no brief seria a
+segunda cópia de um número medido — custo se errado: o implementador lê mais do
+plano do que precisa; nenhum efeito no código.
+
+Cada Task, lida contra si mesma: os testes citam os nomes que o código do mesmo
+brief define (`FalhaNaRaiz`, `destinoNaLixeira`, `EhArquivoDeTrava`,
+`EhDesconexaoLimpa`, `SectionSynthetic`), e os arquivos criados nos Steps
+constam em **Files**. Sem achado.
+
+Plano completo (Tasks 146–181) fechado em 2026-09-02; briefs 173–181 gerados
+e `check_briefs.ps1 173 181` limpo (9 briefs, mediana 193 linhas).
+
+Ruling (Task 171): `vault.WriteAtomic` faz `fsync` do arquivo temporário
+antes do rename, como o `writer` já fazia — os caches passam a pagar o mesmo
+custo. Medido na planificação: gravar o cache de índice 21,76 → 41,87 ms e o
+de busca 227,3 → 259,1 ms (mediana de 7, cofre de 5000 notas). Aceito porque
+a gravação é assíncrona ao serviço e um cache truncado por queda de energia
+custa uma reconstrução inteira — custo se errado: ~20 ms + ~32 ms por
+gravação de cache, que a Task 172 pode reverter com uma opção de
+`WriteAtomic` sem `fsync` se o benchstat de produção reclamar.
+
+Ruling (Task 178): os limites numéricos (`minimum`/`maximum` de `limit`,
+`min_count`, `context`) ficam FORA do schema servido e continuam impostos no
+servidor com clamp e `effective_limit` no retorno; `TOOLS.md` passa a
+descrever o schema que o servidor serve, não o que a documentação desejava.
+Porque jsonschema-go v0.4.2 só honra a tag como `description`, e patchar o
+schema tool a tool (como `note_read` faz) é uma segunda conta por regra —
+custo se errado: um host que valida no cliente manda valor fora da faixa e
+recebe o clamp em vez do erro, comportamento que já é o de hoje.

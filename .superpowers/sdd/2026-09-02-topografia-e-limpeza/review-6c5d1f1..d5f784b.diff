@@ -1,0 +1,424 @@
+# Review package: 6c5d1f159de11aa199b9acadfa080a6ef1247717..HEAD
+
+## Commits
+d5f784b test(bench): add analysis benchmarks and publish the 2026-09-02 baseline
+
+## Files changed
+ docs/ESTADO.md                         | 53 ++++++++++++++++++++++++
+ internal/index/bench_analise_test.go   | 75 +++++++++++++++++++++++++++++++++
+ internal/parser/bench_analise_test.go  | 43 +++++++++++++++++++
+ internal/search/bench_analise_test.go  | 76 ++++++++++++++++++++++++++++++++++
+ internal/service/bench_analise_test.go | 71 +++++++++++++++++++++++++++++++
+ internal/writer/bench_analise_test.go  | 36 ++++++++++++++++
+ 6 files changed, 354 insertions(+)
+
+## Diff
+diff --git a/docs/ESTADO.md b/docs/ESTADO.md
+index 040a12a..34eac47 100644
+--- a/docs/ESTADO.md
++++ b/docs/ESTADO.md
+@@ -79,20 +79,73 @@ notas, memória física agregada:
+ 
+ | sessões | pré-M7 | sem daemon | com daemon |
+ |---|---|---|---|
+ | 1 | 579,1 MB | 244,6 MB | 223,6 MB |
+ | 3 | 1.681,3 MB | 508,5 MB | 262,2 MB |
+ | 5 | 2.916,4 MB | 773,4 MB | 229,4 MB |
+ 
+ A coluna do daemon **não escala com N** — é a assinatura de um índice pago uma
+ vez só.
+ 
++### Baseline dos benchmarks de análise — 2026-09-02, HEAD 6c5d1f1
++
++Máquina: i7-10750H, windows/amd64, Go 1.26.5. Binários e saídas brutas em
++`%LOCALAPPDATA%\gobsidian-bench\2026-09-02\` (`antes_<pkg>.test.exe`,
++`antes_<pkg>_run<N>.txt`). São os binários "antes" de TODAS as comparações
++deste plano — não os recompile; o `benchstat` compara contra eles.
++
++`go test -run '^$' -bench . -benchmem -count=5` por pacote (**5 amostras** —
++abaixo das 7 que `desempenho.md` exige, então esta tabela é REFERÊNCIA, não
++veredito; toda comparação deste plano roda o binário `antes_*` de novo,
++intercalado com o `depois_*`, com `-count=7` ou mais, e é o `benchstat` dessa
++rodada que decide). Mediana das 5, via `benchstat antes_all.txt`:
++
++| Benchmark (pacote) | sec/op | B/op | allocs/op |
++|---|---|---|---|
++| `LinkGraphBothDepth2` (service) | 15,21 µs | 2,06 KiB | 41 |
++| `TagListPlano` (service) | 31,78 µs | 13,4 KiB | 9 |
++| `TagListHierarquico` (service) | 6,163 ms | 1,03 MiB | 10 880 |
++| `NoteListPorTag` (service) | 403,8 µs | 41,5 KiB | 210 |
++| `SearchLimit200Cache` (service) | 14,58 ms | 2,38 MiB | 10 170 |
++| `SearchTermoAmploCache` (service) | 7,324 ms | 1,94 MiB | 5 594 |
++| `SearchFiltroFrontmatter` (service) | 23,20 ms | 4,31 MiB | 30 120 |
++| `SearchLimit200CacheTrechoRepetido` (service) | 7,270 ms | 2,11 MiB | 7 654 |
++| `IndexBuild` (service) | 352,4 ms | 95,6 MiB | 918 400 |
++| `InvertedLoad` (service) | 17,50 ms | 3,51 MiB | 46 380 |
++| `SearchTermoAmplo` / `DoisTermos` / `FraseExata` / `Limit200` (service) | 8,705 / 3,658 / 23,27 / 15,41 ms | — | — |
++| `SaveIndexCacheReal` / `ComFsync` (index) | 21,76 / 41,87 ms | 1,17 MiB | 6 088 |
++| `TagsSemPrefixo` (index) | 20,02 µs | 7,35 KiB | 8 |
++| `ListPorTag` (index) | 856,1 µs | 119 KiB | 12 |
++| `BuildComHub` (index) | 115,4 ms | 12,95 MiB | 128 400 |
++| `TotalSizeRepetido` (index) | 5,610 µs | 0 | 0 |
++| `SaveInvertedCacheReal` / `ComFsync` (search) | 227,3 / 259,1 ms | 24,95 MiB | 255 000 |
++| `EscreveCache` (search) | 24,56 ms | 1,04 MiB | 822 |
++| `InvertedUpdateLote` (search) | 6,549 s | 105 MiB | 565 200 |
++| `RewriteLinksMuitos` (writer) | 1,496 ms | 3,98 MiB | 795 |
++| `ParseNotaLonga` (parser) | 2,611 ms | 1,19 MiB | 9 247 |
++| `DetectCandidatesNotaLonga` (parser) | 309,9 µs | 127 KiB | 1 301 |
++
++Saída completa do `benchstat`: `%LOCALAPPDATA%\gobsidian-bench\2026-09-02\antes_all.txt`
++(concatenação dos cinco `antes_<pkg>_run*.txt` válidos; `antes_service_run1.txt`
++NÃO entra — rodou contra o cofre velho e tem dois FAIL).
++
++Fatos medidos sem benchmark:
++
++- `vault_5000`: 112 tags distintas, 0 hierárquicas. Cofres reais do dono: **não medido** neste plano.
++- Cobertura por função (`go test -coverprofile`, 2026-09-02): `construirServico` 6,5 %, `carregarIndiceDoCache` 0 %, `prepararIndiceDeBusca` 0 %, `runServe` 0 %, `serveEmProcesso` 20,6 %, `buildInvertedIndex` 60,7 %; `WriteAtomic` 71,1 %, `SweepStaleTempFiles` 62,5 %, `CleanStaleTempFiles` 0 %; `SaveIndexCache` 64,5 %, `SaveInvertedCache` 56,0 %; `Tags` 91,7 %, `coletarLocked` 87,6 %, `tagListHierarchical` 94,1 %, `LinkGraph` 78,1 %; `Search` 96 %; `mcpsrv.Server.Serve` 0 %, `Close` 0 %; `doctor.checkDaemonLog` 44,4 %, `checkLocksDeDaemon` 58,6 %.
++- Tempo de suíte (`go test ./... -count=1 -cover`): service 51,7 s, writer 32,5 s, search 31,1 s, watcher 26,2 s, index 22,3 s, vault 22,0 s, doctor 19,4 s, mcpsrv 17,0 s.
++- Raio de explosão de `service.Index` (gopls references): `Get` 13, `ResolvePath` 8, `Backlinks` 5, `List` 4, `NotePaths` 2, `TotalSize`/`Tags`/`NoteCount`/`Generation`/`AssetCount`/`AliasCollisions` 1 cada, `Paths` **0**.
++- Raio de `writer.WriteAtomic`: 6 sítios em `internal/service/write.go` (`:149,:248,:378,:619,:751,:832`) + 3 arquivos de teste; `SweepStaleTempFiles`: 1 sítio (`cmd/gobsidian/servico.go:78`).
++- Prefixo `.gobsidian-tmp-` em 4 literais: `writer/atomic.go:14` (constante), `vault/walk.go:74`, `search/persist.go:87`, `index/persist.go:124`.
++- `hits` × `results`: `search --json --limit 200 --vault vault_5000 "execucao"` (binário de 6c5d1f1): `hits` e `results` são 200 itens e **byte a byte iguais** (`hits == results` → `True` em Python). JSON compacto: 195 481 bytes com `hits`, 97 787 sem — **50,0 % do payload é a cópia**. Arquivo indentado: 216 304 bytes.
++- CLI a frio × `serve` com cache: cofre `vault_5000`, mesmo binário. `search` a frio (Build + `inv.Update` serial por nota): **10 520 / 10 819 / 11 046 ms** de parede em 3 execuções. `inspect` a frio (só Build): **770 / 767 / 739 ms**. `serve` em processo (`GOBSIDIAN_NO_DAEMON=1 --eager-search`) com cache quente, 5 execuções: `index_ms` **101–123**, índice de busca `duracao_ms` **13–20**, parede boot→saída **475–528 ms**. Ou seja: a CLI de busca paga ~10 s que o `serve` não paga; adotar o cache na CLI (Task 175) tem teto de ganho medido, não estimado.
++
+ ---
+ 
+ ## Decisões fechadas que não se re-litigam sem dado novo
+ 
+ **O RNF-30 mudou de redação, não de intenção** (Task 90, autorizado pelo dono em
+ 2026-08-05). Era "nenhum socket"; é "nenhum socket que saia da máquina".
+ `tools/netcheck` aceita `net.Dial`/`net.Listen` **apenas com a rede na constante
+ literal `"unix"`** — rede vinda de variável é recusada. Escreva a string no
+ lugar; guardá-la numa variável deixa o `check_net` vermelho, e isso é a regra
+ funcionando. A redação normativa está em `PRD.md` §6.4 e `ARCHITECTURE.md`.
+diff --git a/internal/index/bench_analise_test.go b/internal/index/bench_analise_test.go
+new file mode 100644
+index 0000000..4d474e2
+--- /dev/null
++++ b/internal/index/bench_analise_test.go
+@@ -0,0 +1,75 @@
++package index_test
++
++import (
++	"context"
++	"os"
++	"path/filepath"
++	"testing"
++
++	"github.com/jonyd/gobsidian/internal/index"
++	"github.com/jonyd/gobsidian/internal/vault"
++)
++
++func cofreReal(b *testing.B) (*index.Index, string) {
++	b.Helper()
++	dir := benchIndexVaultPath(b)
++	v, err := vault.New(dir)
++	if err != nil {
++		b.Fatalf("vault.New: %v", err)
++	}
++	ix := index.New()
++	if err := ix.Build(context.Background(), v); err != nil {
++		b.Fatalf("Build: %v", err)
++	}
++	return ix, dir
++}
++
++// BenchmarkSaveIndexCacheReal mede a gravacao do cache de indice como ela e
++// hoje: CreateTemp + gob + Close + Rename, SEM fsync.
++func BenchmarkSaveIndexCacheReal(b *testing.B) {
++	ix, dir := cofreReal(b)
++	cacheDir := b.TempDir()
++	b.ReportAllocs()
++	b.ResetTimer()
++	for b.Loop() {
++		if err := index.SaveIndexCache(context.Background(), cacheDir, dir, ix); err != nil {
++			b.Fatal(err)
++		}
++	}
++}
++
++// BenchmarkSaveIndexCacheRealComFsync soma o custo que a gravacao PASSARIA a
++// ter se usasse a mesma rotina atomica das notas, que faz Sync antes do rename.
++func BenchmarkSaveIndexCacheRealComFsync(b *testing.B) {
++	ix, dir := cofreReal(b)
++	cacheDir := b.TempDir()
++	final := filepath.Join(cacheDir, "index_cache.gob")
++	b.ReportAllocs()
++	b.ResetTimer()
++	for b.Loop() {
++		if err := index.SaveIndexCache(context.Background(), cacheDir, dir, ix); err != nil {
++			b.Fatal(err)
++		}
++		f, err := os.OpenFile(final, os.O_RDWR, 0)
++		if err != nil {
++			b.Fatal(err)
++		}
++		if err := f.Sync(); err != nil {
++			b.Fatal(err)
++		}
++		_ = f.Close()
++	}
++}
++
++// BenchmarkTagsSemPrefixo mede ix.Tags como tag_list a chama: ToLower por
++// chave a cada chamada.
++func BenchmarkTagsSemPrefixo(b *testing.B) {
++	ix, _ := cofreReal(b)
++	b.ReportAllocs()
++	b.ResetTimer()
++	for b.Loop() {
++		if len(ix.Tags("", 1)) == 0 {
++			b.Fatal("sem tags")
++		}
++	}
++}
+diff --git a/internal/parser/bench_analise_test.go b/internal/parser/bench_analise_test.go
+new file mode 100644
+index 0000000..c935098
+--- /dev/null
++++ b/internal/parser/bench_analise_test.go
+@@ -0,0 +1,43 @@
++package parser_test
++
++import (
++	"bytes"
++	"fmt"
++	"testing"
++
++	"github.com/jonyd/gobsidian/internal/parser"
++)
++
++func notaLonga() []byte {
++	var src bytes.Buffer
++	for i := range 300 {
++		fmt.Fprintf(&src, "**%d.%d Secao em negrito**\n\nTexto com [[Wiki_%d]] e [md](Nota%d.md) e #tag%d e campo:: valor.\n\n", i/10, i%10, i, i, i%7)
++		if i%10 == 0 {
++			src.WriteString("```go\nfunc x() {}\n```\n\n")
++		}
++	}
++	return src.Bytes()
++}
++
++func BenchmarkParseNotaLonga(b *testing.B) {
++	src := notaLonga()
++	b.SetBytes(int64(len(src)))
++	b.ReportAllocs()
++	for b.Loop() {
++		pn := parser.Parse(src)
++		if len(pn.Links) < 600 {
++			b.Fatalf("links = %d", len(pn.Links))
++		}
++	}
++}
++
++func BenchmarkDetectCandidatesNotaLonga(b *testing.B) {
++	src := notaLonga()
++	b.SetBytes(int64(len(src)))
++	b.ReportAllocs()
++	for b.Loop() {
++		if cs := parser.DetectCandidates(src, 0); len(cs) != 300 {
++			b.Fatalf("candidatos = %d", len(cs))
++		}
++	}
++}
+diff --git a/internal/search/bench_analise_test.go b/internal/search/bench_analise_test.go
+new file mode 100644
+index 0000000..a5e8b52
+--- /dev/null
++++ b/internal/search/bench_analise_test.go
+@@ -0,0 +1,76 @@
++package search_test
++
++import (
++	"context"
++	"os"
++	"path/filepath"
++	"testing"
++
++	"github.com/jonyd/gobsidian/internal/index"
++	"github.com/jonyd/gobsidian/internal/search"
++	"github.com/jonyd/gobsidian/internal/vault"
++)
++
++func invertidoReal(b *testing.B) (*search.Inverted, string) {
++	b.Helper()
++	dir := os.Getenv("GOBSIDIAN_BENCH_VAULT")
++	if dir == "" {
++		dir = filepath.Join(os.TempDir(), "vault_5000")
++	}
++	if _, err := os.Stat(dir); err != nil {
++		b.Skipf("cofre de benchmark ausente em %s", dir)
++	}
++	ctx := context.Background()
++	v, err := vault.New(dir)
++	if err != nil {
++		b.Fatalf("vault.New: %v", err)
++	}
++	idx := index.New()
++	if err := idx.Build(ctx, v); err != nil {
++		b.Fatalf("idx.Build: %v", err)
++	}
++	inv := search.NewInverted()
++	for _, p := range idx.NotePaths() {
++		if err := inv.Update(ctx, v, p); err != nil {
++			b.Fatalf("inv.Update %s: %v", p, err)
++		}
++	}
++	return inv, dir
++}
++
++// BenchmarkSaveInvertedCacheReal mede a gravacao do cache invertido como ela e
++// hoje: CreateTemp + escreveCache + Close + Rename, SEM fsync.
++func BenchmarkSaveInvertedCacheReal(b *testing.B) {
++	inv, dir := invertidoReal(b)
++	cacheDir := b.TempDir()
++	b.ReportAllocs()
++	b.ResetTimer()
++	for b.Loop() {
++		if err := search.SaveInvertedCache(context.Background(), cacheDir, dir, inv); err != nil {
++			b.Fatal(err)
++		}
++	}
++}
++
++// BenchmarkSaveInvertedCacheRealComFsync soma o custo que a gravacao PASSARIA a
++// ter se usasse a rotina atomica das notas, que faz Sync antes do rename.
++func BenchmarkSaveInvertedCacheRealComFsync(b *testing.B) {
++	inv, dir := invertidoReal(b)
++	cacheDir := b.TempDir()
++	final := filepath.Join(cacheDir, "inverted_cache.gob")
++	b.ReportAllocs()
++	b.ResetTimer()
++	for b.Loop() {
++		if err := search.SaveInvertedCache(context.Background(), cacheDir, dir, inv); err != nil {
++			b.Fatal(err)
++		}
++		f, err := os.OpenFile(final, os.O_RDWR, 0)
++		if err != nil {
++			b.Fatal(err)
++		}
++		if err := f.Sync(); err != nil {
++			b.Fatal(err)
++		}
++		_ = f.Close()
++	}
++}
+diff --git a/internal/service/bench_analise_test.go b/internal/service/bench_analise_test.go
+new file mode 100644
+index 0000000..669458f
+--- /dev/null
++++ b/internal/service/bench_analise_test.go
+@@ -0,0 +1,71 @@
++package service_test
++
++import (
++	"context"
++	"testing"
++
++	"github.com/jonyd/gobsidian/internal/index"
++	"github.com/jonyd/gobsidian/internal/service"
++)
++
++// Benchmarks das tools que a analise de 2026-09-02 quer mexer e que nao tinham
++// medida nenhuma: link_graph, tag_list (plano e hierarquico) e note_list com
++// filtro de tag. Sem numero antes, nao ha como dizer que a mudanca nao piorou.
++
++func BenchmarkLinkGraphBothDepth2(b *testing.B) {
++	svc := benchServico(b)
++	req := service.GraphRequest{Path: "Nota_1", Direction: "both", Depth: 2, Limit: 500}
++	res, err := svc.LinkGraph(context.Background(), req)
++	if err != nil {
++		b.Fatalf("LinkGraph: %v", err)
++	}
++	if len(res.Nodes) < 2 {
++		b.Fatalf("grafo com %d nos; o cofre de bench deveria ligar Nota_1", len(res.Nodes))
++	}
++	b.ReportAllocs()
++	b.ResetTimer()
++	for b.Loop() {
++		if _, err := svc.LinkGraph(context.Background(), req); err != nil {
++			b.Fatal(err)
++		}
++	}
++}
++
++func BenchmarkTagListPlano(b *testing.B) {
++	svc := benchServico(b)
++	req := service.TagRequest{Sort: "count"}
++	b.ReportAllocs()
++	b.ResetTimer()
++	for b.Loop() {
++		res, err := svc.TagList(context.Background(), req)
++		if err != nil || len(res.Tags) == 0 {
++			b.Fatalf("TagList: %v, %d tags", err, len(res.Tags))
++		}
++	}
++}
++
++func BenchmarkTagListHierarquico(b *testing.B) {
++	svc := benchServico(b)
++	req := service.TagRequest{Sort: "count", Hierarchical: true}
++	b.ReportAllocs()
++	b.ResetTimer()
++	for b.Loop() {
++		res, err := svc.TagList(context.Background(), req)
++		if err != nil || len(res.Tags) == 0 {
++			b.Fatalf("TagList: %v, %d tags", err, len(res.Tags))
++		}
++	}
++}
++
++func BenchmarkNoteListPorTag(b *testing.B) {
++	svc := benchServico(b)
++	req := service.ListRequest{Query: index.Query{Tags: []string{"golang"}, TagMode: "any", Sort: "title", Limit: 100}}
++	b.ReportAllocs()
++	b.ResetTimer()
++	for b.Loop() {
++		res, err := svc.ListNotes(context.Background(), req)
++		if err != nil || len(res.Notes) == 0 {
++			b.Fatalf("ListNotes: %v, %d notas", err, len(res.Notes))
++		}
++	}
++}
+diff --git a/internal/writer/bench_analise_test.go b/internal/writer/bench_analise_test.go
+new file mode 100644
+index 0000000..1746ade
+--- /dev/null
++++ b/internal/writer/bench_analise_test.go
+@@ -0,0 +1,36 @@
++package writer_test
++
++import (
++	"bytes"
++	"fmt"
++	"testing"
++
++	"github.com/jonyd/gobsidian/internal/parser"
++	"github.com/jonyd/gobsidian/internal/writer"
++)
++
++// BenchmarkRewriteLinksMuitos mede o laco de RewriteLinks, que hoje realoca o
++// buffer inteiro a cada substituicao (O(n*m)). Nota com 200 links, todos
++// reescritos, e o caso de note_move numa nota-indice.
++func BenchmarkRewriteLinksMuitos(b *testing.B) {
++	var src bytes.Buffer
++	for i := range 200 {
++		fmt.Fprintf(&src, "Paragrafo %d com texto de enchimento suficiente para parecer uma nota. Veja [[Nota_%d]] agora.\n\n", i, i)
++	}
++	pn := parser.Parse(src.Bytes())
++	if len(pn.Links) != 200 {
++		b.Fatalf("links = %d, quer 200", len(pn.Links))
++	}
++	reps := make([]writer.LinkReplacement, len(pn.Links))
++	for i, l := range pn.Links {
++		reps[i] = writer.LinkReplacement{Link: l, NewTarget: fmt.Sprintf("Pasta/Nova_%d", i)}
++	}
++	b.ReportAllocs()
++	b.ResetTimer()
++	for b.Loop() {
++		out, err := writer.RewriteLinks(src.Bytes(), reps)
++		if err != nil || len(out) <= src.Len() {
++			b.Fatalf("RewriteLinks: %v, %d bytes", err, len(out))
++		}
++	}
++}
