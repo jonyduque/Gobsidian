@@ -117,21 +117,41 @@ func Classify(rel CanonicalPath) Classification {
 	return ClassExcluded
 }
 
+// FalhaNaRaiz diz se um erro entregue pelo callback de filepath.WalkDir e da
+// PROPRIA raiz varrida, e nao de uma entrada dentro dela.
+//
+// WalkDir tem duas formas de falhar na raiz, e so uma delas vem com d == nil:
+//
+//   - Lstat(raiz) falhou: um unico callback, d == nil.
+//   - Lstat passou e ReadDir(raiz) falhou: DOIS callbacks — o primeiro normal,
+//     o segundo com d != nil, caminho == raiz e o erro do ReadDir.
+//
+// Tratar so d == nil deixa a segunda forma passar como "entrada ilegivel":
+// engolida, logada, e a varredura devolve sucesso com zero entradas. Um
+// diretorio que existe mas nao pode ser lido (antivirus segurando a pasta,
+// no Windows) virava cofre vazio. E a unica conta dessa distincao — Walk e
+// watcher.varreDiretorioNovo usam a mesma.
+func FalhaNaRaiz(raiz, caminho string, d fs.DirEntry) bool {
+	return d == nil || caminho == raiz
+}
+
 // Walk percorre o cofre aplicando as exclusoes e classificando cada arquivo
 // como nota ou anexo. Arquivos que nao sao nem um nem outro sao ignorados.
 func (v *Vault) Walk(ctx context.Context, fn func(Entry) error) error {
 	return filepath.WalkDir(v.walkRoot, func(abs string, d fs.DirEntry, err error) error {
 		if err != nil {
-			// d == nil significa que a falha foi na propria raiz: WalkDir nao
-			// conseguiu nem fazer Lstat nela. Isso acontece quando o cofre
-			// some entre New e Walk — unidade removivel desconectada, pasta
-			// sincronizada que o cliente de nuvem moveu, share de rede caido.
+			// Falha na propria raiz, e nao numa entrada dentro dela. Acontece
+			// quando o cofre some entre New e Walk — unidade removivel
+			// desconectada, pasta sincronizada que o cliente de nuvem moveu,
+			// share de rede caido — e tambem quando a raiz existe mas nao pode
+			// ser lida. Ver FalhaNaRaiz para a segunda forma, que ReadDir
+			// produz.
 			//
 			// Engolir esse erro faria Walk devolver sucesso com zero entradas,
 			// e o servidor reportaria com confianca que o cofre esta vazio.
 			// Um cofre inacessivel e um erro; um cofre vazio e um fato. As
 			// duas coisas nao podem produzir a mesma resposta.
-			if d == nil {
+			if FalhaNaRaiz(v.walkRoot, abs, d) {
 				return fmt.Errorf("varrendo a raiz do cofre %q: %w", v.root, err)
 			}
 			// Um diretorio ilegivel nao derruba a varredura inteira. O cofre
