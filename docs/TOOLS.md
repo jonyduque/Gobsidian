@@ -457,7 +457,11 @@ Não há transação entre arquivos. Cada arquivo é escrito atomicamente e o re
 
 **Notas.** `to_trash` verdadeiro por padrão. Exclusão definitiva exige passá-lo explicitamente como falso.
 
+`to_trash` **move** o arquivo (`os.Rename`), pela mesma conta que `note_move` usa: no mesmo volume o move é atômico, então a nota nunca existe nos dois caminhos, e o conteúdo não passa pela memória. Se o rename for recusado — volume diferente, ou handle aberto por outro processo — o fallback copia e remove, **conferindo o erro do remove**: se a origem não puder ser removida, o retorno é erro (`FILE_LOCKED`) nomeando o caminho em `.trash/` onde a cópia ficou, nunca sucesso com a nota duplicada.
+
 Com `report_broken_links`, o retorno lista as notas que passarão a ter links quebrados (`broken_links`) e as âncoras quebradas associadas (`broken_anchors`) — informação que frequentemente muda a decisão.
+
+**Erros.** `CLOUD_ONLY_FILE` quando o rename é recusado sobre uma nota somente-nuvem: o rename de um placeholder do OneDrive não baixa nada, mas a cópia de fallback leria o arquivo e dispararia download síncrono, então ela é recusada antes de ler.
 
 ---
 

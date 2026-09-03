@@ -145,6 +145,37 @@ func TestDeleteNote_TrashNameCollision(t *testing.T) {
 	}
 }
 
+// TestDeleteNoteToTrashMoveSemCopiar: rename preserva o mtime do arquivo;
+// WriteAtomic (escreve, sync, rename do temporario) produz um arquivo com mtime
+// NOVO. Fixar um mtime antigo e conferir que ele sobreviveu distingue mover de
+// copiar sem olhar a implementacao.
+func TestDeleteNoteToTrashMoveSemCopiar(t *testing.T) {
+	svc, _, _, root := createDeleteService(t, map[string]string{"a.md": "# A\n\ncorpo\n"})
+
+	antigo := time.Date(2020, 1, 2, 3, 4, 5, 0, time.UTC)
+	if err := os.Chtimes(filepath.Join(root, "a.md"), antigo, antigo); err != nil {
+		t.Fatal(err)
+	}
+
+	res, err := svc.DeleteNote(context.Background(), service.DeleteNoteRequest{Path: "a.md", ToTrash: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.TrashPath == "" {
+		t.Fatalf("sem TrashPath: %+v", res)
+	}
+	fi, err := os.Stat(filepath.Join(root, filepath.FromSlash(res.TrashPath)))
+	if err != nil {
+		t.Fatalf("a nota nao esta na lixeira: %v", err)
+	}
+	if !fi.ModTime().Equal(antigo) {
+		t.Fatalf("mtime da copia na lixeira = %v, quer %v: a lixeira COPIOU em vez de mover", fi.ModTime(), antigo)
+	}
+	if _, err := os.Stat(filepath.Join(root, "a.md")); !os.IsNotExist(err) {
+		t.Fatalf("a origem ainda existe (err=%v)", err)
+	}
+}
+
 func TestDeleteNote_DryRunDoesNotDelete(t *testing.T) {
 	files := map[string]string{
 		"alvo.md": "Conteudo",

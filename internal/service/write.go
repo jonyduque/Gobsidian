@@ -709,71 +709,40 @@ func (s *Service) DeleteNote(ctx context.Context, req DeleteNoteRequest) (Delete
 		}, nil
 	}
 
-	unlock := s.locker.Lock(canonical)
-	defer unlock()
-
 	absPath := s.vault.Abs(canonical)
 	if _, err := os.Stat(absPath); os.IsNotExist(err) {
 		return DeleteNoteResult{}, Errorf(CodeNoteNotFound, "nota %q nao encontrada no disco", req.Path)
 	}
 
 	if req.ToTrash {
-		baseName := filepath.Base(string(canonical))
-		trashRel := filepath.ToSlash(filepath.Join(".trash", baseName))
-		absTrash, _, err := vault.Resolve(s.vault.Root(), trashRel)
+		// Sem s.locker.Lock aqui: PathLocker nao e reentrante, e moverCorpo
+		// trava origem E destino em ordem global. A lixeira e um move como
+		// qualquer outro — ate 2026-09-02 era ReadFile + WriteAtomic +
+		// Remove, tres operacoes e o arquivo inteiro em memoria para o que
+		// os.Rename faz numa, e sem o guarda de placeholder que moverCorpo
+		// ganhou junto com esta mudanca.
+		trashRel, absTrash, err := s.destinoNaLixeira(canonical)
 		if err != nil {
-			return DeleteNoteResult{}, mapVaultErr(err)
+			return DeleteNoteResult{}, err
 		}
-
-		// Resolve colisoes de nome na lixeira adicionando timestamp
-		if _, err := os.Stat(absTrash); err == nil {
-			ext := filepath.Ext(baseName)
-			stem := strings.TrimSuffix(baseName, ext)
-			uniqueName := fmt.Sprintf("%s_%d%s", stem, time.Now().UnixNano(), ext)
-			trashRel = filepath.ToSlash(filepath.Join(".trash", uniqueName))
-			absTrash, _, err = vault.Resolve(s.vault.Root(), trashRel)
-			if err != nil {
-				return DeleteNoteResult{}, mapVaultErr(err)
-			}
-		}
-
-		trashDir := filepath.Dir(absTrash)
-		if err := os.MkdirAll(trashDir, 0755); err != nil {
+		if err := os.MkdirAll(filepath.Dir(absTrash), 0755); err != nil {
 			return DeleteNoteResult{}, Errorf(CodeInternal, "criando diretorio lixeira: %v", err)
 		}
-
-		raw, err := os.ReadFile(absPath)
-		if err != nil {
-			return DeleteNoteResult{}, Errorf(CodeInternal, "lendo nota %q: %v", req.Path, err)
+		if err := s.moverCorpo(ctx, canonical, trashRel, absTrash); err != nil {
+			return DeleteNoteResult{}, err
 		}
-
-		if err := writer.WriteAtomic(ctx, absTrash, raw); err != nil {
-			return DeleteNoteResult{}, Errorf(CodeInternal, "movendo nota para lixeira: %v", err)
-		}
-
-		// O erro do remove e CONFERIDO. Ate 2026-08-26 era `_ = os.Remove`, e
-		// uma nota travada pelo Obsidian produzia Deleted=true com o arquivo
-		// existindo em DOIS lugares: o caminho original e a lixeira. Medido em
-		// teste. E a mesma familia do A1, no outro caminho de escrita.
-		//
-		// A mensagem diz que a copia na lixeira existe, porque sem isso quem
-		// recebe o erro nao sabe se precisa limpar alguma coisa.
-		if err := os.Remove(absPath); err != nil {
-			return DeleteNoteResult{}, Errorf(CodeFileLocked,
-				"a nota foi copiada para a lixeira em %q, mas %q nao pode ser removida (%v); "+
-					"a nota existe nos dois caminhos ate a origem ser liberada",
-				trashRel, canonical, err)
-		}
-
 		return DeleteNoteResult{
 			Path:          string(canonical),
 			Deleted:       true,
 			MovedToTrash:  true,
-			TrashPath:     trashRel,
+			TrashPath:     string(trashRel),
 			BrokenLinks:   brokenLinks,
 			BrokenAnchors: brokenAnchors,
 		}, nil
 	}
+
+	unlock := s.locker.Lock(canonical)
+	defer unlock()
 
 	// Exclusao definitiva (to_trash == false)
 	if err := os.Remove(absPath); err != nil {
@@ -787,6 +756,30 @@ func (s *Service) DeleteNote(ctx context.Context, req DeleteNoteRequest) (Delete
 		BrokenLinks:   brokenLinks,
 		BrokenAnchors: brokenAnchors,
 	}, nil
+}
+
+// destinoNaLixeira resolve .trash/<nome>, com sufixo de timestamp se ja houver
+// um arquivo com esse nome la.
+//
+// O caminho canonico devolvido e o que vault.Resolve calculou, nao uma segunda
+// conversao do texto: a chave da lixeira e a chave que a trava de moverCorpo
+// usa, e duas contas para a mesma chave e como elas divergem.
+func (s *Service) destinoNaLixeira(canonical vault.CanonicalPath) (trashRel vault.CanonicalPath, absTrash string, err error) {
+	baseName := filepath.Base(string(canonical))
+	absTrash, trashRel, err = vault.Resolve(s.vault.Root(), filepath.ToSlash(filepath.Join(".trash", baseName)))
+	if err != nil {
+		return "", "", mapVaultErr(err)
+	}
+	if _, err := os.Stat(absTrash); err == nil {
+		ext := filepath.Ext(baseName)
+		stem := strings.TrimSuffix(baseName, ext)
+		uniqueName := fmt.Sprintf("%s_%d%s", stem, time.Now().UnixNano(), ext)
+		absTrash, trashRel, err = vault.Resolve(s.vault.Root(), filepath.ToSlash(filepath.Join(".trash", uniqueName)))
+		if err != nil {
+			return "", "", mapVaultErr(err)
+		}
+	}
+	return trashRel, absTrash, nil
 }
 
 // moverCorpo move o arquivo da nota, conferindo TODOS os erros.
@@ -823,7 +816,13 @@ func (s *Service) moverCorpo(ctx context.Context, de, para vault.CanonicalPath, 
 	}
 
 	// Volume diferente, ou rename recusado: copia e remove, com o erro do
-	// remove CONFERIDO.
+	// remove CONFERIDO. A copia LE a origem — e ler um placeholder de nuvem
+	// dispara download sincrono. O rename de um placeholder nao baixa nada;
+	// a copia baixa. Quem roda antes do guarda precisa do mesmo guarda.
+	if n, ok := s.index.Get(de); ok && n.CloudOnly {
+		return Errorf(CodeCloudOnlyFile,
+			"nota %q e somente-nuvem e o rename foi recusado; a copia de fallback a baixaria", de)
+	}
 	fromRaw, err := os.ReadFile(absFrom)
 	if err != nil {
 		return Errorf(CodeInternal, "lendo nota de origem %q: %v", de, err)
