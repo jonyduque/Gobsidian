@@ -227,10 +227,13 @@ func (w *Watcher) emite(ctx context.Context, e fsnotify.Event) error {
 func (w *Watcher) varreDiretorioNovo(ctx context.Context, dir string) error {
 	err := filepath.WalkDir(dir, func(caminho string, d fs.DirEntry, erro error) error {
 		if erro != nil {
-			// d == nil significa falha na PROPRIA RAIZ: o WalkDir nao
-			// conseguiu nem fazer Lstat no diretorio que acabou de chegar.
-			// E a mesma distincao que vault.Walk ja faz, e que aqui nunca
-			// tinha sido feita.
+			// Falha na PROPRIA RAIZ — o diretorio que acabou de chegar —, nas
+			// duas formas que o WalkDir produz: Lstat(dir) falhou, e o
+			// callback vem com d == nil; ou Lstat passou e ReadDir(dir)
+			// falhou, e o callback vem com d != nil e caminho == dir.
+			// vault.FalhaNaRaiz e a conta unica dessa distincao, a mesma que
+			// vault.Walk usa. Reconhecer so a primeira forma era o defeito que
+			// ficava aqui.
 			//
 			// Engolir isso faz a varredura reportar sucesso com ZERO entradas
 			// — exatamente o estado que esta funcao existe para impedir. O
@@ -242,9 +245,6 @@ func (w *Watcher) varreDiretorioNovo(ctx context.Context, dir string) error {
 			//
 			// Diretorio inacessivel e diretorio vazio nao podem produzir a
 			// mesma resposta.
-			//
-			// A segunda forma — ReadDir da raiz falhou, d != nil — e a que
-			// vault.FalhaNaRaiz cobre.
 			if vault.FalhaNaRaiz(dir, caminho, d) {
 				return fmt.Errorf("varrendo a raiz do diretório novo %q: %w", caminho, erro)
 			}
