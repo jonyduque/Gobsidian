@@ -86,6 +86,59 @@ notas, memória física agregada:
 A coluna do daemon **não escala com N** — é a assinatura de um índice pago uma
 vez só.
 
+### Baseline dos benchmarks de análise — 2026-09-02, HEAD 6c5d1f1
+
+Máquina: i7-10750H, windows/amd64, Go 1.26.5. Binários e saídas brutas em
+`%LOCALAPPDATA%\gobsidian-bench\2026-09-02\` (`antes_<pkg>.test.exe`,
+`antes_<pkg>_run<N>.txt`). São os binários "antes" de TODAS as comparações
+deste plano — não os recompile; o `benchstat` compara contra eles.
+
+`go test -run '^$' -bench . -benchmem -count=5` por pacote (**5 amostras** —
+abaixo das 7 que `desempenho.md` exige, então esta tabela é REFERÊNCIA, não
+veredito; toda comparação deste plano roda o binário `antes_*` de novo,
+intercalado com o `depois_*`, com `-count=7` ou mais, e é o `benchstat` dessa
+rodada que decide). Mediana das 5, via `benchstat antes_all.txt`:
+
+| Benchmark (pacote) | sec/op | B/op | allocs/op |
+|---|---|---|---|
+| `LinkGraphBothDepth2` (service) | 15,21 µs | 2,06 KiB | 41 |
+| `TagListPlano` (service) | 31,78 µs | 13,4 KiB | 9 |
+| `TagListHierarquico` (service) | 6,163 ms | 1,03 MiB | 10 880 |
+| `NoteListPorTag` (service) | 403,8 µs | 41,5 KiB | 210 |
+| `SearchLimit200Cache` (service) | 14,58 ms | 2,38 MiB | 10 170 |
+| `SearchTermoAmploCache` (service) | 7,324 ms | 1,94 MiB | 5 594 |
+| `SearchFiltroFrontmatter` (service) | 23,20 ms | 4,31 MiB | 30 120 |
+| `SearchLimit200CacheTrechoRepetido` (service) | 7,270 ms | 2,11 MiB | 7 654 |
+| `IndexBuild` (service) | 352,4 ms | 95,6 MiB | 918 400 |
+| `InvertedLoad` (service) | 17,50 ms | 3,51 MiB | 46 380 |
+| `SearchTermoAmplo` / `DoisTermos` / `FraseExata` / `Limit200` (service) | 8,705 / 3,658 / 23,27 / 15,41 ms | — | — |
+| `SaveIndexCacheReal` / `ComFsync` (index) | 21,76 / 41,87 ms | 1,17 MiB | 6 088 |
+| `TagsSemPrefixo` (index) | 20,02 µs | 7,35 KiB | 8 |
+| `ListPorTag` (index) | 856,1 µs | 119 KiB | 12 |
+| `BuildComHub` (index) | 115,4 ms | 12,95 MiB | 128 400 |
+| `TotalSizeRepetido` (index) | 5,610 µs | 0 | 0 |
+| `SaveInvertedCacheReal` / `ComFsync` (search) | 227,3 / 259,1 ms | 24,95 MiB | 255 000 |
+| `EscreveCache` (search) | 24,56 ms | 1,04 MiB | 822 |
+| `InvertedUpdateLote` (search) | 6,549 s | 105 MiB | 565 200 |
+| `RewriteLinksMuitos` (writer) | 1,496 ms | 3,98 MiB | 795 |
+| `ParseNotaLonga` (parser) | 2,611 ms | 1,19 MiB | 9 247 |
+| `DetectCandidatesNotaLonga` (parser) | 309,9 µs | 127 KiB | 1 301 |
+
+Saída completa do `benchstat`: `%LOCALAPPDATA%\gobsidian-bench\2026-09-02\antes_all.txt`
+(concatenação dos cinco `antes_<pkg>_run*.txt` válidos; `antes_service_run1.txt`
+NÃO entra — rodou contra o cofre velho e tem dois FAIL).
+
+Fatos medidos sem benchmark:
+
+- `vault_5000`: 112 tags distintas, 0 hierárquicas. Cofres reais do dono: **não medido** neste plano.
+- Cobertura por função (`go test -coverprofile`, 2026-09-02): `construirServico` 6,5 %, `carregarIndiceDoCache` 0 %, `prepararIndiceDeBusca` 0 %, `runServe` 0 %, `serveEmProcesso` 20,6 %, `buildInvertedIndex` 60,7 %; `WriteAtomic` 71,1 %, `SweepStaleTempFiles` 62,5 %, `CleanStaleTempFiles` 0 %; `SaveIndexCache` 64,5 %, `SaveInvertedCache` 56,0 %; `Tags` 91,7 %, `coletarLocked` 87,6 %, `tagListHierarchical` 94,1 %, `LinkGraph` 78,1 %; `Search` 96 %; `mcpsrv.Server.Serve` 0 %, `Close` 0 %; `doctor.checkDaemonLog` 44,4 %, `checkLocksDeDaemon` 58,6 %.
+- Tempo de suíte (`go test ./... -count=1 -cover`): service 51,7 s, writer 32,5 s, search 31,1 s, watcher 26,2 s, index 22,3 s, vault 22,0 s, doctor 19,4 s, mcpsrv 17,0 s.
+- Raio de explosão de `service.Index` (gopls references): `Get` 13, `ResolvePath` 8, `Backlinks` 5, `List` 4, `NotePaths` 2, `TotalSize`/`Tags`/`NoteCount`/`Generation`/`AssetCount`/`AliasCollisions` 1 cada, `Paths` **0**.
+- Raio de `writer.WriteAtomic`: 6 sítios em `internal/service/write.go` (`:149,:248,:378,:619,:751,:832`) + 3 arquivos de teste; `SweepStaleTempFiles`: 1 sítio (`cmd/gobsidian/servico.go:78`).
+- Prefixo `.gobsidian-tmp-` em 4 literais: `writer/atomic.go:14` (constante), `vault/walk.go:74`, `search/persist.go:87`, `index/persist.go:124`.
+- `hits` × `results`: `search --json --limit 200 --vault vault_5000 "execucao"` (binário de 6c5d1f1): `hits` e `results` são 200 itens e **byte a byte iguais** (`hits == results` → `True` em Python). JSON compacto: 195 481 bytes com `hits`, 97 787 sem — **50,0 % do payload é a cópia**. Arquivo indentado: 216 304 bytes.
+- CLI a frio × `serve` com cache: cofre `vault_5000`, mesmo binário. `search` a frio (Build + `inv.Update` serial por nota): **10 520 / 10 819 / 11 046 ms** de parede em 3 execuções. `inspect` a frio (só Build): **770 / 767 / 739 ms**. `serve` em processo (`GOBSIDIAN_NO_DAEMON=1 --eager-search`) com cache quente, 5 execuções: `index_ms` **101–123**, índice de busca `duracao_ms` **13–20**, parede boot→saída **475–528 ms**. Ou seja: a CLI de busca paga ~10 s que o `serve` não paga; adotar o cache na CLI (Task 175) tem teto de ganho medido, não estimado.
+
 ---
 
 ## Decisões fechadas que não se re-litigam sem dado novo
