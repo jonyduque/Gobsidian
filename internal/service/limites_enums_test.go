@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	"github.com/jonyd/gobsidian/internal/index"
@@ -145,5 +146,34 @@ func TestPatchModeInvalidoNaoEErroInterno(t *testing.T) {
 	if got := CodeOf(err); got != CodeInvalidArgument {
 		t.Errorf("codigo = %s, queria %s: INTERNAL manda o host tentar de novo\nerro: %v",
 			got, CodeInvalidArgument, err)
+	}
+}
+
+// TestPatchNoteModeInvalidoListaOsModosQueExistem fecha o achado: o `default`
+// do switch listava `append_to_heading` e `append_to_note`, que nunca foram
+// `case`, e faltava `replace_section`, que é. A mensagem é o único lugar onde
+// o cliente descobre os modos aceitos.
+func TestPatchNoteModeInvalidoListaOsModosQueExistem(t *testing.T) {
+	root := t.TempDir()
+	writeFile(t, root, "a.md", "# H\n\ntexto\n")
+	svc := newTestService(t, root)
+
+	_, err := svc.PatchNote(context.Background(), PatchNoteRequest{
+		Path: "a.md", Heading: "H", Mode: "append_to_heading", Content: "x",
+	})
+	if err == nil {
+		t.Fatal("append_to_heading foi aceito, e nao existe")
+	}
+	msg := err.Error()
+	for _, real := range []string{"replace_section", "replace_heading_and_section", "replace_block"} {
+		if !strings.Contains(msg, real) {
+			t.Errorf("a mensagem nao lista o modo real %q: %s", real, msg)
+		}
+	}
+	idxAceitos := strings.Index(msg, "aceitos")
+	for _, fantasma := range []string{"append_to_heading", "append_to_note"} {
+		if idxAceitos != -1 && strings.Contains(msg[idxAceitos:], fantasma) {
+			t.Errorf("a mensagem lista o modo fantasma %q como aceito: %s", fantasma, msg)
+		}
 	}
 }

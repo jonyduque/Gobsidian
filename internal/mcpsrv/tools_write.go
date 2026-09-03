@@ -32,7 +32,7 @@ type patchInput struct {
 	Heading      string `json:"heading,omitempty" jsonschema:"heading alvo da substituicao"`
 	HeadingLevel int    `json:"heading_level,omitempty" jsonschema:"nivel do heading (1-6)"`
 	BlockID      string `json:"block_id,omitempty" jsonschema:"id de bloco (sem o ^) alvo da substituicao"`
-	Mode         string `json:"mode,omitempty" jsonschema:"replace_section, replace_heading_and_section ou replace_block"`
+	Mode         string `json:"mode,omitempty" jsonschema:"replace_section (padrao), replace_heading_and_section ou replace_block (padrao quando block_id vem)"`
 	ExpectedHash string `json:"expected_hash,omitempty" jsonschema:"hash xxhash para concorrencia otimista"`
 	DryRun       bool   `json:"dry_run,omitempty" jsonschema:"se verdadeiro devolve apenas o diff sem alterar o disco"`
 }

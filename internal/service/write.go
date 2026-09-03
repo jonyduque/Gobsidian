@@ -297,13 +297,14 @@ func (s *Service) PatchNote(ctx context.Context, req PatchNoteRequest) (PatchNot
 
 	var proposed []byte
 
-	mode := req.Mode
-	if mode == "" {
-		if req.BlockID != "" {
-			mode = "replace_block"
-		} else {
-			mode = "replace_section"
-		}
+	padrao := "replace_section"
+	if req.BlockID != "" {
+		padrao = "replace_block"
+	}
+	mode, err := ValidarEnum("mode", req.Mode, padrao,
+		"replace_section", "replace_heading_and_section", "replace_block")
+	if err != nil {
+		return PatchNoteResult{}, err
 	}
 
 	switch mode {
@@ -363,11 +364,9 @@ func (s *Service) PatchNote(ctx context.Context, req PatchNoteRequest) (PatchNot
 		proposed = writer.PatchSectionContent(raw, *h, req.Content)
 
 	default:
-		// INVALID_ARGUMENT, e nao INTERNAL: o modo veio do cliente, e INTERNAL
-		// diz a ele que o servidor quebrou — o que faz o host tentar de novo
-		// em vez de corrigir o pedido (achado B4).
-		return PatchNoteResult{}, Errorf(CodeInvalidArgument,
-			"mode = %q invalido; aceitos: replace_heading_and_section, append_to_heading, replace_block, append_to_note", req.Mode)
+		// Inalcancavel: ValidarEnum ja recusou tudo fora dos tres. Fica como
+		// guarda contra um case novo que entre na lista e nao no switch.
+		return PatchNoteResult{}, Errorf(CodeInternal, "mode %q passou por ValidarEnum sem case", mode)
 	}
 
 	if req.DryRun {

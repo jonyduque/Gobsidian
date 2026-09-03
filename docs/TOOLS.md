@@ -400,7 +400,7 @@ O retorno traz `hash`, o xxhash do conteúdo **gravado** — é o valor a passar
     "heading":  { "type": "string" },
     "heading_level": { "type": "integer", "minimum": 1, "maximum": 6 },
     "block_id": { "type": "string" },
-    "mode":     { "type": "string", "enum": ["replace_section", "replace_heading_and_section", "replace_block"], "default": "replace_section" },
+    "mode":     { "type": "string", "enum": ["replace_section", "replace_heading_and_section", "replace_block"], "default": "replace_section (replace_block quando block_id vem)" },
     "expected_hash": { "type": "string", "description": "Hash da nota obtido em leitura anterior. Se divergir, a chamada falha." },
     "dry_run":  { "type": "boolean", "default": false }
   },
@@ -408,7 +408,7 @@ O retorno traz `hash`, o xxhash do conteúdo **gravado** — é o valor a passar
 }
 ```
 
-**Notas.** `replace_section` preserva a linha do heading e substitui apenas o conteúdo abaixo dela, incluindo subseções. `replace_heading_and_section` substitui também a linha do heading. `heading` e `block_id` juntos são `INVALID_ARGUMENT`.
+**Notas.** `replace_section` preserva a linha do heading e substitui apenas o conteúdo abaixo dela, incluindo subseções. `replace_heading_and_section` substitui também a linha do heading. `heading` e `block_id` juntos são `INVALID_ARGUMENT`. Qualquer outro valor de `mode` é `INVALID_ARGUMENT` com a lista dos três.
 
 `expected_hash` implementa concorrência otimista. Obtido de `note_metadata` ou `note_read`, garante que a nota não mudou entre a leitura e a escrita. Recomendado sempre que houver possibilidade de o Obsidian estar aberto na nota.
 
