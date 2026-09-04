@@ -68,7 +68,7 @@ func (s *Service) Outline(ctx context.Context, req OutlineRequest) (OutlineResul
 		// Nota ilegivel e nota sem estrutura NAO podem dar a mesma resposta: um
 		// outline vazio aqui diria "esta nota nao tem titulos" sobre um arquivo
 		// que ninguem conseguiu abrir.
-		return OutlineResult{}, Errorf(CodeInternal, "lendo nota %q: %v", req.Path, err)
+		return OutlineResult{}, Errorf(CodeVaultUnavailable, "lendo nota %q: %v", req.Path, err)
 	}
 
 	corpo, tinhaBOM := vault.StripBOM(dados)

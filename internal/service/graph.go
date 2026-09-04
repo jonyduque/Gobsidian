@@ -84,7 +84,7 @@ type GraphResult struct {
 // LinkGraph percorre o grafo a partir de uma nota, ate a profundidade pedida.
 func (s *Service) LinkGraph(_ context.Context, req GraphRequest) (GraphResult, error) {
 	if s.index == nil {
-		return GraphResult{}, fmt.Errorf("index not available")
+		return GraphResult{}, Errorf(CodeVaultUnavailable, "indice indisponivel")
 	}
 
 	depth := req.Depth
@@ -300,7 +300,7 @@ func ordenarTags(tags []TagNode, sortMode string) {
 // Nao recebe ctx util: le so o indice em memoria.
 func (s *Service) TagList(_ context.Context, req TagRequest) (TagResult, error) {
 	if s.index == nil {
-		return TagResult{}, fmt.Errorf("index not available")
+		return TagResult{}, Errorf(CodeVaultUnavailable, "indice indisponivel")
 	}
 	sortTags, err := ValidarEnum("sort", req.Sort, "name", "name", "count")
 	if err != nil {
@@ -452,7 +452,7 @@ type ListResult struct {
 // Nao recebe ctx util: le so o indice em memoria.
 func (s *Service) ListNotes(_ context.Context, req ListRequest) (ListResult, error) {
 	if s.index == nil {
-		return ListResult{}, fmt.Errorf("index not available")
+		return ListResult{}, Errorf(CodeVaultUnavailable, "indice indisponivel")
 	}
 
 	// O teto e os enums são conferidos AQUI, e não no boundary MCP, porque o
@@ -553,7 +553,7 @@ type MetadataResult struct {
 // arquivo.
 func (s *Service) NoteMetadata(_ context.Context, req MetadataRequest) (MetadataResult, error) {
 	if s.index == nil {
-		return MetadataResult{}, fmt.Errorf("index not available")
+		return MetadataResult{}, Errorf(CodeVaultUnavailable, "indice indisponivel")
 	}
 	cp, err := s.index.ResolvePath(req.Path)
 	if err != nil {

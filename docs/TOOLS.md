@@ -184,7 +184,7 @@ Dois filtros foram medidos e **recusados**: "termina com dois-pontos" descartari
 
 `end` de um candidato é o `start` do próximo candidato de nível menor ou igual, ou o fim do arquivo — a mesma regra de `closeSections`, reusada e não reimplementada. Candidato sem numeração é tratado como o **mais profundo** no cálculo: assim qualquer candidato numerado o fecha, e ele não engole uma seção numerada que venha depois.
 
-**Erros.** `CLOUD_ONLY_FILE` para nota somente-nuvem — esta tool lê o arquivo inteiro, e abrir um placeholder do OneDrive dispara download síncrono. `NOTE_NOT_FOUND` e `PATH_NOT_FOUND` como nas demais.
+**Erros.** `CLOUD_ONLY_FILE` para nota somente-nuvem — esta tool lê o arquivo inteiro, e abrir um placeholder do OneDrive dispara download síncrono. `NOTE_NOT_FOUND` e `PATH_NOT_FOUND` como nas demais. `VAULT_UNAVAILABLE` quando a leitura do arquivo falha (mesmo fato que `note_read` reporta com o mesmo código, não `INTERNAL`).
 
 ---
 
@@ -506,5 +506,5 @@ A listagem de resources é paginada e serve o índice em memória. Em cofres gra
 | `CLOUD_ONLY_FILE` | Arquivo não hidratado pelo OneDrive | Abrir uma vez no Explorer, ou desmarcar "somente online" |
 | `PATH_TOO_LONG` | Caminho excede o limite do sistema | Encurtar o caminho ou habilitar caminhos longos |
 | `READ_ONLY_MODE` | Servidor iniciado com `--read-only` | Reiniciar sem a flag |
-| `VAULT_UNAVAILABLE` | Raiz do cofre inacessível | Verificar com `gobsidian doctor` |
+| `VAULT_UNAVAILABLE` | Raiz do cofre inacessível, **ou** índice em memória indisponível (`link_graph`, `tag_list`, `note_list`, `note_metadata` antes do índice carregar), **ou** falha de leitura ao abrir o arquivo (`note_outline` sobre nota ilegível) | Verificar com `gobsidian doctor`; se for índice, repetir em alguns segundos |
 | `INTERNAL` | Falha inesperada, já registrada em stderr | Reportar |
