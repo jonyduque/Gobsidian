@@ -10,10 +10,10 @@ source_paths:
   - internal/lifecycle/parent.go
   - internal/lifecycle/shutdown.go
   - cmd/gobsidian/serve.go
-source_commit: c6804e1e
+source_commit: cceb980
 tags: [lifecycle, shutdown, orfaos]
 language: pt-BR
-updated_at: '2026-08-31'
+updated_at: '2026-09-04'
 ---
 
 # Encerramento
@@ -88,10 +88,13 @@ resolver.
 
 ## Código de saída
 
-`ctx.Canceled`, `io.EOF` e `io.ErrClosedPipe` no retorno do serve loop são
-**encerramento normal**, saída 0. Duas detecções de EOF independentes correm — a
-do SDK e a do lifecycle — e qual vence decide o valor. Tratar qualquer uma como
-falha faz um host supervisor ver erro aleatório a cada desconexão limpa.
+`shutdownExitCode` (`cmd/gobsidian/serve.go`) delega a `ipc.EhDesconexaoLimpa`
+(`internal/ipc/desconexao.go`) a decisão de o que é desconexão limpa. Ela
+aceita quatro formas no retorno do serve loop — `context.Canceled`, `io.EOF`,
+`io.ErrClosedPipe` e `os.ErrClosed` — como **encerramento normal**, saída 0.
+Duas detecções de EOF independentes correm — a do SDK e a do lifecycle — e
+qual vence decide o valor. Tratar qualquer uma como falha faz um host
+supervisor ver erro aleatório a cada desconexão limpa.
 
 ## O gate
 
