@@ -2,7 +2,7 @@
 
 Status: **DONE_WITH_CONCERNS** (as ressalvas estao em "Desvios do brief" e "Fora do escopo"; nenhuma bloqueia)
 
-Commit: `4f6e3b3` (preenchido apos o commit — ver secao Commit)
+Commit: **`c81b2b8`** — 29 arquivos, +775 / -338
 
 ## Progresso
 
@@ -398,6 +398,7 @@ teste em vez de perdido.
 
 ## Commit
 
-Ver a linha "Commit:" no topo. Arquivos adicionados por caminho explicito; nenhum
+`c81b2b8` — `test(vaulttest): one exclusive-handle helper that proves it locks, and one wait budget`.
+Arquivos adicionados por caminho explicito; nenhum
 `git add -A`, nenhum `git checkout/restore/stash/clean/reset` foi executado nesta
 tarefa.
