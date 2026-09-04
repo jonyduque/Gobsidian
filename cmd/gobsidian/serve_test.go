@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
 	"testing"
 	"time"
 )
@@ -245,6 +246,8 @@ func TestShutdownExitCode(t *testing.T) {
 		{"erro embrulhado com io.EOF", fmt.Errorf("sdk: %w", io.EOF), 0},
 		{"io.ErrClosedPipe", io.ErrClosedPipe, 0},
 		{"erro embrulhado com io.ErrClosedPipe", fmt.Errorf("sdk: %w", io.ErrClosedPipe), 0},
+		{"os.ErrClosed", os.ErrClosed, 0},
+		{"prazo estourado", context.DeadlineExceeded, 1},
 		{"erro real", errors.New("falha real"), 1},
 	}
 

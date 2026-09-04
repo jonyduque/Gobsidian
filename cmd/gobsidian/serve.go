@@ -11,6 +11,7 @@ import (
 
 	"github.com/jonyd/gobsidian/internal/config"
 	"github.com/jonyd/gobsidian/internal/index"
+	"github.com/jonyd/gobsidian/internal/ipc"
 	"github.com/jonyd/gobsidian/internal/lifecycle"
 	"github.com/jonyd/gobsidian/internal/mcpsrv"
 	"github.com/jonyd/gobsidian/internal/search"
@@ -63,24 +64,13 @@ func newServeCmd() *cobra.Command {
 // testar sem levantar um processo: runServe termina em os.Exit por desenho, e
 // os.Exit nao volta.
 //
-// Os tres erros tratados como encerramento normal sao os que aparecem quando
-// o host simplesmente vai embora. context.Canceled vem do proprio lifecycle,
-// que cancela o contexto quando o stdin fecha, um sinal chega ou o pai morre.
-// io.EOF e io.ErrClosedPipe podem vir do SDK, que detecta o fim do stdin por
-// conta propria — as duas deteccoes correm, e qual delas vence decide qual
-// valor chega aqui. Tratar qualquer uma como falha faz um host supervisor ver
-// erro aleatorio a cada desconexao limpa.
+// ipc.EhDesconexaoLimpa e a conta unica de "o outro lado foi embora" — ver
+// esse comentario para o que cada forma significa.
 func shutdownExitCode(err error) int {
-	switch {
-	case err == nil:
+	if ipc.EhDesconexaoLimpa(err) {
 		return 0
-	case errors.Is(err, context.Canceled),
-		errors.Is(err, io.EOF),
-		errors.Is(err, io.ErrClosedPipe):
-		return 0
-	default:
-		return 1
 	}
+	return 1
 }
 
 // carregarIndiceDoCache tenta servir o indice de metadados do disco em vez

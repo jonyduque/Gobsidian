@@ -242,15 +242,8 @@ func servePonteRemota(parent context.Context, conn ipc.Conn, stdin io.Reader, st
 
 	// ctx.Canceled no retorno do loop de copia e encerramento normal — a
 	// mesma regra que vale para o serve loop de serveEmProcesso (ver
-	// shutdownExitCode). Os tres mecanismos cancelam o mesmo context, e uma
-	// copia interrompida por isso nao e falha; io.EOF/io.ErrClosedPipe/
-	// os.ErrClosed sao as formas como o fechamento de pw ou conn aparecem
-	// nos dois lados da copia.
-	if loopErr != nil &&
-		!errors.Is(loopErr, context.Canceled) &&
-		!errors.Is(loopErr, io.EOF) &&
-		!errors.Is(loopErr, io.ErrClosedPipe) &&
-		!errors.Is(loopErr, os.ErrClosed) {
+	// ipc.EhDesconexaoLimpa).
+	if !ipc.EhDesconexaoLimpa(loopErr) {
 		return loopErr
 	}
 	return nil

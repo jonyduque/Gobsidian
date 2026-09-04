@@ -18,11 +18,8 @@ package daemon
 
 import (
 	"context"
-	"errors"
-	"io"
 	"log/slog"
 	"net"
-	"os"
 	"sync"
 	"time"
 
@@ -251,11 +248,7 @@ func (d *Daemon) handleConn(ctx context.Context, conn net.Conn) {
 	// ja tinha essa assinatura desde a Task 91; nao precisou mudar para o
 	// daemon).
 	err := d.srv.Serve(ctx, conn, conn)
-	if err != nil &&
-		!errors.Is(err, context.Canceled) &&
-		!errors.Is(err, io.EOF) &&
-		!errors.Is(err, io.ErrClosedPipe) &&
-		!errors.Is(err, os.ErrClosed) {
+	if !ipc.EhDesconexaoLimpa(err) {
 		d.log.Warn("sessao de cliente encerrada com erro", "err", err)
 	}
 }
