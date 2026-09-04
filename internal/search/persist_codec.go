@@ -44,9 +44,14 @@ import (
 //
 // `string` é sempre: comprimento em varint, seguido dos bytes.
 const (
-	cacheMagic     = "GBS6"
-	cacheCodecVers = 6
+	// Uma conta: CacheFormatVersion e o numero; o magic e o codec derivam dele.
+	// Ate 2026-09-02 eram tres literais, e um bump que esquecesse um deles
+	// produziria um cache que passa pelo cabecalho e falha — ou decodifica
+	// lixo estruturalmente valido — no corpo.
+	cacheCodecVers = CacheFormatVersion
 )
+
+var cacheMagic = fmt.Sprintf("GBS%d", CacheFormatVersion)
 
 // footerBytes é o tamanho do rodapé fixo escrito no fim do arquivo (Task 89):
 // 8 bytes de assinatura, 8 bytes de offset da seção fixa de posições, 8 bytes

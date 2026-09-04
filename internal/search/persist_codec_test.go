@@ -275,3 +275,12 @@ func TestCodecRecusaTotaisQueNaoBatem(t *testing.T) {
 		t.Fatalf("err = %v, quer ErrCacheCorrupted — totais que nao batem tem de ser recusados", err)
 	}
 }
+
+func TestVersaoDoCacheDeBuscaEUmaConta(t *testing.T) {
+	if cacheCodecVers != CacheFormatVersion {
+		t.Fatalf("cacheCodecVers = %d, CacheFormatVersion = %d: duas contas", cacheCodecVers, CacheFormatVersion)
+	}
+	if quer := fmt.Sprintf("GBS%d", CacheFormatVersion); cacheMagic != quer {
+		t.Fatalf("cacheMagic = %q, quer %q", cacheMagic, quer)
+	}
+}
