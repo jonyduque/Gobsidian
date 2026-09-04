@@ -201,12 +201,12 @@ A flag declared by a subcommand but never read by it promises a contract the cod
 | Flag | Effect | Subcommands |
 |---|---|---|
 | `--vault <path>` | Vault root. Required. | all |
-| `--read-only` | Removes the entire write surface. | `serve` |
-| `--cache-dir <path>` | Cache directory. Default: a hash of the vault path, always **outside** it. | `serve` |
-| `--debounce-ms <n>` | Watcher coalescing window. | `serve` |
-| `--log-level <level>` | `debug`, `info`, `warn` or `error`. | `serve` |
-| `--eager-search` | Loads the search index at boot. Default: lazy — most sessions read and write without ever searching. | `serve` |
-| `--max-results <n>` | Caps results per query. | `serve`, `search` |
+| `--read-only` | Removes the entire write surface. | `serve`, `daemon`, `doctor` |
+| `--cache-dir <path>` | Cache directory. Default: a hash of the vault path, always **outside** it. | `serve`, `daemon` |
+| `--debounce-ms <n>` | Watcher coalescing window. | `serve`, `daemon`, `doctor` |
+| `--log-level <level>` | `debug`, `info`, `warn` or `error`. | `serve`, `daemon` |
+| `--eager-search` | Loads the search index at boot. Default: lazy — most sessions read and write without ever searching. | `serve`, `daemon` |
+| `--max-results <n>` | Caps results per query. | `serve`, `search`, `daemon`, `doctor` |
 | `--follow-symlinks` | Follows a symlink inside the vault; the default refuses, because confinement doesn't reach the target. | all |
 | `--json` | Structured JSON output. | `search`, `index`, `inspect` |
 | `--limit <n>` | Maximum results returned. Default: 20. | `search` |
