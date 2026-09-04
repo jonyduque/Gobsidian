@@ -192,18 +192,24 @@ code --add-mcp '{"name":"gobsidian","command":"gobsidian","args":["serve","--vau
 </details>
 
 <details>
-<summary>🎛️ <b><code>serve</code> options</b></summary>
+<summary>🎛️ <b>CLI flags</b></summary>
 
 <br>
 
-| Flag | Effect |
-|---|---|
-| `--vault <path>` | Vault root. Required. |
-| `--read-only` | Removes the entire write surface. |
-| `--cache-dir <path>` | Cache directory. Default: a hash of the vault path, always **outside** it. |
-| `--debounce-ms <n>` | Watcher coalescing window. |
-| `--log-level <level>` | `debug`, `info`, `warn` or `error`. |
-| `--eager-search` | Loads the search index at boot. Default: lazy — most sessions read and write without ever searching. |
+A flag declared by a subcommand but never read by it promises a contract the code doesn't keep — `index` and `inspect` used to declare `--read-only`, `--debounce-ms` and `--max-results` this way. The **Subcommands** column is the actual contract: what each subcommand declares.
+
+| Flag | Effect | Subcommands |
+|---|---|---|
+| `--vault <path>` | Vault root. Required. | all |
+| `--read-only` | Removes the entire write surface. | `serve` |
+| `--cache-dir <path>` | Cache directory. Default: a hash of the vault path, always **outside** it. | `serve` |
+| `--debounce-ms <n>` | Watcher coalescing window. | `serve` |
+| `--log-level <level>` | `debug`, `info`, `warn` or `error`. | `serve` |
+| `--eager-search` | Loads the search index at boot. Default: lazy — most sessions read and write without ever searching. | `serve` |
+| `--max-results <n>` | Caps results per query. | `serve`, `search` |
+| `--follow-symlinks` | Follows a symlink inside the vault; the default refuses, because confinement doesn't reach the target. | all |
+| `--json` | Structured JSON output. | `search`, `index`, `inspect` |
+| `--limit <n>` | Maximum results returned. Default: 20. | `search` |
 
 </details>
 

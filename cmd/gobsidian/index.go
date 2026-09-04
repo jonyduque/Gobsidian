@@ -29,10 +29,6 @@ func newIndexCmd() *cobra.Command {
 		Use:   "index",
 		Short: "Constroi o indice do cofre e exibe um resumo",
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			flags.ReadOnlySet = cmd.Flags().Changed("read-only")
-			flags.DebounceMSSet = cmd.Flags().Changed("debounce-ms")
-			flags.MaxResultsSet = cmd.Flags().Changed("max-results")
-
 			cfg, err := config.Load(flags)
 			if err != nil {
 				return err
@@ -88,9 +84,6 @@ func newIndexCmd() *cobra.Command {
 
 	cmd.Flags().StringVar(&flags.VaultPath, "vault", "", "caminho da raiz do cofre (obrigatorio)")
 	cmd.Flags().BoolVar(&jsonOutput, "json", false, "saida estruturada em formato JSON")
-	cmd.Flags().BoolVar(&flags.ReadOnly, "read-only", false, "desabilita verificacoes de escrita")
-	cmd.Flags().IntVar(&flags.DebounceMS, "debounce-ms", 0, "janela de coalescencia de eventos do watcher")
-	cmd.Flags().IntVar(&flags.MaxResults, "max-results", 0, "teto de resultados por consulta")
 	cmd.Flags().BoolVar(&flags.FollowSymlinks, "follow-symlinks", false,
 		"segue symlink dentro do cofre; o padrao recusa, porque o confinamento nao alcanca o alvo")
 

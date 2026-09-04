@@ -3,9 +3,12 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/spf13/cobra"
 )
 
 func createTestVault(t *testing.T) string {
@@ -165,47 +168,54 @@ func TestInspectCmd_StdoutAndJSON(t *testing.T) {
 	}
 }
 
-func TestSubcommands_FlagsSetPopulated(t *testing.T) {
-	vaultDir := createTestVault(t)
-
-	// Set env to true, but pass --read-only=false in flags
-	t.Setenv("GOBSIDIAN_READ_ONLY", "true")
-
-	cmd := newIndexCmd()
-	var stdout, stderr bytes.Buffer
-	cmd.SetOut(&stdout)
-	cmd.SetErr(&stderr)
-	cmd.SetArgs([]string{"--vault", vaultDir, "--read-only=false", "--json"})
-
+// TestSearchCLIRespeitaMaxResults trava a regressao do achado 1.11:
+// cfg.MaxResults era lido e validado por config.Load mas descartado antes de
+// chegar em service.Options — a flag --max-results de "search" prometia um
+// teto que o servico nunca aplicava.
+func TestSearchCLIRespeitaMaxResults(t *testing.T) {
+	root := t.TempDir()
+	for i := 0; i < 5; i++ {
+		p := filepath.Join(root, fmt.Sprintf("n%d.md", i))
+		if err := os.WriteFile(p, []byte("# Nota\n\npalavra unica aqui\n"), 0644); err != nil {
+			t.Fatalf("WriteFile: %v", err)
+		}
+	}
+	var out bytes.Buffer
+	cmd := newSearchCmd()
+	cmd.SetOut(&out)
+	cmd.SetArgs([]string{"--vault", root, "--json", "--max-results", "2", "palavra"})
 	if err := cmd.Execute(); err != nil {
-		t.Fatalf("index Execute with flags: %v", err)
+		t.Fatal(err)
 	}
-
-	var data indexSummaryJSON
-	if err := json.Unmarshal(stdout.Bytes(), &data); err != nil {
-		t.Fatalf("Unmarshal: %v", err)
+	var res struct {
+		Results []json.RawMessage `json:"results"`
 	}
-
-	// If ReadOnlySet was not populated, GOBSIDIAN_READ_ONLY=true would override --read-only=false.
-	// But because ReadOnlySet is true, flag overrides env.
-	// We verify that executing with --read-only=false succeeds and populates flags.ReadOnlySet.
-	if data.Notes != 2 {
-		t.Errorf("data.Notes = %d; quer 2", data.Notes)
+	if err := json.Unmarshal(out.Bytes(), &res); err != nil {
+		t.Fatalf("saida nao e JSON: %v\n%s", err, out.String())
+	}
+	if len(res.Results) != 2 {
+		t.Fatalf("results = %d com --max-results 2: a flag e lida e descartada", len(res.Results))
 	}
 }
 
-func TestIndexCmd_DebounceMSFlagZeroRejected(t *testing.T) {
-	vaultDir := createTestVault(t)
-	t.Setenv("GOBSIDIAN_DEBOUNCE_MS", "500")
-
-	cmd := newIndexCmd()
-	var stdout, stderr bytes.Buffer
-	cmd.SetOut(&stdout)
-	cmd.SetErr(&stderr)
-	cmd.SetArgs([]string{"--vault", vaultDir, "--debounce-ms", "0"})
-
-	err := cmd.Execute()
-	if err == nil {
-		t.Fatal("esperava erro ao passar --debounce-ms=0, mas obteve nil")
+// TestIndexEInspectNaoAceitamFlagsQueIgnoram trava a regressao do achado
+// 5.8: index e inspect declaravam --read-only, --debounce-ms e --max-results
+// sem observar nenhuma delas — nem escrevem, nem observam, nem buscam.
+// "Schema que promete e codigo que ignora e pior que parametro ausente."
+func TestIndexEInspectNaoAceitamFlagsQueIgnoram(t *testing.T) {
+	for _, tc := range []struct {
+		nome string
+		cmd  func() *cobra.Command
+	}{{"index", newIndexCmd}, {"inspect", newInspectCmd}} {
+		for _, flag := range []string{"read-only", "debounce-ms", "max-results"} {
+			if tc.cmd().Flags().Lookup(flag) != nil {
+				t.Errorf("%s declara --%s e nao a usa", tc.nome, flag)
+			}
+		}
+	}
+	for _, flag := range []string{"read-only", "debounce-ms"} {
+		if newSearchCmd().Flags().Lookup(flag) != nil {
+			t.Errorf("search declara --%s e nao a usa", flag)
+		}
 	}
 }

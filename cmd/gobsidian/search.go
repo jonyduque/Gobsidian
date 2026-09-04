@@ -23,8 +23,6 @@ func newSearchCmd() *cobra.Command {
 		Short: "Executa busca por texto completo no cofre",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			flags.ReadOnlySet = cmd.Flags().Changed("read-only")
-			flags.DebounceMSSet = cmd.Flags().Changed("debounce-ms")
 			flags.MaxResultsSet = cmd.Flags().Changed("max-results")
 
 			cfg, err := config.Load(flags)
@@ -47,7 +45,7 @@ func newSearchCmd() *cobra.Command {
 				_ = inv.Update(cmd.Context(), v, p)
 			}
 
-			svc := service.New(v, idx, inv, nil, service.Options{ReadOnly: cfg.ReadOnly})
+			svc := service.New(v, idx, inv, nil, service.Options{ReadOnly: cfg.ReadOnly, MaxResults: cfg.MaxResults})
 
 			res, err := svc.Search(cmd.Context(), service.SearchOptions{
 				Query: args[0],
@@ -90,8 +88,6 @@ func newSearchCmd() *cobra.Command {
 	cmd.Flags().StringVar(&flags.VaultPath, "vault", "", "caminho da raiz do cofre (obrigatorio)")
 	cmd.Flags().BoolVar(&jsonOutput, "json", false, "saida estruturada em formato JSON")
 	cmd.Flags().IntVar(&limit, "limit", 20, "limite maximo de resultados")
-	cmd.Flags().BoolVar(&flags.ReadOnly, "read-only", false, "desabilita verificacoes de escrita")
-	cmd.Flags().IntVar(&flags.DebounceMS, "debounce-ms", 0, "janela de coalescencia de eventos do watcher")
 	cmd.Flags().BoolVar(&flags.FollowSymlinks, "follow-symlinks", false,
 		"segue symlink dentro do cofre; o padrao recusa, porque o confinamento nao alcanca o alvo")
 	cmd.Flags().IntVar(&flags.MaxResults, "max-results", 0, "teto de resultados por consulta")
