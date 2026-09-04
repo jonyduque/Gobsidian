@@ -141,11 +141,10 @@ func checkDaemonVivo(ctx context.Context, cfg config.Config) Result {
 func checkDaemonLog(_ context.Context, cfg config.Config) Result {
 	const name = "log do daemon"
 
-	sock, err := ipc.SocketPath(cfg.VaultPath)
+	path, err := daemon.CaminhoDoLog(cfg.VaultPath)
 	if err != nil {
 		return Result{Name: name, Status: StatusWarn, Detail: fmt.Sprintf("nao foi possivel derivar: %v", err)}
 	}
-	path := sock + ".log"
 
 	fi, err := os.Stat(path)
 	if err != nil {
@@ -200,7 +199,7 @@ func checkLocksDeDaemon(_ context.Context, cfg config.Config) Result {
 
 	var emUso []string
 	for _, e := range entradas {
-		if e.IsDir() || !strings.HasSuffix(e.Name(), ".sock.lock") {
+		if e.IsDir() || !daemon.EhArquivoDeTrava(e.Name()) {
 			continue
 		}
 		caminho := filepath.Join(dir, e.Name())

@@ -11,6 +11,7 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"strings"
 	"time"
 
 	"github.com/jonyd/gobsidian/internal/config"
@@ -107,6 +108,20 @@ func adquirirLock(vaultPath string) (adquiriu bool, liberar func(), err error) {
 	return true, trava.Liberar, nil
 }
 
+// Sufixos das duas travas do daemon, derivadas do caminho do socket. O doctor
+// lista as travas pelo mesmo par -- ate 2026-09-02 ele filtrava por ".sock.lock"
+// e a trava de escuta (".sock.listen.lock") era invisivel para ele.
+const (
+	sufixoTrava         = ".lock"
+	sufixoTravaDeEscuta = ".listen.lock"
+)
+
+// EhArquivoDeTrava diz se um nome de arquivo no diretorio de runtime e uma
+// das duas travas de daemon. E a unica conta; o doctor a consome.
+func EhArquivoDeTrava(nome string) bool {
+	return strings.HasSuffix(nome, sufixoTrava) // ".listen.lock" tambem termina em ".lock"
+}
+
 // lockPath deriva do MESMO caminho que ipc.SocketPath calcula, trocando so
 // a extensao -- um cofre, um socket, um lock, todos no mesmo diretorio de
 // runtime.
@@ -115,7 +130,7 @@ func lockPath(vaultPath string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return sock + ".lock", nil
+	return sock + sufixoTrava, nil
 }
 
 // esperarSocket tenta o handshake completo -- versao E configuracao, ver
@@ -185,7 +200,7 @@ func ComLockDeEscuta(vaultPath string, fn func() error) error {
 	}
 	// Deriva do MESMO caminho do socket, nunca de uma segunda conta do hash do
 	// cofre — a licao do byAlias que config.VaultKey registra.
-	path := sock + ".listen.lock"
+	path := sock + sufixoTravaDeEscuta
 
 	trava, tomou, err := tentarTravar(path)
 	if err != nil {

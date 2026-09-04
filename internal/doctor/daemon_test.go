@@ -1,6 +1,7 @@
 package doctor
 
 import (
+	"context"
 	"net"
 	"os"
 	"path/filepath"
@@ -8,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/jonyd/gobsidian/internal/config"
+	"github.com/jonyd/gobsidian/internal/daemon"
 )
 
 // TestClasseDoCaminhoDoSocketDistingueOsEstados e o teste que a investigacao de
@@ -114,5 +116,45 @@ func TestCheckRootExistsApontaAGrafiaDoDisco(t *testing.T) {
 	}
 	if !strings.Contains(r.Detail, "Revisão") {
 		t.Errorf("detalhe nao nomeia o vizinho real: %q", r.Detail)
+	}
+}
+
+// TestCheckLocksDeDaemonEnxergaListenLock reproduz o defeito de 2026-09-02:
+// checkLocksDeDaemon filtrava por ".sock.lock", e "x.sock.listen.lock" nao
+// termina nesse sufixo -- a trava de escuta, justamente a que um daemon morto
+// sem fechar o listener deixa para tras, era invisivel para o doctor.
+func TestCheckLocksDeDaemonEnxergaListenLock(t *testing.T) {
+	cfg := config.Config{VaultPath: t.TempDir()}
+	err := daemon.ComLockDeEscuta(cfg.VaultPath, func() error {
+		r := checkLocksDeDaemon(context.Background(), cfg)
+		if !strings.Contains(r.Detail, "listen.lock") {
+			t.Errorf("com a trava de escuta tomada, doctor disse: %q", r.Detail)
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
+// TestCheckDaemonLogUsaACaminhoDoLogDoDaemon prova que checkDaemonLog usa a
+// mesma conta que daemon.CaminhoDoLog, e nao uma segunda copia de
+// "sock + \".log\"".
+func TestCheckDaemonLogUsaACaminhoDoLogDoDaemon(t *testing.T) {
+	cfg := config.Config{VaultPath: t.TempDir()}
+	esperado, err := daemon.CaminhoDoLog(cfg.VaultPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Dir(esperado), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(esperado, []byte("daemon iniciado\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Remove(esperado) })
+	r := checkDaemonLog(context.Background(), cfg)
+	if strings.Contains(r.Detail, "ainda nao existe") {
+		t.Fatalf("o log existe em %q e o doctor nao o achou: %q", esperado, r.Detail)
 	}
 }
