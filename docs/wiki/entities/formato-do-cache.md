@@ -110,7 +110,7 @@ build nem teste: faz o leitor **recusar todo save que o próprio processo acabou
 gravar**, com reconstrução completa a cada boot e nenhum log dizendo por quê
 (achado B11). O alias existe para que o bump seja impossível de fazer pela metade.
 
-Desde 2026-09-02 (Task 157) o cache de **busca** segue o mesmo padrão: em
+Desde 2026-09-04 (Task 157, b1f2cfe) o cache de **busca** segue o mesmo padrão: em
 `persist_codec.go`, `cacheCodecVers = CacheFormatVersion` é alias, e
 `cacheMagic` virou `var` — `fmt.Sprintf("GBS%d", CacheFormatVersion)` — em vez
 de literal. Antes eram três literais (`CacheFormatVersion`, `cacheMagic =
