@@ -91,7 +91,42 @@ $DirsFmt = @("internal", "cmd", "scripts", "tools") | Where-Object { Test-Path $
 
 Invoke-Step "go build" { go build @Alvos }
 
-Invoke-Step "go test -race" { go test -race @Alvos }
+# O log verboso desta etapa e o insumo da contagem de pulados, logo abaixo.
+# Ele e gravado em arquivo, e nao despejado na tela, porque a saida de `-v` da
+# suite inteira tem dezenas de milhares de linhas; so o rabo aparece, e so
+# quando a etapa reprova.
+$LogTestes = Join-Path ([System.IO.Path]::GetTempPath()) "gobsidian-verify-testes.txt"
+
+Invoke-Step "go test -race" {
+    go test -race -v @Alvos 2>&1 | Set-Content -LiteralPath $LogTestes -Encoding utf8
+    if ($LASTEXITCODE -ne 0) { Get-Content -LiteralPath $LogTestes -Tail 80 }
+}
+
+# Etapa que INFORMA, nao reprova.
+#
+# Um teste que pula nao cobre nada, e ate 2026-09-04 o gate nao dizia quantos
+# pulavam: o teste de paridade pulava quando o corpus faltava, e `verify.ps1`
+# ficava verde sem paridade nenhuma. Reprovar seria errado — ha skip legitimo,
+# como o de `vaulttest` fora do Windows —, mas um numero invisivel e um numero
+# que ninguem vigia.
+#
+# A contagem sai do log que a etapa acima ja produziu. Uma segunda passada de
+# `go test` custaria os minutos da primeira e mediria outra coisa (cache de
+# teste, maquina em outro estado).
+$script:StepNumber++
+Write-Output "[...] $script:StepNumber. contagem de testes pulados"
+if (Test-Path -LiteralPath $LogTestes) {
+    # `^\s*--- SKIP:` pega tambem o subteste, que vem indentado. Um subteste
+    # pulado tambem nao cobre nada, entao ele conta.
+    $Pulados = @(Select-String -LiteralPath $LogTestes -Pattern '^\s*--- SKIP: ')
+    Write-Output "[!] $($Pulados.Count) testes pulados"
+    foreach ($p in $Pulados) {
+        Write-Output ("     {0}" -f $p.Line.Trim())
+    }
+}
+else {
+    Write-Output "[!] testes pulados: NAO MEDIDO (o log de $LogTestes nao foi gravado)"
+}
 
 # O teto do RNF-04 so e cobrado SEM -race: o detector multiplica a latencia por
 # 2 a 6, e comparar esse numero com 100 ms nao diria nada. Como a etapa acima e

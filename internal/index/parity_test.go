@@ -3,9 +3,12 @@ package index
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"testing"
 
@@ -135,52 +138,48 @@ func contagemOf(m map[string]int) []string {
 	return out
 }
 
-func assertHeadingsContain(t *testing.T, path string, got []parser.Heading, want []RefHeading) {
+// conjuntosIguais compara os DOIS sentidos.
+//
+// Ate 2026-09-04 cada comparacao daqui iterava so `want`, isto e, perguntava
+// "todo item da referencia existe no nosso indice?" — e uma referencia com
+// listas vazias corria zero comparacoes e reportava paridade. O sentido que
+// faltava e o que pega o excesso: um heading que inventamos, uma tag que o
+// Obsidian nao registra, um link a mais. Ordenar antes de comparar e o que
+// torna a igualdade uma pergunta sobre CONJUNTO, e nao sobre a ordem em que o
+// parser ou o dumper listaram.
+func conjuntosIguais(t *testing.T, path, campo string, got, want []string) {
 	t.Helper()
-	for _, w := range want {
-		found := false
-		for _, g := range got {
-			if g.Text == w.Heading && g.Level == w.Level {
-				found = true
-				break
-			}
-		}
-		if !found {
-			t.Errorf("%s: heading (level %d) %q ausente no nosso índice", path, w.Level, w.Heading)
-		}
+	g := slices.Clone(got)
+	w := slices.Clone(want)
+	slices.Sort(g)
+	slices.Sort(w)
+	if !slices.Equal(g, w) {
+		t.Errorf("%s: %s divergem\n  nosso indice: %v\n  referencia:   %v", path, campo, g, w)
 	}
 }
 
-func assertTagsContain(t *testing.T, path string, got []string, want []string) {
-	t.Helper()
-	for _, w := range want {
-		found := false
-		for _, g := range got {
-			if g == w {
-				found = true
-				break
-			}
-		}
-		if !found {
-			t.Errorf("%s: tag %q ausente no nosso índice", path, w)
-		}
+func headingsComparaveis(got []parser.Heading) []string {
+	out := make([]string, 0, len(got))
+	for _, g := range got {
+		out = append(out, fmt.Sprintf("h%d %s", g.Level, g.Text))
 	}
+	return out
 }
 
-func assertBlocksContain(t *testing.T, path string, got []parser.Block, want []string) {
-	t.Helper()
+func headingsDaReferencia(want []RefHeading) []string {
+	out := make([]string, 0, len(want))
 	for _, w := range want {
-		found := false
-		for _, g := range got {
-			if g.ID == w {
-				found = true
-				break
-			}
-		}
-		if !found {
-			t.Errorf("%s: bloco %q ausente no nosso índice", path, w)
-		}
+		out = append(out, fmt.Sprintf("h%d %s", w.Level, w.Heading))
 	}
+	return out
+}
+
+func blocosComparaveis(got []parser.Block) []string {
+	out := make([]string, 0, len(got))
+	for _, g := range got {
+		out = append(out, g.ID)
+	}
+	return out
 }
 
 // linkKey reconstroi a forma que o Obsidian guarda, para que a comparacao
@@ -204,48 +203,98 @@ func linkKey(l ResolvedLink) string {
 
 func assertLinksMatch(t *testing.T, path string, gotLinks []ResolvedLink, wantLinks []RefLink, wantEmbeds []RefEmbed) {
 	t.Helper()
+
+	var gotNormais, gotEmbeds []string
+	for _, g := range gotLinks {
+		// URL externa fica de fora dos DOIS lados. O Obsidian nao a registra
+		// como link do cofre — esta e a mesma constatacao que note.go:23-33
+		// documenta em producao, e o proprio corpus a confirma:
+		// Neoconstitucionalismo.md tem tres markdown-links http(s) que a
+		// referencia nao lista, ao lado de chapter09.xhtml e chapter17.xhtml,
+		// que ela lista. Comparar universos diferentes faria toda URL virar
+		// divergencia falsa; comparar o mesmo universo nos dois sentidos e o
+		// que da valor a igualdade.
+		if g.State == LinkExternal {
+			continue
+		}
+		if g.Kind == parser.LinkEmbed {
+			gotEmbeds = append(gotEmbeds, linkKey(g))
+			continue
+		}
+		gotNormais = append(gotNormais, linkKey(g))
+	}
+
+	querNormais := make([]string, 0, len(wantLinks))
 	for _, w := range wantLinks {
-		found := false
-		for _, g := range gotLinks {
-			if linkKey(g) == w.Link && g.Kind != parser.LinkEmbed {
-				found = true
-				break
-			}
-		}
-		if !found {
-			t.Errorf("%s: link %q ausente no nosso índice", path, w.Link)
-		}
+		querNormais = append(querNormais, w.Link)
 	}
+	querEmbeds := make([]string, 0, len(wantEmbeds))
 	for _, w := range wantEmbeds {
-		found := false
-		for _, g := range gotLinks {
-			if linkKey(g) == w.Link && g.Kind == parser.LinkEmbed {
-				found = true
-				break
-			}
-		}
-		if !found {
-			t.Errorf("%s: embed %q ausente no nosso índice", path, w.Link)
-		}
+		querEmbeds = append(querEmbeds, w.Link)
 	}
+
+	conjuntosIguais(t, path, "links", gotNormais, querNormais)
+	conjuntosIguais(t, path, "embeds", gotEmbeds, querEmbeds)
 }
 
 func TestParityWithObsidian(t *testing.T) {
 	root := filepath.Join("..", "..", "testdata", "parity", "vault")
 	refPath := filepath.Join("..", "..", "testdata", "parity", "metadata.json")
 
-	// Checar CONTEUDO, nao existencia. Um diretorio vazio e um metadata.json
-	// com "{}" fazem o laco de comparacao nao executar nenhuma vez, e o teste
-	// passa afirmando uma paridade que ninguem verificou.
+	// UM unico motivo para pular: o corpus nao existe nesta maquina. Ele e
+	// gerado por um plugin de desenvolvimento do Obsidian (tools/parity-dumper),
+	// que nem todo checkout roda.
+	//
+	// Todo o resto e FALHA, e nao skip. Ate 2026-09-04 um corpus presente e
+	// incompleto — diretorio vazio, referencia sem notas — pulava, e o
+	// `verify.ps1` ficava verde sem paridade nenhuma. Corpus ausente e um fato
+	// do ambiente; corpus presente e quebrado e um defeito.
+	if _, err := os.Stat(root); errors.Is(err, fs.ErrNotExist) {
+		t.Skipf("corpus de paridade ausente em %s; gere com tools/parity-dumper (ver o README de la)", root)
+	}
+
 	notes, _ := filepath.Glob(filepath.Join(root, "*.md"))
 	sub, _ := filepath.Glob(filepath.Join(root, "*", "*.md"))
 	if len(notes)+len(sub) == 0 {
-		t.Skip("corpus de paridade vazio; ver tools/parity-dumper/README.md")
+		t.Fatalf("%s existe mas nao tem nota nenhuma; o corpus de paridade esta incompleto", root)
 	}
 
 	ref := loadReference(t, refPath)
 	if len(ref.Notes) == 0 {
-		t.Skip("referencia de paridade vazia; rode o plugin dumper — ver tools/parity-dumper/README.md")
+		t.Fatalf("referencia %s sem notas; o dump nao rodou — ver tools/parity-dumper/README.md", refPath)
+	}
+
+	// Guarda de referencia vazia, por CATEGORIA.
+	//
+	// `len(ref.Notes) > 0` nao basta: uma referencia com sete notas de listas
+	// todas vazias faz cada comparacao rodar sobre nada e o teste reporta
+	// paridade que ninguem verificou. O corpus de paridade existe justamente
+	// para exercitar as sete categorias abaixo; se uma delas zerar, o dump
+	// perdeu a metade que ela cobria, e isso e um defeito do instrumento — que
+	// e a unica coisa que este teste nao consegue detectar por comparacao.
+	var nHeadings, nTags, nFmTags, nBlocos, nLinks, nEmbeds int
+	for _, w := range ref.Notes {
+		nHeadings += len(w.Headings)
+		nTags += len(w.Tags)
+		nFmTags += len(w.FrontmatterTags)
+		nBlocos += len(w.Blocks)
+		nLinks += len(w.Links)
+		nEmbeds += len(w.Embeds)
+	}
+	// A lista e exatamente a das categorias que o laco abaixo COMPARA. Guardar
+	// uma categoria que nada compara afirmaria sobre o corpus, nao sobre a
+	// cobertura — `aliases` fica de fora por isso.
+	for _, c := range []struct {
+		nome string
+		n    int
+	}{
+		{"headings", nHeadings}, {"tags", nTags}, {"frontmatterTags", nFmTags},
+		{"blocks", nBlocos}, {"links", nLinks}, {"embeds", nEmbeds},
+	} {
+		if c.n == 0 {
+			t.Fatalf("referencia %s nao tem nenhum item da categoria %q; o dump esta incompleto e a comparacao dessa categoria rodaria vazia",
+				refPath, c.nome)
+		}
 	}
 
 	v, err := vault.New(root)
@@ -263,9 +312,14 @@ func TestParityWithObsidian(t *testing.T) {
 			t.Errorf("%s: ausente do nosso indice", path)
 			continue
 		}
-		assertHeadingsContain(t, path, note.Headings, want.Headings)
-		assertTagsContain(t, path, note.Tags, want.Tags)
-		assertBlocksContain(t, path, note.Blocks, want.Blocks)
+		conjuntosIguais(t, path, "headings", headingsComparaveis(note.Headings), headingsDaReferencia(want.Headings))
+		// O Obsidian separa a tag do corpo (`tags`) da tag do frontmatter
+		// (`frontmatterTags`); nos guardamos as duas numa lista so. A uniao e o
+		// que faz os dois lados falarem do mesmo conjunto — sem ela,
+		// Apelidada.md (tags [], frontmatterTags [civil, civil/obrigacoes])
+		// divergiria de um indice correto.
+		conjuntosIguais(t, path, "tags", note.Tags, append(slices.Clone(want.Tags), want.FrontmatterTags...))
+		conjuntosIguais(t, path, "blocks", blocosComparaveis(note.Blocks), want.Blocks)
 		assertLinksMatch(t, path, note.Links, want.Links, want.Embeds)
 	}
 

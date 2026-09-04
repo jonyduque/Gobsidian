@@ -86,5 +86,40 @@ func TestDiff_AllocationsAndPerformance(t *testing.T) {
 		_ = writer.UnifiedDiff("a.md", "b.md", aText, bText, 3)
 	})
 
-	t.Logf("Medicao de Alocacoes: %.0f alocacoes para diff de 1000 linhas com 10 alteracoes", allocs)
+	t.Logf("Medicao de Alocacoes: %.0f alocacoes para diff de 1000 linhas com 10 alteracoes (orcamento %d)",
+		allocs, orcamentoAlocacoesDiff)
+
+	// Orcamento, e nao so `Logf`. Ate 2026-09-04 este teste media e imprimia:
+	// uma regressao que triplicasse as alocacoes saia no `-v` e passava verde.
+	//
+	// Ver orcamentoAlocacoesDiff para as catorze medicoes que produziram o
+	// numero, e por que o detector de corrida obriga a contar as duas series.
+	if allocs > orcamentoAlocacoesDiff {
+		t.Errorf("UnifiedDiff fez %.0f alocacoes, orcamento %d (maximo medido em 2026-09-04: 273, x1,5)\n"+
+			"um diff de 1000 linhas com 10 alteracoes nao deveria alocar mais do que isso",
+			allocs, orcamentoAlocacoesDiff)
+	}
 }
+
+// orcamentoAlocacoesDiff e o teto de alocacoes de UnifiedDiff no cenario de
+// TestDiff_AllocationsAndPerformance: 1000 linhas com 10 alteracoes.
+//
+// O numero vem de MEDICAO, nao de estimativa. Catorze rodadas em 2026-09-04, na
+// maquina NB-JONY (Intel i7-10750H, 12 nucleos, go1.26.5 windows/amd64):
+//
+//	go test ./internal/writer/ -run TestDiff_Alloc... -count=7
+//	    259, 259, 259, 259, 259, 259, 259
+//	go test -race ./internal/writer/ -run TestDiff_Alloc... -count=7
+//	    273, 273, 272, 270, 272, 271, 273
+//
+// As DUAS series importam porque `verify.ps1` roda a suite com `-race`, e o
+// detector aloca por conta propria: e a serie de 273 que o gate cobra. Um
+// orcamento tirado so da serie sem `-race` seria um numero que ninguem mede.
+//
+// Orcamento = 273 (o maximo das catorze) x 1,5 arredondado para cima = 410. A
+// folga de 50% absorve mudanca de versao do runtime e de biblioteca; ela nao
+// absorve regressao de algoritmo, que e o que este teste guarda.
+//
+// `AllocsPerRun` conta alocacoes, nao tempo, e por isso o numero nao varia com
+// a carga da maquina — as sete rodadas sem `-race` sairam identicas.
+const orcamentoAlocacoesDiff = 410

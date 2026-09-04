@@ -323,6 +323,27 @@ func TestQ3PerformanceMeasurement(t *testing.T) {
 	t.Logf("Q3 Medição em %d notas distintas:", n)
 	t.Logf("  (a) LoadInvertedCache (disco): %v", loadDur)
 	t.Logf("  (b) Reconstruir Invertido (metadados): %v", rebuildDur)
+
+	// Este teste mede a Q3 do PRD (PRD.md:500), que está FECHADA desde
+	// 2026-07-29 com estes dois números: (a) 26,96 ms contra (b) 106,58 ms, e a
+	// decisão de persistir o cache invertido apoia-se em (a) ser mais rápido
+	// que (b). Até 2026-09-04 o teste só imprimia — se a relação invertesse, a
+	// premissa da decisão cairia e nada reprovaria.
+	//
+	// A asserção é a RELAÇÃO, não um teto absoluto, e é por isso que ela vale
+	// também sob `-race`: o detector infla os dois lados, e a ordem entre eles
+	// é o que a decisão usa. Um teto em milissegundos aqui seria um número
+	// desta máquina disfarçado de requisito — e a Q3 não tem RNF próprio.
+	if loadDur == 0 || rebuildDur == 0 {
+		t.Fatalf("medição degenerada: load %v, rebuild %v — o relógio não andou e a comparação não compara nada",
+			loadDur, rebuildDur)
+	}
+	if loadDur >= rebuildDur {
+		t.Errorf("Q3 invertida: carregar do disco levou %v e reconstruir levou %v.\n"+
+			"A decisão de persistir o cache invertido (PRD.md:500, Task 52) apoia-se em (a) < (b); "+
+			"se a relação virou, a decisão precisa ser reaberta, não o teste ajustado.",
+			loadDur, rebuildDur)
+	}
 }
 
 // TestBM25KernelLatency guarda o NÚCLEO do ranqueamento contra regressão

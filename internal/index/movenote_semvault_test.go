@@ -73,8 +73,19 @@ func TestMoveNoteSemCofreNaoStatCaminhoRelativo(t *testing.T) {
 			"sem cofre nao da para resolver o caminho absoluto, e zerar e a "+
 			"resposta honesta para \"nao sei\" — ela forca reindexacao", depois.ModTime)
 	}
-	// O conteúdo indexado tem de continuar sendo o da nota, não o da isca.
-	if depois.Size != tamanhoOriginal && depois.Size != 0 {
-		t.Logf("Size = %d (era %d antes do move)", depois.Size, tamanhoOriginal)
+	// O conteúdo indexado tem de continuar sendo o da nota, não o da isca — e
+	// a regra é exata, não uma faixa: no ramo `v == nil` de `MoveNote`
+	// (update.go:523-527) o `Size` não é tocado, só o `ModTime` é zerado.
+	// Logo o tamanho tem de sair de lá EXATAMENTE como entrou.
+	//
+	// Até 2026-09-04 isto era um `t.Logf` atrás de
+	// `if depois.Size != tamanhoOriginal && depois.Size != 0` — um diagnóstico
+	// que escondia a regra atrás de um OU e não podia reprovar nada. A
+	// asserção de cima (`== len(iscaConteudo)`) só recusa UM valor errado, o
+	// da isca; esta recusa todos os outros.
+	if depois.Size != tamanhoOriginal {
+		t.Errorf("Size = %d, quer %d (o tamanho de antes do move)\n"+
+			"sem cofre MoveNote nao stata nada e nao tem de onde tirar um tamanho novo",
+			depois.Size, tamanhoOriginal)
 	}
 }

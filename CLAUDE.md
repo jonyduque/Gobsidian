@@ -162,9 +162,12 @@ pwsh -File scripts/gen_vault.ps1 -Notes 5000 -Seed 42 -Out <x>   # cofre de benc
 ```
 
 **`verify.ps1` verde é obrigatório antes de qualquer commit.** Ele existe porque
-a lista solta convida a rodar três dos cinco: cobre build, `go test -race`, tetos
-de latência, `go vet` nos três GOOS, `gofmt`, `golangci-lint` (Windows e Linux),
-`check_net`, `check_tool_params`, `check_doc_refs` e `check_readme_anchors`.
+a lista solta convida a rodar três dos cinco: cobre build, `go test -race`, a
+contagem de testes pulados, tetos de latência, `go vet` nos três GOOS, `gofmt`,
+`golangci-lint` (Windows e Linux), `check_net`, `check_tool_params`,
+`check_doc_refs` e `check_readme_anchors`. A contagem de pulados **informa e não
+reprova** — há skip legítimo, como o de `vaulttest` fora do Windows —, mas um
+teste que pula não cobre nada, e o de paridade pulava sem que o gate dissesse.
 Aceita `-SkipCross` e `-SkipNet` para iteração rápida; o gate roda tudo.
 
 ---
