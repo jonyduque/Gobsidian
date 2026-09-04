@@ -4,12 +4,12 @@ package index_test
 
 import (
 	"context"
+	"path/filepath"
 	"testing"
-
-	"golang.org/x/sys/windows"
 
 	"github.com/jonyd/gobsidian/internal/index"
 	"github.com/jonyd/gobsidian/internal/vault"
+	"github.com/jonyd/gobsidian/internal/vaulttest"
 )
 
 // TestBuildNotaSomenteNuvemNaoDerrubaIndexacao cobre o panic que este arquivo
@@ -34,16 +34,7 @@ func TestBuildNotaSomenteNuvemNaoDerrubaIndexacao(t *testing.T) {
 	writeFile(t, root, "comum.md", "# Titulo comum\n\ncorpo\n")
 	writeFile(t, root, "nuvem.md", "# Titulo da nuvem\n\ncorpo\n")
 
-	p, err := windows.UTF16PtrFromString(vault.LongPath(root + `\nuvem.md`))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := windows.SetFileAttributes(p, windows.FILE_ATTRIBUTE_OFFLINE); err != nil {
-		t.Skipf("nao foi possivel marcar FILE_ATTRIBUTE_OFFLINE: %v", err)
-	}
-	t.Cleanup(func() {
-		_ = windows.SetFileAttributes(p, windows.FILE_ATTRIBUTE_NORMAL)
-	})
+	vaulttest.MarcarSomenteNuvem(t, filepath.Join(root, "nuvem.md"))
 
 	v, err := vault.New(root)
 	if err != nil {

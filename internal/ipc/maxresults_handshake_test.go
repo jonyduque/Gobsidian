@@ -8,6 +8,7 @@ import (
 
 	"github.com/jonyd/gobsidian/internal/config"
 	"github.com/jonyd/gobsidian/internal/ipc"
+	"github.com/jonyd/gobsidian/internal/vaulttest"
 )
 
 // TestHandshakeRecusaMaxResultsDivergente é o achado M9.
@@ -45,10 +46,10 @@ func TestHandshakeRecusaMaxResultsDivergente(t *testing.T) {
 		time.Sleep(100 * time.Millisecond)
 	}()
 
-	ctx, cancel := context.WithTimeout(context.Background(), boundedWait)
+	ctx, cancel := context.WithTimeout(context.Background(), vaulttest.Prazo)
 	defer cancel()
 
-	conn, err := ipc.DialAndHandshake(ctx, vault, false, 200, boundedWait)
+	conn, err := ipc.DialAndHandshake(ctx, vault, false, 200, vaulttest.Prazo)
 	if err == nil {
 		_ = conn.Close()
 		t.Fatal("handshake ACEITOU um daemon com teto diferente: a flag da ponte viraria no-op silencioso")
@@ -82,10 +83,10 @@ func TestHandshakeAceitaMaxResultsIgual(t *testing.T) {
 		time.Sleep(100 * time.Millisecond)
 	}()
 
-	ctx, cancel := context.WithTimeout(context.Background(), boundedWait)
+	ctx, cancel := context.WithTimeout(context.Background(), vaulttest.Prazo)
 	defer cancel()
 
-	conn, err := ipc.DialAndHandshake(ctx, vault, false, 200, boundedWait)
+	conn, err := ipc.DialAndHandshake(ctx, vault, false, 200, vaulttest.Prazo)
 	if err != nil {
 		t.Fatalf("handshake com o MESMO teto foi recusado: %v", err)
 	}

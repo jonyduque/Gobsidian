@@ -3,29 +3,19 @@
 package index_test
 
 import (
-	"syscall"
 	"testing"
+
+	"github.com/jonyd/gobsidian/internal/vaulttest"
 )
 
-func lockFileForTest(t *testing.T, path string) func() {
+// lockFileForTest torna o arquivo ilegivel do jeito que o Windows permite: um
+// handle exclusivo, segurado ate o fim do teste.
+//
+// A copia local que existia aqui abria o handle e nao conferia nada — se o
+// share mode nao barrasse a leitura, TestBuildRegistraArquivoIlegivel
+// exercitava um cofre de dois arquivos legiveis e passava. O helper de
+// internal/vaulttest prova a trava antes de devolver.
+func lockFileForTest(t *testing.T, path string) {
 	t.Helper()
-	pathPtr, err := syscall.UTF16PtrFromString(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	h, err := syscall.CreateFile(
-		pathPtr,
-		syscall.GENERIC_READ|syscall.GENERIC_WRITE,
-		0,
-		nil,
-		syscall.OPEN_EXISTING,
-		syscall.FILE_ATTRIBUTE_NORMAL,
-		0,
-	)
-	if err != nil {
-		t.Fatalf("CreateFile: %v", err)
-	}
-	return func() {
-		_ = syscall.CloseHandle(h)
-	}
+	vaulttest.TravarExclusivo(t, path)
 }

@@ -10,60 +10,16 @@ import (
 	"sort"
 	"testing"
 
-	"golang.org/x/sys/windows"
-
 	"github.com/jonyd/gobsidian/internal/index"
 	"github.com/jonyd/gobsidian/internal/search"
 	"github.com/jonyd/gobsidian/internal/vault"
+	"github.com/jonyd/gobsidian/internal/vaulttest"
 )
 
 // conteudoDaNuvem tem termos proprios, que nao aparecem em nenhuma outra nota
 // dos cofres deste arquivo: se algum deles for indexado, foi porque o
 // placeholder foi aberto.
 const conteudoDaNuvem = "# Titulo da nuvem\n\nsesquipedaliano hidratado indevidamente\n"
-
-// marcarSomenteNuvem poe FILE_ATTRIBUTE_OFFLINE e restaura no fim.
-//
-// FILE_ATTRIBUTE_RECALL_ON_DATA_ACCESS nao e gravavel por SetFileAttributes — e
-// o motivo de TestReadNoteCloudOnlyFails estar pulado —, e vault.IsCloudOnly
-// aceita os dois. So Windows porque o atributo e do NTFS.
-func marcarSomenteNuvem(t *testing.T, abs string) {
-	t.Helper()
-	p, err := windows.UTF16PtrFromString(vault.LongPath(abs))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := windows.SetFileAttributes(p, windows.FILE_ATTRIBUTE_OFFLINE); err != nil {
-		t.Skipf("nao foi possivel marcar FILE_ATTRIBUTE_OFFLINE: %v", err)
-	}
-	t.Cleanup(func() {
-		_ = windows.SetFileAttributes(p, windows.FILE_ATTRIBUTE_NORMAL)
-	})
-}
-
-// travarExclusivo segura um handle exclusivo sobre o arquivo e CONFERE que ele
-// barra uma leitura, devolvendo antes de qualquer assercao depender disso.
-//
-// Leitura E escrita: medido nesta maquina, um handle exclusivo que pede so
-// GENERIC_READ nao barra o os.ReadFile. A conferencia existe porque uma trava
-// que nao trava tornaria vazia toda prova de "nao abriu".
-func travarExclusivo(t *testing.T, abs string) {
-	t.Helper()
-	p, err := windows.UTF16PtrFromString(vault.LongPath(abs))
-	if err != nil {
-		t.Fatal(err)
-	}
-	h, err := windows.CreateFile(p, windows.GENERIC_READ|windows.GENERIC_WRITE, 0, nil,
-		windows.OPEN_EXISTING, windows.FILE_ATTRIBUTE_NORMAL, 0)
-	if err != nil {
-		t.Skipf("nao foi possivel abrir o arquivo em modo exclusivo: %v", err)
-	}
-	t.Cleanup(func() { _ = windows.CloseHandle(h) })
-
-	if _, err := os.ReadFile(abs); err == nil {
-		t.Fatal("o handle exclusivo nao barrou a leitura; a prova de 'nao abriu' seria vazia")
-	}
-}
 
 func escreverNota(t *testing.T, root, rel, conteudo string) string {
 	t.Helper()
@@ -98,8 +54,8 @@ func cofreComPlaceholder(t *testing.T) (*vault.Vault, *index.Index) {
 	escreverNota(t, root, "comum.md", "# Comum\n\ncorpo de uma nota comum\n")
 	escreverNota(t, root, "outra.md", "# Outra\n\noutro corpo qualquer\n")
 	abs := escreverNota(t, root, "nuvem.md", conteudoDaNuvem)
-	marcarSomenteNuvem(t, abs)
-	travarExclusivo(t, abs)
+	vaulttest.MarcarSomenteNuvem(t, abs)
+	vaulttest.TravarExclusivo(t, abs)
 
 	v, err := vault.New(root)
 	if err != nil {
@@ -153,8 +109,8 @@ func construirComoOBoot(t *testing.T, v *vault.Vault, idx *index.Index) *search.
 func TestUpdateNaoAbreNotaSomenteNuvem(t *testing.T) {
 	root := t.TempDir()
 	abs := escreverNota(t, root, "nuvem.md", conteudoDaNuvem)
-	marcarSomenteNuvem(t, abs)
-	travarExclusivo(t, abs)
+	vaulttest.MarcarSomenteNuvem(t, abs)
+	vaulttest.TravarExclusivo(t, abs)
 
 	v, err := vault.New(root)
 	if err != nil {

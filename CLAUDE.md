@@ -123,6 +123,19 @@ mcpsrv  → search, watcher     (só em _test)
 daemon  → service, vault      (só em _test)
 ```
 
+`internal/vaulttest` é o pacote de apoio a teste: ele importa `vault` — e só
+`vault` —, e essa aresta **é do próprio pacote**, então `go list -f
+'{{.Imports}}' ./internal/vaulttest` a mostra como importaria qualquer outra. O
+que é exclusivo de teste são os imports **de** `vaulttest`: nenhum arquivo de
+produção o importa, só arquivos `_test.go` de `index`, `search`, `service`,
+`vault`, `daemon`, `ipc` e `cmd/gobsidian`. Por isso ele fica fora do grafo de
+produção acima, e por isso não pode ganhar import de `index`, `search`,
+`service` ou `parser`: seria ciclo no teste externo desses pacotes.
+
+```
+vaulttest → vault             (pacote só de teste; ninguém em produção o importa)
+```
+
 A versão anterior deste bloco somava as duas listas numa só e, com isso,
 atribuía ao `daemon` um conhecimento de `service` e de `vault` que ele não tem —
 ele fala com `mcpsrv` e mais nada do domínio. Antes dela, outra omitia `text`

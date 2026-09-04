@@ -15,12 +15,8 @@ import (
 
 	"github.com/jonyd/gobsidian/internal/config"
 	"github.com/jonyd/gobsidian/internal/ipc"
+	"github.com/jonyd/gobsidian/internal/vaulttest"
 )
-
-// boundedWait e o prazo usado para esperar por algo neste pacote. Um defeito
-// real (por exemplo, o handshake travando em vez de devolver erro) nao pode
-// travar "go test -race ./..." ate o timeout padrao de 10 minutos.
-const boundedWait = 3 * time.Second
 
 func TestSocketPathDeterministicoEMesmaChaveDoCache(t *testing.T) {
 	p1, err := ipc.SocketPath("C:/cofre/um")
@@ -65,8 +61,8 @@ func TestDialAndHandshakeSocketAusente(t *testing.T) {
 		_ = conn.Close()
 		t.Fatal("DialAndHandshake() error = nil, esperado erro (nenhum daemon escutando)")
 	}
-	if elapsed > boundedWait {
-		t.Fatalf("DialAndHandshake demorou %s para desistir de um socket ausente, esperado abaixo de %s", elapsed, boundedWait)
+	if elapsed > vaulttest.Prazo {
+		t.Fatalf("DialAndHandshake demorou %s para desistir de um socket ausente, esperado abaixo de %s", elapsed, vaulttest.Prazo)
 	}
 }
 
@@ -94,10 +90,10 @@ func TestDialAndHandshakeRoundTrip(t *testing.T) {
 		accepted <- c
 	}()
 
-	ctx, cancel := context.WithTimeout(context.Background(), boundedWait)
+	ctx, cancel := context.WithTimeout(context.Background(), vaulttest.Prazo)
 	defer cancel()
 
-	conn, err := ipc.DialAndHandshake(ctx, vault, false, 0, boundedWait)
+	conn, err := ipc.DialAndHandshake(ctx, vault, false, 0, vaulttest.Prazo)
 	if err != nil {
 		t.Fatalf("DialAndHandshake() error = %v", err)
 	}
@@ -106,7 +102,7 @@ func TestDialAndHandshakeRoundTrip(t *testing.T) {
 	var serverSide net.Conn
 	select {
 	case serverSide = <-accepted:
-	case <-time.After(boundedWait):
+	case <-time.After(vaulttest.Prazo):
 		t.Fatal("servidor nao aceitou a conexao a tempo")
 	}
 	defer func() { _ = serverSide.Close() }()
@@ -164,10 +160,10 @@ func TestDialAndHandshakeVersaoDiferente(t *testing.T) {
 		time.Sleep(100 * time.Millisecond)
 	}()
 
-	ctx, cancel := context.WithTimeout(context.Background(), boundedWait)
+	ctx, cancel := context.WithTimeout(context.Background(), vaulttest.Prazo)
 	defer cancel()
 
-	conn, err := ipc.DialAndHandshake(ctx, vault, false, 0, boundedWait)
+	conn, err := ipc.DialAndHandshake(ctx, vault, false, 0, vaulttest.Prazo)
 	if err == nil {
 		_ = conn.Close()
 		t.Fatal("DialAndHandshake() error = nil, esperado ErrVersionMismatch")
@@ -206,10 +202,10 @@ func TestDialAndHandshakeConfigDivergente(t *testing.T) {
 		time.Sleep(100 * time.Millisecond)
 	}()
 
-	ctx, cancel := context.WithTimeout(context.Background(), boundedWait)
+	ctx, cancel := context.WithTimeout(context.Background(), vaulttest.Prazo)
 	defer cancel()
 
-	conn, err := ipc.DialAndHandshake(ctx, vault, false, 0, boundedWait)
+	conn, err := ipc.DialAndHandshake(ctx, vault, false, 0, vaulttest.Prazo)
 	if err == nil {
 		_ = conn.Close()
 		t.Fatal("DialAndHandshake() error = nil, esperado ErrConfigMismatch")
@@ -226,7 +222,7 @@ func TestDialAndHandshakeRespeitaContext(t *testing.T) {
 	cancel() // ja cancelado antes de discar
 
 	start := time.Now()
-	conn, err := ipc.DialAndHandshake(ctx, vault, false, 0, boundedWait)
+	conn, err := ipc.DialAndHandshake(ctx, vault, false, 0, vaulttest.Prazo)
 	elapsed := time.Since(start)
 
 	if err == nil {
@@ -236,7 +232,7 @@ func TestDialAndHandshakeRespeitaContext(t *testing.T) {
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("DialAndHandshake() error = %v, esperado embrulhar context.Canceled", err)
 	}
-	if elapsed > boundedWait {
+	if elapsed > vaulttest.Prazo {
 		t.Fatalf("DialAndHandshake com context ja cancelado demorou %s, esperado retorno imediato", elapsed)
 	}
 }

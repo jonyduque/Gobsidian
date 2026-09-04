@@ -9,11 +9,10 @@ import (
 	"strings"
 	"testing"
 
-	"golang.org/x/sys/windows"
-
 	"github.com/jonyd/gobsidian/internal/index"
 	"github.com/jonyd/gobsidian/internal/search"
 	"github.com/jonyd/gobsidian/internal/vault"
+	"github.com/jonyd/gobsidian/internal/vaulttest"
 )
 
 // TestSnippetCacheNaoAbreNotaSomenteNuvem prova que o cache não moveu a saída
@@ -36,16 +35,7 @@ func TestSnippetCacheNaoAbreNotaSomenteNuvem(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	p, err := windows.UTF16PtrFromString(caminho)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := windows.SetFileAttributes(p, windows.FILE_ATTRIBUTE_OFFLINE); err != nil {
-		t.Skipf("nao foi possivel marcar FILE_ATTRIBUTE_OFFLINE: %v", err)
-	}
-	t.Cleanup(func() {
-		_ = windows.SetFileAttributes(p, windows.FILE_ATTRIBUTE_NORMAL)
-	})
+	vaulttest.MarcarSomenteNuvem(t, caminho)
 
 	v, err := vault.New(root)
 	if err != nil {

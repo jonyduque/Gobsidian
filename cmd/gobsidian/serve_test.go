@@ -9,14 +9,9 @@ import (
 	"os"
 	"testing"
 	"time"
-)
 
-// boundedWait e o prazo usado para esperar por um lado do pipe num teste.
-// Uma regressao real (por exemplo, apagar o CloseWithError que propaga EOF)
-// nao deve travar o binario de teste ate o timeout padrao de 10 minutos do
-// "go test ./..." sem -timeout: precisa reprovar em milissegundos, com uma
-// mensagem que diz o que faltou.
-const boundedWait = 2 * time.Second
+	"github.com/jonyd/gobsidian/internal/vaulttest"
+)
 
 // eofReader devolve os bytes de data, em quantas chamadas a Read forem
 // necessarias para o buffer do chamador, e so entao io.EOF. Ao contrario de
@@ -119,15 +114,15 @@ func TestMirrorReaderCopiesToMirror(t *testing.T) {
 		if err != nil {
 			t.Fatalf("leitura do espelho falhou: %v", err)
 		}
-	case <-time.After(boundedWait):
-		t.Fatalf("leitura do espelho nao chegou em %s: mirrorReader parou de copiar para o espelho", boundedWait)
+	case <-time.After(vaulttest.Prazo):
+		t.Fatalf("leitura do espelho nao chegou em %s: mirrorReader parou de copiar para o espelho", vaulttest.Prazo)
 	}
 
 	var res readResult
 	select {
 	case res = <-readDone:
-	case <-time.After(boundedWait):
-		t.Fatalf("Read da origem nao retornou em %s", boundedWait)
+	case <-time.After(vaulttest.Prazo):
+		t.Fatalf("Read da origem nao retornou em %s", vaulttest.Prazo)
 	}
 
 	if res.err != nil {
@@ -182,8 +177,8 @@ func TestMirrorReaderPropagatesEOF(t *testing.T) {
 		if !errors.Is(res.err, io.EOF) {
 			t.Fatalf("lado de leitura do pipe devolveu err=%v, esperado io.EOF", res.err)
 		}
-	case <-time.After(boundedWait):
-		t.Fatalf("lado de leitura do pipe nao recebeu EOF em %s: mirrorReader nao fechou dst", boundedWait)
+	case <-time.After(vaulttest.Prazo):
+		t.Fatalf("lado de leitura do pipe nao recebeu EOF em %s: mirrorReader nao fechou dst", vaulttest.Prazo)
 	}
 }
 

@@ -115,6 +115,42 @@ simula um placeholder de nuvem).
 
 ---
 
+## Handle exclusivo e placeholder de nuvem: `internal/vaulttest`
+
+As condições de ambiente que só o sistema operacional cria — um arquivo que
+**não pode ser aberto**, um diretório que **não pode ser listado**, um
+placeholder de nuvem — vêm de `internal/vaulttest`, e de nenhum outro lugar:
+
+| Precisa de… | Chame |
+|---|---|
+| Arquivo que `os.ReadFile` não abre | `vaulttest.TravarExclusivo(t, abs)` |
+| Diretório que `os.ReadDir` não lista | `vaulttest.TravarDiretorioExclusivo(t, abs)` |
+| Placeholder somente-nuvem | `vaulttest.MarcarSomenteNuvem(t, abs)` |
+| Prazo de espera de algo assíncrono | `vaulttest.Prazo` |
+
+Fora do Windows os três primeiros fazem `t.Skip` com o motivo — share mode e
+`FILE_ATTRIBUTE_OFFLINE` são semântica do NTFS.
+
+**A regra que o pacote existe para impor: o helper prova a condição antes de
+devolver, e por isso a asserção do chamador é incondicional.** `TravarExclusivo`
+confere que a leitura de fato falha; `MarcarSomenteNuvem` confere que
+`vault.IsCloudOnly` de fato responde verdadeiro. Nunca escreva
+`if origemExiste && destinoExiste && err == nil { …asserções… }`: uma guarda
+assim faz o teste passar em silêncio exatamente quando o cenário não se montou,
+que é quando ele mais precisava falhar.
+
+Isso veio de um defeito medido: existiam cinco cópias do "handle exclusivo" e
+**só uma** conferia que a trava travava. Um handle que pede só `GENERIC_READ`
+não barra o `os.ReadFile` — precisa de `GENERIC_READ|GENERIC_WRITE` com
+`dwShareMode = 0` —, e as quatro cópias que não conferiam sustentavam duas
+asserções condicionais em `internal/service`.
+
+Cópia local nova de `windows.CreateFile` ou de `SetFileAttributes` em `_test.go`
+é regressão desta tarefa. A única exceção é `internal/vault/cloudonly_info_windows_test.go`,
+que é `package vault` (interno) e não pode importar `vaulttest` sem ciclo.
+
+---
+
 ## Onde os testes moram
 
 - Testes em tabela; golden files com `-update` (**regenerar e olhar são passos

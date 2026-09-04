@@ -14,6 +14,7 @@ import (
 
 	"github.com/jonyd/gobsidian/internal/config"
 	"github.com/jonyd/gobsidian/internal/ipc"
+	"github.com/jonyd/gobsidian/internal/vaulttest"
 )
 
 // TestPonteCaiParaModoEmProcesso e o teste nomeado na prova de mutacao da
@@ -61,7 +62,7 @@ func TestPonteCaiParaModoEmProcesso(t *testing.T) {
 	// de verdade -- sem precisar de um dublê. iniciarDaemonFn acima nao faz
 	// nada, entao EnsureStarted tambem falha em esperarSocket, e o
 	// fallback obrigatorio e alcancado do mesmo jeito que antes da Task 92.
-	ctx, cancel := context.WithTimeout(context.Background(), boundedWait)
+	ctx, cancel := context.WithTimeout(context.Background(), vaulttest.Prazo)
 	defer cancel()
 
 	err := servePonte(ctx, cfg, log)
@@ -112,7 +113,7 @@ func TestServePonteRespeitaGobsidianNoDaemon(t *testing.T) {
 		time.Sleep(200 * time.Millisecond)
 	}()
 
-	ctx, cancel := context.WithTimeout(context.Background(), boundedWait)
+	ctx, cancel := context.WithTimeout(context.Background(), vaulttest.Prazo)
 	defer cancel()
 
 	err = servePonte(ctx, cfg, log)
@@ -159,7 +160,7 @@ func TestServePonteVersaoDiferenteCaiParaProcesso(t *testing.T) {
 		time.Sleep(200 * time.Millisecond)
 	}()
 
-	ctx, cancel := context.WithTimeout(context.Background(), boundedWait)
+	ctx, cancel := context.WithTimeout(context.Background(), vaulttest.Prazo)
 	defer cancel()
 
 	err = servePonte(ctx, cfg, log)
@@ -232,7 +233,7 @@ func TestServePonteRemotaFazProxyDeBytes(t *testing.T) {
 		if err != nil {
 			t.Fatalf("servePonteRemota() error = %v, esperado nil (fechamento normal)", err)
 		}
-	case <-time.After(boundedWait):
+	case <-time.After(vaulttest.Prazo):
 		t.Fatal("servePonteRemota nao retornou apos o daemon fechar a conexao")
 	}
 

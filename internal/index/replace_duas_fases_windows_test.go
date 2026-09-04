@@ -8,30 +8,10 @@ import (
 	"path/filepath"
 	"testing"
 
-	"golang.org/x/sys/windows"
-
 	"github.com/jonyd/gobsidian/internal/index"
 	"github.com/jonyd/gobsidian/internal/vault"
+	"github.com/jonyd/gobsidian/internal/vaulttest"
 )
-
-// travaLeitura impede a leitura do arquivo, como um aplicativo que o mantém
-// aberto com acesso exclusivo.
-//
-// Medido em 2026-08-26: `GENERIC_READ` com `share=0` bloqueia só a remoção;
-// é preciso `GENERIC_READ|GENERIC_WRITE` para bloquear a leitura.
-func travaLeitura(t *testing.T, abs string) {
-	t.Helper()
-	p, err := windows.UTF16PtrFromString(abs)
-	if err != nil {
-		t.Fatal(err)
-	}
-	h, err := windows.CreateFile(p, windows.GENERIC_READ|windows.GENERIC_WRITE, 0, nil,
-		windows.OPEN_EXISTING, windows.FILE_ATTRIBUTE_NORMAL, 0)
-	if err != nil {
-		t.Skipf("nao foi possivel travar %q para leitura: %v", abs, err)
-	}
-	t.Cleanup(func() { _ = windows.CloseHandle(h) })
-}
 
 // TestReplaceComErroDeLeituraNaoDeixaANotaForaDoIndice cobre o A3.
 //
@@ -74,7 +54,7 @@ func TestReplaceComErroDeLeituraNaoDeixaANotaForaDoIndice(t *testing.T) {
 	}
 
 	// Erro TRANSITORIO: o arquivo continua existindo, só não pode ser lido.
-	travaLeitura(t, nota)
+	vaulttest.TravarExclusivo(t, nota)
 
 	errReplace := idx.Replace(context.Background(), v, canon)
 	if errReplace == nil {

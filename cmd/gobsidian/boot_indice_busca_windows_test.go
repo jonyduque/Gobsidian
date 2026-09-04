@@ -10,32 +10,16 @@ import (
 	"path/filepath"
 	"testing"
 
-	"golang.org/x/sys/windows"
-
 	"github.com/jonyd/gobsidian/internal/config"
 	"github.com/jonyd/gobsidian/internal/index"
 	"github.com/jonyd/gobsidian/internal/search"
 	"github.com/jonyd/gobsidian/internal/vault"
+	"github.com/jonyd/gobsidian/internal/vaulttest"
 )
 
 // sondaDeBoot é um termo que não existe em nenhum outro corpus deste pacote.
 // Se ele chegar ao índice, o arquivo foi aberto — não há outra forma.
 const sondaDeBoot = "sesquipedaliano"
-
-// marcarOffline põe FILE_ATTRIBUTE_OFFLINE, que vault.IsCloudOnly aceita e que,
-// ao contrário de FILE_ATTRIBUTE_RECALL_ON_DATA_ACCESS, é gravável por
-// SetFileAttributes. É como se monta um placeholder de nuvem em teste.
-func marcarOffline(t *testing.T, abs string) {
-	t.Helper()
-	p, err := windows.UTF16PtrFromString(vault.LongPath(abs))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := windows.SetFileAttributes(p, windows.FILE_ATTRIBUTE_OFFLINE); err != nil {
-		t.Skipf("nao foi possivel marcar FILE_ATTRIBUTE_OFFLINE: %v", err)
-	}
-	t.Cleanup(func() { _ = windows.SetFileAttributes(p, windows.FILE_ATTRIBUTE_NORMAL) })
-}
 
 // TestBuildInvertedIndexNaoAbrePlaceholderDeNuvem exercita o BOOT DE PRODUÇÃO.
 //
@@ -77,7 +61,7 @@ func TestBuildInvertedIndexNaoAbrePlaceholderDeNuvem(t *testing.T) {
 
 	// Marcar DEPOIS do Build: o índice de metadados já tem a entrada, e é
 	// justamente esse caminho que NotePaths devolve ao boot da busca.
-	marcarOffline(t, naNuvem)
+	vaulttest.MarcarSomenteNuvem(t, naNuvem)
 
 	inv := search.NewInverted()
 	log := slog.New(slog.NewTextHandler(io.Discard, nil))

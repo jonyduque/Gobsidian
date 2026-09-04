@@ -14,13 +14,9 @@ import (
 	"github.com/jonyd/gobsidian/internal/mcpsrv"
 	"github.com/jonyd/gobsidian/internal/service"
 	"github.com/jonyd/gobsidian/internal/vault"
+	"github.com/jonyd/gobsidian/internal/vaulttest"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
-
-// boundedWait e o prazo usado para esperar por algo neste pacote. Um
-// defeito real (por exemplo, a condicao de ociosidade nunca disparando) nao
-// pode travar "go test -race ./..." ate o timeout padrao de 10 minutos.
-const boundedWait = 5 * time.Second
 
 // newTestDaemon monta um *daemon.Daemon completo: um *mcpsrv.Server minimo
 // (o mesmo padrao de internal/mcpsrv/server_test.go — service.New aceita
@@ -70,7 +66,7 @@ func (nopWriteCloser) Close() error { return nil }
 func connectMCPClient(ctx context.Context, t *testing.T, vaultPath string) (*mcp.ClientSession, ipc.Conn) {
 	t.Helper()
 
-	conn, err := ipc.DialAndHandshake(ctx, vaultPath, false, 0, boundedWait)
+	conn, err := ipc.DialAndHandshake(ctx, vaultPath, false, 0, vaulttest.Prazo)
 	if err != nil {
 		t.Fatalf("DialAndHandshake: %v", err)
 	}
@@ -114,7 +110,7 @@ func TestDaemonSaiPorOciosidade(t *testing.T) {
 
 	select {
 	case <-done:
-	case <-time.After(boundedWait):
+	case <-time.After(vaulttest.Prazo):
 		t.Fatal("Run nao retornou apos a ociosidade estourar -- aoOcioso nunca foi chamado")
 	}
 
@@ -150,7 +146,7 @@ func TestDaemonNaoSaiComClienteConectado(t *testing.T) {
 	// A conexao fica aberta (handshake IPC completo, nenhuma chamada MCP
 	// feita) por mais que OciosidadeMax -- se "ativos" nao fosse conferido,
 	// o daemon sairia por ociosidade mesmo com um cliente pendurado.
-	conn, err := ipc.DialAndHandshake(context.Background(), vaultDir, false, 0, boundedWait)
+	conn, err := ipc.DialAndHandshake(context.Background(), vaultDir, false, 0, vaulttest.Prazo)
 	if err != nil {
 		t.Fatalf("DialAndHandshake: %v", err)
 	}

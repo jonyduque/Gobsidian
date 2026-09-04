@@ -8,11 +8,10 @@ import (
 	"path/filepath"
 	"testing"
 
-	"golang.org/x/sys/windows"
-
 	"github.com/jonyd/gobsidian/internal/index"
 	"github.com/jonyd/gobsidian/internal/service"
 	"github.com/jonyd/gobsidian/internal/vault"
+	"github.com/jonyd/gobsidian/internal/vaulttest"
 )
 
 // TestToolsDepoisDeReplaceEmNotaSomenteNuvem fixa a MUDANCA DE COMPORTAMENTO
@@ -37,16 +36,7 @@ func TestToolsDepoisDeReplaceEmNotaSomenteNuvem(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	p, err := windows.UTF16PtrFromString(vault.LongPath(caminho))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := windows.SetFileAttributes(p, windows.FILE_ATTRIBUTE_OFFLINE); err != nil {
-		t.Skipf("nao foi possivel marcar FILE_ATTRIBUTE_OFFLINE: %v", err)
-	}
-	t.Cleanup(func() {
-		_ = windows.SetFileAttributes(p, windows.FILE_ATTRIBUTE_NORMAL)
-	})
+	vaulttest.MarcarSomenteNuvem(t, caminho)
 
 	v, err := vault.New(root)
 	if err != nil {
@@ -61,16 +51,9 @@ func TestToolsDepoisDeReplaceEmNotaSomenteNuvem(t *testing.T) {
 	}
 
 	// Handle exclusivo: leitura E escrita, medido como o unico modo que barra o
-	// os.Open do vault.ReadAll nesta maquina.
-	h, err := windows.CreateFile(p, windows.GENERIC_READ|windows.GENERIC_WRITE, 0, nil,
-		windows.OPEN_EXISTING, windows.FILE_ATTRIBUTE_NORMAL, 0)
-	if err != nil {
-		t.Skipf("nao foi possivel abrir o arquivo em modo exclusivo: %v", err)
-	}
-	t.Cleanup(func() { _ = windows.CloseHandle(h) })
-	if _, err := os.ReadFile(caminho); err == nil {
-		t.Fatal("o handle exclusivo nao barrou a leitura; a prova de 'nao abriu' seria vazia")
-	}
+	// os.Open do vault.ReadAll nesta maquina. O helper de vaulttest confere a
+	// trava antes de devolver.
+	vaulttest.TravarExclusivo(t, caminho)
 
 	// O evento do watcher.
 	if err := idx.Replace(context.Background(), v, "nuvem.md"); err != nil {

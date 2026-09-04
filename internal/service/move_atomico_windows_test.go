@@ -9,11 +9,10 @@ import (
 	"strings"
 	"testing"
 
-	"golang.org/x/sys/windows"
-
 	"github.com/jonyd/gobsidian/internal/index"
 	"github.com/jonyd/gobsidian/internal/service"
 	"github.com/jonyd/gobsidian/internal/vault"
+	"github.com/jonyd/gobsidian/internal/vaulttest"
 )
 
 // montaCofreParaMove cria um cofre com a nota a mover e uma nota que a cita.
@@ -73,15 +72,19 @@ func TestMoveNaoReportaSucessoComNotaDuplicada(t *testing.T) {
 	origemExiste := errOrigem == nil
 	destinoExiste := errDestino == nil
 
-	if origemExiste && destinoExiste && err == nil {
-		t.Errorf("SUCESSO reportado com a nota DUPLICADA: origem e destino existem "+
+	// Guarda da montagem, e so ela. Medido nesta maquina em 2026-09-04: com o
+	// handle aberto, o os.Rename e o os.Remove da origem falham e a copia ja
+	// esta no destino, entao os DOIS caminhos existem. Afirmar isso aqui e o
+	// que torna a assercao seguinte incondicional — enquanto ela era guardada
+	// por `origemExiste && destinoExiste && err == nil`, um cenario que nao se
+	// montasse passava sem afirmar coisa nenhuma sobre o A1.
+	if !origemExiste || !destinoExiste {
+		t.Fatalf("cenario invalido: com o handle aberto a nota devia ficar nos dois "+
+			"caminhos; origem existe=%v, destino existe=%v", origemExiste, destinoExiste)
+	}
+	if err == nil {
+		t.Fatalf("SUCESSO reportado com a nota DUPLICADA: origem e destino existem "+
 			"e MoveNote devolveu nil (res=%+v)", res)
-	}
-	if origemExiste && destinoExiste && err != nil {
-		t.Logf("estado duplicado, mas o erro foi reportado: %v", err)
-	}
-	if err == nil && origemExiste {
-		t.Error("MoveNote devolveu nil mas a origem continua no disco")
 	}
 }
 
@@ -106,19 +109,9 @@ func TestMoveNaoReportaSucessoComNotaDuplicada(t *testing.T) {
 func TestMoveNaoReescreveCitantesAntesDeMoverOCorpo(t *testing.T) {
 	svc, dir := montaCofreParaMove(t)
 
-	p, err := windows.UTF16PtrFromString(filepath.Join(dir, "origem.md"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	h, err := windows.CreateFile(p, windows.GENERIC_READ|windows.GENERIC_WRITE,
-		0 /* sem compartilhamento */, nil,
-		windows.OPEN_EXISTING, windows.FILE_ATTRIBUTE_NORMAL, 0)
-	if err != nil {
-		t.Skipf("nao foi possivel travar a origem com acesso exclusivo: %v", err)
-	}
-	defer func() { _ = windows.CloseHandle(h) }()
+	vaulttest.TravarExclusivo(t, filepath.Join(dir, "origem.md"))
 
-	_, err = svc.MoveNote(context.Background(), service.MoveNoteRequest{
+	_, err := svc.MoveNote(context.Background(), service.MoveNoteRequest{
 		From:        "origem.md",
 		To:          "destino.md",
 		UpdateLinks: true,

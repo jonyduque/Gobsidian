@@ -4,36 +4,13 @@ package index_test
 
 import (
 	"context"
-	"os"
 	"path/filepath"
 	"testing"
 
-	"golang.org/x/sys/windows"
-
 	"github.com/jonyd/gobsidian/internal/index"
 	"github.com/jonyd/gobsidian/internal/vault"
+	"github.com/jonyd/gobsidian/internal/vaulttest"
 )
-
-// marcarSomenteNuvem poe FILE_ATTRIBUTE_OFFLINE no arquivo e restaura no fim.
-//
-// E o unico atributo que serve: FILE_ATTRIBUTE_RECALL_ON_DATA_ACCESS nao e
-// gravavel por SetFileAttributes — e o motivo de TestReadNoteCloudOnlyFails
-// estar pulado —, e vault.IsCloudOnly aceita os dois. So Windows porque o
-// atributo e do NTFS; fora dele IsCloudOnly devolve false por construcao e nao
-// ha condicao para montar.
-func marcarSomenteNuvem(t *testing.T, abs string) {
-	t.Helper()
-	p, err := windows.UTF16PtrFromString(vault.LongPath(abs))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := windows.SetFileAttributes(p, windows.FILE_ATTRIBUTE_OFFLINE); err != nil {
-		t.Skipf("nao foi possivel marcar FILE_ATTRIBUTE_OFFLINE: %v", err)
-	}
-	t.Cleanup(func() {
-		_ = windows.SetFileAttributes(p, windows.FILE_ATTRIBUTE_NORMAL)
-	})
-}
 
 // TestReplaceNotaSomenteNuvemEntraComoNotaSemAbrirOArquivo cobre a divergencia
 // da Task 95 do lado que estava errado.
@@ -50,27 +27,11 @@ func TestReplaceNotaSomenteNuvemEntraComoNotaSemAbrirOArquivo(t *testing.T) {
 	root := t.TempDir()
 	writeFile(t, root, "nuvem.md", "---\naliases: [Nuvem]\n---\n# Titulo da nuvem\n\ncorpo\n")
 	abs := filepath.Join(root, "nuvem.md")
-	marcarSomenteNuvem(t, abs)
-
-	p, err := windows.UTF16PtrFromString(vault.LongPath(abs))
-	if err != nil {
-		t.Fatal(err)
-	}
-	// Leitura E escrita: medido nesta maquina, um handle exclusivo que pede so
-	// GENERIC_READ nao barra o os.Open do vault.ReadAll. Pedindo os dois, barra
-	// — e a guarda logo abaixo confere isso em vez de confiar na regra.
-	h, err := windows.CreateFile(p, windows.GENERIC_READ|windows.GENERIC_WRITE, 0, nil,
-		windows.OPEN_EXISTING, windows.FILE_ATTRIBUTE_NORMAL, 0)
-	if err != nil {
-		t.Skipf("nao foi possivel abrir o arquivo em modo exclusivo: %v", err)
-	}
-	t.Cleanup(func() { _ = windows.CloseHandle(h) })
-
-	// Guarda da trava. Sem ela, um handle que nao barrasse nada faria o resto
-	// do teste passar sem provar coisa nenhuma sobre abrir o arquivo.
-	if _, err := os.ReadFile(abs); err == nil {
-		t.Fatal("o handle exclusivo nao barrou a leitura; a prova de 'nao abriu' seria vazia")
-	}
+	vaulttest.MarcarSomenteNuvem(t, abs)
+	// A trava prova, dentro do helper, que barra os.ReadFile antes de devolver:
+	// um handle que nao barrasse nada faria o resto do teste passar sem provar
+	// coisa nenhuma sobre abrir o arquivo.
+	vaulttest.TravarExclusivo(t, abs)
 
 	v, err := vault.New(root)
 	if err != nil {
@@ -122,7 +83,7 @@ func TestConstrucoesDoIndiceConcordamComPlaceholderDeNuvem(t *testing.T) {
 	writeFile(t, root, "comum.md", "# Comum\n\nVer [[nuvem]].\n")
 	writeFile(t, root, "nuvem.md", "# Titulo da nuvem\n\ncorpo\n")
 	writeFile(t, root, "Anexos/diagrama.png", "\x89PNG")
-	marcarSomenteNuvem(t, filepath.Join(root, "nuvem.md"))
+	vaulttest.MarcarSomenteNuvem(t, filepath.Join(root, "nuvem.md"))
 
 	// Guarda da montagem, antes de comparar: se o atributo nao pegasse, este
 	// teste viraria uma copia do cross-platform e nao afirmaria nada sobre

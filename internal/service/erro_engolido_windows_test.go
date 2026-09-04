@@ -9,32 +9,11 @@ import (
 	"strings"
 	"testing"
 
-	"golang.org/x/sys/windows"
-
 	"github.com/jonyd/gobsidian/internal/index"
 	"github.com/jonyd/gobsidian/internal/service"
 	"github.com/jonyd/gobsidian/internal/vault"
+	"github.com/jonyd/gobsidian/internal/vaulttest"
 )
-
-// travaExclusiva impede leitura E remoção do arquivo, como um aplicativo que o
-// mantém aberto.
-//
-// O acesso pedido importa, e foi medido em 2026-08-26: `GENERIC_READ` com
-// `share=0` bloqueia só o remove; `GENERIC_READ|GENERIC_WRITE` bloqueia os
-// dois. Aqui queremos os dois.
-func travaExclusiva(t *testing.T, abs string) {
-	t.Helper()
-	p, err := windows.UTF16PtrFromString(abs)
-	if err != nil {
-		t.Fatal(err)
-	}
-	h, err := windows.CreateFile(p, windows.GENERIC_READ|windows.GENERIC_WRITE, 0, nil,
-		windows.OPEN_EXISTING, windows.FILE_ATTRIBUTE_NORMAL, 0)
-	if err != nil {
-		t.Skipf("nao foi possivel travar %q com acesso exclusivo: %v", abs, err)
-	}
-	t.Cleanup(func() { _ = windows.CloseHandle(h) })
-}
 
 // TestDeleteToTrashNaoMenteQuandoORemoveFalha cobre o B5.
 //
@@ -59,15 +38,23 @@ func TestDeleteToTrashNaoMenteQuandoORemoveFalha(t *testing.T) {
 		ToTrash: true,
 	})
 
-	_, errOrigem := os.Stat(origem)
-	if errOrigem == nil && err == nil && res.Deleted {
-		t.Errorf("Deleted=true com a nota ainda no caminho original: ela existe na "+
+	// Guarda da montagem, e so ela: o handle aberto sem compartilhar exclusao
+	// faz o os.Remove falhar, entao a origem TEM de continuar no disco. Com
+	// isso afirmado aqui, as duas assercoes seguintes ficam incondicionais —
+	// enquanto elas eram guardadas por `errOrigem == nil && err == nil && ...`,
+	// um cenario que nao se montasse passava calado, que e o defeito que esta
+	// tarefa remove.
+	if _, errOrigem := os.Stat(origem); errOrigem != nil {
+		t.Fatalf("cenario invalido: a origem sumiu do disco apesar do handle aberto: %v", errOrigem)
+	}
+	if err == nil {
+		t.Fatalf("DeleteNote devolveu nil com a nota ainda no caminho original: ela existe na "+
 			"lixeira E em %q (res=%+v)", origem, res)
 	}
 	// Desde 2026-09-02 o erro vem de moverCorpo, a conta unica do move, e
 	// nomeia o destino pelo caminho (".trash/origem.md") em vez da palavra
 	// "lixeira". A garantia e a mesma — o erro diz onde a copia esta.
-	if err != nil && !strings.Contains(strings.ToLower(err.Error()), ".trash") {
+	if !strings.Contains(strings.ToLower(err.Error()), ".trash") {
 		t.Errorf("o erro nao explica que a copia na lixeira existe: %v", err)
 	}
 }
@@ -81,14 +68,7 @@ func TestDeleteNoteToTrashNaoBaixaPlaceholder(t *testing.T) {
 	if err := os.WriteFile(caminho, []byte("# Nuvem\n\ncorpo\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	p, err := windows.UTF16PtrFromString(vault.LongPath(caminho))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := windows.SetFileAttributes(p, windows.FILE_ATTRIBUTE_OFFLINE); err != nil {
-		t.Skipf("nao foi possivel marcar FILE_ATTRIBUTE_OFFLINE: %v", err)
-	}
-	t.Cleanup(func() { _ = windows.SetFileAttributes(p, windows.FILE_ATTRIBUTE_NORMAL) })
+	vaulttest.MarcarSomenteNuvem(t, caminho)
 
 	v, err := vault.New(root)
 	if err != nil {
@@ -102,7 +82,7 @@ func TestDeleteNoteToTrashNaoBaixaPlaceholder(t *testing.T) {
 		t.Fatal("a nota nao ficou CloudOnly; o atributo nao pegou")
 	}
 	// Handle exclusivo: os.Rename recusa, e o fallback de copia e forcado.
-	travaExclusiva(t, caminho)
+	vaulttest.TravarExclusivo(t, caminho)
 	svc := service.New(v, idx, nil, nil, service.Options{})
 
 	_, err = svc.DeleteNote(context.Background(), service.DeleteNoteRequest{Path: "nuvem.md", ToTrash: true})
@@ -122,7 +102,7 @@ func TestDeleteNoteToTrashNaoBaixaPlaceholder(t *testing.T) {
 // nada, que é o oposto do que aconteceria.
 func TestMoveDryRunNaoApresentaDiffVazioComoResultado(t *testing.T) {
 	svc, dir := montaCofreParaMove(t)
-	travaExclusiva(t, filepath.Join(dir, "origem.md"))
+	vaulttest.TravarExclusivo(t, filepath.Join(dir, "origem.md"))
 
 	res, err := svc.MoveNote(context.Background(), service.MoveNoteRequest{
 		From:        "origem.md",

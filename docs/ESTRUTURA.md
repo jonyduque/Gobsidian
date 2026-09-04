@@ -46,6 +46,17 @@ gobsidian/
 │   │   ├── cloud_windows.go      detecção de arquivo somente-nuvem (OneDrive)
 │   │   └── cloud_other.go        sempre falso (build tag !windows)
 │   │
+│   ├── vaulttest/                APOIO A TESTE: nenhum arquivo de produção o
+│   │   │                         importa; só _test.go. Importa vault e nada mais
+│   │   │                         do domínio, para não fechar ciclo com quem o usa
+│   │   ├── doc.go                por que o pacote existe e o que cada helper prova
+│   │   ├── exclusivo_windows.go  handle exclusivo sobre arquivo e diretório; PROVA
+│   │   │                         que barra os.ReadFile / os.ReadDir antes de devolver
+│   │   ├── exclusivo_other.go    t.Skip: share mode é semântica do Windows
+│   │   ├── somentenuvem_windows.go  FILE_ATTRIBUTE_OFFLINE; prova vault.IsCloudOnly
+│   │   ├── somentenuvem_other.go    t.Skip: o atributo é do NTFS
+│   │   └── prazo.go              Prazo: o único limite de espera dos testes (5 s)
+│   │
 │   ├── parser/
 │   │   ├── parser.go             fachada: []byte → ParsedNote
 │   │   ├── frontmatter.go        separação e decodificação do bloco YAML

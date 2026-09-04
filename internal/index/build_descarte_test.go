@@ -24,8 +24,7 @@ func TestBuildRegistraArquivoIlegivel(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	unlock := lockFileForTest(t, ilegivelPath)
-	defer unlock()
+	lockFileForTest(t, ilegivelPath)
 
 	v, err := vault.New(root)
 	if err != nil {
