@@ -18,30 +18,6 @@ import (
 	"github.com/jonyd/gobsidian/internal/doctor"
 )
 
-// TestStatusMarkerDistinctPerStatus fixa os tres marcadores em valores
-// distintos. Sem este teste, uma regressao que faca StatusWarn e StatusFail
-// devolverem a mesma string (o bug original desta revisao) passaria
-// silenciosamente: nenhum outro teste compara os tres valores de Marker()
-// entre si, so verifica presenca de substring em Detail/Name.
-func TestStatusMarkerDistinctPerStatus(t *testing.T) {
-	ok := doctor.StatusOK.Marker()
-	warn := doctor.StatusWarn.Marker()
-	fail := doctor.StatusFail.Marker()
-
-	if ok == warn || ok == fail || warn == fail {
-		t.Fatalf("marcadores devem ser distintos: OK=%q Warn=%q Fail=%q", ok, warn, fail)
-	}
-	if ok != "[OK]" {
-		t.Errorf("StatusOK.Marker() = %q, esperava [OK]", ok)
-	}
-	if warn != "[*]" {
-		t.Errorf("StatusWarn.Marker() = %q, esperava [*]", warn)
-	}
-	if fail != "[!]" {
-		t.Errorf("StatusFail.Marker() = %q, esperava [!]", fail)
-	}
-}
-
 // TestCheckCacheDirCreatable confirma o ramo real de sucesso: um CacheDir
 // nao-vazio que pode ser criado reporta [OK]. Sem este teste, todo teste do
 // pacote monta cfg via config.Defaults(), que deixa CacheDir vazio e so

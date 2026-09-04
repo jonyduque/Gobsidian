@@ -22,21 +22,6 @@ const (
 	StatusFail
 )
 
-// Marker devolve um marcador DISTINTO por status. Falha e aviso precisam ser
-// distinguiveis a olho: o relatorio impresso e a unica coisa que a pessoa le,
-// e ela roda este comando justamente porque ja esta confusa. Devolver o mesmo
-// marcador para os dois apaga a informacao que o comando existe para dar.
-func (s Status) Marker() string {
-	switch s {
-	case StatusOK:
-		return "[OK]"
-	case StatusWarn:
-		return "[*]"
-	default:
-		return "[!]"
-	}
-}
-
 // Result e uma linha do relatorio. Detail e opcional e carrega o numero ou o
 // caminho que torna o resultado acionavel; sem ele, "permissao de escrita
 // [!]" nao diz a ninguem o que fazer em seguida.
