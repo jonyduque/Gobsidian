@@ -8,10 +8,10 @@ source_paths:
   - internal/search/persist.go
   - internal/search/soa.go
   - internal/search/mmap.go
-source_commit: f7de8e81
+source_commit: b1f2cfe
 tags: [cache, formato, mmap]
 language: pt-BR
-updated_at: '2026-08-31'
+updated_at: '2026-09-04'
 ---
 
 # Formato do cache de busca
@@ -109,6 +109,14 @@ cabeçalho — com o mesmo valor por coincidência. Subir uma sem a outra não q
 build nem teste: faz o leitor **recusar todo save que o próprio processo acabou de
 gravar**, com reconstrução completa a cada boot e nenhum log dizendo por quê
 (achado B11). O alias existe para que o bump seja impossível de fazer pela metade.
+
+Desde 2026-09-02 (Task 157) o cache de **busca** segue o mesmo padrão: em
+`persist_codec.go`, `cacheCodecVers = CacheFormatVersion` é alias, e
+`cacheMagic` virou `var` — `fmt.Sprintf("GBS%d", CacheFormatVersion)` — em vez
+de literal. Antes eram três literais (`CacheFormatVersion`, `cacheMagic =
+"GBS6"`, `cacheCodecVers = 6`) para o mesmo bump, com o mesmo risco: um bump
+que esquecesse um dos três produzia um cache que passa pelo cabeçalho e falha
+— ou decodifica lixo estruturalmente válido — no corpo.
 
 ## Custo de trocar de formato
 
