@@ -216,7 +216,20 @@ func TestReconcile_VaultGoneLeavesIndexIntact(t *testing.T) {
 	}
 }
 
-func TestReconcile_CtxCancelStopsEarly(t *testing.T) {
+// TestReconcileCtxCanceladoParaAntesDeProcessarTudo substitui
+// TestReconcile_CtxCancelStopsEarly, que nao podia falhar: entre Build e
+// Reconcile nada mudava no cofre, entao o atalho de mtime/tamanho
+// (overflow.go:58-61) devolvia `updated == 0` COM ou SEM cancelamento, e a
+// assercao "parou cedo" (`updated >= 200`) era inalcancavel.
+//
+// Aqui as 300 notas sao MODIFICADAS depois do Build, com mtime avancado: sem o
+// check de ctx, cada uma delas tem trabalho de verdade a fazer. E a assercao
+// nao e sobre `updated`, e sim sobre o trabalho TOTAL — porque o cofre e o
+// indice checam ctx em mais de um ponto: com o check da varredura desligado
+// (vault/walk.go:166), `idx.Replace` ainda falha em `v.ReadAll`, que tambem
+// olha o ctx, e as 300 notas viram `skipped` em vez de `updated`. "Parou cedo"
+// so e observavel como "nao processou entrada nenhuma".
+func TestReconcileCtxCanceladoParaAntesDeProcessarTudo(t *testing.T) {
 	tmp := t.TempDir()
 	v, err := vault.New(tmp)
 	if err != nil {
@@ -224,9 +237,10 @@ func TestReconcile_CtxCancelStopsEarly(t *testing.T) {
 	}
 	idx := index.New()
 
-	for i := range 200 {
+	const n = 300
+	for i := range n {
 		name := filepath.Join(tmp, fmt.Sprintf("note%03d.md", i))
-		if err := os.WriteFile(name, []byte("hello"), 0644); err != nil {
+		if err := os.WriteFile(name, []byte("# v1\n"), 0644); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -234,27 +248,37 @@ func TestReconcile_CtxCancelStopsEarly(t *testing.T) {
 	if err := idx.Build(context.Background(), v); err != nil {
 		t.Fatalf("idx.Build: %v", err)
 	}
+	if idx.NoteCount() != n {
+		t.Fatalf("esperava %d notas no indice, obteve %d", n, idx.NoteCount())
+	}
+	inv := invDoCofre(t, v, idx)
 
-	if idx.NoteCount() != 200 {
-		t.Fatalf("esperava 200 notas no indice, obteve %d", idx.NoteCount())
+	// Conteudo e mtime diferentes: o atalho de "ja esta atualizada" nao dispara
+	// para nenhuma das 300. Sem isso o teste voltaria a passar vazio.
+	depois := time.Now().Add(2 * time.Second)
+	for i := range n {
+		name := filepath.Join(tmp, fmt.Sprintf("note%03d.md", i))
+		if err := os.WriteFile(name, []byte("# v2, bem maior que a versao anterior\n"), 0644); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Chtimes(name, depois, depois); err != nil {
+			t.Fatal(err)
+		}
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
 	log := slog.New(slog.NewTextHandler(io.Discard, nil))
-	updated, removed, skipped := Reconcile(ctx, v, idx, invDoCofre(t, v, idx), log)
+	updated, removed, skipped := Reconcile(ctx, v, idx, inv, log)
 
-	if idx.NoteCount() != 200 {
+	if updated != 0 || removed != 0 || skipped != 0 {
+		t.Errorf("Reconcile processou entradas com o ctx ja cancelado antes de comecar: updated=%d removed=%d skipped=%d (quer 0, 0, 0 nas tres); o cancelamento nao e respeitado",
+			updated, removed, skipped)
+	}
+	if idx.NoteCount() != n {
 		t.Errorf("indice foi alterado/esvaziado apos cancelamento: count=%d", idx.NoteCount())
 	}
-	if updated >= 200 {
-		t.Errorf("visitou todas as notas apesar do cancelamento: updated=%d", updated)
-	}
-	if removed != 0 {
-		t.Errorf("remoções não deveriam ter rodado sob cancelamento: removed=%d", removed)
-	}
-	_ = skipped
 }
 
 func TestReconcile_CancelIsNotAnError(t *testing.T) {

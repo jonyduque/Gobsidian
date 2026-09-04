@@ -139,34 +139,12 @@ func TestBuildContextCancellationStopsEarly(t *testing.T) {
 	}
 }
 
-// Um arquivo ilegivel no meio da varredura derruba a construcao inteira ou e pulado?
-func TestBuildSkipsUnreadableFile(t *testing.T) {
-	root := t.TempDir()
-	writeFile(t, root, "A.md", "# A")
-	writeFile(t, root, "B.md", "# B")
-
-	v, _ := vault.New(root)
-
-	// Create an unreadable file (directory with .md extension will fail to read)
-	// Um diretorio com extensao .md: a varredura o classifica como nota e a
-	// leitura falha. Se o Mkdir falhar em silencio, o teste passa sem ter
-	// exercitado o caso ilegivel — que e justamente o que ele existe para
-	// cobrir.
-	unreadablePath := filepath.Join(root, "unreadable.md")
-	if err := os.Mkdir(unreadablePath, 0o755); err != nil {
-		t.Fatalf("Mkdir: %v", err)
-	}
-
-	idx := index.New()
-	err := idx.Build(context.Background(), v)
-	if err != nil {
-		t.Fatalf("Build failed because of unreadable file: %v", err)
-	}
-
-	if idx.NoteCount() != 2 {
-		t.Errorf("NoteCount = %d, quer 2 (A e B lidos, unreadable pulado)", idx.NoteCount())
-	}
-}
+// TestBuildSkipsUnreadableFile foi apagado aqui: ele criava um DIRETORIO
+// chamado "unreadable.md" esperando que Build o pulasse por erro de leitura,
+// mas vault/walk.go devolve antes de Classify para qualquer diretorio — nunca
+// havia leitura, e o teste nao podia falhar. A cobertura real de "arquivo
+// ilegivel e pulado" esta em build_descarte_test.go, com handle exclusivo de
+// verdade via vaulttest.TravarExclusivo.
 
 // Uma nota com frontmatter tem offsets de heading corretos em relacao ao buffer?
 func TestBuildOffsetsWithFrontmatter(t *testing.T) {

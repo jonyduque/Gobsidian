@@ -112,9 +112,11 @@ func TestReadNoteRejectsTraversal(t *testing.T) {
 	}
 }
 
-func TestReadNoteCloudOnlyFails(t *testing.T) {
-	t.Skip("requer arquivo com FILE_ATTRIBUTE_RECALL_ON_DATA_ACCESS")
-}
+// TestReadNoteCloudOnlyFails foi apagado aqui: era um t.Skip incondicional na
+// primeira linha, isto e, cobertura zero reportada como teste. A cobertura
+// pretendida — nota somente-nuvem nunca e aberta — existe de verdade em
+// cloudonly_replace_windows_test.go, que monta o placeholder com
+// vaulttest.MarcarSomenteNuvem e confere que a condicao se montou.
 
 // TestReadNoteBOMOffsetParity prova a costura entre index.Build (que soma
 // vault.BOMLen aos offsets de uma nota com BOM) e service.ReadNote (que usa

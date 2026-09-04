@@ -166,7 +166,14 @@ func TestLinkGraph_DirectionParameter(t *testing.T) {
 		} `json:"edges"`
 	}
 	b, _ := json.Marshal(res.StructuredContent)
-	_ = json.Unmarshal(b, &data)
+	if err := json.Unmarshal(b, &data); err != nil {
+		t.Fatalf("StructuredContent nao e o JSON esperado: %v\n%s", err, b)
+	}
+	// Sem esta guarda o laco abaixo corre zero vezes e o teste reporta
+	// cobertura que nao existe: JSON invalido ou lista vazia passavam.
+	if len(data.Edges) == 0 {
+		t.Fatal("resposta sem arestas; o teste nao exercitou nada")
+	}
 
 	for _, e := range data.Edges {
 		if e.Target == "note_a.md" {
@@ -199,7 +206,14 @@ func TestLinkGraph_IncludeBrokenParameter(t *testing.T) {
 		} `json:"edges"`
 	}
 	b, _ := json.Marshal(res.StructuredContent)
-	_ = json.Unmarshal(b, &data)
+	if err := json.Unmarshal(b, &data); err != nil {
+		t.Fatalf("StructuredContent nao e o JSON esperado: %v\n%s", err, b)
+	}
+	// Sem esta guarda o laco abaixo corre zero vezes e o teste reporta
+	// cobertura que nao existe: JSON invalido ou lista vazia passavam.
+	if len(data.Edges) == 0 {
+		t.Fatal("resposta sem arestas; o teste nao exercitou nada")
+	}
 
 	for _, e := range data.Edges {
 		if e.Target == "missing_note.md" || e.Target == "missing_note" {
@@ -232,7 +246,14 @@ func TestLinkGraph_IncludeEmbedsParameter(t *testing.T) {
 		} `json:"edges"`
 	}
 	b, _ := json.Marshal(res.StructuredContent)
-	_ = json.Unmarshal(b, &data)
+	if err := json.Unmarshal(b, &data); err != nil {
+		t.Fatalf("StructuredContent nao e o JSON esperado: %v\n%s", err, b)
+	}
+	// Sem esta guarda o laco abaixo corre zero vezes e o teste reporta
+	// cobertura que nao existe: JSON invalido ou lista vazia passavam.
+	if len(data.Edges) == 0 {
+		t.Fatal("resposta sem arestas; o teste nao exercitou nada")
+	}
 
 	for _, e := range data.Edges {
 		if e.Target == "note_c.md" {
