@@ -2701,3 +2701,37 @@ cofre, e o TJSP está em OneDrive**; não vira número publicado sem repetição
 
 É a mesma classe que este documento já registra duas vezes: medir o que é fácil
 em vez do que o requisito nomeia.
+
+---
+
+## `search` de CLI passou a reaproveitar o cache do `serve` (2026-09-06, Task 175)
+
+Até a Task 174, `search` sempre construía os dois índices do zero a cada
+chamada — `index.New()` + `Build`, depois um laço `inv.Update` nota a nota —
+mesmo que `serve` já tivesse gravado o cache do mesmo cofre. O M4 (registrado
+em `docs/ESTADO.md`) media isso em ~10,5–11,0 s de parede contra 475–528 ms
+do `serve` com cache quente: a CLI pagava de novo um custo que já estava
+resolvido em disco.
+
+A Task 175 trocou esse bloco por `boot.AbrirIndice` + `boot.PrepararBusca` —
+as mesmas duas funções que `boot.Montar` usa para `serve` — e deu a `search`
+as flags `--cache-dir` e `--log-level` que `serve` já tinha. `search`
+continua sem passar pelo daemon: ela chama `vault.New` direto, nunca
+`servePonte`; o ganho vem só de reaproveitar os arquivos de cache no disco.
+
+Medido no cofre `vault_5000`, `--json --limit 200 "execucao"`, 3 execuções
+frias (cache apagado antes de cada uma) e 3 quentes por binário:
+
+- **Antes** (commit `ebf29ad`, sem `--cache-dir`): 8338,6 / 1687,0 / 1631,9 ms
+  frias; 1700,4 / 1631,0 / 1597,7 ms nas repetições seguintes — sem cache em
+  disco, todas as seis reconstroem do zero.
+- **Depois**: 1905,6 / 1921,2 / 1796,7 ms frias (constrói e grava os dois
+  caches); 234,7 / 214,0 / 190,2 ms quentes (carrega os dois caches) — a
+  quente fica abaixo de 1/5 da fria, o teto que a Task exigia.
+
+Os números absolutos não batem com a faixa do M4 (10,5–11,0 s / 475–528 ms):
+a rodada foi feita em outro estado de disco/máquina, e a primeira chamada
+"antes" (8,3 s) sugere que o cache do sistema operacional para os arquivos do
+cofre ainda estava frio nela e já estava quente nas cinco seguintes. O
+detalhamento das 12 linhas e o binário usado estão em `docs/ESTADO.md`
+("medições publicadas").

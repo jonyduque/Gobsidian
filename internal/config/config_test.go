@@ -221,3 +221,29 @@ func TestLoadCacheDir(t *testing.T) {
 		}
 	})
 }
+
+func TestLoadMarcaLogLevelExplicito(t *testing.T) {
+	t.Setenv("GOBSIDIAN_LOG_LEVEL", "")
+	cfg, err := config.Load(config.Flags{VaultPath: t.TempDir()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.LogLevelExplicito {
+		t.Fatal("sem env e sem flag, LogLevelExplicito devia ser false")
+	}
+	cfg, err = config.Load(config.Flags{VaultPath: t.TempDir(), LogLevel: "debug"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !cfg.LogLevelExplicito || cfg.LogLevel != slog.LevelDebug {
+		t.Fatalf("flag dada: Explicito=%v LogLevel=%v", cfg.LogLevelExplicito, cfg.LogLevel)
+	}
+	t.Setenv("GOBSIDIAN_LOG_LEVEL", "warn")
+	cfg, err = config.Load(config.Flags{VaultPath: t.TempDir()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !cfg.LogLevelExplicito || cfg.LogLevel != slog.LevelWarn {
+		t.Fatalf("env dada: Explicito=%v LogLevel=%v", cfg.LogLevelExplicito, cfg.LogLevel)
+	}
+}

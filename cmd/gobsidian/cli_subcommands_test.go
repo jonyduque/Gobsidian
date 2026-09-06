@@ -85,7 +85,7 @@ func TestSearchCmd_StdoutAndJSON(t *testing.T) {
 	var stdout, stderr bytes.Buffer
 	cmd.SetOut(&stdout)
 	cmd.SetErr(&stderr)
-	cmd.SetArgs([]string{"--vault", vaultDir, "nota"})
+	cmd.SetArgs([]string{"--vault", vaultDir, "--cache-dir", t.TempDir(), "nota"})
 
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("search Execute: %v", err)
@@ -103,7 +103,7 @@ func TestSearchCmd_StdoutAndJSON(t *testing.T) {
 	var stdoutJSON, stderrJSON bytes.Buffer
 	cmdJSON.SetOut(&stdoutJSON)
 	cmdJSON.SetErr(&stderrJSON)
-	cmdJSON.SetArgs([]string{"--vault", vaultDir, "nota", "--json"})
+	cmdJSON.SetArgs([]string{"--vault", vaultDir, "--cache-dir", t.TempDir(), "nota", "--json"})
 
 	if err := cmdJSON.Execute(); err != nil {
 		t.Fatalf("search --json Execute: %v", err)
@@ -183,7 +183,7 @@ func TestSearchCLIRespeitaMaxResults(t *testing.T) {
 	var out bytes.Buffer
 	cmd := newSearchCmd()
 	cmd.SetOut(&out)
-	cmd.SetArgs([]string{"--vault", root, "--json", "--max-results", "2", "palavra"})
+	cmd.SetArgs([]string{"--vault", root, "--cache-dir", t.TempDir(), "--json", "--max-results", "2", "palavra"})
 	if err := cmd.Execute(); err != nil {
 		t.Fatal(err)
 	}

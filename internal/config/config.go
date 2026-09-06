@@ -64,6 +64,10 @@ type Config struct {
 	// vault.SeguirSymlinks para a razao de o padrao ser recusar, e para por que
 	// a saida existe.
 	FollowSymlinks bool
+
+	// LogLevelExplicito e true quando GOBSIDIAN_LOG_LEVEL ou --log-level foi
+	// dado; os subcomandos de CLI so mostram log acima de Warn sem ele.
+	LogLevelExplicito bool
 }
 
 // Load resolve a configuracao com precedencia flag > env > default.
@@ -85,6 +89,7 @@ func Load(f Flags) (Config, error) {
 			return Config{}, fmt.Errorf("GOBSIDIAN_LOG_LEVEL: %w", err)
 		}
 		cfg.LogLevel = lvl
+		cfg.LogLevelExplicito = true
 	}
 	if f.LogLevel != "" {
 		lvl, err := parseLevel(f.LogLevel)
@@ -92,6 +97,7 @@ func Load(f Flags) (Config, error) {
 			return Config{}, fmt.Errorf("--log-level: %w", err)
 		}
 		cfg.LogLevel = lvl
+		cfg.LogLevelExplicito = true
 	}
 
 	if v := os.Getenv("GOBSIDIAN_READ_ONLY"); v != "" {
