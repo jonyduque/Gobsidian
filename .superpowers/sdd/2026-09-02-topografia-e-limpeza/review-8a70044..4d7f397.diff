@@ -1,0 +1,1234 @@
+4d7f397 refactor(vault): atomic replace, write and temp sweep move to vault; writer forwards
+
+ CLAUDE.md                                          |   7 +-
+ docs/ARCHITECTURE.md                               |   6 +-
+ docs/ESTRUTURA.md                                  |  10 +-
+ internal/vault/atomic.go                           | 226 +++++++++++++++++++++
+ internal/{writer => vault}/atomic_test.go          |  66 ++++--
+ internal/{writer => vault}/durabilidade_test.go    |  10 +-
+ internal/vault/longpath_windows.go                 |   2 +-
+ .../sweep_profundo_windows_test.go                 |   8 +-
+ internal/{writer => vault}/syncdir_unix.go         |   2 +-
+ internal/{writer => vault}/syncdir_windows.go      |   2 +-
+ internal/vault/walk.go                             |   2 +-
+ internal/vault/walk_test.go                        |  33 +++
+ internal/writer/atomic.go                          | 225 ++++----------------
+ 13 files changed, 376 insertions(+), 223 deletions(-)
+
+diff --git a/CLAUDE.md b/CLAUDE.md
+index a2f974d..dff4fc5 100644
+--- a/CLAUDE.md
++++ b/CLAUDE.md
+@@ -59,35 +59,36 @@ lugar do seu contexto.
+ 
+ ```
+ cmd/gobsidian/     entrypoint fino e subcomandos: serve, doctor, index, search,
+                    inspect, daemon (oculto). ponte.go escolhe daemon vs
+                    em-processo; servico.go monta o Service que serve e daemon
+                    compartilham
+ internal/
+   config/          struct de configuração, flags cobra, defaults, VaultKey
+   lifecycle/       stdin-eof, sinais, vigília do PID pai, shutdown com orçamento
+   vault/           raiz, caminho canônico e confinamento, walk com exclusões,
+-                   EOL, detecção de somente-nuvem
++                   EOL, detecção de somente-nuvem, temp+sync+rename atômico
++                   (ReplaceFile/WriteAtomic) e varredura de temporários órfãos
+   vaulttest/       apoio a teste: condições de ambiente do Windows; só _test.go
+                    importa
+   parser/          goldmark + extensões [[wikilink]], ^blockid, #tag,
+                    campo::inline; headings com offsets de byte; candidatos a
+                    título (negrito, setext) que NUNCA viram Heading
+   index/           Note, RWMutex, build com worker pool, update incremental,
+                    backlinks, resolve, alias, query; chave.go é a conta única
+                    das chaves derivadas (NFC + caixa)
+   search/          analyzer, índice invertido base/delta, BM25, trecho,
+                    cache binário formato 6 + arena mmap
+   watcher/         fsnotify, debounce, filtro de relevância, apply,
+                    rename por hash, reconciliação pós-overflow
+-  writer/          lock por caminho canônico, temp+sync+rename atômico,
+-                   edição sob heading/bloco, reescrita de link, diff
++  writer/          lock por caminho canônico, edição sob heading/bloco,
++                   reescrita de link, diff
+   service/         fachada das tools em tipos de domínio; erros em errors.go
+   mcpsrv/          ÚNICO pacote onde tipos do SDK de MCP existem
+   console/         marcadores ASCII e cor decidida pelo destino de saída
+   ipc/             transporte local: socket, saudação, handshake
+   daemon/          N conexões sobre um índice; spawn; posse por trava do
+                    kernel (flock / LockFileEx), nunca por arquivo com PID
+   doctor/          diagnóstico de ambiente e do runtime do daemon
+   text/            normalização
+ docs/              normativa, papéis, história, wiki
+ testdata/          golden files do parser, cofre pequeno, corpus de paridade
+diff --git a/docs/ARCHITECTURE.md b/docs/ARCHITECTURE.md
+index 638c941..a89a8a0 100644
+--- a/docs/ARCHITECTURE.md
++++ b/docs/ARCHITECTURE.md
+@@ -75,39 +75,43 @@ Fachada. Cada tool MCP corresponde a um método aqui. Responsabilidades:
+ 
+ - Validar e canonicalizar caminhos recebidos (§3.2)
+ - Consultar o índice ou a busca conforme o tipo de consulta
+ - Coordenar escritas: obter o estado atual, aplicar a transformação, gravar atomicamente, invalidar a entrada de índice
+ - Aplicar limites de resultado e paginação
+ 
+ ### 2.5 `internal/vault`
+ 
+ Abstração de caminho e I/O bruto. Traduz entre o caminho absoluto do sistema de arquivos e o **caminho canônico** interno.
+ 
++A **substituição atômica de arquivo** mora aqui (`ReplaceFile`, `WriteAtomic`, `SweepStaleTempFiles`, `TempFilePrefix`): temporário no mesmo diretório, `Sync`, rename com retry, `fsync` do diretório atrás de build tag, e a varredura de temporários órfãos no boot. É I/O do cofre, e `vault` é a única camada que toca o sistema de arquivos — o mesmo motivo pelo qual o filtro de ruído da varredura usa a mesma constante de prefixo, e não uma segunda cópia do literal. `ReplaceFile` recebe o conteúdo por callback `func(*os.File) error` porque os caches de índice e de busca codificam em streaming; `WriteAtomic` é o caso particular em que os bytes já existem.
++
+ ### 2.6 `internal/parser`
+ 
+ Transforma bytes de um arquivo em uma `ParsedNote`. Puro: sem I/O, sem estado. Recebe `[]byte`, devolve estrutura. Isso o torna trivialmente testável por *golden files* e trivialmente paralelizável.
+ 
+ ### 2.7 `internal/index`
+ 
+ Guarda o resultado do parse de todas as notas, mais os grafos derivados (backlinks, tags). Protegido por `sync.RWMutex`. Ver §4.
+ 
+ ### 2.8 `internal/search`
+ 
+ Índice invertido para busca full-text. Ver §6.
+ 
+ ### 2.9 `internal/watcher`
+ 
+ `fsnotify` mais debounce, coalescência e recuperação de overflow. Ver §5.3.
+ 
+ ### 2.10 `internal/writer`
+ 
+-Escritas atômicas e transformações estruturais de conteúdo (inserir sob heading, substituir seção, reescrever links).
++Serialização de escritas por caminho canônico e transformações estruturais de conteúdo (inserir sob heading, substituir seção, reescrever links, diff).
++
++A substituição atômica em si passou para `internal/vault` (§2.5). O que resta em `writer/atomic.go` são encaminhadores transitórios, que somem quando o último chamador migrar. Eles não levam o marcador `// Deprecated:` de propósito: com `staticcheck` ligado, o marcador reprovaria o gate em cada chamador ainda não migrado, e um gate vermelho por desenho é um gate que alguém contorna.
+ 
+ ### 2.11 `internal/ipc`
+ 
+ Transporte local entre a ponte (`cmd/gobsidian`) e o daemon (`internal/daemon`): chave do socket, handshake de versão e de configuração, `Dial`/`Listen`, proxy de bytes. `runtimeDir` e `restrictPermission` vivem atrás de build tag em `ipc_unix.go`/`ipc_windows.go`; o resto é compartilhado. Ver §7.5.
+ 
+ ### 2.12 `internal/daemon`
+ 
+ Um `*mcpsrv.Server` compartilhado por N conexões sobre o socket de `internal/ipc`, para o mesmo cofre. Resolve a corrida de inicialização por arquivo de lock e sai por ociosidade reusando `internal/lifecycle`. Ver §7.5.
+ 
+ ### 2.13 `internal/console`
+diff --git a/docs/ESTRUTURA.md b/docs/ESTRUTURA.md
+index eee86e8..80c0fff 100644
+--- a/docs/ESTRUTURA.md
++++ b/docs/ESTRUTURA.md
+@@ -32,20 +32,24 @@ gobsidian/
+ │   │   ├── parent_windows.go     vigília do PID pai (build tag windows)
+ │   │   ├── parent_unix.go        vigília do PID pai (build tag !windows)
+ │   │   └── shutdown.go           sequência de encerramento com timeout
+ │   │
+ │   ├── vault/
+ │   │   ├── vault.go              tipo Vault; raiz, abertura, validação
+ │   │   ├── path.go               caminho canônico, resolução, confinamento
+ │   │   ├── path_windows.go       casing e separadores (build tag windows)
+ │   │   ├── path_other.go         idem (build tag !windows)
+ │   │   ├── walk.go               varredura com exclusões
++│   │   ├── atomic.go             temporário + sync + rename, com retry; varredura
++│   │   │                         de temporários órfãos no boot
++│   │   ├── syncdir_unix.go       fsync do diretório após o rename (build tag !windows)
++│   │   ├── syncdir_windows.go    no-op documentado: o Windows não expõe o handle
+ │   │   ├── ignore.go             .gitignore e .gobsidianignore
+ │   │   ├── eol.go                detecção e preservação de CRLF/LF — ÚNICA conta de EOL
+ │   │   ├── longpath_windows.go   prefixo de caminho longo p/ syscall direta (build tag windows)
+ │   │   ├── longpath_other.go     identidade (build tag !windows)
+ │   │   ├── cloud_windows.go      detecção de arquivo somente-nuvem (OneDrive)
+ │   │   └── cloud_other.go        sempre falso (build tag !windows)
+ │   │
+ │   ├── vaulttest/                APOIO A TESTE: nenhum arquivo de produção o
+ │   │   │                         importa; só _test.go. Importa vault e nada mais
+ │   │   │                         do domínio, para não fechar ciclo com quem o usa
+@@ -105,23 +109,23 @@ gobsidian/
+ │   │   ├── debounce.go           janela de debounce e coalescência
+ │   │   ├── filter.go             filtro de relevância de evento
+ │   │   ├── apply.go              aplica lotes e reconciliação nos dois índices
+ │   │   ├── rename.go             correlação de rename por hash de conteúdo
+ │   │   ├── counters.go           contadores publicados em vault_stats
+ │   │   └── overflow.go           varredura de reconciliação pós-overflow
+ │   │
+ │   ├── writer/
+ │   │   ├── writer.go             fachada de escrita
+ │   │   ├── lock.go               mutex por caminho canônico; serializa escritas
+-│   │   ├── atomic.go             temporário + sync + rename, com retry
+-│   │   ├── syncdir_unix.go       fsync do diretório após o rename (build tag !windows)
+-│   │   ├── syncdir_windows.go    no-op documentado: o Windows não expõe o handle
++│   │   ├── atomic.go             encaminhadores transitórios para vault.WriteAtomic
++│   │   │                         e vault.SweepStaleTempFiles; somem quando o
++│   │   │                         último chamador migrar
+ │   │   ├── section.go            inserir e substituir sob heading
+ │   │   ├── block.go              substituir bloco por ^id
+ │   │   ├── linkrewrite.go        reescrita de links em note_move
+ │   │   └── diff.go               diff unificado para dry-run
+ │   │
+ │   ├── service/
+ │   │   ├── service.go            struct Service; injeção dos subsistemas
+ │   │   ├── read.go               métodos de leitura
+ │   │   ├── outline.go            note_outline: headings do índice + candidatos do parser
+ │   │   ├── write.go              métodos de escrita
+diff --git a/internal/vault/atomic.go b/internal/vault/atomic.go
+new file mode 100644
+index 0000000..39d3e51
+--- /dev/null
++++ b/internal/vault/atomic.go
+@@ -0,0 +1,226 @@
++package vault
++
++import (
++	"context"
++	"fmt"
++	"log/slog"
++	"os"
++	"path/filepath"
++	"strings"
++	"time"
++)
++
++// TempFilePrefix e o prefixo usado para todos os arquivos temporarios de escrita atomica.
++const TempFilePrefix = ".gobsidian-tmp-"
++
++// SweepResult e o que a varredura de temporarios encontrou.
++//
++// Era um int so — a contagem de removidos — e todo o resto era descartado
++// (achado P11). Uma varredura que nao conseguiu entrar em nenhum diretorio
++// devolvia "0 removidos", indistinguivel de um cofre limpo. Quem chama loga
++// os tres numeros.
++type SweepResult struct {
++	Removidos int
++	// NaoRemovidos conta temporarios encontrados que os.Remove recusou —
++	// tipicamente arquivo travado por outro processo.
++	NaoRemovidos int
++	// Inacessiveis conta subarvores em que a varredura nao conseguiu entrar.
++	Inacessiveis int
++}
++
++// SweepStaleTempFiles remove, do cofre inteiro, os temporarios que escritas
++// interrompidas deixaram, e devolve quantos removeu. Roda no boot, quando
++// nenhuma escrita esta em voo — por isso pode varrer o diretorio inteiro
++// sem risco: ate 2026-07-30 WriteAtomic varria assim no INICIO de cada
++// escrita, e o glob apagava TODOS os temporarios do diretorio, inclusive o
++// de outra escrita em voo na mesma pasta (a trava do writer e por CAMINHO,
++// nao por diretorio). No Windows a corrida ficava mascarada — os.Remove
++// sobre arquivo com handle aberto falha com sharing violation, e o erro era
++// engolido; em Linux e macOS o unlink sucede por semantica POSIX, a outra
++// escrita segue gravando num inode desvinculado, e o rename final falhava
++// com ENOENT.
++//
++// Existe tambem porque a varredura preguicosa nao bastava: um temporario orfao
++// numa pasta que nunca mais fosse escrita ficava no cofre do usuario para
++// sempre. O filtro de ruido do vault o esconde do indice, entao o usuario o via
++// so no Explorer, sem saber de onde veio.
++//
++// Recebe ctx porque percorrer um cofre grande bloqueia. Erro em subdiretorio
++// nao aborta a varredura: um temporario que nao pudemos remover e lixo, nao
++// motivo para o servidor nao subir.
++func SweepStaleTempFiles(ctx context.Context, root string) (SweepResult, error) {
++	var res SweepResult
++
++	// A raiz vai CRUA, e isso esta medido.
++	//
++	// O achado P11 dizia que a varredura pulava diretorios alem de MAX_PATH em
++	// silencio, e que a raiz precisava do prefixo \?\ para os filhos herdarem.
++	// Sondado em 2026-08-27: falso. O pacote os do Go aplica o prefixo sozinho
++	// (fixLongPath), e MkdirAll, WriteFile e WalkDir alcancaram 318 caracteres
++	// sem prefixo nenhum. A prova de mutacao confirmou: trocar por vault.LongPath
++	// — que para raiz curta e identidade, ou seja, o comportamento antigo —
++	// deixou o teste PASSANDO.
++	//
++	// Prefixar aqui seria guarda que nao muda resultado: parece protecao e nao e.
++	// TestSweepAlcancaCaminhoAlemDeMaxPath fixa o alcance real.
++	err := filepath.WalkDir(root, func(caminho string, d os.DirEntry, err error) error {
++		if ctxErr := ctx.Err(); ctxErr != nil {
++			return ctxErr
++		}
++		if err != nil {
++			// d == nil e falha na propria raiz — cofre desmontado, share caido.
++			// Devolver nil ali faria a varredura reportar sucesso com zero
++			// removidos, e cofre inacessivel nao pode dar a mesma resposta que
++			// cofre limpo.
++			if d == nil {
++				return fmt.Errorf("varrendo temporarios em %q: %w", root, err)
++			}
++			// Erro em subarvore continua nao abortando — um temporario que nao
++			// pudemos remover e lixo, nao motivo para o servidor nao subir. Mas
++			// agora ele é CONTADO: "varri e nao achei nada" e "varri e nao
++			// consegui entrar em 30 diretorios" nao podem produzir a mesma
++			// resposta.
++			res.Inacessiveis++
++			return nil
++		}
++		if d.IsDir() || !strings.HasPrefix(d.Name(), TempFilePrefix) {
++			return nil
++		}
++		if os.Remove(caminho) == nil {
++			res.Removidos++
++		} else {
++			res.NaoRemovidos++
++		}
++		return nil
++	})
++	return res, err
++}
++
++// ReplaceFile substitui o arquivo em targetPath de forma atomica:
++// 1. Cria um arquivo temporario no mesmo diretorio do destino.
++// 2. Chama escrever(tmp) — quem produz os bytes e o chamador.
++// 3. Executa Sync() (fsync) para garantir a gravacao fisica no disco contra quedas de energia.
++// 4. Fecha o temporario.
++// 5. Executa rename atomico sobre o arquivo de destino, com retry em caso de bloqueio temporario (Windows).
++//
++// O conteudo chega por callback, e nao como []byte, porque os dois caches
++// codificam em STREAMING para o temporario — index/persist.go e
++// search/persist.go escrevem num io.Writer. Exigir []byte obrigaria a
++// materializar o cache inteiro em memoria so para poder grava-lo; o invertido
++// mede 24,95 MiB por gravacao (SaveInvertedCacheReal, B/op da Baseline).
++// WriteAtomic e o caso particular em que os bytes ja existem.
++//
++// ReplaceFile recebe ctx porque ESPERA DE VERDADE: o laco de rename abaixo
++// dorme ate 100 ms tentando de novo, e a escrita em si pode bloquear num share
++// de rede. A regra desta base e "ctx onde ha espera real" (achado M13).
++//
++// Cancelar NAO desfaz um rename ja aplicado — a escrita e atomica, nao
++// transacional. O ctx e conferido nos pontos em que ainda nao houve efeito
++// visivel, e entre as tentativas.
++//
++// Falha do callback nao toca o alvo: o defer abaixo fecha e remove o
++// temporario, e o alvo continua com o conteudo anterior.
++func ReplaceFile(ctx context.Context, targetPath string, escrever func(*os.File) error) error {
++	if err := ctx.Err(); err != nil {
++		return err
++	}
++	dir := filepath.Dir(targetPath)
++
++	// Nenhuma varredura de diretorio aqui -- so no boot, por
++	// SweepStaleTempFiles, e pelo motivo no comentario dela. O temporario
++	// desta escrita e removido pelo defer abaixo em qualquer falha; o de um
++	// processo morto (que nao roda defer) fica ate o proximo boot.
++	tmpFile, err := os.CreateTemp(dir, TempFilePrefix+"*")
++	if err != nil {
++		return fmt.Errorf("criando temporario em %q: %w", dir, err)
++	}
++	tmpName := tmpFile.Name()
++
++	// os.CreateTemp cria com 0600. Sem restaurar o modo do ALVO, um rename por
++	// cima de uma nota 0644 a deixa 0600 — a escrita "preserva o conteudo" e
++	// muda a permissao pelas costas (achado M12). Em cofre compartilhado por
++	// grupo, a nota some para os outros.
++	//
++	// Alvo inexistente e nota nova: 0644, o mesmo que o resto do projeto usa.
++	// No Windows o modo e quase todo ignorado pelo runtime do Go — so o bit de
++	// somente-leitura mapeia —, mas o cofre pode estar num share lido de Linux,
++	// e a chamada e barata.
++	modo := os.FileMode(0644)
++	if info, err := os.Stat(targetPath); err == nil {
++		modo = info.Mode().Perm()
++	}
++	if err := tmpFile.Chmod(modo); err != nil {
++		// Nao e fatal. Ha sistema de arquivos que nao suporta Chmod, e recusar
++		// a escrita inteira por causa da permissao perderia o conteudo, que e o
++		// que o usuario pediu para gravar. Fica registrado.
++		slog.Debug("nao foi possivel aplicar o modo do alvo ao temporario",
++			"alvo", targetPath, "modo", modo, "err", err)
++	}
++
++	cleanup := true
++	defer func() {
++		if cleanup {
++			_ = tmpFile.Close()
++			_ = os.Remove(tmpName)
++		}
++	}()
++
++	if err := escrever(tmpFile); err != nil {
++		return fmt.Errorf("escrevendo no temporario %q: %w", tmpName, err)
++	}
++
++	// Sync e obrigatorio para durabilidade e integridade fisica contra queda de energia.
++	if err := tmpFile.Sync(); err != nil {
++		return fmt.Errorf("sync do temporario %q: %w", tmpName, err)
++	}
++
++	if err := tmpFile.Close(); err != nil {
++		return fmt.Errorf("fechando temporario %q: %w", tmpName, err)
++	}
++
++	maxRetries := 10
++	retryDelay := 10 * time.Millisecond
++	var renameErr error
++
++	for i := 0; i < maxRetries; i++ {
++		// Entre tentativas, e nao dentro: uma tentativa ja iniciada termina.
++		if err := ctx.Err(); err != nil {
++			return err
++		}
++		renameErr = os.Rename(tmpName, targetPath)
++		if renameErr == nil {
++			cleanup = false
++			// O Sync do arquivo garante os DADOS; o rename e uma mudanca de
++			// DIRETORIO, e sem sincronizar o diretorio uma queda de energia
++			// logo depois pode deixar o alvo com o conteudo antigo — ou
++			// nenhum — apesar de a escrita ter reportado sucesso (achado M12).
++			//
++			// Falha aqui nao desfaz o rename, que ja aconteceu: e reportada
++			// como aviso, nao como erro da escrita.
++			if err := sincronizarDiretorio(dir); err != nil {
++				slog.Debug("nao foi possivel sincronizar o diretorio apos o rename",
++					"dir", dir, "err", err)
++			}
++			return nil
++		}
++		// Dormir com select, e nao time.Sleep: um cancelamento durante a
++		// espera nao pode ficar 100 ms sem resposta.
++		select {
++		case <-time.After(retryDelay):
++		case <-ctx.Done():
++			return ctx.Err()
++		}
++	}
++
++	return fmt.Errorf("falha ao renomear %q para %q apos %d tentativas: %w", tmpName, targetPath, maxRetries, renameErr)
++}
++
++// WriteAtomic escreve os dados fornecidos no caminho de destino de forma
++// atomica. E o caso particular de ReplaceFile em que os bytes ja estao na mao —
++// uma nota inteira, que a escrita ja precisa ter lido para transformar.
++func WriteAtomic(ctx context.Context, targetPath string, data []byte) error {
++	return ReplaceFile(ctx, targetPath, func(f *os.File) error {
++		_, err := f.Write(data)
++		return err
++	})
++}
+diff --git a/internal/writer/atomic_test.go b/internal/vault/atomic_test.go
+similarity index 84%
+rename from internal/writer/atomic_test.go
+rename to internal/vault/atomic_test.go
+index d7c84af..2d85c5a 100644
+--- a/internal/writer/atomic_test.go
++++ b/internal/vault/atomic_test.go
+@@ -1,47 +1,48 @@
+-package writer_test
++package vault_test
+ 
+ import (
+ 	"bytes"
+ 	"context"
++	"errors"
+ 	"fmt"
+ 	"io"
+ 	"os"
+ 	"os/exec"
+ 	"path/filepath"
+ 	"runtime"
+ 	"sync"
+ 	"testing"
+ 	"time"
+ 
+-	"github.com/jonyd/gobsidian/internal/writer"
++	"github.com/jonyd/gobsidian/internal/vault"
+ )
+ 
+ // avisoPronto e o que o processo filho imprime imediatamente antes de chamar
+ // WriteAtomic. E o sincronismo que torna este teste um teste — ver
+ // rodarEscritorEMatar.
+ const avisoPronto = "pronto\n"
+ 
+ func TestMain(m *testing.M) {
+ 	if os.Getenv("GO_TEST_HELPER_PROCESS") == "1" {
+ 		targetPath := os.Getenv("GO_TEST_TARGET_PATH")
+ 		data := []byte(os.Getenv("GO_TEST_DATA"))
+ 		if targetPath != "" {
+ 			// Avisa o pai que o init acabou e a escrita comeca AGORA.
+ 			//
+ 			// Escrever em stdout aqui nao fere a regra de stdout do projeto:
+ 			// isto e um processo auxiliar de teste, nao um servidor MCP, e o
+ 			// unico leitor do outro lado e o processo pai deste teste.
+ 			fmt.Print(avisoPronto)
+ 			_ = os.Stdout.Sync()
+ 
+-			_ = writer.WriteAtomic(context.Background(), targetPath, data)
++			_ = vault.WriteAtomic(context.Background(), targetPath, data)
+ 		}
+ 		os.Exit(0)
+ 	}
+ 	os.Exit(m.Run())
+ }
+ 
+ // rodarEscritorEMatar roda o escritor num processo filho e o mata `jitter`
+ // depois de o filho AVISAR que vai escrever.
+ //
+ // O aviso e a correcao de um defeito que tornava este teste vazio. A versao
+@@ -159,40 +160,40 @@ func TestRNF11NoCorruptionUnder1000Crashes(t *testing.T) {
+ 
+ 		// Um processo morto NAO roda defer, entao deixar temporario aqui e o
+ 		// comportamento esperado — nao defeito. O que se afirma e que a
+ 		// recuperacao os remove.
+ 		//
+ 		// A versao anterior deste bloco chamava CleanStaleTempFiles (hoje
+ 		// apagada; era o glob por diretorio, Task 166) e DEPOIS afirmava que
+ 		// nao havia sobras: a linha de cima garantia a de baixo, e a
+ 		// assercao nao podia falhar. Medido: com a limpeza neutralizada, este
+ 		// teste reprova — havia temporarios reais sendo mascarados.
+-		antesDaVarredura, _ := filepath.Glob(filepath.Join(dir, writer.TempFilePrefix+"*"))
++		antesDaVarredura, _ := filepath.Glob(filepath.Join(dir, vault.TempFilePrefix+"*"))
+ 		mu.Lock()
+ 		orfaos += len(antesDaVarredura)
+ 		mu.Unlock()
+ 
+ 		// t.Fatalf so pode ser chamado da goroutine do teste; aqui e Errorf.
+-		varr, err := writer.SweepStaleTempFiles(context.Background(), dir)
++		varr, err := vault.SweepStaleTempFiles(context.Background(), dir)
+ 		if err != nil {
+ 			t.Errorf("iteracao %d: SweepStaleTempFiles: %v", i, err)
+ 			return
+ 		}
+ 		if varr.Removidos != len(antesDaVarredura) {
+ 			t.Errorf("iteracao %d: varredura removeu %d de %d temporarios",
+ 				i, varr.Removidos, len(antesDaVarredura))
+ 		}
+ 		if varr.Inacessiveis != 0 {
+ 			t.Errorf("iteracao %d: %d subarvores inacessiveis num diretorio temporario do teste",
+ 				i, varr.Inacessiveis)
+ 		}
+-		if sobras, _ := filepath.Glob(filepath.Join(dir, writer.TempFilePrefix+"*")); len(sobras) > 0 {
++		if sobras, _ := filepath.Glob(filepath.Join(dir, vault.TempFilePrefix+"*")); len(sobras) > 0 {
+ 			t.Errorf("iteracao %d: temporario sobrou DEPOIS da varredura: %v", i, sobras)
+ 		}
+ 	}
+ 
+ 	inicio := time.Now()
+ 	for range trabalhadores {
+ 		wg.Add(1)
+ 		go func() {
+ 			defer wg.Done()
+ 			for i := range fila {
+@@ -217,26 +218,65 @@ func TestRNF11NoCorruptionUnder1000Crashes(t *testing.T) {
+ 	// iteracoes significaria que o crash nunca caiu nessa janela, e ai o teste
+ 	// nao teria exercitado o que promete.
+ 	t.Logf("RNF-11: 0 corrompidas em %d iteracoes; %d temporarios orfaos varridos "+
+ 		"(%d trabalhadores, %v)", iteracoes, orfaos, trabalhadores, decorrido)
+ 	if orfaos == 0 {
+ 		t.Error("nenhum temporario orfao em 1.000 crashes: o crash nunca caiu " +
+ 			"entre criar o temporario e renomear, entao a atomicidade nao foi exercitada")
+ 	}
+ }
+ 
++// TestReplaceFileCallbackFalhaNaoTocaOAlvo cobre o que o callback trouxe de
++// novo: os caches codificam em streaming, e um codec pode falhar no meio da
++// gravacao — com metade do cache ja no temporario. O alvo tem de continuar
++// intacto, o erro tem de chegar embrulhado ao chamador (senao ele grava um
++// cache pela metade achando que gravou inteiro), e o temporario nao pode ficar
++// para tras.
++func TestReplaceFileCallbackFalhaNaoTocaOAlvo(t *testing.T) {
++	alvo := filepath.Join(t.TempDir(), "a.md")
++	if err := os.WriteFile(alvo, []byte("antes"), 0o644); err != nil {
++		t.Fatal(err)
++	}
++	quero := errors.New("codec falhou")
++
++	err := vault.ReplaceFile(context.Background(), alvo, func(f *os.File) error {
++		// Escreve antes de falhar: o caso interessante e o temporario ja com
++		// bytes dentro, nao o vazio.
++		if _, wErr := f.Write([]byte("metade do cache")); wErr != nil {
++			t.Errorf("escrevendo no temporario: %v", wErr)
++		}
++		return quero
++	})
++	if !errors.Is(err, quero) {
++		t.Fatalf("err = %v, quero %v embrulhado", err, quero)
++	}
++
++	got, rErr := os.ReadFile(alvo)
++	if rErr != nil {
++		t.Fatalf("ReadFile: %v", rErr)
++	}
++	if string(got) != "antes" {
++		t.Fatalf("alvo mudou para %q", got)
++	}
++
++	restos, _ := filepath.Glob(filepath.Join(filepath.Dir(alvo), vault.TempFilePrefix+"*"))
++	if len(restos) != 0 {
++		t.Fatalf("temporario ficou para tras: %v", restos)
++	}
++}
++
+ func TestWriteAtomic_TempInSameDir(t *testing.T) {
+ 	dir := t.TempDir()
+ 	alvo := filepath.Join(dir, "nota.md")
+ 	data := []byte("conteudo de teste")
+ 
+-	if err := writer.WriteAtomic(context.Background(), alvo, data); err != nil {
++	if err := vault.WriteAtomic(context.Background(), alvo, data); err != nil {
+ 		t.Fatalf("WriteAtomic: %v", err)
+ 	}
+ 
+ 	lido, err := os.ReadFile(alvo)
+ 	if err != nil {
+ 		t.Fatalf("os.ReadFile: %v", err)
+ 	}
+ 	if !bytes.Equal(lido, data) {
+ 		t.Errorf("lido = %q, quer %q", lido, data)
+ 	}
+@@ -246,26 +286,26 @@ func TestWriteAtomic_CreatesTempInTargetDir(t *testing.T) {
+ 	root := t.TempDir()
+ 	dir := filepath.Join(root, "subfolder")
+ 	if err := os.MkdirAll(dir, 0755); err != nil {
+ 		t.Fatal(err)
+ 	}
+ 	alvo := filepath.Join(dir, "nota.md")
+ 	data := bytes.Repeat([]byte("1234567890\n"), 200000)
+ 
+ 	done := make(chan error, 1)
+ 	go func() {
+-		done <- writer.WriteAtomic(context.Background(), alvo, data)
++		done <- vault.WriteAtomic(context.Background(), alvo, data)
+ 	}()
+ 
+ 	foundInDir := false
+ 	for start := time.Now(); time.Since(start) < 2*time.Second; {
+-		matches, _ := filepath.Glob(filepath.Join(dir, writer.TempFilePrefix+"*"))
++		matches, _ := filepath.Glob(filepath.Join(dir, vault.TempFilePrefix+"*"))
+ 		if len(matches) > 0 {
+ 			foundInDir = true
+ 			break
+ 		}
+ 		time.Sleep(1 * time.Millisecond)
+ 	}
+ 
+ 	err := <-done
+ 	if err != nil {
+ 		t.Fatalf("WriteAtomic: %v", err)
+@@ -275,21 +315,21 @@ func TestWriteAtomic_CreatesTempInTargetDir(t *testing.T) {
+ 		t.Fatalf("temporario nao foi criado no mesmo diretorio do alvo (%s), criando risco de rename nao-atomico entre volumes", dir)
+ 	}
+ }
+ 
+ func TestWriteAtomic_PreservesBOMAndCRLF(t *testing.T) {
+ 	dir := t.TempDir()
+ 	alvo := filepath.Join(dir, "nota_bom.md")
+ 	// BOM + CRLF
+ 	data := []byte("\xef\xbb\xbf# Nota com BOM\r\n\r\nLinha 1\r\nLinha 2\r\n")
+ 
+-	if err := writer.WriteAtomic(context.Background(), alvo, data); err != nil {
++	if err := vault.WriteAtomic(context.Background(), alvo, data); err != nil {
+ 		t.Fatalf("WriteAtomic: %v", err)
+ 	}
+ 
+ 	lido, err := os.ReadFile(alvo)
+ 	if err != nil {
+ 		t.Fatalf("ReadFile: %v", err)
+ 	}
+ 	if !bytes.Equal(lido, data) {
+ 		t.Errorf("BOM/CRLF nao foram preservados byte a byte")
+ 	}
+@@ -304,21 +344,21 @@ func TestWriteAtomic_RenameRetryOnLock(t *testing.T) {
+ 	}
+ 
+ 	// Abre um handle em modo exclusivo temporario simulando antivirus / indexador
+ 	f, err := os.OpenFile(alvo, os.O_RDWR, 0644)
+ 	if err != nil {
+ 		t.Fatal(err)
+ 	}
+ 
+ 	done := make(chan error, 1)
+ 	go func() {
+-		done <- writer.WriteAtomic(context.Background(), alvo, []byte("substituido"))
++		done <- vault.WriteAtomic(context.Background(), alvo, []byte("substituido"))
+ 	}()
+ 
+ 	// Solta o bloqueio apos 30ms para exercitar o retry do rename
+ 	time.Sleep(30 * time.Millisecond)
+ 	_ = f.Close()
+ 
+ 	select {
+ 	case err := <-done:
+ 		if err != nil {
+ 			t.Fatalf("WriteAtomic falhou apos soltar o lock: %v", err)
+@@ -355,21 +395,21 @@ func TestWriteAtomicConcurrentSameDirectory(t *testing.T) {
+ 	var wg sync.WaitGroup
+ 	erros := make(chan error, escritores*porEscritor)
+ 
+ 	for w := 0; w < escritores; w++ {
+ 		wg.Add(1)
+ 		go func(w int) {
+ 			defer wg.Done()
+ 			alvo := filepath.Join(dir, fmt.Sprintf("nota%02d.md", w))
+ 			esperado := []byte(fmt.Sprintf("conteudo do escritor %02d\r\n", w))
+ 			for i := 0; i < porEscritor; i++ {
+-				if err := writer.WriteAtomic(context.Background(), alvo, esperado); err != nil {
++				if err := vault.WriteAtomic(context.Background(), alvo, esperado); err != nil {
+ 					erros <- fmt.Errorf("escritor %d, iteracao %d: %w", w, i, err)
+ 					return
+ 				}
+ 			}
+ 		}(w)
+ 	}
+ 	wg.Wait()
+ 	close(erros)
+ 
+ 	for err := range erros {
+@@ -387,14 +427,14 @@ func TestWriteAtomicConcurrentSameDirectory(t *testing.T) {
+ 			t.Errorf("escritor %d: alvo ausente: %v", w, err)
+ 			continue
+ 		}
+ 		if string(lido) != esperado {
+ 			t.Errorf("escritor %d: lido %q, quer %q", w, lido, esperado)
+ 		}
+ 	}
+ 
+ 	// E nenhum temporario pode sobrar: aqui nenhum processo morreu, entao o
+ 	// defer de cada WriteAtomic removeu o seu.
+-	if sobras, _ := filepath.Glob(filepath.Join(dir, writer.TempFilePrefix+"*")); len(sobras) > 0 {
++	if sobras, _ := filepath.Glob(filepath.Join(dir, vault.TempFilePrefix+"*")); len(sobras) > 0 {
+ 		t.Errorf("temporario sobrou apos escritas bem-sucedidas: %v", sobras)
+ 	}
+ }
+diff --git a/internal/writer/durabilidade_test.go b/internal/vault/durabilidade_test.go
+similarity index 88%
+rename from internal/writer/durabilidade_test.go
+rename to internal/vault/durabilidade_test.go
+index ca90752..db04453 100644
+--- a/internal/writer/durabilidade_test.go
++++ b/internal/vault/durabilidade_test.go
+@@ -1,21 +1,21 @@
+-package writer_test
++package vault_test
+ 
+ import (
+ 	"context"
+ 	"os"
+ 	"path/filepath"
+ 	"runtime"
+ 	"testing"
+ 	"time"
+ 
+-	"github.com/jonyd/gobsidian/internal/writer"
++	"github.com/jonyd/gobsidian/internal/vault"
+ )
+ 
+ // TestWriteAtomicPreservaOModoDoAlvo é metade do achado M12.
+ //
+ // `os.CreateTemp` cria com 0600, e o rename leva esse modo para o alvo. Uma nota
+ // que era 0644 vira 0600: a escrita diz que preservou o conteúdo e muda a
+ // permissão pelas costas. Em cofre compartilhado por grupo, a nota some para os
+ // outros.
+ //
+ // No Windows o runtime do Go só mapeia o bit de somente-leitura, então o teste
+@@ -27,21 +27,21 @@ func TestWriteAtomicPreservaOModoDoAlvo(t *testing.T) {
+ 	dir := t.TempDir()
+ 	alvo := filepath.Join(dir, "nota.md")
+ 	if err := os.WriteFile(alvo, []byte("antes\n"), 0644); err != nil {
+ 		t.Fatalf("preparando o alvo: %v", err)
+ 	}
+ 	// Sem isto o teste compararia 0644 com 0644 por coincidência do umask.
+ 	if err := os.Chmod(alvo, 0644); err != nil {
+ 		t.Fatalf("chmod: %v", err)
+ 	}
+ 
+-	if err := writer.WriteAtomic(context.Background(), alvo, []byte("depois\n")); err != nil {
++	if err := vault.WriteAtomic(context.Background(), alvo, []byte("depois\n")); err != nil {
+ 		t.Fatalf("WriteAtomic: %v", err)
+ 	}
+ 
+ 	info, err := os.Stat(alvo)
+ 	if err != nil {
+ 		t.Fatalf("Stat: %v", err)
+ 	}
+ 	if got := info.Mode().Perm(); got != 0644 {
+ 		t.Errorf("modo depois da escrita = %04o, era 0644 antes\n"+
+ 			"o temporario nasce 0600 e o rename levou esse modo para o alvo", got)
+@@ -54,27 +54,27 @@ func TestWriteAtomicPreservaOModoDoAlvo(t *testing.T) {
+ // na assinatura: a regra desta base é "ctx onde há espera real". Um contexto já
+ // cancelado tem de voltar sem escrever.
+ func TestWriteAtomicRespeitaCancelamento(t *testing.T) {
+ 	dir := t.TempDir()
+ 	alvo := filepath.Join(dir, "nota.md")
+ 
+ 	ctx, cancel := context.WithCancel(context.Background())
+ 	cancel()
+ 
+ 	inicio := time.Now()
+-	err := writer.WriteAtomic(ctx, alvo, []byte("conteudo\n"))
++	err := vault.WriteAtomic(ctx, alvo, []byte("conteudo\n"))
+ 	if err == nil {
+ 		t.Fatal("contexto cancelado foi ignorado: a escrita seguiu")
+ 	}
+ 	if decorrido := time.Since(inicio); decorrido > time.Second {
+ 		t.Errorf("demorou %s para desistir de um contexto ja cancelado", decorrido)
+ 	}
+ 
+ 	// E o contrapeso: não pode ter deixado nada para trás.
+ 	if _, err := os.Stat(alvo); err == nil {
+ 		t.Error("a nota foi criada apesar do cancelamento")
+ 	}
+-	sobras, _ := filepath.Glob(filepath.Join(dir, writer.TempFilePrefix+"*"))
++	sobras, _ := filepath.Glob(filepath.Join(dir, vault.TempFilePrefix+"*"))
+ 	if len(sobras) > 0 {
+ 		t.Errorf("temporario sobrou depois do cancelamento: %v", sobras)
+ 	}
+ }
+diff --git a/internal/vault/longpath_windows.go b/internal/vault/longpath_windows.go
+index 29cb437..5b755ae 100644
+--- a/internal/vault/longpath_windows.go
++++ b/internal/vault/longpath_windows.go
+@@ -16,21 +16,21 @@ const longPathThreshold = 240
+ //
+ // Restricoes do prefixo, que o chamador precisa ter respeitado antes: exige
+ // caminho absoluto, exige separador "\", e nao aceita "." nem "..".
+ //
+ // Isto e para SYSCALL DIRETA — windows.GetFileAttributes e afins. O pacote os
+ // do Go ja aplica o prefixo sozinho (fixLongPath), entao caminho que passa por
+ // os.Open, os.Stat ou filepath.WalkDir NAO precisa desta funcao. Sondado em
+ // 2026-08-27: MkdirAll, WriteFile e WalkDir alcancaram 318 caracteres sem
+ // prefixo nenhum. Uma versao anterior desta tarefa acrescentou aqui um
+ // LongPathSempre para a raiz de varredura e a prova de mutacao o reprovou como
+-// guarda morta — ver o comentario em writer.SweepStaleTempFiles.
++// guarda morta — ver o comentario em SweepStaleTempFiles.
+ func LongPath(abs string) string {
+ 	if len(abs) < longPathThreshold {
+ 		return abs
+ 	}
+ 	if strings.HasPrefix(abs, `\\?\`) {
+ 		return abs
+ 	}
+ 	clean := filepath.Clean(abs)
+ 	if strings.HasPrefix(clean, `\\`) {
+ 		return `\\?\UNC\` + strings.TrimPrefix(clean, `\\`)
+diff --git a/internal/writer/sweep_profundo_windows_test.go b/internal/vault/sweep_profundo_windows_test.go
+similarity index 92%
+rename from internal/writer/sweep_profundo_windows_test.go
+rename to internal/vault/sweep_profundo_windows_test.go
+index f50143c..c97b80a 100644
+--- a/internal/writer/sweep_profundo_windows_test.go
++++ b/internal/vault/sweep_profundo_windows_test.go
+@@ -1,22 +1,22 @@
+ //go:build windows
+ 
+-package writer_test
++package vault_test
+ 
+ import (
+ 	"context"
+ 	"os"
+ 	"path/filepath"
+ 	"strings"
+ 	"testing"
+ 
+-	"github.com/jonyd/gobsidian/internal/writer"
++	"github.com/jonyd/gobsidian/internal/vault"
+ )
+ 
+ // TestSweepAlcancaCaminhoAlemDeMaxPath fixa o alcance real da varredura — e
+ // documenta um achado da auditoria que se provou FALSO.
+ //
+ // P11 dizia que `SweepStaleTempFiles` varria sem o prefixo `\?\` e por isso
+ // pulava, em silêncio, subárvores além de MAX_PATH: o temporário de uma escrita
+ // interrompida ficaria lá para sempre, aparecendo no Explorer do dono sem
+ // explicação.
+ //
+@@ -37,32 +37,32 @@ func TestSweepAlcancaCaminhoAlemDeMaxPath(t *testing.T) {
+ 	// longo para PODER ser criado — o teste não pode falhar na montagem do
+ 	// cenário e ser lido como falha da regra.
+ 	fundo := raiz
+ 	for len(fundo) < 300 {
+ 		fundo = filepath.Join(fundo, strings.Repeat("d", 40))
+ 	}
+ 	if err := os.MkdirAll(fundo, 0755); err != nil {
+ 		t.Skipf("nao foi possivel criar arvore profunda (%d chars): %v", len(fundo), err)
+ 	}
+ 
+-	temp := filepath.Join(fundo, writer.TempFilePrefix+"orfao")
++	temp := filepath.Join(fundo, vault.TempFilePrefix+"orfao")
+ 	if err := os.WriteFile(temp, []byte("lixo"), 0644); err != nil {
+ 		t.Skipf("nao foi possivel criar o temporario profundo: %v", err)
+ 	}
+ 
+ 	// Sem isto o teste passaria mesmo que a árvore não tivesse sido criada.
+ 	if _, err := os.Stat(temp); err != nil {
+ 		t.Fatalf("o temporario profundo nao existe: o cenario nao se montou: %v", err)
+ 	}
+ 	t.Logf("caminho com %d caracteres", len(temp))
+ 
+-	varr, err := writer.SweepStaleTempFiles(context.Background(), raiz)
++	varr, err := vault.SweepStaleTempFiles(context.Background(), raiz)
+ 	if err != nil {
+ 		t.Fatalf("SweepStaleTempFiles: %v", err)
+ 	}
+ 	if varr.Inacessiveis != 0 {
+ 		t.Errorf("%d subarvores inacessiveis: a varredura nao entrou na arvore profunda", varr.Inacessiveis)
+ 	}
+ 	if varr.Removidos != 1 {
+ 		t.Errorf("removidos = %d, queria 1", varr.Removidos)
+ 	}
+ 	if _, err := os.Stat(temp); err == nil {
+diff --git a/internal/writer/syncdir_unix.go b/internal/vault/syncdir_unix.go
+similarity index 97%
+rename from internal/writer/syncdir_unix.go
+rename to internal/vault/syncdir_unix.go
+index e26de3d..d52ec69 100644
+--- a/internal/writer/syncdir_unix.go
++++ b/internal/vault/syncdir_unix.go
+@@ -1,13 +1,13 @@
+ //go:build !windows
+ 
+-package writer
++package vault
+ 
+ import "os"
+ 
+ // sincronizarDiretorio forca a entrada de diretorio ao disco.
+ //
+ // O Sync do arquivo garante os DADOS gravados; o rename e uma mudanca de
+ // metadado do DIRETORIO, e em ext4/xfs ela pode ficar em cache. Uma queda de
+ // energia logo apos um WriteAtomic bem-sucedido pode entao deixar o alvo com o
+ // conteudo antigo, ou com nenhum, apesar de a escrita ter reportado sucesso.
+ //
+diff --git a/internal/writer/syncdir_windows.go b/internal/vault/syncdir_windows.go
+similarity index 98%
+rename from internal/writer/syncdir_windows.go
+rename to internal/vault/syncdir_windows.go
+index f5f9d40..3d5ac50 100644
+--- a/internal/writer/syncdir_windows.go
++++ b/internal/vault/syncdir_windows.go
+@@ -1,13 +1,13 @@
+ //go:build windows
+ 
+-package writer
++package vault
+ 
+ // sincronizarDiretorio nao existe no Windows, e este arquivo diz isso em vez de
+ // fingir.
+ //
+ // O Windows nao expoe handle de diretorio sincronizavel pela API que o pacote
+ // os usa: CreateFile num diretorio exige FILE_FLAG_BACKUP_SEMANTICS e o
+ // FlushFileBuffers resultante nao tem a semantica do fsync de diretorio POSIX.
+ // A durabilidade do rename no NTFS e coberta pelo journal do proprio sistema de
+ // arquivos, que registra a operacao de metadado antes de aplica-la.
+ //
+diff --git a/internal/vault/walk.go b/internal/vault/walk.go
+index f3d13e2..0434692 100644
+--- a/internal/vault/walk.go
++++ b/internal/vault/walk.go
+@@ -64,21 +64,21 @@ func isNoise(name string) bool {
+ 	// descartaria de qualquer forma, com ou sem este ramo — defensivo
+ 	// (belt-and-braces), nao alcancavel por efeito. Nao existe fixture capaz
+ 	// de provar este ramo sem inventar um nome que o Windows nunca produz.
+ 	case lower == "desktop.ini", lower == "thumbs.db", lower == ".ds_store":
+ 		return true
+ 	// *.tmp: ".tmp" nao esta em assetExts, entao qualquer arquivo que caia
+ 	// aqui ja seria descartado pelo filtro de extensao mesmo sem isNoise.
+ 	// Defensivo pelo mesmo motivo do ramo acima, nao alcancavel por efeito.
+ 	case strings.HasSuffix(lower, ".tmp"):
+ 		return true
+-	case strings.HasPrefix(name, ".gobsidian-tmp-"):
++	case strings.HasPrefix(name, TempFilePrefix):
+ 		return true
+ 	}
+ 	return false
+ }
+ 
+ // Classification diz o que o cofre pensa de um caminho relativo, sem tocar no
+ // disco. E a mesma decisao que Walk aplica durante a varredura: exporta-la e o
+ // que impede o watcher de manter uma segunda copia das regras, que divergiria
+ // da primeira no dia em que alguem acrescentasse uma extensao a so uma delas.
+ // Classification indica o tipo de arquivo ou se ele deve ser excluido.
+diff --git a/internal/vault/walk_test.go b/internal/vault/walk_test.go
+index 4c28538..d837ca7 100644
+--- a/internal/vault/walk_test.go
++++ b/internal/vault/walk_test.go
+@@ -99,20 +99,53 @@ func TestWalkExcludesAndClassifies(t *testing.T) {
+ 			t.Errorf("notas[%d] = %q, quer %q", i, notes[i], wantNotes[i])
+ 		}
+ 	}
+ 
+ 	wantAssets := []string{"Anexos/diagrama.png"}
+ 	if len(assets) != len(wantAssets) || assets[0] != wantAssets[0] {
+ 		t.Errorf("anexos = %v, quer %v", assets, wantAssets)
+ 	}
+ }
+ 
++// TestWalkIgnoraTemporarioDeBinarioAntigo prende a conta unica do prefixo, que
++// desde a Task 171 e vault.TempFilePrefix tambem aqui no filtro da varredura.
++//
++// O arquivo e criado com o LITERAL, nao com a constante: e o que o disco tem de
++// um binario antigo. Se a constante do filtro mudar, este teste e o que avisa
++// que o lixo antigo passaria a entrar no indice.
++//
++// O nome termina em ".md" de proposito. Sem extensao de nota, o filtro de
++// extensao o descartaria com ou sem isNoise, e o teste passaria mesmo com a
++// constante trocada — provaria uma poda que nunca acontece.
++func TestWalkIgnoraTemporarioDeBinarioAntigo(t *testing.T) {
++	root := t.TempDir()
++	writeFile(t, root, ".gobsidian-tmp-abc123.md", "escrita atomica interrompida")
++	writeFile(t, root, "a.md", "# a\n")
++
++	v, err := vault.New(root)
++	if err != nil {
++		t.Fatalf("New: %v", err)
++	}
++
++	var vistos []string
++	if err := v.Walk(context.Background(), func(e vault.Entry) error {
++		vistos = append(vistos, string(e.Path))
++		return nil
++	}); err != nil {
++		t.Fatalf("Walk: %v", err)
++	}
++
++	if len(vistos) != 1 || vistos[0] != "a.md" {
++		t.Fatalf("o temporario entrou no walk: %v", vistos)
++	}
++}
++
+ func TestNewRejectsMissingRoot(t *testing.T) {
+ 	if _, err := vault.New(filepath.Join(t.TempDir(), "nao-existe")); err == nil {
+ 		t.Fatal("New com raiz inexistente deveria falhar")
+ 	}
+ }
+ 
+ // TestWalkFailsWhenRootRemoved e a regressao permanente para o Finding 1 do
+ // fix pass anterior: um cofre que existia em New e some antes de Walk (unidade
+ // removivel desconectada, pasta de nuvem movida, share de rede caido) precisa
+ // devolver um erro nao-nulo, nao sucesso silencioso com zero entradas. Sem
+diff --git a/internal/writer/atomic.go b/internal/writer/atomic.go
+index e0f75b2..5bcbf7f 100644
+--- a/internal/writer/atomic.go
++++ b/internal/writer/atomic.go
+@@ -1,205 +1,50 @@
+ package writer
+ 
+ import (
+ 	"context"
+-	"fmt"
+-	"log/slog"
+-	"os"
+-	"path/filepath"
+-	"strings"
+-	"time"
+-)
+ 
+-// TempFilePrefix e o prefixo usado para todos os arquivos temporarios de escrita atomica.
+-const TempFilePrefix = ".gobsidian-tmp-"
++	"github.com/jonyd/gobsidian/internal/vault"
++)
+ 
+-// SweepResult e o que a varredura de temporarios encontrou.
++// A escrita atomica mora em internal/vault desde a Task 171: o temporario, o
++// rename com retry e a varredura de temporarios orfaos sao I/O de arquivo do
++// cofre, e vault e a unica camada que toca o sistema de arquivos. O que sobra
++// aqui sao encaminhadores, para que a migracao dos chamadores seja uma PR
++// separada da mudanca de estrutura.
+ //
+-// Era um int so — a contagem de removidos — e todo o resto era descartado
+-// (achado P11). Uma varredura que nao conseguiu entrar em nenhum diretorio
+-// devolvia "0 removidos", indistinguivel de um cofre limpo. Quem chama loga
+-// os tres numeros.
+-type SweepResult struct {
+-	Removidos int
+-	// NaoRemovidos conta temporarios encontrados que os.Remove recusou —
+-	// tipicamente arquivo travado por outro processo.
+-	NaoRemovidos int
+-	// Inacessiveis conta subarvores em que a varredura nao conseguiu entrar.
+-	Inacessiveis int
+-}
+-
+-// SweepStaleTempFiles remove, do cofre inteiro, os temporarios que escritas
+-// interrompidas deixaram, e devolve quantos removeu. Roda no boot, quando
+-// nenhuma escrita esta em voo — por isso pode varrer o diretorio inteiro
+-// sem risco: ate 2026-07-30 WriteAtomic varria assim no INICIO de cada
+-// escrita, e o glob apagava TODOS os temporarios do diretorio, inclusive o
+-// de outra escrita em voo na mesma pasta (a trava do writer e por CAMINHO,
+-// nao por diretorio). No Windows a corrida ficava mascarada — os.Remove
+-// sobre arquivo com handle aberto falha com sharing violation, e o erro era
+-// engolido; em Linux e macOS o unlink sucede por semantica POSIX, a outra
+-// escrita segue gravando num inode desvinculado, e o rename final falhava
+-// com ENOENT.
++// Os quatro somem na Task 172, quando o ultimo chamador tiver migrado.
+ //
+-// Existe tambem porque a varredura preguicosa nao bastava: um temporario orfao
+-// numa pasta que nunca mais fosse escrita ficava no cofre do usuario para
+-// sempre. O filtro de ruido do vault o esconde do indice, entao o usuario o via
+-// so no Explorer, sem saber de onde veio.
++// Nenhum deles leva o marcador `// Deprecated:`, e isso e decisao registrada, nao
++// esquecimento: `staticcheck` esta ligado em `.golangci.yml`, entao o marcador
++// faria SA1019 reprovar o gate em todo chamador que esta tarefa deliberadamente
++// NAO migra — e um gate vermelho por desenho e um gate que alguem contorna. O
++// que marca a transitoriedade e a prosa abaixo, mais o ledger da Task 172.
++
++// TempFilePrefix e o prefixo dos temporarios de escrita atomica.
+ //
+-// Recebe ctx porque percorrer um cofre grande bloqueia. Erro em subdiretorio
+-// nao aborta a varredura: um temporario que nao pudemos remover e lixo, nao
+-// motivo para o servidor nao subir.
+-func SweepStaleTempFiles(ctx context.Context, root string) (SweepResult, error) {
+-	var res SweepResult
++// Encaminhador transitorio para vault.TempFilePrefix; a Task 172 migra os
++// chamadores e o remove.
++const TempFilePrefix = vault.TempFilePrefix
+ 
+-	// A raiz vai CRUA, e isso esta medido.
+-	//
+-	// O achado P11 dizia que a varredura pulava diretorios alem de MAX_PATH em
+-	// silencio, e que a raiz precisava do prefixo \?\ para os filhos herdarem.
+-	// Sondado em 2026-08-27: falso. O pacote os do Go aplica o prefixo sozinho
+-	// (fixLongPath), e MkdirAll, WriteFile e WalkDir alcancaram 318 caracteres
+-	// sem prefixo nenhum. A prova de mutacao confirmou: trocar por vault.LongPath
+-	// — que para raiz curta e identidade, ou seja, o comportamento antigo —
+-	// deixou o teste PASSANDO.
+-	//
+-	// Prefixar aqui seria guarda que nao muda resultado: parece protecao e nao e.
+-	// TestSweepAlcancaCaminhoAlemDeMaxPath fixa o alcance real.
+-	err := filepath.WalkDir(root, func(caminho string, d os.DirEntry, err error) error {
+-		if ctxErr := ctx.Err(); ctxErr != nil {
+-			return ctxErr
+-		}
+-		if err != nil {
+-			// d == nil e falha na propria raiz — cofre desmontado, share caido.
+-			// Devolver nil ali faria a varredura reportar sucesso com zero
+-			// removidos, e cofre inacessivel nao pode dar a mesma resposta que
+-			// cofre limpo.
+-			if d == nil {
+-				return fmt.Errorf("varrendo temporarios em %q: %w", root, err)
+-			}
+-			// Erro em subarvore continua nao abortando — um temporario que nao
+-			// pudemos remover e lixo, nao motivo para o servidor nao subir. Mas
+-			// agora ele é CONTADO: "varri e nao achei nada" e "varri e nao
+-			// consegui entrar em 30 diretorios" nao podem produzir a mesma
+-			// resposta.
+-			res.Inacessiveis++
+-			return nil
+-		}
+-		if d.IsDir() || !strings.HasPrefix(d.Name(), TempFilePrefix) {
+-			return nil
+-		}
+-		if os.Remove(caminho) == nil {
+-			res.Removidos++
+-		} else {
+-			res.NaoRemovidos++
+-		}
+-		return nil
+-	})
+-	return res, err
+-}
++// SweepResult e o que a varredura de temporarios encontrou.
++//
++// Encaminhador transitorio para vault.SweepResult; a Task 172 migra os
++// chamadores e o remove.
++type SweepResult = vault.SweepResult
+ 
+-// WriteAtomic escreve os dados fornecidos no caminho de destino de forma atomica:
+-// 1. Cria um arquivo temporario no mesmo diretorio do destino.
+-// 2. Escreve os dados.
+-// 3. Executa Sync() (fsync) para garantir a gravacao fisica no disco contra quedas de energia.
+-// 4. Fecha o temporario.
+-// 5. Executa rename atomico sobre o arquivo de destino, com retry em caso de bloqueio temporario (Windows).
+-// WriteAtomic recebe ctx porque ESPERA DE VERDADE: o laco de rename abaixo
+-// dorme ate 100 ms tentando de novo, e a escrita em si pode bloquear num share
+-// de rede. A regra desta base e "ctx onde ha espera real" (achado M13).
++// WriteAtomic escreve os dados no caminho de destino de forma atomica.
+ //
+-// Cancelar NAO desfaz um rename ja aplicado — a escrita e atomica, nao
+-// transacional. O ctx e conferido nos pontos em que ainda nao houve efeito
+-// visivel, e entre as tentativas.
++// Encaminhador transitorio para vault.WriteAtomic; a Task 172 migra os
++// chamadores e o remove.
+ func WriteAtomic(ctx context.Context, targetPath string, data []byte) error {
+-	if err := ctx.Err(); err != nil {
+-		return err
+-	}
+-	dir := filepath.Dir(targetPath)
+-
+-	// Nenhuma varredura de diretorio aqui -- so no boot, por
+-	// SweepStaleTempFiles, e pelo motivo no comentario dela. O temporario
+-	// desta escrita e removido pelo defer abaixo em qualquer falha; o de um
+-	// processo morto (que nao roda defer) fica ate o proximo boot.
+-	tmpFile, err := os.CreateTemp(dir, TempFilePrefix+"*")
+-	if err != nil {
+-		return fmt.Errorf("criando temporario em %q: %w", dir, err)
+-	}
+-	tmpName := tmpFile.Name()
+-
+-	// os.CreateTemp cria com 0600. Sem restaurar o modo do ALVO, um rename por
+-	// cima de uma nota 0644 a deixa 0600 — a escrita "preserva o conteudo" e
+-	// muda a permissao pelas costas (achado M12). Em cofre compartilhado por
+-	// grupo, a nota some para os outros.
+-	//
+-	// Alvo inexistente e nota nova: 0644, o mesmo que o resto do projeto usa.
+-	// No Windows o modo e quase todo ignorado pelo runtime do Go — so o bit de
+-	// somente-leitura mapeia —, mas o cofre pode estar num share lido de Linux,
+-	// e a chamada e barata.
+-	modo := os.FileMode(0644)
+-	if info, err := os.Stat(targetPath); err == nil {
+-		modo = info.Mode().Perm()
+-	}
+-	if err := tmpFile.Chmod(modo); err != nil {
+-		// Nao e fatal. Ha sistema de arquivos que nao suporta Chmod, e recusar
+-		// a escrita inteira por causa da permissao perderia o conteudo, que e o
+-		// que o usuario pediu para gravar. Fica registrado.
+-		slog.Debug("nao foi possivel aplicar o modo do alvo ao temporario",
+-			"alvo", targetPath, "modo", modo, "err", err)
+-	}
+-
+-	cleanup := true
+-	defer func() {
+-		if cleanup {
+-			_ = tmpFile.Close()
+-			_ = os.Remove(tmpName)
+-		}
+-	}()
+-
+-	if _, err := tmpFile.Write(data); err != nil {
+-		return fmt.Errorf("escrevendo dados no temporario %q: %w", tmpName, err)
+-	}
+-
+-	// Sync e obrigatorio para durabilidade e integridade fisica contra queda de energia.
+-	if err := tmpFile.Sync(); err != nil {
+-		return fmt.Errorf("sync do temporario %q: %w", tmpName, err)
+-	}
+-
+-	if err := tmpFile.Close(); err != nil {
+-		return fmt.Errorf("fechando temporario %q: %w", tmpName, err)
+-	}
+-
+-	maxRetries := 10
+-	retryDelay := 10 * time.Millisecond
+-	var renameErr error
+-
+-	for i := 0; i < maxRetries; i++ {
+-		// Entre tentativas, e nao dentro: uma tentativa ja iniciada termina.
+-		if err := ctx.Err(); err != nil {
+-			return err
+-		}
+-		renameErr = os.Rename(tmpName, targetPath)
+-		if renameErr == nil {
+-			cleanup = false
+-			// O Sync do arquivo garante os DADOS; o rename e uma mudanca de
+-			// DIRETORIO, e sem sincronizar o diretorio uma queda de energia
+-			// logo depois pode deixar o alvo com o conteudo antigo — ou
+-			// nenhum — apesar de a escrita ter reportado sucesso (achado M12).
+-			//
+-			// Falha aqui nao desfaz o rename, que ja aconteceu: e reportada
+-			// como aviso, nao como erro da escrita.
+-			if err := sincronizarDiretorio(dir); err != nil {
+-				slog.Debug("nao foi possivel sincronizar o diretorio apos o rename",
+-					"dir", dir, "err", err)
+-			}
+-			return nil
+-		}
+-		// Dormir com select, e nao time.Sleep: um cancelamento durante a
+-		// espera nao pode ficar 100 ms sem resposta.
+-		select {
+-		case <-time.After(retryDelay):
+-		case <-ctx.Done():
+-			return ctx.Err()
+-		}
+-	}
++	return vault.WriteAtomic(ctx, targetPath, data)
++}
+ 
+-	return fmt.Errorf("falha ao renomear %q para %q apos %d tentativas: %w", tmpName, targetPath, maxRetries, renameErr)
++// SweepStaleTempFiles remove do cofre os temporarios que escritas interrompidas
++// deixaram.
++//
++// Encaminhador transitorio para vault.SweepStaleTempFiles; a Task 172 migra os
++// chamadores e o remove.
++func SweepStaleTempFiles(ctx context.Context, root string) (SweepResult, error) {
++	return vault.SweepStaleTempFiles(ctx, root)
+ }
