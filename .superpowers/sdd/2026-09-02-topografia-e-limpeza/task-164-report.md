@@ -22,7 +22,7 @@ Fix round 1 (R=1), review `review-164.md`:
 
 ## Status
 
-**DONE.** SHA `af93306`.
+**DONE.** SHA `af93306` (tarefa) e `8568b5b` (fix round 1: N1, N3, N4, relatorio).
 
 ## Inventario: sitio, o que esperava, sinal observavel, acao
 
@@ -318,11 +318,12 @@ duas. Nenhuma aresta nova de import no produto: `vaulttest` entrou so em arquivo
 
 ## Fix round 1 - os cinco itens da revisao
 
-### B1 - o relatorio ja tinha os cinco itens quando a revisao terminou
+### B1 - o relatorio foi completado na rodada de conserto
 
 O revisor leu o arquivo no estado de 00:51, ainda com o cabecalho "EM ANDAMENTO",
-e o achado esta correto para o que ele viu. A versao que esta neste arquivo desde
-00:59 tem os cinco itens do contrato: **Status** (`DONE`), **SHA** (`af93306`),
+e o achado esta correto: as secoes com os cinco itens do contrato foram escritas
+nesta rodada, depois de 01:13 (o `## Progresso` nao registra escrita entre 00:59
+e 01:13, e `git log --follow` deste arquivo tem um commit so). Hoje ele tem: **Status** (`DONE`), **SHA** (`af93306`),
 a **tabela de sinais** por sitio, a **saida do `-count=20 -race`** e a **ultima
 linha do `verify.ps1`**. Nao ha o que consertar no conteudo; o defeito real foi
 de sequencia - o relatorio ficou incompleto no disco enquanto o commit ja

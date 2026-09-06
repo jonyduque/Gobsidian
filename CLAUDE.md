@@ -136,10 +136,12 @@ produção o importa, só arquivos `_test.go` de `index`, `search`, `service`,
 `vault`, `watcher`, `daemon`, `ipc` e `cmd/gobsidian` — a lista saiu de
 `git grep -l "internal/vaulttest" -- '*_test.go' | cut -d/ -f1-2 | sort -u`
 (medido em 2026-09-06; `watcher` entrou na Task 164 e a enumeração ficou um dia
-desatualizada). Que não há aresta de produção também é medido, e é o outro
+desatualizada). O comando devolve uma nona linha, `internal/vaulttest`: é o
+teste externo do próprio pacote, não um importador. Que não há aresta de produção também é medido, e é o outro
 comando: `git grep -l "internal/vaulttest" -- '*.go' ':!*_test.go'` volta vazio.
-Por isso ele fica fora do grafo de produção acima, e por isso não pode ganhar import de `index`, `search`,
-`service` ou `parser`: seria ciclo no teste externo desses pacotes.
+Por isso ele fica fora do grafo de produção acima, e por isso não pode ganhar
+import de `index`, `search`, `service` ou `parser`: seria ciclo no teste externo
+desses pacotes.
 
 ```
 vaulttest → vault             (pacote só de teste; ninguém em produção o importa)
