@@ -1,0 +1,42 @@
+fix(index): tag_list.prefix is documented as the string prefix it is; the prefix folding gets its test
+
+Review round 1 over Task 180 (review-180.md). Five findings, no behavior
+change: the code that the review found correct is untouched, and the two
+tools whose tags filter is segment-hierarchical keep the contract they got.
+
+N1 - tag_list.prefix promised "the prefix matches itself and its subtags",
+and the code does a string prefix over the folded key, which is a different
+operation and misses in both directions: 'proj/al' returns 'proj/alpha',
+which is neither, and 'civil/' does not return 'civil'. That behavior is
+deliberate and fixed by testdata/tag_list_hierarquico.json since Task 169
+(autocomplete, not filtering), so the doc follows the code. TOOLS.md now
+says string prefix, spells out the two examples, and gains a paragraph
+separating tag_list.prefix from the tags filter of note_list and
+vault_search, which stays segment-hierarchical. The jsonschema description
+in internal/mcpsrv said "subarvore", the same claim in one word, and is
+aligned; the '#'-optional, case- and NFC-insensitive half is kept.
+
+N2 - the prefix folding was written and never verified in either branch:
+every prefix in the fixtures was lowercase ASCII, where ChaveDeTag and
+strings.ToLower are the same function, and all three of the reviewer's
+mutations survived the whole suite. Two prefixes that separate them - "#AC"
+with the hash and the uppercase, and the NFD form with the combining mark -
+now run through TagList in both branches (service) and through Index.Tags
+(index). The three mutations fail now.
+
+N4 - the Tags(proj) assertion read `len != 2 || a != "projeto" && b !=
+"projeto"`, and && binds tighter than ||: any one of the two being "projeto"
+passed, and projeto/alpha was never checked. It is a sorted-name comparison
+now, and a mutation that drops subtags from Tags makes it fail naming
+projeto/alpha.
+
+N6 - ESTADO.md said the parser NFD truncation had no open task; it has been
+B20 in SUGESTOES.md since c08c70c.
+
+N9 - TOOLS.md now says note_list.tags keeps the note's original spelling,
+like note_metadata.tags, and ESTADO.md records that the CLI index subcommand
+counts folded keys, so its distinct-tag number drops where spellings merge.
+By how much on a real vault: not measured.
+
+Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01P5wkw6PAdBFzF3uB1w1jNj

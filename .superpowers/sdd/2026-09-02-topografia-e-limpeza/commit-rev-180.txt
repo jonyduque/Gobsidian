@@ -1,0 +1,9 @@
+docs(sdd): record the Task 180 review, the fix round and the ruling on tag_list.prefix
+
+Base, brief, report, review package, review-180.md and the fix-round diff
+for Task 180. The ledger carries the ruling that tag_list.prefix stays a
+string prefix over the folded key (Task 169's golden fixed it on purpose)
+and that the parser's NFD truncation is tracked as B20, not fixed here.
+
+Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01P5wkw6PAdBFzF3uB1w1jNj

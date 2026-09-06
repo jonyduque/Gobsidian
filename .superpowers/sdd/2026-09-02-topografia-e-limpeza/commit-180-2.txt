@@ -1,0 +1,9 @@
+feat(index)!: one tag key - case, NFC, no hash - hierarchical in note_list, vault_search and tag_list
+
+BREAKING CHANGE: vault_search.tags now matches subtags and ignores case,
+Unicode form and a leading '#', like note_list already did; tag_list
+returns the folded form (lowercase, NFC, no '#') and merges spellings
+that differ only in case or Unicode form.
+
+Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01P5wkw6PAdBFzF3uB1w1jNj

@@ -1,0 +1,4 @@
+test(service): benchmark vault_search with a tags filter [sem-doc]
+
+Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01P5wkw6PAdBFzF3uB1w1jNj

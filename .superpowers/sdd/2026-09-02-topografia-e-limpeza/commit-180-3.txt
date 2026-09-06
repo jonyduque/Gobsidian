@@ -1,0 +1,17 @@
+docs(sugestoes): track the parser's NFD tag truncation as B20
+
+Task 180 measured it while proving that ChaveDeTag folds case and Unicode
+form: a body written in NFD, "# D\n\n#Acao\n" with A c U+0327 a U+0303 o,
+comes out of the parser as n.Tags = ["Ac"], because tagNameChar
+(internal/parser/ext_tag.go:36) accepts letters, digits, '-', '_' and '/'
+but not unicode.Mn, so the scanner stops at the first combining mark. The
+note then indexes under a tag nobody typed.
+
+No key folding can repair a tag that arrived truncated, so this is not the
+same defect Task 180 closed - and it is why that task moved its NFD fixture
+to the frontmatter, where YAML preserves the form. The fix belongs to a task
+of its own: changing the parser's alphabet means a golden pass over testdata/
+and a parity check against Obsidian, which is what decides what a tag is.
+
+Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01P5wkw6PAdBFzF3uB1w1jNj

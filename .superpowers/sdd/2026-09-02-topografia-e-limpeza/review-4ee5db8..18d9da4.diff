@@ -1,0 +1,930 @@
+18d9da4 feat(index)!: one tag key - case, NFC, no hash - hierarchical in note_list, vault_search and tag_list
+937e54c test(service): benchmark vault_search with a tags filter [sem-doc]
+ docs/ESTADO.md                         |  39 ++++++++++
+ docs/TOOLS.md                          |  12 ++-
+ internal/index/chave.go                |  13 ++++
+ internal/index/index.go                |  13 +++-
+ internal/index/persist_test.go         |  13 ++++
+ internal/index/query.go                | 137 ++++++++++++++++++++-------------
+ internal/index/tag_chave_test.go       |  77 ++++++++++++++++++
+ internal/index/update.go               |   9 ++-
+ internal/service/bench_tags_test.go    |  19 +++++
+ internal/service/graph.go              |  14 +++-
+ internal/service/search.go             |  31 +++++---
+ internal/service/tags_contrato_test.go |  91 ++++++++++++++++++++++
+ 12 files changed, 392 insertions(+), 76 deletions(-)
+diff --git a/docs/ESTADO.md b/docs/ESTADO.md
+index 895fc42..cfbf4eb 100644
+--- a/docs/ESTADO.md
++++ b/docs/ESTADO.md
+@@ -142,23 +142,62 @@ SaveInvertedCacheReal-12       154.1m ± 30%  163.5m ± 30%  ~ (p=0.097 n=7)
+ ```
+ 
+ O índice sobe de forma estatisticamente significativa (+26,43 %), mas fica
+ abaixo do que a antiga coluna `ComFsync` insinuava (41,87 ms) — a rotina
+ antiga não é o mesmo caminho de código. O invertido não mostra diferença
+ estatisticamente significativa nesta rodada (p=0,097): a variância de ±30 %
+ do benchmark domina o efeito do fsync num arquivo de ~25 MiB. Binários e
+ saída bruta: `%LOCALAPPDATA%\gobsidian-bench\2026-09-02\{antes,depois}172_{index,search}.test.exe`
+ e `.txt`.
+ 
++**Task 180 (2026-09-06):** chave de tag única desde 2026-09 — `index.ChaveDeTag`
++(minúscula, NFC, sem `#`) é a conta de `ix.tags` nos três pontos de escrita e em
++todos os pontos de leitura, e o casamento hierárquico passou a ser o mesmo em
++`note_list`, `vault_search` e `tag_list`. **O formato de cache não muda:** o
++cache guarda `Note.Tags` cru e o reload republica por `publishNoteLocked`, que é
++onde a dobra mora. `benchstat` intercalado, 7 rodadas alternadas de uma
++execução cada (o protocolo de `papeis/desempenho.md`, não `-count=7` por braço),
++`-benchmem`; antes = binários do commit `937e54c`:
++
++```
++index (antes180_index × depois180_index)
++TagsSemPrefixo-12   18.11µ ± 3%   15.85µ ± 12%  -12.47% (p=0.001 n=7)
++ListPorTag-12       631.3µ ± 2%   635.2µ ± 10%  ~ (p=1.000 n=7)
++  B/op e allocs/op idênticos nos dois (119.1Ki, 12).
++
++service (antes180_service × depois180_service)
++TagListPlano-12              19.72µ ± 13%  17.63µ ± 7%   -10.62% (p=0.001 n=7)
++TagListHierarquico-12        2.750m ± 21%  3.134m ± 39%  ~ (p=0.097 n=7)
++NoteListPorTag-12            235.9µ ± 52%  235.6µ ± 13%  ~ (p=0.535 n=7)
++SearchFiltroFrontmatter-12   13.04m ± 50%  13.67m ± 3%   ~ (p=0.128 n=7)
++SearchFiltroTags-12          13.36m ± 3%   12.85m ± 8%   ~ (p=0.073 n=7)
++  B/op: só SearchFiltroTags move — 1.926Mi -> 1.935Mi, +0,48% (p=0.001 n=7),
++  com allocs/op igual (10.15k). É o conjunto de caminhos que o filtro de tag
++  agora resolve UMA vez por consulta (index.PathsComTags) no lugar do mapa por
++  resultado; o mapa antigo não escapava e saía da pilha, então o que se paga
++  são ~9,6 KiB de heap por consulta em troca da semântica correta, sem piora
++  de tempo.
++```
++
++Uma regressão real apareceu no meio do caminho e foi corrigida antes do commit:
++a primeira forma de `candidatosPorTagLocked` ordenava e compactava por tag
++também em `tag_mode=any`, que ordena uma vez só no fim — `ListPorTag` deu
++**+16,08 % de tempo (p=0,026) e +40,31 % de B/op (p=0,001)**. Com o casamento
++anexando à fatia do chamador, voltou a `~` com B/op idêntico (a medição acima).
++Binários e saída bruta:
++`%LOCALAPPDATA%\gobsidian-bench\2026-09-02\{antes,depois}180_{index,service}.test.exe`
++e `t180b_{index,service}_{antes,depois}.txt`.
++
+ Fatos medidos sem benchmark:
+ 
+ - `vault_5000`: 112 tags distintas, 0 hierárquicas. Cofres reais do dono: **não medido** neste plano.
++- Tag inline em NFD **não chega inteira ao índice** (medido em 2026-09-06, Task 180): `parser.tagNameChar` aceita letra, dígito, `-`, `_` e `/`, e não `unicode.Mn`, então o corpo `#Ação` gravado em NFD (`A c U+0327 a U+0303 o`) indexa como a tag `Ac`. É defeito do parser, anterior à chave única e fora do alcance dela — nenhuma dobra de chave conserta uma tag que já chegou cortada. Pelo frontmatter (`tags: ["Ação"]`) o YAML entrega a string inteira e a dobra funciona: chave `ação`, e um pedido em NFC casa a nota. Sem tarefa aberta.
+ - Cobertura por função (`go test -coverprofile`, 2026-09-02): `construirServico` 6,5 %, `carregarIndiceDoCache` 0 %, `prepararIndiceDeBusca` 0 %, `runServe` 0 %, `serveEmProcesso` 20,6 %, `buildInvertedIndex` 60,7 %; `WriteAtomic` 71,1 %, `SweepStaleTempFiles` 62,5 %, `CleanStaleTempFiles` 0 %; `SaveIndexCache` 64,5 %, `SaveInvertedCache` 56,0 %; `Tags` 91,7 %, `coletarLocked` 87,6 %, `tagListHierarchical` 94,1 %, `LinkGraph` 78,1 %; `Search` 96 %; `mcpsrv.Server.Serve` 0 %, `Close` 0 %; `doctor.checkDaemonLog` 44,4 %, `checkLocksDeDaemon` 58,6 %.
+ - Tempo de suíte (`go test ./... -count=1 -cover`): service 51,7 s, writer 32,5 s, search 31,1 s, watcher 26,2 s, index 22,3 s, vault 22,0 s, doctor 19,4 s, mcpsrv 17,0 s.
+ - Raio de explosão de `service.Index` (gopls references, medido antes da Task 173): `Get` 13, `ResolvePath` 8, `Backlinks` 5, `List` 4, `NotePaths` 2, `TotalSize`/`Tags`/`NoteCount`/`Generation`/`AssetCount`/`AliasCollisions` 1 cada, `Paths` **0**. `service.New` recebe `*index.Index`; a interface foi removida em 2026-09 (Task 173) — tinha uma implementação e nenhum fake.
+ - Raio de `writer.WriteAtomic` (medido em 2026-09-02, antes das Tasks 171-172): 6 sítios em `internal/service/write.go` (`:149,:248,:378,:619,:751,:832`) + 3 arquivos de teste; `SweepStaleTempFiles`: 1 sítio (`cmd/gobsidian/servico.go:78`). Depois das Tasks 171-172, `writer.WriteAtomic` e `writer.SweepStaleTempFiles` não existem mais — os chamadores usam `vault.WriteAtomic`/`vault.SweepStaleTempFiles` diretamente.
+ - Prefixo `.gobsidian-tmp-` em 4 literais (medido em 2026-09-02, antes das Tasks 171-172): `writer/atomic.go:14` (constante), `vault/walk.go:74`, `search/persist.go:87`, `index/persist.go:124`. Depois das Tasks 171-172, o literal existe numa só linha: `vault/atomic.go:14`.
+ - `hits` × `results`: `search --json --limit 200 --vault vault_5000 "execucao"` (binário de 6c5d1f1): `hits` e `results` são 200 itens e **byte a byte iguais** (`hits == results` → `True` em Python). JSON compacto: 195 481 bytes com `hits`, 97 787 sem — **50,0 % do payload é a cópia**. Arquivo indentado: 216 304 bytes. **Depois (Task 179, `hits` removido, commit `b6cf8be`+):** mesmo comando, mais `--max-results 200` (sem a flag, o teto administrativo `MaxResults` — padrão 50 desde a Task 168 — corta a página a 50 itens antes que a comparação faça sentido) e `--cache-dir` novo: 200 itens em `results`, sem `hits`. Arquivo indentado: **108 204 bytes**. JSON compacto: **95 969 bytes** (medido com o mesmo one-liner Python; a pequena diferença ante os 97 787 esperados vem do conteúdo do corpus — snippets e `modified` variam com o estado atual do `vault_5000`, não com o formato).
+ - CLI a frio × `serve` com cache: cofre `vault_5000`, mesmo binário. `search` a frio (Build + `inv.Update` serial por nota): **10 520 / 10 819 / 11 046 ms** de parede em 3 execuções. `inspect` a frio (só Build): **770 / 767 / 739 ms**. `serve` em processo (`GOBSIDIAN_NO_DAEMON=1 --eager-search`) com cache quente, 5 execuções: `index_ms` **101–123**, índice de busca `duracao_ms` **13–20**, parede boot→saída **475–528 ms**. Ou seja: a CLI de busca paga ~10 s que o `serve` não paga; adotar o cache na CLI (Task 175) tem teto de ganho medido, não estimado.
+ - Task 175, `search` reaproveitando `boot.AbrirIndice`/`boot.PrepararBusca` como o `serve`: cofre `vault_5000`, `--json --limit 200 "execucao"`, 3 execuções frias + 3 quentes por binário (`Measure-Command`, `TotalMilliseconds`). **Antes** (commit `ebf29ad`, sem `--cache-dir`, constrói tudo em memória sempre): frias **8338,6 / 1687,0 / 1631,9 ms**, "quentes" (mesmo binário, sem cache — repetição idêntica) **1700,4 / 1631,0 / 1597,7 ms**. **Depois**: frias (`--cache-dir` novo, apagado antes de cada uma) **1905,6 / 1921,2 / 1796,7 ms**; quentes (mesmo diretório de cache) **234,7 / 214,0 / 190,2 ms**. A quente do depois fica bem abaixo de 1/5 da fria do depois (1/5 de ~1800–1920 ms é ~360–384 ms; medi 190–235 ms). Os números não batem com a faixa do M4 acima (10 520–11 046 ms de "antes", 475–528 ms de `serve` quente) — a máquina/estado de disco nesta rodada não é o mesmo; a primeira chamada "antes" (8338,6 ms) sugere cache de disco do SO ainda frio nela e já quente nas cinco seguintes. Binário `antes`: worktree Git separado no commit base, sem tocar a árvore principal (`git worktree add --detach`).
+ 
+ ---
+diff --git a/docs/TOOLS.md b/docs/TOOLS.md
+index 1bc0833..d3a29db 100644
+--- a/docs/TOOLS.md
++++ b/docs/TOOLS.md
+@@ -42,21 +42,21 @@ Datas do frontmatter são comparadas como datas quando ambos os lados são parse
+ ## `vault_search`
+ 
+ Busca full-text com ranking, combinável com filtros de metadados.
+ 
+ ```json
+ {
+   "type": "object",
+   "properties": {
+     "query":        { "type": "string", "description": "Termos de busca. Aspas duplas delimitam frase exata." },
+     "folder":       { "type": "string", "description": "Restringe a uma pasta e suas subpastas." },
+-    "tags":         { "type": "array", "items": { "type": "string" }, "description": "Notas que contenham TODAS as tags." },
++    "tags":         { "type": "array", "items": { "type": "string" }, "description": "Notas que contenham TODAS as tags. A tag pedida casa a si mesma e suas subtags; '#' inicial é opcional; comparação insensível a caixa e a forma Unicode (NFC)." },
+     "frontmatter":  { "type": "object", "description": "Pares chave/valor que devem casar no frontmatter." },
+     "modified_after":  { "type": "string", "description": "Data mínima de modificação. Aceita RFC3339 ('2006-01-02T15:04:05Z07:00') ou data curta ('2006-01-02')." },
+     "modified_before": { "type": "string", "description": "Data máxima de modificação. Aceita RFC3339 ('2006-01-02T15:04:05Z07:00') ou data curta ('2006-01-02')." },
+     "snippet_chars":   { "type": "integer", "default": 240, "description": "Tamanho do trecho em caracteres. Acima de 1000, o servidor clampa a 1000." },
+     "limit":  { "type": "integer", "default": 20, "description": "Acima de 200, o servidor clampa a 200; o teto administrativo max_results pode reduzir ainda mais o valor efetivo." },
+     "offset": { "type": "integer", "default": 0 }
+   },
+   "required": ["query"]
+ }
+ ```
+@@ -193,21 +193,21 @@ Dois filtros foram medidos e **recusados**: "termina com dois-pontos" descartari
+ ## `note_list`
+ 
+ Lista notas por critérios estruturais. Não toca o índice de texto.
+ 
+ ```json
+ {
+   "type": "object",
+   "properties": {
+     "folder":    { "type": "string" },
+     "glob":      { "type": "string", "description": "Padrão de caminho, ex.: 'Civil/PONTO *.md'" },
+-    "tags":      { "type": "array", "items": { "type": "string" } },
++    "tags":      { "type": "array", "items": { "type": "string" }, "description": "A tag pedida casa a si mesma e suas subtags; '#' inicial é opcional; comparação insensível a caixa e a forma Unicode (NFC)." },
+     "tag_mode":  { "type": "string", "enum": ["all", "any"], "default": "all" },
+     "frontmatter": { "type": "object" },
+     "recursive": { "type": "boolean", "default": true },
+     "sort":      { "type": "string", "enum": ["path", "modified", "size", "title"], "default": "path" },
+     "order":     { "type": "string", "enum": ["asc", "desc"], "default": "asc" },
+     "fields":    { "type": "array", "items": { "type": "string" }, "description": "Campos de frontmatter a incluir no retorno." },
+     "limit":     { "type": "integer", "default": 100, "description": "Acima de 500, o servidor clampa a 500." },
+     "offset":    { "type": "integer", "default": 0 }
+   }
+ }
+@@ -287,30 +287,36 @@ Vizinhança de links de uma nota.
+ ---
+ 
+ ## `tag_list`
+ 
+ Todas as tags do cofre.
+ 
+ ```json
+ {
+   "type": "object",
+   "properties": {
+-    "prefix":       { "type": "string", "description": "Restringe a uma subárvore, ex.: 'civil/'" },
++    "prefix":       { "type": "string", "description": "Restringe a uma subárvore, ex.: 'civil/'. O prefixo casa a si mesmo e suas subtags; '#' inicial é opcional; comparação insensível a caixa e a forma Unicode (NFC)." },
+     "min_count":    { "type": "integer", "default": 1 },
+     "sort":         { "type": "string", "enum": ["name", "count"], "default": "name", "description": "Ordenação: 'name' (crescente por nome) ou 'count' (decrescente por contagem, desempate por nome)." },
+     "hierarchical": { "type": "boolean", "default": false, "description": "Retorna árvore em vez de lista plana." }
+   }
+ }
+ ```
+ 
+ **Retorno.** Objeto contendo a lista ou árvore de nós em `tags`, onde cada nó possui `tag`, `count` e opcionalmente `children` (quando `hierarchical: true`).
+ 
++**Forma da tag devolvida.** `tag` vem **dobrada**: minúscula, NFC, sem `#`.
++Grafias que diferem só em caixa ou em forma Unicode são uma entrada só, com a
++soma das contagens — `#Ação` e `#ação` viram `ação`. Vale nos dois ramos,
++plano e hierárquico. `note_metadata.tags` continua devolvendo a grafia original
++da nota: a dobra é da chave de agrupamento, não do conteúdo da nota.
++
+ ---
+ 
+ ## `vault_stats`
+ 
+ Estado do cofre e saúde do servidor.
+ 
+ ```json
+ {
+   "type": "object",
+   "properties": {
+diff --git a/internal/index/chave.go b/internal/index/chave.go
+index 86fec50..7b27941 100644
+--- a/internal/index/chave.go
++++ b/internal/index/chave.go
+@@ -38,16 +38,29 @@ func chaveDeCaminho(path string) string {
+ // lowerPath, e `ResolvePath("acordao")` NAO resolvia, porque nome nu passa por
+ // aqui. Duas portas para a mesma pergunta, respondendo diferente.
+ //
+ // Baixar a caixa aqui so e seguro porque byName e uma LISTA e ResolvePath conta
+ // os candidatos: onde duas notas passam a colidir na chave, a resposta e
+ // ErrAmbiguousPath, e nao uma das duas escolhida em silencio.
+ func chaveDeNomeDeArquivo(base string) string {
+ 	return strings.ToLower(text.ParaNFC(base))
+ }
+ 
++// ChaveDeTag e a chave de ix.tags e a forma que tag_list devolve. Tres pontos
++// escreviam a chave crua (boot, remocao, rename) e tres leitores baixavam a
++// caixa cada um do seu jeito: Tags so ToLower no prefixo, coletarLocked ToLower
++// nos dois lados a cada comparacao, service TrimPrefix('#') + ToLower. Nenhum
++// deles normalizava Unicode, e "#Ação" digitado num Mac (NFD) nao casava o
++// mesmo "#Ação" digitado no Windows (NFC). Uma conta, aqui.
++//
++// Exportada porque service compara tags e nao importa text (o grafo tem
++// service -> index, nao service -> text).
++func ChaveDeTag(tag string) string {
++	return strings.ToLower(text.ParaNFC(strings.TrimPrefix(tag, "#")))
++}
++
+ // aliasKey normaliza a chave de byAlias. Toda escrita e toda leitura passam
+ // por aqui: o boot indexava minusculo e Replace indexava cru, e a entrada
+ // que Remove nao encontrava sobrevivia apontando para uma nota deletada.
+ func aliasKey(alias string) string {
+ 	return strings.ToLower(text.ParaNFC(alias))
+ }
+diff --git a/internal/index/index.go b/internal/index/index.go
+index ef43cdb..82902a3 100644
+--- a/internal/index/index.go
++++ b/internal/index/index.go
+@@ -184,22 +184,33 @@ func (ix *Index) insert(r parsed) {
+ }
+ 
+ // publishNoteLocked registra uma nota ja construida nos indices derivados:
+ // notes, lowerPath, byName e tags. E o UNICO lugar que faz isso — Build (via
+ // insert) e o carregamento do cache de disco (persist.go) passam os dois
+ // pelo mesmo caminho, o que impede as duas fontes de povoar os indices
+ // derivados de jeitos que divergem. Exige ix.mu ja travado.
+ func (ix *Index) publishNoteLocked(n *Note) {
+ 	ix.notes[n.Path] = n
+ 	ix.publishNameLocked(n.Path)
++	// A chave de ix.tags e ChaveDeTag, e nao a grafia da nota: e a mesma conta
++	// que Tags, PathsComTags e o filtro de vault_search usam para ler.
++	// n.Tags continua com a grafia original — so a chave do mapa dobra.
++	//
++	// A deduplicacao existe porque uma nota pode trazer duas grafias da MESMA
++	// tag (#Ação e #ação), que dobram para uma chave so: sem ela o caminho
++	// entraria duas vezes na lista e a contagem de tag_list contaria a nota
++	// duas vezes.
+ 	for _, t := range n.Tags {
+-		ix.tags[t] = append(ix.tags[t], n.Path)
++		k := ChaveDeTag(t)
++		if len(ix.tags[k]) == 0 || ix.tags[k][len(ix.tags[k])-1] != n.Path {
++			ix.tags[k] = append(ix.tags[k], n.Path)
++		}
+ 	}
+ 	// byAlias entra AQUI desde 2026-08-26, e nao num passe separado.
+ 	//
+ 	// Eram tres contas do mesmo fato: buildAliasMap varria as notas no fim do
+ 	// Build, Replace publicava inline, e esta funcao nao publicava nada. Uma
+ 	// nota indexada pelo watcher e outra indexada no boot passavam por codigos
+ 	// diferentes para produzir a MESMA entrada — que e o padrao que ja custou o
+ 	// bug [[STJ]], onde o boot escrevia minusculo e Replace escrevia cru.
+ 	//
+ 	// aliasKey continua sendo a unica funcao que calcula a chave.
+diff --git a/internal/index/persist_test.go b/internal/index/persist_test.go
+index d026c4f..3f63b24 100644
+--- a/internal/index/persist_test.go
++++ b/internal/index/persist_test.go
+@@ -93,20 +93,33 @@ func TestIndiceDeMetadadosRecarregadoEIdentico(t *testing.T) {
+ 		"tags: [direito]\n"+
+ 		"numero: 42\n"+
+ 		"ativo: true\n"+
+ 		"---\n"+
+ 		"# Ponto 3\n\n"+
+ 		"Ver [[Origem]] e [[Origem#NaoExiste]].\n")
+ 	writeFile(t, root, "Origem.md", "# Origem\n\nConteudo qualquer.\n")
+ 	// Segunda origem para Origem.md — ver o terceiro item da lista acima.
+ 	writeFile(t, root, "Penal/Citante.md", "# Citante\n\nTambem cita [[Origem]].\n")
+ 	writeFile(t, root, "Vazia.md", "")
++	// Tres grafias que dobram para DUAS chaves de tag: "Direito" cai na mesma
++	// chave de "direito" de PONTO 03, e as duas de "Acao" — uma em NFD, outra
++	// em NFC — caem numa so, dentro da MESMA nota, que e o caso que a
++	// deduplicacao de publishNoteLocked existe para tratar.
++	//
++	// Sem esta nota, a comparacao de Tags("", 0) abaixo passava com qualquer
++	// chave: o corpus so tinha "direito", ja minusculo e ja em NFC. O cache
++	// guarda Note.Tags CRU e o reload republica por publishNoteLocked, entao
++	// e aqui que se ve se a dobra mora mesmo no ponto unico de publicacao.
++	writeFile(t, root, "Acentuada.md", "---\n"+
++		"tags: [\"Ação\", \"ação\", Direito]\n"+
++		"---\n"+
++		"# Acentuada\n\nCorpo.\n")
+ 	writeFile(t, root, "Anexos/diagrama.png", "\x89PNG")
+ 
+ 	v, err := vault.New(root)
+ 	if err != nil {
+ 		t.Fatalf("vault.New: %v", err)
+ 	}
+ 	fresco := index.New()
+ 	if err := fresco.Build(context.Background(), v); err != nil {
+ 		t.Fatalf("Build: %v", err)
+ 	}
+diff --git a/internal/index/query.go b/internal/index/query.go
+index 76a953c..089c87d 100644
+--- a/internal/index/query.go
++++ b/internal/index/query.go
+@@ -163,29 +163,35 @@ func (ix *Index) AliasCollisions() int {
+ 	for _, paths := range ix.byAlias {
+ 		if len(paths) > 1 {
+ 			n++
+ 		}
+ 	}
+ 	return n
+ }
+ 
+ // Tags devolve as tags do cofre com suas contagens, filtradas por prefixo e
+ // por contagem minima.
++//
++// A tag devolvida e a CHAVE, ja dobrada por ChaveDeTag — minuscula, NFC e sem
++// '#'. Duas grafias que so diferem em caixa ou em forma Unicode sao uma
++// entrada so, com a soma das contagens. Ate a Task 180 a chave era a grafia
++// crua da nota e o prefixo era comparado com um ToLower de cada lado a cada
++// leitura: a mesma tag aparecia duas vezes na lista.
+ func (ix *Index) Tags(prefix string, minCount int) []TagCount {
+ 	ix.mu.RLock()
+ 	defer ix.mu.RUnlock()
+ 
+ 	var result []TagCount
+-	prefix = strings.ToLower(prefix)
++	prefix = ChaveDeTag(prefix)
+ 
+ 	for t, paths := range ix.tags {
+-		if len(paths) >= minCount && strings.HasPrefix(strings.ToLower(t), prefix) {
++		if len(paths) >= minCount && strings.HasPrefix(t, prefix) {
+ 			result = append(result, TagCount{Tag: t, Count: len(paths)})
+ 		}
+ 	}
+ 	slices.SortFunc(result, func(a, b TagCount) int {
+ 		if a.Count != b.Count {
+ 			return b.Count - a.Count
+ 		}
+ 		return strings.Compare(a.Tag, b.Tag)
+ 	})
+ 	return result
+@@ -214,81 +220,106 @@ func (ix *Index) List(q Query) ([]*Note, int) {
+ 		} else {
+ 			notes = notes[q.Offset:]
+ 		}
+ 	}
+ 	if q.Limit > 0 && len(notes) > q.Limit {
+ 		notes = notes[:q.Limit]
+ 	}
+ 	return notes, total
+ }
+ 
++// candidatosPorTagLocked e o passo 1 de coletarLocked e o corpo de
++// PathsComTags. Exige ix.mu ja travado para leitura.
++//
++// A regra e hierarquica: a tag pedida casa a si mesma e qualquer subtag —
++// "projeto" casa "projeto/x". As duas pontas passam por ChaveDeTag, entao
++// caixa, forma Unicode e '#' inicial nao separam o que e a mesma tag.
++//
++// mode vazio vale "all": e o default de note_list, e o `!= "any"` abaixo o
++// cobre sem um segundo lugar que decida isso.
++func (ix *Index) candidatosPorTagLocked(tags []string, mode string) []vault.CanonicalPath {
++	// "any" acumula direto no destino e ordena UMA vez no fim; "all" precisa de
++	// cada conjunto ordenado a parte, porque a intersecao e por busca binaria.
++	//
++	// Por isso o casamento anexa a uma fatia do chamador em vez de devolver uma
++	// pronta: a versao que sempre devolvia ordenada e compactada fazia "any"
++	// pagar um sort e uma copia por tag para depois ordenar tudo de novo.
++	// Medido em BenchmarkListPorTag (3.000 notas, uma tag, tag_mode=any):
++	// +16,08% de tempo (p=0,026, n=7) e +40,31% de B/op (p=0,001) contra o
++	// codigo anterior a esta Task.
++	casam := func(pedida string, dst []vault.CanonicalPath) []vault.CanonicalPath {
++		tk := ChaveDeTag(pedida)
++		for k, v := range ix.tags {
++			if k == tk || strings.HasPrefix(k, tk+"/") {
++				dst = append(dst, v...)
++			}
++		}
++		return dst
++	}
++	ordenado := func(pedida string) []vault.CanonicalPath {
++		m := casam(pedida, nil)
++		slices.Sort(m)
++		return slices.Compact(m)
++	}
++	if strings.ToLower(mode) == "any" {
++		var todos []vault.CanonicalPath
++		for _, t := range tags {
++			todos = casam(t, todos)
++		}
++		slices.Sort(todos)
++		return slices.Compact(todos)
++	}
++	var cand []vault.CanonicalPath
++	for i, t := range tags {
++		m := ordenado(t)
++		if i == 0 {
++			cand = m
++			continue
++		}
++		cand = slices.DeleteFunc(cand, func(c vault.CanonicalPath) bool {
++			_, ok := slices.BinarySearch(m, c)
++			return !ok
++		})
++		if len(cand) == 0 {
++			break
++		}
++	}
++	return cand
++}
++
++// PathsComTags devolve, ordenados, os caminhos das notas que casam as tags em
++// mode ("all" | "any"), com a regra hierarquica. Nil para len(tags) == 0 —
++// "sem filtro de tag", que nao e a mesma resposta que "nenhuma nota casou".
++//
++// Existe para que vault_search resolva o filtro de tag UMA vez por consulta,
++// pela mesma conta que note_list ja usava, em vez de re-derivar a comparacao
++// por resultado.
++func (ix *Index) PathsComTags(tags []string, mode string) []vault.CanonicalPath {
++	if len(tags) == 0 {
++		return nil
++	}
++	ix.mu.RLock()
++	defer ix.mu.RUnlock()
++	return ix.candidatosPorTagLocked(tags, mode)
++}
++
+ // coletarLocked reune os candidatos que passam pelos filtros. Toma o RLock e o
+ // solta ao devolver: nada aqui ordena nem pagina.
+ func (ix *Index) coletarLocked(q Query) []*Note {
+ 	ix.mu.RLock()
+ 	defer ix.mu.RUnlock()
+ 
+ 	var candidates []vault.CanonicalPath
+ 
+ 	// 1. Tags
+ 	if len(q.Tags) > 0 {
+-		tagMode := strings.ToLower(q.TagMode)
+-		if tagMode == "" {
+-			tagMode = "all"
+-		}
+-
+-		if tagMode == "all" {
+-			var first = true
+-			for _, t := range q.Tags {
+-				tLower := strings.ToLower(t)
+-				var matches []vault.CanonicalPath
+-				for k, v := range ix.tags {
+-					kLower := strings.ToLower(k)
+-					if kLower == tLower || strings.HasPrefix(kLower, tLower+"/") {
+-						matches = append(matches, v...)
+-					}
+-				}
+-
+-				// Deduplicate matches for this tag
+-				slices.Sort(matches)
+-				matches = slices.Compact(matches)
+-
+-				if first {
+-					candidates = matches
+-					first = false
+-				} else {
+-					var intersection []vault.CanonicalPath
+-					for _, c := range candidates {
+-						if _, found := slices.BinarySearch(matches, c); found {
+-							intersection = append(intersection, c)
+-						}
+-					}
+-					candidates = intersection
+-				}
+-				if len(candidates) == 0 {
+-					break
+-				}
+-			}
+-		} else { // "any"
+-			var allMatches []vault.CanonicalPath
+-			for _, t := range q.Tags {
+-				tLower := strings.ToLower(t)
+-				for k, v := range ix.tags {
+-					kLower := strings.ToLower(k)
+-					if kLower == tLower || strings.HasPrefix(kLower, tLower+"/") {
+-						allMatches = append(allMatches, v...)
+-					}
+-				}
+-			}
+-			slices.Sort(allMatches)
+-			candidates = slices.Compact(allMatches)
+-		}
++		candidates = ix.candidatosPorTagLocked(q.Tags, q.TagMode)
+ 	} else {
+ 		for p := range ix.notes {
+ 			candidates = append(candidates, p)
+ 		}
+ 	}
+ 
+ 	// 2. Folder
+ 	if q.Folder != "" {
+ 		folderPath := filepath.ToSlash(q.Folder)
+ 		if folderPath != "" && !strings.HasSuffix(folderPath, "/") {
+diff --git a/internal/index/tag_chave_test.go b/internal/index/tag_chave_test.go
+new file mode 100644
+index 0000000..20a2e5b
+--- /dev/null
++++ b/internal/index/tag_chave_test.go
+@@ -0,0 +1,77 @@
++package index
++
++import (
++	"context"
++	"os"
++	"path/filepath"
++	"slices"
++	"testing"
++
++	"github.com/jonyd/gobsidian/internal/vault"
++)
++
++func TestChaveDeTagDobraCaixaHashENFC(t *testing.T) {
++	// "Ação" em NFD: A + c + cedilha combinante + a + til combinante + o
++	nfd := "Ação"
++	casos := map[string]string{
++		"#Projeto":    "projeto",
++		"Projeto/Sub": "projeto/sub",
++		"#" + nfd:     "ação",
++		"ação":        "ação",
++	}
++	for in, quer := range casos {
++		if got := ChaveDeTag(in); got != quer {
++			t.Errorf("ChaveDeTag(%q) = %q, quero %q", in, got, quer)
++		}
++	}
++}
++
++func TestListPorTagCasaSubtagENFD(t *testing.T) {
++	root := t.TempDir()
++	escreve := func(nome, corpo string) {
++		t.Helper()
++		if err := os.WriteFile(filepath.Join(root, nome), []byte(corpo), 0o644); err != nil {
++			t.Fatal(err)
++		}
++	}
++	escreve("a.md", "# A\n\n#Projeto/Alpha\n")
++	escreve("b.md", "# B\n\n#projeto\n")
++	escreve("c.md", "# C\n\n#outra\n")
++	// A grafia NFD entra pelo FRONTMATTER, e nao por tag inline, e a razao
++	// esta medida: o parser inline corta a tag no primeiro sinal combinante
++	// — tagNameChar (parser/ext_tag.go) aceita letra, digito, hifen,
++	// underscore e barra, e nao unicode.Mn —, entao "#Ação" em NFD indexa
++	// como a tag "Ac". E defeito do parser, anterior a esta chave e fora do
++	// alcance dela: nenhuma dobra de chave conserta uma tag que ja chegou
++	// cortada. Pelo frontmatter o YAML entrega a string inteira, que e onde
++	// a forma Unicode de fato varia entre um cofre escrito no macOS e um
++	// escrito no Windows.
++	escreve("d.md", "---\ntags: [\"Ação\"]\n---\n# D\n\ncorpo\n") // NFD
++	v, err := vault.New(root)
++	if err != nil {
++		t.Fatal(err)
++	}
++	ix := New()
++	if err := ix.Build(context.Background(), v); err != nil {
++		t.Fatal(err)
++	}
++	got := ix.PathsComTags([]string{"#PROJETO"}, "all")
++	if quer := []vault.CanonicalPath{"a.md", "b.md"}; !slices.Equal(got, quer) {
++		t.Fatalf("PathsComTags(#PROJETO) = %v, quero %v", got, quer)
++	}
++	got = ix.PathsComTags([]string{"ação"}, "all") // pedido em NFC, nota em NFD
++	if quer := []vault.CanonicalPath{"d.md"}; !slices.Equal(got, quer) {
++		t.Fatalf("PathsComTags(ação) = %v, quero %v", got, quer)
++	}
++	got = ix.PathsComTags([]string{"projeto/alpha", "outra"}, "any")
++	if quer := []vault.CanonicalPath{"a.md", "c.md"}; !slices.Equal(got, quer) {
++		t.Fatalf("PathsComTags(any) = %v, quero %v", got, quer)
++	}
++	if got := ix.PathsComTags([]string{"projeto/alpha", "outra"}, "all"); len(got) != 0 {
++		t.Fatalf("PathsComTags(all, disjuntas) = %v, quero vazio", got)
++	}
++	tags := ix.Tags("proj", 0)
++	if len(tags) != 2 || tags[0].Tag != "projeto" && tags[1].Tag != "projeto" {
++		t.Fatalf("Tags(proj) = %v, quero projeto e projeto/alpha dobradas", tags)
++	}
++}
+diff --git a/internal/index/update.go b/internal/index/update.go
+index 10d75a6..b1e5dfe 100644
+--- a/internal/index/update.go
++++ b/internal/index/update.go
+@@ -206,31 +206,32 @@ func (ix *Index) removeContributionsLocked(path vault.CanonicalPath) []string {
+ 				}
+ 				if len(filtered) == 0 {
+ 					delete(ix.backlinks, l.Resolved)
+ 				} else {
+ 					ix.backlinks[l.Resolved] = filtered
+ 				}
+ 			}
+ 		}
+ 
+ 		for _, tag := range oldNote.Tags {
+-			paths := ix.tags[tag]
++			chave := ChaveDeTag(tag)
++			paths := ix.tags[chave]
+ 			filtered := make([]vault.CanonicalPath, 0, len(paths))
+ 			for _, p := range paths {
+ 				if p != path {
+ 					filtered = append(filtered, p)
+ 				}
+ 			}
+ 			if len(filtered) == 0 {
+-				delete(ix.tags, tag)
++				delete(ix.tags, chave)
+ 			} else {
+-				ix.tags[tag] = filtered
++				ix.tags[chave] = filtered
+ 			}
+ 		}
+ 
+ 		ix.removerNomeLocked(path)
+ 
+ 		for _, alias := range oldNote.Aliases {
+ 			key := aliasKey(alias)
+ 			al := ix.byAlias[key]
+ 			filteredAl := make([]vault.CanonicalPath, 0, len(al))
+ 			for _, p := range al {
+@@ -546,21 +547,21 @@ func (ix *Index) MoveNote(v *vault.Vault, oldPath, newPath vault.CanonicalPath)
+ 		}
+ 	}
+ 
+ 	// 2 e 3. Atualizar lowerPath e byName — o par publicar/remover, e nao seis
+ 	// linhas de mapa a mao. Um rename e uma remocao seguida de uma publicacao.
+ 	ix.removerNomeLocked(oldPath)
+ 	ix.publishNameLocked(newPath)
+ 
+ 	// 4. Atualizar tags
+ 	for _, tag := range n.Tags {
+-		paths := ix.tags[tag]
++		paths := ix.tags[ChaveDeTag(tag)]
+ 		for i, p := range paths {
+ 			if p == oldPath {
+ 				paths[i] = newPath
+ 			}
+ 		}
+ 	}
+ 
+ 	// 5. Atualizar byAlias
+ 	for _, alias := range n.Aliases {
+ 		key := aliasKey(alias)
+diff --git a/internal/service/bench_tags_test.go b/internal/service/bench_tags_test.go
+new file mode 100644
+index 0000000..9c97ff4
+--- /dev/null
++++ b/internal/service/bench_tags_test.go
+@@ -0,0 +1,19 @@
++package service_test
++
++import (
++	"testing"
++
++	"github.com/jonyd/gobsidian/internal/service"
++)
++
++// BenchmarkSearchFiltroTags mede a busca com filtro de tag: hoje o filtro
++// baixa a caixa de cada tag de cada resultado por consulta; depois da
++// Task 180 resolve o conjunto uma vez e faz busca binaria por resultado.
++func BenchmarkSearchFiltroTags(b *testing.B) {
++	svc := benchServicoDeCache(b)
++	benchBusca(b, svc, service.SearchOptions{
++		Query: "nota",
++		Limit: 200,
++		Tags:  []string{"golang"},
++	}, 1)
++}
+diff --git a/internal/service/graph.go b/internal/service/graph.go
+index 963e8bf..e6858ce 100644
+--- a/internal/service/graph.go
++++ b/internal/service/graph.go
+@@ -377,45 +377,51 @@ func (s *Service) tagListHierarchical(req TagRequest) TagResult {
+ 	contagem := make(map[string]int)
+ 	vistas := make(map[string]bool)
+ 
+ 	for _, p := range s.index.NotePaths() {
+ 		n, ok := s.index.Get(p)
+ 		if !ok {
+ 			continue
+ 		}
+ 		clear(vistas)
+ 		for _, tag := range n.Tags {
+-			tagClean := strings.TrimPrefix(tag, "#")
+-			parts := strings.Split(tagClean, "/")
++			// index.ChaveDeTag, e nao um TrimPrefix local: o ramo plano conta
++			// pelas chaves de ix.tags, ja dobradas, e este ramo contava pela
++			// grafia da nota. "#Ação" e "#ação" viravam duas raizes na arvore
++			// e uma entrada so na lista plana — a mesma tool respondendo de
++			// dois jeitos conforme o parametro hierarchical.
++			parts := strings.Split(index.ChaveDeTag(tag), "/")
+ 			curr := ""
+ 			for i, part := range parts {
+ 				if i == 0 {
+ 					curr = part
+ 				} else {
+ 					curr = curr + "/" + part
+ 				}
+ 				if !vistas[curr] {
+ 					vistas[curr] = true
+ 					contagem[curr]++
+ 				}
+ 			}
+ 		}
+ 	}
+ 
+-	prefixLower := strings.ToLower(req.Prefix)
++	// O prefixo passa pela mesma conta das chaves; fullTag ja esta dobrado,
++	// entao a comparacao e direta e nao ha um segundo ToLower aqui.
++	prefixo := index.ChaveDeTag(req.Prefix)
+ 	rootNodes := make(map[string]*tempTagNode)
+ 
+ 	for fullTag, count := range contagem {
+ 		if count < req.MinCount {
+ 			continue
+ 		}
+-		if prefixLower != "" && !strings.HasPrefix(strings.ToLower(fullTag), prefixLower) {
++		if prefixo != "" && !strings.HasPrefix(fullTag, prefixo) {
+ 			continue
+ 		}
+ 
+ 		parts := strings.Split(fullTag, "/")
+ 		currentMap := rootNodes
+ 		currPath := ""
+ 		for i, part := range parts {
+ 			if i == 0 {
+ 				currPath = part
+ 			} else {
+diff --git a/internal/service/search.go b/internal/service/search.go
+index 51c482f..89dabf6 100644
+--- a/internal/service/search.go
++++ b/internal/service/search.go
+@@ -1,14 +1,15 @@
+ package service
+ 
+ import (
+ 	"context"
++	"slices"
+ 	"strings"
+ 	"sync"
+ 	"time"
+ 
+ 	"github.com/jonyd/gobsidian/internal/index"
+ 	"github.com/jonyd/gobsidian/internal/search"
+ 	"github.com/jonyd/gobsidian/internal/vault"
+ )
+ 
+ // maxSnippetWorkers limita quantos trechos são recortados do disco ao mesmo
+@@ -222,20 +223,27 @@ func (s *Service) Search(ctx context.Context, opts SearchOptions) (SearchResult,
+ 	}
+ 
+ 	// Executa pontuação BM25 sobre o índice invertido
+ 	rawHits := search.CalculateBM25(queryTokens, s.inverted, s.index)
+ 
+ 	// Uma vez, fora do laço: o filtro de frontmatter é o único que não se
+ 	// responde olhando só a nota, e resolvê-lo por hit fazia uma varredura do
+ 	// índice inteiro por resultado.
+ 	porFrontmatter := s.casamFrontmatter(opts)
+ 
++	// O filtro de tag tambem sai do laco, e pelo mesmo motivo: ele baixava a
++	// caixa de CADA tag de CADA resultado, por consulta. E, mais que custo,
++	// era uma segunda conta do casamento de tag — note_list ja resolvia
++	// hierarquia e dobra pelo indice, e vault_search comparava string nua.
++	// index.PathsComTags e a conta unica; nil aqui e "sem filtro de tag".
++	porTag := s.index.PathsComTags(opts.Tags, "all")
++
+ 	// A analise e a expansao dos termos do trecho acontecem UMA vez, e nao por
+ 	// hit: GenerateSnippet chamava Analyze para cada termo dentro de cada
+ 	// resultado da pagina — com limit=200 e tres palavras, 600 chamadas por
+ 	// busca produzindo sempre a mesma lista (achado P10).
+ 	termosDoTrecho := search.NovosTermosDeTrecho(rawTerms)
+ 
+ 	// Filtra por pasta, tags, frontmatter e data de modificação.
+ 	//
+ 	// A Note vai JUNTO com o hit a partir daqui. Ela já foi buscada para
+ 	// filtrar, e montaSlot a buscava de novo mais abaixo: dois index.Get por
+@@ -247,21 +255,21 @@ func (s *Service) Search(ctx context.Context, opts SearchOptions) (SearchResult,
+ 	}
+ 	// Capacidade de len(rawHits): o filtro so remove, nunca acrescenta, entao
+ 	// esse e o teto exato e a fatia nunca cresce no meio do laco.
+ 	filteredHits := make([]hitComNota, 0, len(rawHits))
+ 	for _, hit := range rawHits {
+ 		note, ok := s.index.Get(vault.CanonicalPath(hit.Path))
+ 		if !ok {
+ 			continue
+ 		}
+ 
+-		if !s.matchesSearchFilters(note, opts, porFrontmatter) {
++		if !s.matchesSearchFilters(note, opts, porFrontmatter, porTag) {
+ 			continue
+ 		}
+ 
+ 		if isPhrase && !s.matchPhraseInNote(hit.Path, queryTokens) {
+ 			continue
+ 		}
+ 
+ 		filteredHits = append(filteredHits, hitComNota{hit: hit, note: note})
+ 	}
+ 
+@@ -414,38 +422,39 @@ func (s *Service) searchMetadataOnly(opts SearchOptions) (SearchResult, error) {
+ 
+ 	return SearchResult{
+ 		Results:             results,
+ 		Total:               total,
+ 		Truncated:           truncated,
+ 		SnippetCharsEfetivo: opts.SnippetChars,
+ 		LimitEfetivo:        opts.Limit,
+ 	}, nil
+ }
+ 
+-func (s *Service) matchesSearchFilters(note *index.Note, opts SearchOptions, porFrontmatter map[vault.CanonicalPath]bool) bool {
++func (s *Service) matchesSearchFilters(note *index.Note, opts SearchOptions, porFrontmatter map[vault.CanonicalPath]bool, porTag []vault.CanonicalPath) bool {
+ 	if opts.Folder != "" {
+ 		canonFolder := string(vault.CanonicalPath(opts.Folder))
+ 		if canonFolder != "" && !strings.HasPrefix(string(note.Path), canonFolder+"/") && string(note.Path) != canonFolder {
+ 			return false
+ 		}
+ 	}
+ 
++	// porTag e nil quando nao ha filtro de tag; com filtro, e o conjunto
++	// ordenado que o indice resolveu UMA vez (index.PathsComTags) — a mesma
++	// conta que note_list usa, hierarquia e dobra de caixa incluidas.
++	//
++	// Ate a Task 180 este bloco montava um mapa das tags da nota em minusculo
++	// por resultado e comparava a tag pedida por igualdade exata: "#projeto"
++	// nao casava uma nota marcada so com "#projeto/alpha", enquanto note_list,
++	// com o MESMO parametro, casava. Duas tools, duas respostas.
+ 	if len(opts.Tags) > 0 {
+-		noteTags := make(map[string]bool)
+-		for _, t := range note.Tags {
+-			noteTags[strings.ToLower(t)] = true
+-		}
+-		for _, reqTag := range opts.Tags {
+-			cleanTag := strings.TrimPrefix(strings.ToLower(reqTag), "#")
+-			if !noteTags[cleanTag] {
+-				return false
+-			}
++		if _, ok := slices.BinarySearch(porTag, note.Path); !ok {
++			return false
+ 		}
+ 	}
+ 
+ 	if opts.ModifiedAfter != nil && note.ModTime.Before(*opts.ModifiedAfter) {
+ 		return false
+ 	}
+ 
+ 	if opts.ModifiedBefore != nil && note.ModTime.After(*opts.ModifiedBefore) {
+ 		return false
+ 	}
+diff --git a/internal/service/tags_contrato_test.go b/internal/service/tags_contrato_test.go
+new file mode 100644
+index 0000000..b772e91
+--- /dev/null
++++ b/internal/service/tags_contrato_test.go
+@@ -0,0 +1,91 @@
++package service_test
++
++import (
++	"context"
++	"testing"
++
++	"github.com/jonyd/gobsidian/internal/service"
++)
++
++// O contrato de tag das tres tools que a recebem: a tag pedida casa a si mesma
++// e suas subtags, o '#' inicial e opcional, e a comparacao ignora caixa e forma
++// Unicode. Ate a Task 180 note_list casava subtag e vault_search nao — o MESMO
++// parametro, duas respostas —, e tag_list devolvia uma entrada por grafia.
++//
++// O servico sai de createSearchService, e nao de newTestService: aquele injeta
++// inverted = nil, e vault_search sobre um indice invertido nulo casa zero
++// resultados sempre. Um teste de filtro que corre no caminho vazio passa por
++// nao haver o que filtrar, e nao pode falhar.
++//
++// As duas grafias de "Acao" estao em notas SEPARADAS — d.md so em NFD com
++// maiuscula, e.md so em NFC minuscula — e nao juntas na mesma nota. Com as duas
++// na mesma nota, um pedido em NFC casava pela grafia NFC e o teste passava com
++// a normalizacao Unicode removida: medido, `mutate.ps1` sobre ParaNFC deu exit
++// 1. Separadas, so a dobra reune as duas, e a mutacao reprova.
++//
++// As tags acentuadas entram pelo FRONTMATTER: o parser inline corta a tag no
++// sinal combinante (ver o comentario de internal/index/tag_chave_test.go),
++// entao e o frontmatter que carrega a forma Unicode intacta ate o indice.
++func cofreComTags(t *testing.T) *service.Service {
++	t.Helper()
++	svc, _, _, _ := createSearchService(t, map[string]string{
++		"a.md": "# A\n\nnota comum #Projeto/Alpha\n",
++		"b.md": "# B\n\nnota comum #projeto\n",
++		"c.md": "# C\n\nnota comum #outra\n",
++		"d.md": "---\ntags: [\"Ação\"]\n---\n# D\n\nnota comum\n",
++		"e.md": "---\ntags: [\"ação\"]\n---\n# E\n\nnota comum\n",
++	})
++	return svc
++}
++
++func TestVaultSearchTagsCasaSubtag(t *testing.T) {
++	svc := cofreComTags(t)
++	res, err := svc.Search(context.Background(), service.SearchOptions{Query: "comum", Tags: []string{"#PROJETO"}, Limit: 10})
++	if err != nil {
++		t.Fatal(err)
++	}
++	if len(res.Results) != 2 {
++		t.Fatalf("tags=[#PROJETO]: %d resultados, quero 2 (projeto e projeto/alpha): %+v", len(res.Results), res.Results)
++	}
++}
++
++// O pedido vem em NFC e casa as DUAS notas: a que gravou a tag em NFC e a que
++// gravou a mesma tag em NFD com maiuscula.
++func TestVaultSearchTagsNFD(t *testing.T) {
++	svc := cofreComTags(t)
++	res, err := svc.Search(context.Background(), service.SearchOptions{Query: "comum", Tags: []string{"ação"}, Limit: 10})
++	if err != nil {
++		t.Fatal(err)
++	}
++	achou := map[string]bool{}
++	for _, r := range res.Results {
++		achou[r.Path] = true
++	}
++	if len(res.Results) != 2 || !achou["d.md"] || !achou["e.md"] {
++		t.Fatalf("tags=[ação]: %+v, quero d.md e e.md — a mesma tag em NFD e em NFC", res.Results)
++	}
++}
++
++func TestTagListDevolveFormaDobrada(t *testing.T) {
++	svc := cofreComTags(t)
++	res, err := svc.TagList(context.Background(), service.TagRequest{Prefix: "a\u00e7"})
++	if err != nil {
++		t.Fatal(err)
++	}
++	if len(res.Tags) != 1 || res.Tags[0].Tag != "ação" || res.Tags[0].Count != 2 {
++		t.Fatalf("tag_list(a\u00e7) = %+v, quero UMA entrada ação com count 2 (duas notas, duas grafias)", res.Tags)
++	}
++}
++
++// O ramo hierarquico responde pela MESMA chave que o plano: duas grafias da
++// mesma tag sao uma raiz, nao duas.
++func TestTagListHierarquicoDobraGrafias(t *testing.T) {
++	svc := cofreComTags(t)
++	res, err := svc.TagList(context.Background(), service.TagRequest{Prefix: "a\u00e7", Hierarchical: true})
++	if err != nil {
++		t.Fatal(err)
++	}
++	if len(res.Tags) != 1 || res.Tags[0].Tag != "ação" || res.Tags[0].Count != 2 {
++		t.Fatalf("tag_list(a\u00e7, hierarquico) = %+v, quero UMA entrada ação com count 2", res.Tags)
++	}
++}

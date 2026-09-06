@@ -1,0 +1,181 @@
+diff --git a/docs/ESTADO.md b/docs/ESTADO.md
+index cfbf4eb..3e1cc6b 100644
+--- a/docs/ESTADO.md
++++ b/docs/ESTADO.md
+@@ -185,14 +185,19 @@ também em `tag_mode=any`, que ordena uma vez só no fim — `ListPorTag` deu
+ anexando à fatia do chamador, voltou a `~` com B/op idêntico (a medição acima).
+ Binários e saída bruta:
+ `%LOCALAPPDATA%\gobsidian-bench\2026-09-02\{antes,depois}180_{index,service}.test.exe`
+ e `t180b_{index,service}_{antes,depois}.txt`.
+ 
++Um número visível ao usuário muda com a dobra: o subcomando `index` da CLI
++reporta `len(idx.Tags("", 1))`, que agora conta **chaves dobradas** — num cofre
++onde a mesma tag aparece em duas grafias, a contagem de tags distintas cai. De
++quanto, em cofre real: **não medido**.
++
+ Fatos medidos sem benchmark:
+ 
+ - `vault_5000`: 112 tags distintas, 0 hierárquicas. Cofres reais do dono: **não medido** neste plano.
+-- Tag inline em NFD **não chega inteira ao índice** (medido em 2026-09-06, Task 180): `parser.tagNameChar` aceita letra, dígito, `-`, `_` e `/`, e não `unicode.Mn`, então o corpo `#Ação` gravado em NFD (`A c U+0327 a U+0303 o`) indexa como a tag `Ac`. É defeito do parser, anterior à chave única e fora do alcance dela — nenhuma dobra de chave conserta uma tag que já chegou cortada. Pelo frontmatter (`tags: ["Ação"]`) o YAML entrega a string inteira e a dobra funciona: chave `ação`, e um pedido em NFC casa a nota. Sem tarefa aberta.
++- Tag inline em NFD **não chega inteira ao índice** (medido em 2026-09-06, Task 180): `parser.tagNameChar` aceita letra, dígito, `-`, `_` e `/`, e não `unicode.Mn`, então o corpo `#Ação` gravado em NFD (`A c U+0327 a U+0303 o`) indexa como a tag `Ac`. É defeito do parser, anterior à chave única e fora do alcance dela — nenhuma dobra de chave conserta uma tag que já chegou cortada. Pelo frontmatter (`tags: ["Ação"]`) o YAML entrega a string inteira e a dobra funciona: chave `ação`, e um pedido em NFC casa a nota. Aberta como **B20** em `docs/SUGESTOES.md`.
+ - Cobertura por função (`go test -coverprofile`, 2026-09-02): `construirServico` 6,5 %, `carregarIndiceDoCache` 0 %, `prepararIndiceDeBusca` 0 %, `runServe` 0 %, `serveEmProcesso` 20,6 %, `buildInvertedIndex` 60,7 %; `WriteAtomic` 71,1 %, `SweepStaleTempFiles` 62,5 %, `CleanStaleTempFiles` 0 %; `SaveIndexCache` 64,5 %, `SaveInvertedCache` 56,0 %; `Tags` 91,7 %, `coletarLocked` 87,6 %, `tagListHierarchical` 94,1 %, `LinkGraph` 78,1 %; `Search` 96 %; `mcpsrv.Server.Serve` 0 %, `Close` 0 %; `doctor.checkDaemonLog` 44,4 %, `checkLocksDeDaemon` 58,6 %.
+ - Tempo de suíte (`go test ./... -count=1 -cover`): service 51,7 s, writer 32,5 s, search 31,1 s, watcher 26,2 s, index 22,3 s, vault 22,0 s, doctor 19,4 s, mcpsrv 17,0 s.
+ - Raio de explosão de `service.Index` (gopls references, medido antes da Task 173): `Get` 13, `ResolvePath` 8, `Backlinks` 5, `List` 4, `NotePaths` 2, `TotalSize`/`Tags`/`NoteCount`/`Generation`/`AssetCount`/`AliasCollisions` 1 cada, `Paths` **0**. `service.New` recebe `*index.Index`; a interface foi removida em 2026-09 (Task 173) — tinha uma implementação e nenhum fake.
+ - Raio de `writer.WriteAtomic` (medido em 2026-09-02, antes das Tasks 171-172): 6 sítios em `internal/service/write.go` (`:149,:248,:378,:619,:751,:832`) + 3 arquivos de teste; `SweepStaleTempFiles`: 1 sítio (`cmd/gobsidian/servico.go:78`). Depois das Tasks 171-172, `writer.WriteAtomic` e `writer.SweepStaleTempFiles` não existem mais — os chamadores usam `vault.WriteAtomic`/`vault.SweepStaleTempFiles` diretamente.
+ - Prefixo `.gobsidian-tmp-` em 4 literais (medido em 2026-09-02, antes das Tasks 171-172): `writer/atomic.go:14` (constante), `vault/walk.go:74`, `search/persist.go:87`, `index/persist.go:124`. Depois das Tasks 171-172, o literal existe numa só linha: `vault/atomic.go:14`.
+diff --git a/docs/TOOLS.md b/docs/TOOLS.md
+index d3a29db..b089b79 100644
+--- a/docs/TOOLS.md
++++ b/docs/TOOLS.md
+@@ -211,11 +211,11 @@ Lista notas por critérios estruturais. Não toca o índice de texto.
+     "offset":    { "type": "integer", "default": 0 }
+   }
+ }
+ ```
+ 
+-**Retorno.** Lista com `path`, `title`, `hash`, `modified`, `size`, `tags`, e os campos pedidos em `fields`.
++**Retorno.** Lista com `path`, `title`, `hash`, `modified`, `size`, `tags`, e os campos pedidos em `fields`. `tags` vem com a grafia original da nota, como `note_metadata.tags`: a dobra de caixa e de forma Unicode é da chave de agrupamento de `tag_list`, não do que estas duas tools devolvem.
+ 
+ **Notas.** Servida direto do índice em memória. Latência de microssegundos. É a tool correta para "que notas existem na pasta X", "que notas têm a tag Y" — usar `vault_search` para isso é ordens de grandeza mais caro.
+ 
+ Lista apenas notas `.md`. Anexos são indexados para que embeds resolvam (PRD RF-60), mas não aparecem aqui; para inventário de anexos, use `vault_stats`.
+ 
+@@ -292,11 +292,11 @@ Todas as tags do cofre.
+ 
+ ```json
+ {
+   "type": "object",
+   "properties": {
+-    "prefix":       { "type": "string", "description": "Restringe a uma subárvore, ex.: 'civil/'. O prefixo casa a si mesmo e suas subtags; '#' inicial é opcional; comparação insensível a caixa e a forma Unicode (NFC)." },
++    "prefix":       { "type": "string", "description": "Restringe por PREFIXO DE STRING sobre a chave dobrada, e não por segmento: 'civil' devolve 'civil' e 'civil/contratos'; 'civil/' devolve 'civil/contratos' e NÃO devolve 'civil'; 'proj/al' devolve 'proj/alpha'. '#' inicial é opcional; comparação insensível a caixa e a forma Unicode (NFC)." },
+     "min_count":    { "type": "integer", "default": 1 },
+     "sort":         { "type": "string", "enum": ["name", "count"], "default": "name", "description": "Ordenação: 'name' (crescente por nome) ou 'count' (decrescente por contagem, desempate por nome)." },
+     "hierarchical": { "type": "boolean", "default": false, "description": "Retorna árvore em vez de lista plana." }
+   }
+ }
+@@ -308,10 +308,19 @@ Todas as tags do cofre.
+ Grafias que diferem só em caixa ou em forma Unicode são uma entrada só, com a
+ soma das contagens — `#Ação` e `#ação` viram `ação`. Vale nos dois ramos,
+ plano e hierárquico. `note_metadata.tags` continua devolvendo a grafia original
+ da nota: a dobra é da chave de agrupamento, não do conteúdo da nota.
+ 
++**`prefix` não é o filtro `tags`.** São duas operações diferentes, de propósito.
++O `tags` de `note_list` e de `vault_search` casa por SEGMENTO — a tag pedida e
++suas subtags, e nada mais (`projeto` casa `projeto` e `projeto/alpha`, e não
++casa `projetos`). O `prefix` daqui é autocompletar: prefixo de string sobre a
++chave dobrada, que corta no meio de um segmento (`proj/al` lista
++`proj/alpha`) e que, terminando em `/`, exclui a própria tag (`civil/` lista as
++subtags de `civil` e não `civil`). O comportamento está fixado no golden
++`testdata/tag_list_hierarquico.json` desde a Task 169, nos dois ramos.
++
+ ---
+ 
+ ## `vault_stats`
+ 
+ Estado do cofre e saúde do servidor.
+diff --git a/internal/index/tag_chave_test.go b/internal/index/tag_chave_test.go
+index 20a2e5b..244f305 100644
+--- a/internal/index/tag_chave_test.go
++++ b/internal/index/tag_chave_test.go
+@@ -68,10 +68,31 @@ func TestListPorTagCasaSubtagENFD(t *testing.T) {
+ 		t.Fatalf("PathsComTags(any) = %v, quero %v", got, quer)
+ 	}
+ 	if got := ix.PathsComTags([]string{"projeto/alpha", "outra"}, "all"); len(got) != 0 {
+ 		t.Fatalf("PathsComTags(all, disjuntas) = %v, quero vazio", got)
+ 	}
++	// Os dois nomes, cada um conferido por si. A forma anterior era
++	// `len(tags) != 2 || tags[0].Tag != "projeto" && tags[1].Tag != "projeto"`,
++	// e `&&` liga mais forte que `||`: bastava UM dos dois ser "projeto" para
++	// passar, e "projeto/alpha" nunca era conferido.
+ 	tags := ix.Tags("proj", 0)
+-	if len(tags) != 2 || tags[0].Tag != "projeto" && tags[1].Tag != "projeto" {
++	nomes := make([]string, 0, len(tags))
++	for _, tc := range tags {
++		nomes = append(nomes, tc.Tag)
++	}
++	slices.Sort(nomes)
++	if !slices.Equal(nomes, []string{"projeto", "projeto/alpha"}) {
+ 		t.Fatalf("Tags(proj) = %v, quero projeto e projeto/alpha dobradas", tags)
+ 	}
++
++	// O PREFIXO passa pela mesma conta da chave: '#' fora, caixa baixa, NFC.
++	// Prefixo ASCII minusculo nao prova isso — em "proj", ChaveDeTag e o
++	// strings.ToLower que ela substituiu devolvem a mesma coisa. Estes dois
++	// separam as duas: um traz o '#' e a maiuscula, o outro o sinal
++	// combinante.
++	for _, prefixo := range []string{"#AÇ", "aç"} {
++		acentuadas := ix.Tags(prefixo, 0)
++		if len(acentuadas) != 1 || acentuadas[0].Tag != "ação" {
++			t.Fatalf("Tags(%q) = %v, quero a entrada ação dobrada", prefixo, acentuadas)
++		}
++	}
+ }
+diff --git a/internal/mcpsrv/tools_read.go b/internal/mcpsrv/tools_read.go
+index 3d5895f..c1733b5 100644
+--- a/internal/mcpsrv/tools_read.go
++++ b/internal/mcpsrv/tools_read.go
+@@ -384,11 +384,11 @@ type linkGraphInput struct {
+ 	IncludeEmbeds *bool  `json:"include_embeds,omitempty"`
+ 	Limit         *int   `json:"limit,omitempty"`
+ }
+ 
+ type tagListInput struct {
+-	Prefix       string `json:"prefix,omitempty" jsonschema:"Restringe a uma subárvore, ex.: 'civil/'"`
++	Prefix       string `json:"prefix,omitempty" jsonschema:"Restringe por prefixo de string sobre a chave dobrada da tag, não por segmento: 'civil/' devolve as subtags de civil e não a própria civil; 'proj/al' devolve proj/alpha."`
+ 	MinCount     *int   `json:"min_count,omitempty"`
+ 	Sort         string `json:"sort,omitempty" jsonschema:"Ordenação: 'name' (crescente por nome) ou 'count' (decrescente por contagem, desempate por nome). Padrão: 'name'."`
+ 	Hierarchical bool   `json:"hierarchical,omitempty" jsonschema:"Retorna árvore em vez de lista plana."`
+ }
+ 
+diff --git a/internal/service/tags_contrato_test.go b/internal/service/tags_contrato_test.go
+index b772e91..19e3d83 100644
+--- a/internal/service/tags_contrato_test.go
++++ b/internal/service/tags_contrato_test.go
+@@ -1,9 +1,10 @@
+ package service_test
+ 
+ import (
+ 	"context"
++	"fmt"
+ 	"testing"
+ 
+ 	"github.com/jonyd/gobsidian/internal/service"
+ )
+ 
+@@ -87,5 +88,36 @@ func TestTagListHierarquicoDobraGrafias(t *testing.T) {
+ 	}
+ 	if len(res.Tags) != 1 || res.Tags[0].Tag != "ação" || res.Tags[0].Count != 2 {
+ 		t.Fatalf("tag_list(a\u00e7, hierarquico) = %+v, quero UMA entrada ação com count 2", res.Tags)
+ 	}
+ }
++
++// A dobra do PREFIXO de tag_list — '#' fora, caixa baixa, NFC — nos DOIS ramos.
++//
++// Nenhum prefixo ASCII minusculo consegue prova-la: em "proj" ou "aç" a
++// ChaveDeTag e o strings.ToLower que ela substituiu sao a mesma funcao, e as
++// tres mutacoes da revisao (query.go e graph.go, prefixo por ToLower)
++// sobreviveram a suite inteira. "#AÇ" carrega o '#' e a caixa; a forma NFD
++// carrega o sinal combinante. Cada um mata uma metade da conta.
++func TestTagListDobraOPrefixoNosDoisRamos(t *testing.T) {
++	svc := cofreComTags(t)
++	prefixos := map[string]string{
++		"com hash e caixa": "#AÇ", // maiuscula e o '#'
++		"em NFD":           "aç", // "ac" + cedilha combinante
++	}
++	for nome, prefixo := range prefixos {
++		for _, hierarquico := range []bool{false, true} {
++			t.Run(fmt.Sprintf("%s/hierarchical=%v", nome, hierarquico), func(t *testing.T) {
++				res, err := svc.TagList(context.Background(), service.TagRequest{
++					Prefix: prefixo, Hierarchical: hierarquico,
++				})
++				if err != nil {
++					t.Fatal(err)
++				}
++				if len(res.Tags) != 1 || res.Tags[0].Tag != "ação" || res.Tags[0].Count != 2 {
++					t.Fatalf("tag_list(%q, hierarchical=%v) = %+v, quero UMA entrada ação com count 2",
++						prefixo, hierarquico, res.Tags)
++				}
++			})
++		}
++	}
++}

@@ -241,4 +241,3 @@ Step 3 (dois `mutate.ps1` sobre `internal/index/persist_codec.go`).
 
 `task-181-report.md`: status, SHA, cobertura antes/depois, saída dos Steps 2 e 3, `git show --stat HEAD`, última linha do `verify.ps1`.
 
----
