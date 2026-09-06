@@ -121,12 +121,9 @@ func newInspectCmd() *cobra.Command {
 		},
 	}
 
-	cmd.Flags().StringVar(&flags.VaultPath, "vault", "", "caminho da raiz do cofre (obrigatorio)")
+	flagsDeCofre(cmd, &flags)
 	cmd.Flags().BoolVar(&jsonOutput, "json", false, "saida estruturada em formato JSON")
-	cmd.Flags().BoolVar(&flags.FollowSymlinks, "follow-symlinks", false,
-		"segue symlink dentro do cofre; o padrao recusa, porque o confinamento nao alcanca o alvo")
-	cmd.Flags().StringVar(&flags.CacheDir, "cache-dir", "", "diretorio do cache de indice")
-	cmd.Flags().StringVar(&flags.LogLevel, "log-level", "", "debug, info, warn ou error")
+	flagsDeCache(cmd, &flags)
 
 	return cmd
 }

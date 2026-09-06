@@ -53,14 +53,11 @@ func newDaemonCmd() *cobra.Command {
 		},
 	}
 
-	cmd.Flags().StringVar(&flags.VaultPath, "vault", "", "caminho da raiz do cofre (obrigatorio)")
-	cmd.Flags().StringVar(&flags.LogLevel, "log-level", "", "debug, info, warn ou error")
+	flagsDeCofre(cmd, &flags)
+	flagsDeCache(cmd, &flags)
 	cmd.Flags().BoolVar(&flags.ReadOnly, "read-only", false, "desabilita toda a superficie de escrita")
 	cmd.Flags().IntVar(&flags.DebounceMS, "debounce-ms", 0, "janela de coalescencia de eventos do watcher")
 	cmd.Flags().IntVar(&flags.MaxResults, "max-results", 0, "teto de resultados por consulta")
-	cmd.Flags().StringVar(&flags.CacheDir, "cache-dir", "", "diretorio do cache de indice")
-	cmd.Flags().BoolVar(&flags.FollowSymlinks, "follow-symlinks", false,
-		"segue symlink dentro do cofre; o padrao recusa, porque o confinamento nao alcanca o alvo")
 	cmd.Flags().BoolVar(&flags.EagerSearch, "eager-search", false,
 		"carrega o indice de busca no boot em vez de esperar a primeira vault_search")
 	cmd.Flags().IntVar(&idleSeconds, "idle-seconds", daemon.DefaultIdleSeconds,
