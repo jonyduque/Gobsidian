@@ -1,0 +1,33 @@
+cmd/gobsidian/daemon.go:55:	cmd.Flags().StringVar(&flags.VaultPath, "vault", "", "caminho da raiz do cofre (obrigatorio)")
+cmd/gobsidian/daemon.go:56:	cmd.Flags().StringVar(&flags.LogLevel, "log-level", "", "debug, info, warn ou error")
+cmd/gobsidian/daemon.go:57:	cmd.Flags().BoolVar(&flags.ReadOnly, "read-only", false, "desabilita toda a superficie de escrita")
+cmd/gobsidian/daemon.go:58:	cmd.Flags().IntVar(&flags.DebounceMS, "debounce-ms", 0, "janela de coalescencia de eventos do watcher")
+cmd/gobsidian/daemon.go:59:	cmd.Flags().IntVar(&flags.MaxResults, "max-results", 0, "teto de resultados por consulta")
+cmd/gobsidian/daemon.go:60:	cmd.Flags().StringVar(&flags.CacheDir, "cache-dir", "", "diretorio do cache de indice")
+cmd/gobsidian/daemon.go:61:	cmd.Flags().BoolVar(&flags.FollowSymlinks, "follow-symlinks", false,
+cmd/gobsidian/daemon.go:63:	cmd.Flags().BoolVar(&flags.EagerSearch, "eager-search", false,
+cmd/gobsidian/daemon.go:65:	cmd.Flags().IntVar(&idleSeconds, "idle-seconds", daemon.DefaultIdleSeconds,
+cmd/gobsidian/doctor.go:67:	cmd.Flags().StringVar(&flags.VaultPath, "vault", "", "caminho da raiz do cofre (obrigatorio)")
+cmd/gobsidian/doctor.go:68:	cmd.Flags().BoolVar(&flags.ReadOnly, "read-only", false, "nao verifica permissao de escrita")
+cmd/gobsidian/doctor.go:69:	cmd.Flags().IntVar(&flags.DebounceMS, "debounce-ms", 0, "janela de coalescencia de eventos do watcher")
+cmd/gobsidian/doctor.go:70:	cmd.Flags().IntVar(&flags.MaxResults, "max-results", 0, "teto de resultados por consulta")
+cmd/gobsidian/doctor.go:71:	cmd.Flags().BoolVar(&flags.FollowSymlinks, "follow-symlinks", false,
+cmd/gobsidian/index.go:85:	cmd.Flags().StringVar(&flags.VaultPath, "vault", "", "caminho da raiz do cofre (obrigatorio)")
+cmd/gobsidian/index.go:86:	cmd.Flags().BoolVar(&jsonOutput, "json", false, "saida estruturada em formato JSON")
+cmd/gobsidian/index.go:87:	cmd.Flags().BoolVar(&flags.FollowSymlinks, "follow-symlinks", false,
+cmd/gobsidian/inspect.go:123:	cmd.Flags().StringVar(&flags.VaultPath, "vault", "", "caminho da raiz do cofre (obrigatorio)")
+cmd/gobsidian/inspect.go:124:	cmd.Flags().BoolVar(&jsonOutput, "json", false, "saida estruturada em formato JSON")
+cmd/gobsidian/inspect.go:125:	cmd.Flags().BoolVar(&flags.FollowSymlinks, "follow-symlinks", false,
+cmd/gobsidian/search.go:88:	cmd.Flags().StringVar(&flags.VaultPath, "vault", "", "caminho da raiz do cofre (obrigatorio)")
+cmd/gobsidian/search.go:89:	cmd.Flags().BoolVar(&jsonOutput, "json", false, "saida estruturada em formato JSON")
+cmd/gobsidian/search.go:90:	cmd.Flags().IntVar(&limit, "limit", 20, "limite maximo de resultados")
+cmd/gobsidian/search.go:91:	cmd.Flags().BoolVar(&flags.FollowSymlinks, "follow-symlinks", false,
+cmd/gobsidian/search.go:93:	cmd.Flags().IntVar(&flags.MaxResults, "max-results", 0, "teto de resultados por consulta")
+cmd/gobsidian/serve.go:47:	cmd.Flags().StringVar(&flags.VaultPath, "vault", "", "caminho da raiz do cofre (obrigatorio)")
+cmd/gobsidian/serve.go:48:	cmd.Flags().StringVar(&flags.LogLevel, "log-level", "", "debug, info, warn ou error")
+cmd/gobsidian/serve.go:49:	cmd.Flags().BoolVar(&flags.ReadOnly, "read-only", false, "desabilita toda a superficie de escrita")
+cmd/gobsidian/serve.go:50:	cmd.Flags().IntVar(&flags.DebounceMS, "debounce-ms", 0, "janela de coalescencia de eventos do watcher")
+cmd/gobsidian/serve.go:51:	cmd.Flags().IntVar(&flags.MaxResults, "max-results", 0, "teto de resultados por consulta")
+cmd/gobsidian/serve.go:52:	cmd.Flags().StringVar(&flags.CacheDir, "cache-dir", "", "diretorio do cache de indice")
+cmd/gobsidian/serve.go:53:	cmd.Flags().BoolVar(&flags.FollowSymlinks, "follow-symlinks", false,
+cmd/gobsidian/serve.go:55:	cmd.Flags().BoolVar(&flags.EagerSearch, "eager-search", false,

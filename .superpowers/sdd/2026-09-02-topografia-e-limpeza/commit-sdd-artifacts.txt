@@ -1,0 +1,10 @@
+docs(sdd): file the per-task artifacts of Tasks 147-170 and repoint the ledger
+
+The briefs, reports, reviews and base SHAs of Tasks 147-170 were never
+added; they are the record the per-task reviews were made from. The plan's
+progress.md is a pointer to the single project ledger — entries for Task 176
+onward had been appended to the pointer by mistake and were migrated to the
+project ledger verbatim; the pointer now says so.
+
+Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01P5wkw6PAdBFzF3uB1w1jNj
