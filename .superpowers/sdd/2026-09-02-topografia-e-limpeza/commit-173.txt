@@ -1,0 +1,19 @@
+refactor(service): take *index.Index directly; the interface had one implementation and no fake
+
+service.Index existed only to be satisfied by *index.Index, forcing a type
+assertion in Search before every call to search.CalculateBM25 and
+search.GenerateSnippet, both of which require the concrete type anyway.
+Service.index and service.New now take *index.Index; the assertion is gone.
+
+Ruling applied during implementation: internal/service/frontmatter_err_test.go
+had its own type assertion on svc.index to reach index.Index.Replace, a
+method outside the deleted interface. That was a convenience cast, not a
+fake implementing the interface (no type fakeIndex; the test builds a real
+index via newTestService), so it was fixed the same way: use svc.index
+directly and drop the now-unused internal/index import.
+
+verify.ps1 is green; benchstat over the four search benchmarks (count=7,
+vault_5000) shows ~ across sec/op, B/op and allocs/op.
+
+Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01P5wkw6PAdBFzF3uB1w1jNj

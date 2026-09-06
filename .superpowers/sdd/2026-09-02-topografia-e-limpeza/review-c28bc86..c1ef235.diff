@@ -1,0 +1,222 @@
+c1ef235 refactor(service): take *index.Index directly; the interface had one implementation and no fake
+
+ docs/ESTADO.md                           |  2 +-
+ internal/service/frontmatter_err_test.go |  6 +-----
+ internal/service/search.go               |  9 ++-------
+ internal/service/service.go              | 25 ++++++-------------------
+ 4 files changed, 10 insertions(+), 32 deletions(-)
+
+diff --git a/docs/ESTADO.md b/docs/ESTADO.md
+index 54ae38e..8c68057 100644
+--- a/docs/ESTADO.md
++++ b/docs/ESTADO.md
+@@ -147,21 +147,21 @@ antiga não é o mesmo caminho de código. O invertido não mostra diferença
+ estatisticamente significativa nesta rodada (p=0,097): a variância de ±30 %
+ do benchmark domina o efeito do fsync num arquivo de ~25 MiB. Binários e
+ saída bruta: `%LOCALAPPDATA%\gobsidian-bench\2026-09-02\{antes,depois}172_{index,search}.test.exe`
+ e `.txt`.
+ 
+ Fatos medidos sem benchmark:
+ 
+ - `vault_5000`: 112 tags distintas, 0 hierárquicas. Cofres reais do dono: **não medido** neste plano.
+ - Cobertura por função (`go test -coverprofile`, 2026-09-02): `construirServico` 6,5 %, `carregarIndiceDoCache` 0 %, `prepararIndiceDeBusca` 0 %, `runServe` 0 %, `serveEmProcesso` 20,6 %, `buildInvertedIndex` 60,7 %; `WriteAtomic` 71,1 %, `SweepStaleTempFiles` 62,5 %, `CleanStaleTempFiles` 0 %; `SaveIndexCache` 64,5 %, `SaveInvertedCache` 56,0 %; `Tags` 91,7 %, `coletarLocked` 87,6 %, `tagListHierarchical` 94,1 %, `LinkGraph` 78,1 %; `Search` 96 %; `mcpsrv.Server.Serve` 0 %, `Close` 0 %; `doctor.checkDaemonLog` 44,4 %, `checkLocksDeDaemon` 58,6 %.
+ - Tempo de suíte (`go test ./... -count=1 -cover`): service 51,7 s, writer 32,5 s, search 31,1 s, watcher 26,2 s, index 22,3 s, vault 22,0 s, doctor 19,4 s, mcpsrv 17,0 s.
+-- Raio de explosão de `service.Index` (gopls references): `Get` 13, `ResolvePath` 8, `Backlinks` 5, `List` 4, `NotePaths` 2, `TotalSize`/`Tags`/`NoteCount`/`Generation`/`AssetCount`/`AliasCollisions` 1 cada, `Paths` **0**.
++- Raio de explosão de `service.Index` (gopls references, medido antes da Task 173): `Get` 13, `ResolvePath` 8, `Backlinks` 5, `List` 4, `NotePaths` 2, `TotalSize`/`Tags`/`NoteCount`/`Generation`/`AssetCount`/`AliasCollisions` 1 cada, `Paths` **0**. `service.New` recebe `*index.Index`; a interface foi removida em 2026-09 (Task 173) — tinha uma implementação e nenhum fake.
+ - Raio de `writer.WriteAtomic` (medido em 2026-09-02, antes das Tasks 171-172): 6 sítios em `internal/service/write.go` (`:149,:248,:378,:619,:751,:832`) + 3 arquivos de teste; `SweepStaleTempFiles`: 1 sítio (`cmd/gobsidian/servico.go:78`). Depois das Tasks 171-172, `writer.WriteAtomic` e `writer.SweepStaleTempFiles` não existem mais — os chamadores usam `vault.WriteAtomic`/`vault.SweepStaleTempFiles` diretamente.
+ - Prefixo `.gobsidian-tmp-` em 4 literais (medido em 2026-09-02, antes das Tasks 171-172): `writer/atomic.go:14` (constante), `vault/walk.go:74`, `search/persist.go:87`, `index/persist.go:124`. Depois das Tasks 171-172, o literal existe numa só linha: `vault/atomic.go:14`.
+ - `hits` × `results`: `search --json --limit 200 --vault vault_5000 "execucao"` (binário de 6c5d1f1): `hits` e `results` são 200 itens e **byte a byte iguais** (`hits == results` → `True` em Python). JSON compacto: 195 481 bytes com `hits`, 97 787 sem — **50,0 % do payload é a cópia**. Arquivo indentado: 216 304 bytes.
+ - CLI a frio × `serve` com cache: cofre `vault_5000`, mesmo binário. `search` a frio (Build + `inv.Update` serial por nota): **10 520 / 10 819 / 11 046 ms** de parede em 3 execuções. `inspect` a frio (só Build): **770 / 767 / 739 ms**. `serve` em processo (`GOBSIDIAN_NO_DAEMON=1 --eager-search`) com cache quente, 5 execuções: `index_ms` **101–123**, índice de busca `duracao_ms` **13–20**, parede boot→saída **475–528 ms**. Ou seja: a CLI de busca paga ~10 s que o `serve` não paga; adotar o cache na CLI (Task 175) tem teto de ganho medido, não estimado.
+ 
+ ---
+ 
+ ## Decisões fechadas que não se re-litigam sem dado novo
+ 
+ **O RNF-30 mudou de redação, não de intenção** (Task 90, autorizado pelo dono em
+diff --git a/internal/service/frontmatter_err_test.go b/internal/service/frontmatter_err_test.go
+index e4824ab..38470e0 100644
+--- a/internal/service/frontmatter_err_test.go
++++ b/internal/service/frontmatter_err_test.go
+@@ -1,17 +1,16 @@
+ package service
+ 
+ import (
+ 	"context"
+ 	"testing"
+ 
+-	"github.com/jonyd/gobsidian/internal/index"
+ 	"github.com/jonyd/gobsidian/internal/vault"
+ )
+ 
+ // TestNotaComFrontmatterQuebradoNaoSomeEmSilencio cobre as tres pontas de uma
+ // vez: o campo chega ao indice, note_metadata o expoe, e vault_stats o CONTA.
+ //
+ // A asserção sobre o contador e a que importa: sem ela, uma nota quebrada em mil
+ // e indistinguivel de zero notas quebradas, que e o estado de hoje.
+ func TestNotaComFrontmatterQuebradoNaoSomeEmSilencio(t *testing.T) {
+ 	// YAML invalido de verdade: lista aberta que a linha seguinte nao fecha.
+@@ -45,24 +44,21 @@ func TestNotaComFrontmatterQuebradoNaoSomeEmSilencio(t *testing.T) {
+ 	}
+ 	if boaMD.FrontmatterErr != "" {
+ 		t.Fatalf("nota com frontmatter valido ganhou FrontmatterErr=%q", boaMD.FrontmatterErr)
+ 	}
+ 
+ 	// Verifica que Replace (caminho do watcher/update) tambem propaga FrontmatterErr.
+ 	v, err := vault.New(root)
+ 	if err != nil {
+ 		t.Fatalf("vault.New: %v", err)
+ 	}
+-	ix, ok := svc.index.(*index.Index)
+-	if !ok {
+-		t.Fatal("svc.index nao e *index.Index")
+-	}
++	ix := svc.index
+ 	if err := ix.Replace(context.Background(), v, "quebrada.md"); err != nil {
+ 		t.Fatalf("Replace: %v", err)
+ 	}
+ 	mdAfterReplace, err := svc.NoteMetadata(context.Background(), MetadataRequest{Path: "quebrada.md"})
+ 	if err != nil {
+ 		t.Fatalf("NoteMetadata after Replace: %v", err)
+ 	}
+ 	if mdAfterReplace.FrontmatterErr == "" {
+ 		t.Fatal("frontmatter malformado nao chegou a note_metadata apos Replace (update.go)")
+ 	}
+diff --git a/internal/service/search.go b/internal/service/search.go
+index c55d22a..af1a47e 100644
+--- a/internal/service/search.go
++++ b/internal/service/search.go
+@@ -216,27 +216,22 @@ func (s *Service) Search(ctx context.Context, opts SearchOptions) (SearchResult,
+ 		queryTokens = search.Analyze(trimmedQuery)
+ 		for _, tok := range queryTokens {
+ 			rawTerms = append(rawTerms, tok.Raw)
+ 		}
+ 	}
+ 
+ 	if len(queryTokens) == 0 {
+ 		return resultadoVazio(0, opts), nil
+ 	}
+ 
+-	var idxImpl *index.Index
+-	if realIdx, ok := s.index.(*index.Index); ok {
+-		idxImpl = realIdx
+-	}
+-
+ 	// Executa pontuação BM25 sobre o índice invertido
+-	rawHits := search.CalculateBM25(queryTokens, s.inverted, idxImpl)
++	rawHits := search.CalculateBM25(queryTokens, s.inverted, s.index)
+ 
+ 	// Uma vez, fora do laço: o filtro de frontmatter é o único que não se
+ 	// responde olhando só a nota, e resolvê-lo por hit fazia uma varredura do
+ 	// índice inteiro por resultado.
+ 	porFrontmatter := s.casamFrontmatter(opts)
+ 
+ 	// A analise e a expansao dos termos do trecho acontecem UMA vez, e nao por
+ 	// hit: GenerateSnippet chamava Analyze para cada termo dentro de cada
+ 	// resultado da pagina — com limit=200 e tres palavras, 600 chamadas por
+ 	// busca produzindo sempre a mesma lista (achado P10).
+@@ -300,21 +295,21 @@ func (s *Service) Search(ctx context.Context, opts SearchOptions) (SearchResult,
+ 		h, note := hn.hit, hn.note
+ 		// A Note vem do filtro, e não de um segundo index.Get.
+ 		//
+ 		// O Get daqui existia para tratar a nota que sai do índice entre o
+ 		// filtro e este ponto, porque o watcher roda em paralelo. Ele NÃO
+ 		// protegia de nada: `*index.Note` é um ponteiro para uma estrutura já
+ 		// publicada, então o que o filtro pegou continua válido e legível
+ 		// mesmo que a nota tenha saído do mapa no instante seguinte. O
+ 		// resultado é de um instante ligeiramente anterior — que é o que
+ 		// qualquer busca devolve, com ou sem o segundo Get.
+-		snip, errTrecho := search.GenerateSnippet(ctx, s.vault, s.inverted, idxImpl, h.Path, termosDoTrecho, opts.SnippetChars, s.trechos)
++		snip, errTrecho := search.GenerateSnippet(ctx, s.vault, s.inverted, s.index, h.Path, termosDoTrecho, opts.SnippetChars, s.trechos)
+ 		if errTrecho != nil {
+ 			// A nota fica na pagina, com trecho vazio: uma nota travada nao
+ 			// pode apagar as outras 199. Mas a falha e CONTADA (achado B3).
+ 			slots[i].semTrecho = true
+ 		}
+ 		var matchedHeadings []string
+ 		if snip.MatchedHeading != "" {
+ 			matchedHeadings = append(matchedHeadings, snip.MatchedHeading)
+ 		}
+ 		slots[i].hit = SearchHit{
+diff --git a/internal/service/service.go b/internal/service/service.go
+index e1b1f2d..add2223 100644
+--- a/internal/service/service.go
++++ b/internal/service/service.go
+@@ -1,35 +1,19 @@
+ package service
+ 
+ import (
+ 	"github.com/jonyd/gobsidian/internal/index"
+ 	"github.com/jonyd/gobsidian/internal/search"
+ 	"github.com/jonyd/gobsidian/internal/vault"
+ 	"github.com/jonyd/gobsidian/internal/writer"
+ )
+ 
+-// Index e a dependencia do servico sobre o indice.
+-type Index interface {
+-	NoteCount() int
+-	AssetCount() int
+-	TotalSize() int64
+-	ResolvePath(input string) (vault.CanonicalPath, error)
+-	Get(path vault.CanonicalPath) (*index.Note, bool)
+-	List(q index.Query) ([]*index.Note, int)
+-	Tags(prefix string, minCount int) []index.TagCount
+-	Backlinks(path vault.CanonicalPath) []index.Backlink
+-	Paths() []vault.CanonicalPath
+-	NotePaths() []vault.CanonicalPath
+-	AliasCollisions() int
+-	Generation() uint64
+-}
+-
+ // WatchCounters reporta a saude e os contadores do watcher em tempo de execucao.
+ type WatchCounters struct {
+ 	Active            bool             `json:"active"`
+ 	EventsReceived    int64            `json:"events_received"`
+ 	EventsDropped     int64            `json:"events_dropped"`
+ 	DroppedByReason   map[string]int64 `json:"events_dropped_by_reason"`
+ 	EventsCoalesced   int64            `json:"events_coalesced"`
+ 	EventsProcessed   int64            `json:"events_processed"`
+ 	EventsSkipped     int64            `json:"events_skipped"`
+ 	Reconciliations   int64            `json:"reconciliations"`
+@@ -59,36 +43,39 @@ type Options struct {
+ 
+ 	// SnippetCacheEntries e o teto do cache de trechos de vault_search.
+ 	//
+ 	// E ponteiro pela mesma razao de config.ReadOnlySet existir: num int, zero
+ 	// e "omitido" e "desligado" ao mesmo tempo, e a diferenca importa. nil usa
+ 	// search.DefaultSnippetCacheEntries; um zero explicito DESLIGA o cache, e e
+ 	// assim que o benchmark mede o caminho frio, que e o que o RNF-04 cobra.
+ 	SnippetCacheEntries *int
+ }
+ 
+-// Service e a fachada unica sobre os subsistemas: cada tool MCP corresponde a um metodo daqui.
++// Service e a fachada das tools sobre o dominio. Recebe o indice concreto:
++// a interface que existia aqui tinha uma implementacao e nenhum fake, e
++// search.CalculateBM25 e search.GenerateSnippet exigem *index.Index, o que
++// obrigava uma assercao de tipo em cada busca.
+ type Service struct {
+ 	vault    *vault.Vault
+-	index    Index
++	index    *index.Index
+ 	inverted *search.Inverted
+ 	watcher  WatchStats
+ 	opts     Options
+ 	locker   *writer.PathLocker
+ 	trechos  *search.SnippetCache
+ 
+ 	carregarBusca CarregadorBusca
+ 	cargaBusca    cargaUnica
+ }
+ 
+ // New monta o servico.
+-func New(v *vault.Vault, idx Index, inv *search.Inverted, w WatchStats, opts Options) *Service {
++func New(v *vault.Vault, idx *index.Index, inv *search.Inverted, w WatchStats, opts Options) *Service {
+ 	entradasTrecho := search.DefaultSnippetCacheEntries
+ 	if opts.SnippetCacheEntries != nil {
+ 		entradasTrecho = *opts.SnippetCacheEntries
+ 	}
+ 	return &Service{
+ 		vault:         v,
+ 		index:         idx,
+ 		inverted:      inv,
+ 		watcher:       w,
+ 		opts:          opts,
