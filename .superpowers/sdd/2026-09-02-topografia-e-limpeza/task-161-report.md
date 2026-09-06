@@ -2,10 +2,11 @@
 
 **Status:** DONE_WITH_CONCERNS (ver "Defeitos encontrados — fora de escopo")
 **Base:** `50fb0bc` (o brief citava `15c66fb`; o master avancou com dois commits de docs/ledger antes desta tarefa)
-**SHA do commit:** preenchido abaixo, em "Commit"
+**SHA do commit:** `b3bcba0`
 
 ## Progresso
 
+- 23:57 — commit `b3bcba0`, por caminho explicito, com `git commit -F`. Assunto conferido: sem `@ ` solto.
 - 23:54 — `verify.ps1` verde (14/14). Escrevendo relatorio e commit.
 - 23:48 — Step 2 verde: `go test -race` nos seis pacotes tocados, todos `ok`. `git diff --stat` mostra 8 arquivos, todos `_test.go`.
 - 23:45 — re-mutacao contra os consertados: row1 FAIL(0), row2 FAIL(0), row4 FAIL(0), row12 FAIL(0) depois de exigir o erro de `--vault`, row13 FAIL(0) com a mutacao `filepath.Rel(filepath.Dir(root), abs)` (a mesma mutacao contra o fixture antigo hardcoded: PASS(1)), row14 FAIL(0).
@@ -455,4 +456,20 @@ Exit code 0. Os seis pulados sao os de sempre (condicoes de ambiente que so exis
 
 ## Commit
 
-Preenchido apos o commit.
+`b3bcba0` — `test: audit thirteen sweep-flagged tests; fix the ones that could not fail, drop the redundant ones`
+
+```
+$ git show --stat --oneline b3bcba0
+ .../task-161-report.md                             | 458 +++++++++++++++++++++
+ cmd/gobsidian/console_saida_test.go                |  24 +-
+ internal/mcpsrv/tools_read_test.go                 |  59 ++-
+ internal/search/bm25_test.go                       |  24 +-
+ internal/search/inverted_test.go                   |  15 +-
+ internal/search/persist_test.go                    |  12 -
+ internal/search/pool_test.go                       |  11 +-
+ internal/service/limites_enums_test.go             |  33 +-
+ internal/watcher/filter_test.go                    |  17 +-
+ 9 files changed, 606 insertions(+), 47 deletions(-)
+```
+
+Oito arquivos de codigo, **todos `_test.go`**; o nono e este relatorio. Nenhuma linha de producao no commit. Staging foi por caminho explicito (nunca `git add -A`), e a mensagem entrou por `git commit -F`.
