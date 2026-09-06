@@ -6,6 +6,7 @@
 
 ## Progresso
 
+- 00:14 — commit `6c1f217` do round de polimento; SHA registrado aqui.
 - 00:14 — `verify.ps1` verde, catorze etapas, seis pulados de sempre. Escrevendo o commit.
 - 00:08 — fix round 1: `pool_test.go` renomeado, asserção de ordem do bm25 removida com a conta no comentario, frase de alcance da linha 1 no relatorio. Re-mutacao do idf: FAIL (0). Proximo: `verify.ps1`.
 - 00:07 — round de polimento (R=1) recebido; HEAD `44f2700`; tres itens nao-bloqueantes.
@@ -485,6 +486,8 @@ Oito arquivos de codigo, **todos `_test.go`**; o nono e este relatorio. Nenhuma 
 
 Round de polimento pedido apos a revisao (`review-161.md`: Spec APPROVED, Quality
 APPROVED, 0 bloqueantes). Tres itens nao-bloqueantes; base `44f2700`.
+SHA do round: `6c1f217` — dois `_test.go` e este relatorio, staged por
+caminho explicito, mensagem por `git commit -F`.
 
 ### 1. `internal/search/pool_test.go` — o nome dizia "reuse" e o teste nao mede reuso
 
