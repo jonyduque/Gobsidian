@@ -115,8 +115,19 @@ func TestInvertedConcurrencyRace(t *testing.T) {
 
 	wg.Wait()
 
-	if ix.DocCount() < 0 {
-		t.Errorf("DocCount negativo apos concorrencia: %d", ix.DocCount())
+	// `DocCount() < 0` nao podia falhar: sem base carregado, DocCount devolve
+	// len(map), e um mapa nao tem tamanho negativo. Medido — com o corpo de
+	// Inverted.Remove trocado por `_ = path`, o teste continuava verde, ou
+	// seja o laco de Remove do escritor nao era observado por assercao
+	// nenhuma.
+	//
+	// O valor exato e determinado: nas DEZ ultimas voltas o escritor toca cada
+	// um dos dez caminhos exatamente uma vez (i%10) e remove os que caem em
+	// i%3 == 0. Dez inteiros consecutivos contem tres ou quatro multiplos de
+	// tres, entao sobram sete ou seis notas — nunca dez (Remove inerte) nem
+	// zero (Add inerte).
+	if got := ix.DocCount(); got != 6 && got != 7 {
+		t.Errorf("DocCount = %d apos concorrencia; quer 6 ou 7", got)
 	}
 	if ix.TermCount() == 0 {
 		t.Errorf("TermCount zerado apos escritas concorrentes")

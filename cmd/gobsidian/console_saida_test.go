@@ -97,6 +97,19 @@ func TestSaidaDeErroRedirecionadaNaoSaiFormatada(t *testing.T) {
 // A assercao e sobre o writer que o cobra entrega ao comando. Se alguem ligar
 // um console ao stdout de serve, o writer deixa de ser o buffer deste teste e
 // a saida capturada passa a conter escape.
+//
+// O QUE ESTE TESTE NAO COBRE, e por que: `--vault` ausente faz o RunE parar em
+// config.Load, entao so o trecho ANTERIOR a runServe e exercitado. runServe
+// termina em os.Exit por desenho e nao volta, logo nao da para chama-lo aqui.
+// Medido: um `os.Stdout.WriteString("diagnostico")` dentro de runServe
+// sobrevive a este teste — por ser inalcancavel E por escrever no os.Stdout
+// real, que nao e o buffer observado. Um `cmd.Println` antes de config.Load,
+// que e a metade alcancavel, o teste reprova.
+//
+// A assercao sobre `err` nao e decoracao: sem ela, uma arvore de comandos que
+// nem registrasse `serve` deixaria o stdout vazio e o teste verde. Medido —
+// com `newServeCmd()` fora do AddCommand de main.go, a versao anterior deste
+// teste passava.
 func TestServeNaoEscreveNoStdout(t *testing.T) {
 	for _, nome := range []string{"serve", "daemon"} {
 		t.Run(nome, func(t *testing.T) {
@@ -115,7 +128,16 @@ func TestServeNaoEscreveNoStdout(t *testing.T) {
 			// abrir cofre ou socket. O que interessa e que o caminho de erro
 			// tambem nao escreve nada em stdout.
 			root.SetArgs([]string{nome})
-			_ = root.Execute()
+			err := root.Execute()
+			if err == nil {
+				t.Fatalf("%s sem --vault deveria reprovar na configuracao; sem erro nao ha prova de que o comando chegou a rodar", nome)
+			}
+			// E precisa ser o erro DA CONFIGURACAO. "unknown command" tambem e
+			// um erro nao-nulo, e um comando que nem esta na arvore deixaria o
+			// stdout vazio pelo motivo errado.
+			if !strings.Contains(err.Error(), "--vault") {
+				t.Fatalf("%s reprovou por outro motivo que nao a falta de --vault, entao nao chegou ao RunE: %v", nome, err)
+			}
 
 			if got := stdout.String(); got != "" {
 				t.Errorf("%s escreveu em stdout, que pertence ao JSON-RPC: %q", nome, got)

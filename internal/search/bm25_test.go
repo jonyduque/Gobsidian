@@ -2,6 +2,7 @@ package search_test
 
 import (
 	"context"
+	"math"
 	"os"
 	"path/filepath"
 	"testing"
@@ -210,16 +211,33 @@ func TestBM25RawVsReduced(t *testing.T) {
 	}
 }
 
-func TestBM25FrequentTermNoNaN(t *testing.T) {
+// TestBM25TermoEmTodasAsNotasAindaPontua substitui TestBM25FrequentTermNoNaN,
+// que so varria os resultados procurando NaN e por isso nao podia falhar:
+// bm25.go monta a lista dentro de `if !math.IsNaN(score) && score > 0`, entao
+// um NaN nunca chega ao laco. Medido — com o guarda trocado por
+// `if score > 0 {`, o teste antigo continuava verde.
+//
+// A regra que este cenario CONSEGUE falsificar e a que importa para um termo
+// de parada: o idf e `log(1 + (N-d+0.5)/(d+0.5))`, e o `1 +` existe para que
+// d == N — termo presente em TODAS as notas — ainda produza idf positivo. Sem
+// ele o idf fica negativo, o `idf <= 0` descarta o termo, e a busca por um
+// termo comum devolve lista vazia em vez de um ranking.
+func TestBM25TermoEmTodasAsNotasAindaPontua(t *testing.T) {
 	ix := search.NewInverted()
 	ix.Add("a.md", search.Analyze("de de de"))
 	ix.Add("b.md", search.Analyze("de de"))
 
 	res := search.CalculateBM25(search.Analyze("de"), ix, nil)
+	if len(res) != 2 {
+		t.Fatalf("len(res) = %d, quer 2 — termo presente em todas as notas sumiu do resultado", len(res))
+	}
 	for _, r := range res {
-		if r.Score != r.Score { // NaN check
-			t.Errorf("Score = NaN para termo frequente na nota %s", r.Path)
+		if math.IsNaN(r.Score) || r.Score <= 0 {
+			t.Errorf("Score de %s = %v, quer finito e positivo", r.Path, r.Score)
 		}
+	}
+	if res[0].Path != "a.md" {
+		t.Errorf("res[0] = %s, quer a.md — tres ocorrencias tem de pontuar acima de duas", res[0].Path)
 	}
 }
 

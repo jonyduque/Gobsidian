@@ -92,16 +92,26 @@ func TestReadTools(t *testing.T) {
 		args    map[string]interface{}
 		wantErr bool
 		errCode string
+		// wantIn sao trechos que o StructuredContent do caso de SUCESSO tem de
+		// conter. Ate 2026-09-05 os seis casos de sucesso afirmavam apenas
+		// `!IsError && StructuredContent != nil` — que e verdade para uma busca
+		// sem nenhum acerto, uma listagem vazia e um grafo sem aresta. Medido:
+		// com `if !math.IsNaN(score) && score > 0` trocado por `if false` em
+		// bm25.go, CalculateBM25 passou a devolver sempre lista vazia e
+		// TestReadTools continuava verde.
+		wantIn []string
 	}{
 		{
-			name: "vault_search valid",
-			tool: "vault_search",
-			args: map[string]interface{}{"query": "Text"},
+			name:   "vault_search valid",
+			tool:   "vault_search",
+			args:   map[string]interface{}{"query": "Text"},
+			wantIn: []string{`"results"`, "A.md", "B.md"},
 		},
 		{
-			name: "note_read valid",
-			tool: "note_read",
-			args: map[string]interface{}{"path": "A.md"},
+			name:   "note_read valid",
+			tool:   "note_read",
+			args:   map[string]interface{}{"path": "A.md"},
+			wantIn: []string{"Text A", "[[B]]"},
 		},
 		{
 			name:    "note_read invalid",
@@ -111,24 +121,29 @@ func TestReadTools(t *testing.T) {
 			errCode: "NOTE_NOT_FOUND",
 		},
 		{
-			name: "note_list valid",
-			tool: "note_list",
-			args: map[string]interface{}{},
+			name:   "note_list valid",
+			tool:   "note_list",
+			args:   map[string]interface{}{},
+			wantIn: []string{`"notes"`, "A.md", "B.md"},
 		},
 		{
-			name: "note_metadata valid",
-			tool: "note_metadata",
-			args: map[string]interface{}{"path": "A.md"},
+			name:   "note_metadata valid",
+			tool:   "note_metadata",
+			args:   map[string]interface{}{"path": "A.md"},
+			wantIn: []string{"A.md", `"tags":["a"]`},
 		},
 		{
 			name: "link_graph valid",
 			tool: "link_graph",
 			args: map[string]interface{}{"path": "A.md"},
+			// B.md so aparece se a travessia seguiu o [[B]] de A.md.
+			wantIn: []string{`"nodes"`, "A.md", "B.md"},
 		},
 		{
-			name: "tag_list valid",
-			tool: "tag_list",
-			args: map[string]interface{}{},
+			name:   "tag_list valid",
+			tool:   "tag_list",
+			args:   map[string]interface{}{},
+			wantIn: []string{`"tags"`, `"a"`, `"b"`},
 		},
 	}
 
@@ -175,7 +190,19 @@ func TestReadTools(t *testing.T) {
 					t.Fatalf("Expected IsError=false, got true. content: %v", res.Content)
 				}
 				if res.StructuredContent == nil {
-					t.Errorf("Expected non-nil StructuredContent")
+					t.Fatalf("Expected non-nil StructuredContent")
+				}
+				if len(tt.wantIn) == 0 {
+					t.Fatalf("caso de sucesso sem wantIn: exigir so nao-nulo passa com resultado vazio")
+				}
+				bruto, err := json.Marshal(res.StructuredContent)
+				if err != nil {
+					t.Fatalf("marshal StructuredContent: %v", err)
+				}
+				for _, trecho := range tt.wantIn {
+					if !strings.Contains(string(bruto), trecho) {
+						t.Errorf("StructuredContent nao contem %q:\n%s", trecho, bruto)
+					}
 				}
 			}
 		})

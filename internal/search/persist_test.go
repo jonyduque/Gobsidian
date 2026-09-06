@@ -8,7 +8,6 @@ import (
 	"path/filepath"
 	"runtime"
 	"sort"
-	"strings"
 	"testing"
 	"time"
 
@@ -226,17 +225,6 @@ func TestEmptyVaultCacheDistinguishableFromMissing(t *testing.T) {
 	}
 	if loaded.DocCount() != 0 {
 		t.Errorf("loaded.DocCount = %d, want 0", loaded.DocCount())
-	}
-}
-
-func TestCacheOutsideVault(t *testing.T) {
-	vaultPath := t.TempDir()
-	cacheDir := t.TempDir()
-
-	cClean := filepath.Clean(cacheDir)
-	vClean := filepath.Clean(vaultPath)
-	if strings.HasPrefix(cClean, vClean) {
-		t.Fatalf("cacheDir %q está dentro de vaultPath %q", cacheDir, vaultPath)
 	}
 }
 

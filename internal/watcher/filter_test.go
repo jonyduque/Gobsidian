@@ -116,10 +116,23 @@ func TestFilter(t *testing.T) {
 
 func TestFilter_OutsideVaultIsDropped(t *testing.T) {
 	log := slog.New(slog.NewTextHandler(io.Discard, nil))
-	root := "C:\\test\\vault"
+
+	// Raizes reais, pelo mesmo motivo de TestFilter: "C:\\test\\vault" e
+	// "D:\\fora_do_vault\\nota.md" nao sao caminhos fora de Windows. E aqui a
+	// letra de drive DIFERENTE tambem enfraquecia o caso no proprio Windows:
+	// filepath.Rel entre dois drives ja falha, entao a regra de confinamento
+	// que interessa — o prefixo "../" — nunca era exercida. Medido: com
+	// `if slashed == ".." || strings.HasPrefix(slashed, "../")` trocado por
+	// `if false` em vault/path.go, este teste continuava verde.
+	//
+	// t.TempDir() duas vezes devolve irmaos sob a mesma raiz e no mesmo drive:
+	// o caminho de fora chega em Canonicalize como "../<algo>", que e o que a
+	// regra existe para recusar.
+	root := t.TempDir()
+	fora := t.TempDir()
 
 	evt := fsnotify.Event{
-		Name: "D:\\fora_do_vault\\nota.md",
+		Name: filepath.Join(fora, "nota.md"),
 		Op:   fsnotify.Write,
 	}
 

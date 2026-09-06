@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -15,13 +16,6 @@ import (
 // e `note_list` não. Schema que promete um teto e código que não o aplica é a
 // mesma classe do M4: o cliente lê o schema para decidir o que pedir.
 func TestNoteListAplicaOTetoDeLimit(t *testing.T) {
-	root := t.TempDir()
-	// 3 notas bastam: o que se testa é o clamp do parâmetro, não a paginação.
-	for _, n := range []string{"a.md", "b.md", "c.md"} {
-		writeFile(t, root, n, "---\ntitle: "+n+"\n---\n\ntexto\n")
-	}
-	svc := newTestService(t, root)
-
 	casos := []struct {
 		nome    string
 		pedido  int
@@ -42,10 +36,31 @@ func TestNoteListAplicaOTetoDeLimit(t *testing.T) {
 	}
 
 	// E o caminho real: um pedido absurdo não pode chegar ao índice como veio.
-	if _, err := svc.ListNotes(context.Background(), ListRequest{
+	//
+	// Precisa de um cofre com MAIS notas que o teto. A versão anterior montava
+	// três notas e descartava o resultado, e o clamp ficava inobservável —
+	// afirmar `len(res.Notes) <= LimiteTeto` sobre três notas dá o mesmo verde
+	// com ou sem a regra. Medido: trocando `q.Limit = ComTeto(q.Limit)` por
+	// `q.Limit = req.Query.Limit` em graph.go, aquela versão passava.
+	raizCheia := t.TempDir()
+	for i := 0; i <= LimiteTeto; i++ {
+		writeFile(t, raizCheia, fmt.Sprintf("n%04d.md", i), "---\ntitle: n\n---\n\ntexto\n")
+	}
+	svcCheio := newTestService(t, raizCheia)
+
+	res, err := svcCheio.ListNotes(context.Background(), ListRequest{
 		Query: index.Query{Limit: 100000},
-	}); err != nil {
+	})
+	if err != nil {
 		t.Fatalf("ListNotes com limit absurdo: %v", err)
+	}
+	// Controle: sem esta linha, um cofre que não subisse acima do teto faria a
+	// asserção seguinte passar sem exercer o clamp.
+	if res.Total != LimiteTeto+1 {
+		t.Fatalf("Total = %d, queria %d — o cofre não tem notas suficientes para o teto ser observável", res.Total, LimiteTeto+1)
+	}
+	if len(res.Notes) != LimiteTeto {
+		t.Errorf("len(res.Notes) = %d, queria %d: o limite absurdo chegou ao índice como veio", len(res.Notes), LimiteTeto)
 	}
 }
 
