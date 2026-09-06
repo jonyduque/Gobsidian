@@ -1,0 +1,8 @@
+docs(sdd): close the plan — final fix round, its re-review and the ledger
+
+The final round landed as three commits (cd61624, ada4897, b3ee480); the
+scoped re-review reproduced both mutation proofs and found nothing new. The
+ledger records every ruling of the plan and marks it complete.
+
+Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01P5wkw6PAdBFzF3uB1w1jNj

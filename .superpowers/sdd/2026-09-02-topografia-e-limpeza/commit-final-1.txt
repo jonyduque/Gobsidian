@@ -1,0 +1,13 @@
+fix(cli): doctor no longer declares --debounce-ms, which nothing read
+
+doctor has no watcher, so there was nothing to coalesce: internal/doctor
+never consulted cfg.DebounceMS. The declared flag let
+`doctor --debounce-ms 0` fail with an unrelated validation error while
+any other value was silently accepted and ignored. Drop the flag and its
+Changed() plumbing, remove doctor from the --debounce-ms row in
+README.md, and extend TestIndexEInspectNaoAceitamFlagsQueIgnoram to
+cover doctor for debounce-ms only (it legitimately keeps --read-only and
+--max-results).
+
+Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01P5wkw6PAdBFzF3uB1w1jNj

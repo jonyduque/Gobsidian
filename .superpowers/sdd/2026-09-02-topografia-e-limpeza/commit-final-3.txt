@@ -1,0 +1,52 @@
+docs: final pass -- stale references after the boot/vault/tag moves
+
+Task 174 moved boot assembly from cmd/gobsidian into internal/boot
+(construirServico -> boot.Montar, invertedCacheState ->
+boot.estadoDoCache, buildInvertedIndex -> boot.construirBusca), Tasks
+171/172 unified atomic writes into vault.ReplaceFile/WriteAtomic, and
+Task 180 gave tags one folded key (index.ChaveDeTag). Comments, docs
+and the wiki still named the old files and functions. Sweep every
+reference the final review found:
+
+- Production and test comments now point at the real symbols
+  (internal/index/persist.go, internal/search/inverted.go,
+  internal/search/mmap.go, internal/service/search_lazy.go,
+  internal/watcher/counters.go, internal/daemon/daemon.go, and the
+  corresponding _test.go files) -- comment-only, no logic changes.
+- internal/boot/doc.go and internal/boot/montar.go get one sentence
+  each: index/inspect/search do reach boot (AbrirIndice, and search
+  also PrepararBusca), and the "no write in flight during boot"
+  guarantee only holds while --cache-dir stays outside the vault.
+- internal/daemon/lock.go's EhArquivoDeTrava comment now says what the
+  predicate actually checks (any ".lock" file, not "one of two").
+- ARCHITECTURE.md Sec5.5 rewritten from the real atomic.go: 10 retries
+  at a fixed 10ms (not exponential backoff/three tries), plus the
+  Chmod and directory-sync steps the paragraph omitted.
+- ESTRUTURA.md's file tree corrected against `ls -R internal cmd`:
+  two phantom files removed (vault/ignore.go, writer/writer.go,
+  index/assets.go), three real ones added (cmd/gobsidian/flags.go and
+  cli_log.go, internal/ipc/desconexao.go), and config/flags.go's
+  description fixed to point at where flag registration actually
+  lives.
+- segregacao.md's atomic-write and tag-key sections marked historical,
+  with the Task 180 closure noted (folds into a review finding).
+- TOOLS.md: vault_stats' field list rewritten from service.StatsResult
+  (no link/tag/empty-note/cloud-only counts exist); the tag_list
+  spelling paragraph extended to note_list.tags and to the CLI index
+  count folding tag keys; OPERACAO.md's flag-sharing paragraph reworded
+  so doctor's flags aren't confused with the cache ones it doesn't
+  register.
+- SUGESTOES.md and ESTADO.md: historical findings annotated in place
+  with where the code lives today, without rewriting the measurements;
+  M14 flagged as citing a function deleted in Task 166.
+- Wiki pages: boot.md renamed its symbols and marked itself stale
+  (systemic drift, not spot-checked line by line); Home.md,
+  decisoes-fechadas.md, encerramento.md, escrita.md,
+  onde-ficam-os-dados.md and camadas-e-fronteiras.md got narrower
+  in-place fixes; manifest.json dropped the deleted servico.go entry.
+
+Review findings addressed: B-F3, B-N1, B-N5, B-Stale, and the parked
+doc items A1-A8 (A9/A10 stay parked per the brief).
+
+Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01P5wkw6PAdBFzF3uB1w1jNj

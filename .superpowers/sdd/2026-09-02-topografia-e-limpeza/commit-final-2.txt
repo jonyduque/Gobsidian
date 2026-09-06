@@ -1,0 +1,16 @@
+fix(mcpsrv): the served schema says what tags matches
+
+Task 180 (18d9da4) made vault_search.tags and note_list.tags match a
+tag and its subtags, folding case and NFC, and documented the new
+behavior in TOOLS.md -- but the jsonschema tags on
+vaultSearchInput.Tags and noteListInput.Tags never got the same prose.
+Because the server only forwards type+description to the host
+(jsonschema-go v0.4.2), the served schema still told the model "all
+tags", with no mention that a requested tag reaches its subtags. Bring
+both jsonschema tags in line with the TOOLS.md prose, and add
+TestSchemaServidoDescreveTagsHierarquicas, which lists tools over a
+real in-memory MCP session and asserts the served description mentions
+subtags for both fields.
+
+Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01P5wkw6PAdBFzF3uB1w1jNj
