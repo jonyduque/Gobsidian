@@ -189,7 +189,8 @@ gobsidian/
 │   │   ├── blocks/
 │   │   └── edge/                 vazio, sem newline final, CRLF misto, BOM
 │   ├── vault_small/              cofre de 50 notas para testes de integração
-│   └── parity/                   corpus + metadata cache do Obsidian de referência
+│   ├── parity/                   corpus + metadata cache do Obsidian de referência
+│   └── tag_list_hierarquico.json golden byte a byte do JSON de tag_list hierárquico (Task 169)
 │
 ├── tools/
 │   ├── parity-dumper/            plugin de dev do Obsidian; serializa app.metadataCache

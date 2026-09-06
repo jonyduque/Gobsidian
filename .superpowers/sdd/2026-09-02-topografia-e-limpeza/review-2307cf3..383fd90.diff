@@ -1,0 +1,1538 @@
+383fd90 revert(service): TagNode.Children goes back to []any — the SDK rejects the cycle
+f91df07 refactor(writer): lock key delegates to the shared key account
+9bc99ba refactor(index): resolve reuses vivosLocked
+62783cc refactor(index): TotalSize takes the read lock on the memoized hit
+1456a5d refactor(service): one account for the hash format
+ba9927c refactor(service): one empty result, one pagination, one move error
+d7a11e8 fix(service): restore the leaf guard ordenarTags lost with []TagNode
+6227757 refactor(service): count tags once per note in tagListHierarchical
+06c8640 refactor(service): TagNode.Children is []TagNode, JSON unchanged
+4f3eb4c test(service): golden for the hierarchical tag_list JSON
+8268507 refactor(service): edge key as a struct, not a formatted string
+
+ CLAUDE.md                                |  16 +-
+ internal/index/chave.go                  |   5 +-
+ internal/index/index.go                  |  19 ++-
+ internal/index/resolve.go                |  16 +-
+ internal/service/graph.go                |  93 +++++++++---
+ internal/service/read.go                 |   3 +-
+ internal/service/search.go               |  80 +++++-----
+ internal/service/tag_list_golden_test.go | 111 ++++++++++++++
+ internal/service/write.go                |  75 ++++-----
+ internal/text/normalize.go               |  21 +++
+ internal/writer/lock.go                  |  13 +-
+ internal/writer/lock_unicode_test.go     |  76 ++++++++++
+ testdata/tag_list_hierarquico.json       | 252 +++++++++++++++++++++++++++++++
+ 13 files changed, 663 insertions(+), 117 deletions(-)
+
+diff --git a/CLAUDE.md b/CLAUDE.md
+index e390168..a2f974d 100644
+--- a/CLAUDE.md
++++ b/CLAUDE.md
+@@ -92,37 +92,47 @@ internal/
+ docs/              normativa, papéis, história, wiki
+ testdata/          golden files do parser, cofre pequeno, corpus de paridade
+ tools/             netcheck (analisador da RNF-30); parity-dumper (plugin de
+                    dev do Obsidian, não é produto)
+ scripts/           gates e utilitários PowerShell — ver Comandos
+ .claude/           skills, workflows e settings do projeto (fonte única;
+                    .agents/ é espelho gerado e não versionado)
+ .superpowers/sdd/  briefs e ledger
+ ```
+ 
+-Grafo de dependências, acíclico e **extraído dos imports de produção em
+-2026-09-02** — `go list -f '{{.Imports}}'`, que NÃO enxerga arquivo `_test.go`:
++Grafo de dependências, acíclico e **re-extraído dos imports de produção em
++2026-09-06** — `GOOS=windows go list -f '{{.Imports}}'` pacote a pacote, que NÃO
++enxerga arquivo `_test.go`. A única linha que mudou desde 2026-09-02 é a do
++`writer`, e a justificativa da aresta nova está logo abaixo do bloco:
+ 
+ ```
+ text  vault  config  console  lifecycle      folhas
+ parser   → text
+ ipc      → config
+-writer   → parser, vault
++writer   → parser, text, vault
+ index    → parser, text, vault
+ search   → index, parser, text, vault
+ watcher  → index, search, vault
+ service  → index, parser, search, vault, writer
+ mcpsrv   → config, index, parser, service, vault
+ daemon   → config, ipc, mcpsrv
+ doctor   → config, daemon, ipc, vault
+ ```
+ 
++`writer → text` é de 2026-09-06 (Task 169) e a justificativa é **uma conta por
++regra**: a trava por caminho do `writer` e a chave `lowerPath` do `index` são a
++mesma derivação, e eram duas — a do `writer` só baixava caixa, então o índice
++tratava as duas grafias Unicode de um nome como uma nota e o locker as tratava
++como dois arquivos. A conta mudou-se para `text.ChaveDeCaminho` porque `writer`
++não importa `index` e não vai importar. `text` continua folha: ganhou
++`path/filepath`, que é stdlib.
++
+ Quatro arestas existem **só em teste**, e ficam fora do grafo acima de
+ propósito — teste pode montar o mundo inteiro sem que isso vire acoplamento do
+ produto:
+ 
+ ```
+ mcpsrv  → search, watcher     (só em _test)
+ daemon  → service, vault      (só em _test)
+ ```
+ 
+ `internal/vaulttest` é o pacote de apoio a teste: ele importa `vault` — e só
+diff --git a/internal/index/chave.go b/internal/index/chave.go
+index a74e21b..86fec50 100644
+--- a/internal/index/chave.go
++++ b/internal/index/chave.go
+@@ -1,14 +1,13 @@
+ package index
+ 
+ import (
+-	"path/filepath"
+ 	"strings"
+ 
+ 	"github.com/jonyd/gobsidian/internal/text"
+ )
+ 
+ // As chaves derivadas do indice moram todas aqui, e cada uma tem UMA conta.
+ //
+ // Ate 2026-08-31 eram quatro derivacoes espalhadas — publishNameLocked,
+ // aliasKey, nomeChave e ResolvePath — e as quatro aplicavam so caixa. Nenhuma
+ // aplicava normalizacao Unicode, enquanto text.Normalize e parser.Slug
+@@ -20,21 +19,23 @@ import (
+ // diferentes para um mapa de Go, e ResolvePath devolvia ErrPathNotFound para uma
+ // nota que existe. Este e um cofre em portugues, onde acento e a regra.
+ //
+ // A normalizacao vale para a CHAVE, nunca para o CanonicalPath guardado: o
+ // caminho gravado continua sendo a grafia do disco, senao o servidor passa a
+ // abrir arquivo que nao existe.
+ 
+ // chaveDeCaminho e a chave insensivel a caixa de um caminho inteiro — a de
+ // lowerPath, escrita por publicarNomeLocked e lida por ResolvePath.
+ func chaveDeCaminho(path string) string {
+-	return strings.ToLower(text.ParaNFC(filepath.ToSlash(path)))
++	// Delega: a mesma conta serve o writer, que trava por caminho canonico e
++	// nao importa este pacote. Ver text.ChaveDeCaminho.
++	return text.ChaveDeCaminho(path)
+ }
+ 
+ // chaveDeNomeDeArquivo e a chave de byName. Ela baixa a caixa desde 2026-08-31.
+ //
+ // Ate ali, guardava e lia a base CRUA, e o efeito era uma incoerencia visivel:
+ // `ResolvePath("pasta/ACORDAO.MD")` resolvia, porque caminho completo passa por
+ // lowerPath, e `ResolvePath("acordao")` NAO resolvia, porque nome nu passa por
+ // aqui. Duas portas para a mesma pergunta, respondendo diferente.
+ //
+ // Baixar a caixa aqui so e seguro porque byName e uma LISTA e ResolvePath conta
+diff --git a/internal/index/index.go b/internal/index/index.go
+index d88d15f..ef43cdb 100644
+--- a/internal/index/index.go
++++ b/internal/index/index.go
+@@ -92,25 +92,40 @@ func (ix *Index) AssetCount() int {
+ // chamada, com o RLock tomado durante toda a varredura (achado P6) — num cofre
+ // de 5.686 notas, dezenas de milhares de somas para devolver um numero que so
+ // muda quando o indice muda.
+ //
+ // A memorizacao usa `generation`, que ja existe e ja conta toda mutacao, em vez
+ // de um total atualizado em cada insert e cada remocao. A segunda forma seria
+ // mais rapida e teria de ser mantida em cinco lugares — e o quinto e o que
+ // esquece. Aqui ha uma conta so, e ela e invalidada por algo que o proprio
+ // indice ja mantem.
+ //
+-// O lock e o de ESCRITA porque o acerto grava os campos memorizados. Trocar por
+-// RLock e gravar assim mesmo seria corrida de dados sob um nome tranquilizador.
++// O ACERTO so le, entao ele toma o RLock: com o lock de escrita, duas chamadas
++// concorrentes de vault_stats — e o watcher, que disputa o mesmo mutex — se
++// serializavam para ler um int64 memorizado. Quem GRAVA continua sob o lock de
++// escrita; gravar sob RLock seria corrida de dados com um nome tranquilizador.
++//
++// O erro sutil desta forma e soltar o RLock, tomar o Lock e assumir que o miss
++// continua sendo miss: entre um e outro, outro leitor pode ter preenchido a
++// memorizacao para esta mesma geracao. Por isso a conferencia acontece DUAS
++// vezes, e a segunda e a que decide.
+ func (ix *Index) TotalSize() int64 {
+ 	geracao := atomic.LoadUint64(&ix.generation)
+ 
++	ix.mu.RLock()
++	if ix.tamanhoValido && ix.tamanhoGeracao == geracao {
++		memorizado := ix.tamanhoTotal
++		ix.mu.RUnlock()
++		return memorizado
++	}
++	ix.mu.RUnlock()
++
+ 	ix.mu.Lock()
+ 	defer ix.mu.Unlock()
+ 
+ 	if ix.tamanhoValido && ix.tamanhoGeracao == geracao {
+ 		return ix.tamanhoTotal
+ 	}
+ 
+ 	var total int64
+ 	for _, n := range ix.notes {
+ 		total += n.Size
+diff --git a/internal/index/resolve.go b/internal/index/resolve.go
+index 19e5948..c7613bd 100644
+--- a/internal/index/resolve.go
++++ b/internal/index/resolve.go
+@@ -400,29 +400,29 @@ func (ix *Index) ResolvePath(input string) (vault.CanonicalPath, error) {
+ 		switch len(candidatos) {
+ 		case 0:
+ 			// segue para a proxima forma
+ 		case 1:
+ 			return candidatos[0], nil
+ 		default:
+ 			return "", ErrAmbiguousPath
+ 		}
+ 	}
+ 
+-	// Alias do frontmatter, com o mesmo criterio.
++	// Alias do frontmatter, com o mesmo criterio — e com o mesmo filtro de
++	// caminho morto que o ramo de cima, em vez de uma copia dele escrita a mao.
++	//
++	// vivosLocked aceita nota OU anexo, e a copia daqui aceitava so nota. Sao a
++	// mesma coisa nesta entrada: byAlias so recebe n.Path de nota (os aliases
++	// saem do frontmatter, que anexo nao tem), e a remocao de uma nota apaga as
++	// entradas de alias dela antes de tirar o caminho de notes.
+ 	if paths, ok := ix.byAlias[aliasKey(input)]; ok {
+-		var vivos []vault.CanonicalPath
+-		for _, p := range paths {
+-			if _, existe := ix.notes[p]; existe {
+-				vivos = append(vivos, p)
+-			}
+-		}
+-		switch len(vivos) {
++		switch vivos := ix.vivosLocked(paths); len(vivos) {
+ 		case 0:
+ 		case 1:
+ 			return vivos[0], nil
+ 		default:
+ 			return "", ErrAmbiguousPath
+ 		}
+ 	}
+ 
+ 	return "", ErrPathNotFound
+ }
+diff --git a/internal/service/graph.go b/internal/service/graph.go
+index aa525df..0d0d107 100644
+--- a/internal/service/graph.go
++++ b/internal/service/graph.go
+@@ -1,16 +1,15 @@
+ package service
+ 
+ import (
+ 	"cmp"
+ 	"context"
+-	"fmt"
+ 	"runtime"
+ 	"slices"
+ 	"strings"
+ 	"time"
+ 
+ 	"github.com/jonyd/gobsidian/internal/index"
+ 	"github.com/jonyd/gobsidian/internal/parser"
+ 	"github.com/jonyd/gobsidian/internal/vault"
+ )
+ 
+@@ -55,30 +54,44 @@ type GraphEdge struct {
+ 	// aresta so — e publicar a ancora de uma delas seria escolher arbitraria-
+ 	// mente qual das duas contar. A chave passou a incluir tipo, alias e
+ 	// ancora.
+ 	Alias  string `json:"alias,omitempty"`
+ 	Anchor string `json:"anchor,omitempty"`
+ 	// Resolved diz se a referencia encontrou alvo no cofre. Falso so aparece
+ 	// com include_broken, que e o unico caminho que produz aresta nao resolvida.
+ 	Resolved bool `json:"resolved"`
+ }
+ 
+-// chaveDaAresta e a identidade de uma aresta do grafo. Uma funcao so, porque os
++// chaveDaAresta e a identidade de uma aresta do grafo. Uma conta so, porque os
+ // tres pontos que inserem em edgesMap tem de concordar: dois deles montavam a
+ // chave a mao e o terceiro tambem, e bastava um esquecer a ancora para arestas
+ // distintas colapsarem em silencio.
+-func chaveDaAresta(e GraphEdge) string {
+-	// %q em cada parte, e nao um separador escolhido a dedo: qualquer
+-	// separador literal pode aparecer DENTRO de um alias ou de uma ancora, e
+-	// ai duas arestas diferentes produzem a mesma chave. A citacao resolve
+-	// isso sem depender de suposicao sobre o conteudo.
+-	return fmt.Sprintf("%q|%q|%q|%q|%q", e.Source, e.Target, e.Kind, e.Alias, e.Anchor)
++//
++// Struct, e nao string formatada: a identidade e exata por construcao. A versao
++// anterior citava cada parte com %q justamente porque qualquer separador
++// literal pode aparecer DENTRO de um alias ou de uma ancora — uma suposicao
++// sobre o conteudo que a chave estruturada dispensa, e sem pagar um Sprintf e a
++// string que ele aloca por aresta visitada.
++type chaveDaAresta struct {
++	Source, Target, Kind, Alias, Anchor string
++}
++
++// deAresta deriva a chave de uma aresta. Um lugar so: um sitio que esquecesse a
++// ancora faria duas referencias distintas colapsarem em silencio.
++func deAresta(e GraphEdge) chaveDaAresta {
++	return chaveDaAresta{
++		Source: e.Source,
++		Target: e.Target,
++		Kind:   e.Kind,
++		Alias:  e.Alias,
++		Anchor: e.Anchor,
++	}
+ }
+ 
+ // GraphResult e o retorno de link_graph.
+ type GraphResult struct {
+ 	Nodes        []GraphNode `json:"nodes"`
+ 	Edges        []GraphEdge `json:"edges"`
+ 	LimitEfetivo int         `json:"effective_limit"`
+ }
+ 
+ // LinkGraph percorre o grafo a partir de uma nota, ate a profundidade pedida.
+@@ -104,21 +117,21 @@ func (s *Service) LinkGraph(_ context.Context, req GraphRequest) (GraphResult, e
+ 	if err != nil {
+ 		return GraphResult{}, err
+ 	}
+ 
+ 	startPath, err := s.index.ResolvePath(req.Path)
+ 	if err != nil {
+ 		return GraphResult{}, ErroDeResolucao(req.Path, err)
+ 	}
+ 
+ 	nodesMap := make(map[vault.CanonicalPath]GraphNode)
+-	edgesMap := make(map[string]GraphEdge)
++	edgesMap := make(map[chaveDaAresta]GraphEdge)
+ 
+ 	type queueItem struct {
+ 		Path  vault.CanonicalPath
+ 		Depth int
+ 	}
+ 
+ 	queue := []queueItem{{Path: startPath, Depth: 0}}
+ 	visited := make(map[vault.CanonicalPath]bool)
+ 
+ 	for len(queue) > 0 && len(nodesMap) < limit {
+@@ -151,21 +164,21 @@ func (s *Service) LinkGraph(_ context.Context, req GraphRequest) (GraphResult, e
+ 				if link.State == index.LinkOK || link.State == index.LinkAnchorMissing {
+ 					if link.Resolved != "" {
+ 						a := GraphEdge{
+ 							Source:   string(curr.Path),
+ 							Target:   string(link.Resolved),
+ 							Kind:     link.Kind.String(),
+ 							Alias:    link.Alias,
+ 							Anchor:   link.Anchor,
+ 							Resolved: true,
+ 						}
+-						edgesMap[chaveDaAresta(a)] = a
++						edgesMap[deAresta(a)] = a
+ 
+ 						if !visited[link.Resolved] && len(nodesMap)+len(queue) < limit {
+ 							queue = append(queue, queueItem{Path: link.Resolved, Depth: curr.Depth + 1})
+ 						}
+ 					}
+ 				} else if link.State == index.LinkTargetMissing && req.IncludeBroken {
+ 					targetPath := string(link.Resolved)
+ 					if targetPath == "" {
+ 						targetPath = link.Target
+ 					}
+@@ -175,21 +188,21 @@ func (s *Service) LinkGraph(_ context.Context, req GraphRequest) (GraphResult, e
+ 							Target: targetPath,
+ 							Kind:   link.Kind.String(),
+ 							Alias:  link.Alias,
+ 							Anchor: link.Anchor,
+ 							// Resolved falso de proposito: este ramo E o do
+ 							// alvo inexistente. Um no criado aqui nunca entra
+ 							// na fila, entao ele fica a curr.Depth+1 e nao
+ 							// ganha distancia menor depois.
+ 							Resolved: false,
+ 						}
+-						edgesMap[chaveDaAresta(a)] = a
++						edgesMap[deAresta(a)] = a
+ 						if _, ja := nodesMap[vault.CanonicalPath(targetPath)]; !ja {
+ 							nodesMap[vault.CanonicalPath(targetPath)] = GraphNode{Path: targetPath, Distance: curr.Depth + 1}
+ 						}
+ 					}
+ 				}
+ 			}
+ 		}
+ 
+ 		if direction == "incoming" || direction == "both" {
+ 			for _, bl := range s.index.Backlinks(curr.Path) {
+@@ -200,21 +213,21 @@ func (s *Service) LinkGraph(_ context.Context, req GraphRequest) (GraphResult, e
+ 				// Backlink so existe para link que resolveu, entao Resolved e
+ 				// sempre verdadeiro neste ramo.
+ 				a := GraphEdge{
+ 					Source:   string(bl.From),
+ 					Target:   string(curr.Path),
+ 					Kind:     bl.Kind.String(),
+ 					Alias:    bl.Alias,
+ 					Anchor:   bl.Anchor,
+ 					Resolved: true,
+ 				}
+-				edgesMap[chaveDaAresta(a)] = a
++				edgesMap[deAresta(a)] = a
+ 
+ 				if !visited[bl.From] && len(nodesMap)+len(queue) < limit {
+ 					queue = append(queue, queueItem{Path: bl.From, Depth: curr.Depth + 1})
+ 				}
+ 			}
+ 		}
+ 	}
+ 
+ 	res := GraphResult{
+ 		Nodes:        make([]GraphNode, 0, len(nodesMap)),
+@@ -248,20 +261,35 @@ func (s *Service) LinkGraph(_ context.Context, req GraphRequest) (GraphResult, e
+ 
+ // TagRequest sao os parametros de tag_list.
+ type TagRequest struct {
+ 	Prefix       string `json:"prefix"`
+ 	MinCount     int    `json:"min_count"`
+ 	Sort         string `json:"sort"`
+ 	Hierarchical bool   `json:"hierarchical"`
+ }
+ 
+ // TagNode e um no na arvore de tags ou um item da lista plana.
++//
++// Children e []any, e NAO []TagNode, por um motivo que nao se ve daqui: o SDK
++// de MCP gera o schema de saida de cada tool por reflexao sobre o tipo, e um
++// tipo que se referencia a si mesmo o faz entrar em panico na REGISTRACAO da
++// tool — antes de qualquer requisicao:
++//
++//	panic: AddTool: tool "tag_list": output schema: ForType(service.TagResult):
++//	computing element schema: computing element schema: cycle detected for type
++//	service.TagNode
++//
++// Ou seja: o servidor nao sobe. []any quebra o ciclo porque a reflexao para em
++// `any`. A Task 169 trocou o campo por []TagNode — o JSON de saida continuou
++// identico, o golden continuou batendo byte a byte, e o pacote service passou
++// inteiro; quem pegou foi go test -race no pacote mcpsrv. **Nao troque de
++// volta.**
+ type TagNode struct {
+ 	Tag      string `json:"tag"`
+ 	Count    int    `json:"count"`
+ 	Children []any  `json:"children,omitempty"`
+ }
+ 
+ // TagResult e o retorno de tag_list, com a contagem por tag.
+ type TagResult struct {
+ 	Tags []TagNode `json:"tags"`
+ }
+@@ -272,20 +300,24 @@ func ordenarTags(tags []TagNode, sortMode string) {
+ 			if c := cmp.Compare(b.Count, a.Count); c != 0 {
+ 				return c
+ 			}
+ 			return cmp.Compare(a.Tag, b.Tag)
+ 		})
+ 	} else {
+ 		slices.SortStableFunc(tags, func(a, b TagNode) int {
+ 			return cmp.Compare(a.Tag, b.Tag)
+ 		})
+ 	}
++	// A guarda nao e decorativa, e o numero esta medido: sem ela, a lista PLANA
++	// — onde todo no e folha — paga uma chamada recursiva por tag para ordenar
++	// nada, e BenchmarkTagListPlano subiu 5,22% (p=0,000, n=12, 19,43us +/- 1%
++	// -> 20,44us +/- 4%).
+ 	for i := range tags {
+ 		if len(tags[i].Children) > 0 {
+ 			childList := make([]TagNode, len(tags[i].Children))
+ 			for j, ch := range tags[i].Children {
+ 				if node, ok := ch.(TagNode); ok {
+ 					childList[j] = node
+ 				}
+ 			}
+ 			ordenarTags(childList, sortMode)
+ 			for j, node := range childList {
+@@ -320,73 +352,92 @@ func (s *Service) TagList(_ context.Context, req TagRequest) (TagResult, error)
+ 	return TagResult{Tags: nodes}, nil
+ }
+ 
+ type tempTagNode struct {
+ 	segment  string
+ 	fullTag  string
+ 	count    int
+ 	children map[string]*tempTagNode
+ }
+ 
++// tagListHierarchical monta a arvore de tags, onde cada no conta as notas que
++// caem sob ele INCLUINDO as das descendentes: uma nota marcada so com
++// #proj/alpha conta em "proj". E por isso que este ramo nao pode se servir de
++// index.Tags, que e a fonte do ramo plano — la a contagem e por tag exata, e as
++// duas divergem sempre que ha subtag (no fixture do golden, "docs" vale 3 aqui e
++// 2 la).
+ func (s *Service) tagListHierarchical(req TagRequest) TagResult {
+-	noteSets := make(map[string]map[vault.CanonicalPath]bool)
++	// A contagem e por nota DISTINTA: uma nota com #proj/alpha e #proj/beta
++	// conta uma vez em "proj", nao duas.
++	//
++	// A deduplicacao era um map[CanonicalPath]bool por tag — um mapa alocado
++	// por tag, com uma entrada por nota dentro dele, para no fim so se
++	// perguntar o tamanho. Como a varredura ja e nota a nota, um conjunto de
++	// rascunho reaproveitado entre notas diz a mesma coisa: dentro de UMA nota,
++	// cada prefixo conta no maximo uma vez.
++	contagem := make(map[string]int)
++	vistas := make(map[string]bool)
+ 
+ 	for _, p := range s.index.NotePaths() {
+ 		n, ok := s.index.Get(p)
+ 		if !ok {
+ 			continue
+ 		}
++		clear(vistas)
+ 		for _, tag := range n.Tags {
+ 			tagClean := strings.TrimPrefix(tag, "#")
+ 			parts := strings.Split(tagClean, "/")
+ 			curr := ""
+ 			for i, part := range parts {
+ 				if i == 0 {
+ 					curr = part
+ 				} else {
+ 					curr = curr + "/" + part
+ 				}
+-				if noteSets[curr] == nil {
+-					noteSets[curr] = make(map[vault.CanonicalPath]bool)
++				if !vistas[curr] {
++					vistas[curr] = true
++					contagem[curr]++
+ 				}
+-				noteSets[curr][p] = true
+ 			}
+ 		}
+ 	}
+ 
+ 	prefixLower := strings.ToLower(req.Prefix)
+ 	rootNodes := make(map[string]*tempTagNode)
+ 
+-	for fullTag, paths := range noteSets {
+-		count := len(paths)
++	for fullTag, count := range contagem {
+ 		if count < req.MinCount {
+ 			continue
+ 		}
+ 		if prefixLower != "" && !strings.HasPrefix(strings.ToLower(fullTag), prefixLower) {
+ 			continue
+ 		}
+ 
+ 		parts := strings.Split(fullTag, "/")
+ 		currentMap := rootNodes
+ 		currPath := ""
+ 		for i, part := range parts {
+ 			if i == 0 {
+ 				currPath = part
+ 			} else {
+ 				currPath = currPath + "/" + part
+ 			}
+ 			node, exists := currentMap[part]
+ 			if !exists {
++				// O ANCESTRAL entra com a contagem que ele tem, mesmo quando o
++				// proprio ancestral nao passou no filtro. Com prefix="proj/al",
++				// "proj" nao casa o prefixo e ainda assim aparece como raiz de
++				// "proj/alpha" — e aparece com a contagem cheia, nao com zero.
+ 				node = &tempTagNode{
+ 					segment:  part,
+ 					fullTag:  currPath,
+-					count:    len(noteSets[currPath]),
++					count:    contagem[currPath],
+ 					children: make(map[string]*tempTagNode),
+ 				}
+ 				currentMap[part] = node
+ 			}
+ 			currentMap = node.children
+ 		}
+ 	}
+ 
+ 	var convert func(m map[string]*tempTagNode) []TagNode
+ 	convert = func(m map[string]*tempTagNode) []TagNode {
+@@ -471,21 +522,21 @@ func (s *Service) ListNotes(_ context.Context, req ListRequest) (ListResult, err
+ 		return ListResult{}, err
+ 	}
+ 
+ 	notes, total := s.index.List(q)
+ 
+ 	items := make([]ListItem, 0, len(notes))
+ 	for _, n := range notes {
+ 		items = append(items, ListItem{
+ 			Path:     string(n.Path),
+ 			Title:    n.Title,
+-			Hash:     fmt.Sprintf("%016x", n.Hash),
++			Hash:     formatarHash(n.Hash),
+ 			Modified: n.ModTime,
+ 			Size:     n.Size,
+ 			Tags:     n.Tags,
+ 			Fields:   selectFields(n.Frontmatter, req.Fields),
+ 		})
+ 	}
+ 
+ 	return ListResult{Notes: items, Total: total}, nil
+ }
+ 
+@@ -573,21 +624,21 @@ func (s *Service) NoteMetadata(_ context.Context, req MetadataRequest) (Metadata
+ 		includeSet["backlinks"] = true
+ 	} else {
+ 		for _, inc := range req.Include {
+ 			includeSet[inc] = true
+ 		}
+ 	}
+ 
+ 	res := MetadataResult{
+ 		Path:  string(n.Path),
+ 		Title: n.Title,
+-		Hash:  fmt.Sprintf("%016x", n.Hash),
++		Hash:  formatarHash(n.Hash),
+ 	}
+ 
+ 	if includeSet["frontmatter"] {
+ 		res.Frontmatter = n.Frontmatter
+ 		res.FrontmatterErr = n.FrontmatterErr
+ 		res.Aliases = n.Aliases
+ 	}
+ 	if includeSet["tags"] {
+ 		res.Tags = n.Tags
+ 	}
+diff --git a/internal/service/read.go b/internal/service/read.go
+index bc4e1f1..1fdbdd5 100644
+--- a/internal/service/read.go
++++ b/internal/service/read.go
+@@ -1,16 +1,15 @@
+ package service
+ 
+ import (
+ 	"context"
+ 	"encoding/json"
+-	"fmt"
+ 	"strings"
+ 
+ 	"github.com/jonyd/gobsidian/internal/index"
+ 	"github.com/jonyd/gobsidian/internal/parser"
+ 	"github.com/jonyd/gobsidian/internal/vault"
+ )
+ 
+ // ReadRequest sao os parametros de note_read. Heading e BlockID sao
+ // mutuamente exclusivos: os dois juntos descrevem dois recortes diferentes da
+ // mesma nota, e adivinhar qual vale seria decidir pelo cliente.
+@@ -398,21 +397,21 @@ func (s *Service) ReadNote(ctx context.Context, req ReadRequest) (ReadResult, er
+ 		truncou = true
+ 	}
+ 
+ 	data, err := s.vault.ReadRange(ctx, canonical, start, end)
+ 	if err != nil {
+ 		return ReadResult{}, Errorf(CodeVaultUnavailable, "falha lendo faixa da nota: %v", err)
+ 	}
+ 
+ 	res := ReadResult{
+ 		Content:   string(data),
+-		Hash:      fmt.Sprintf("%016x", note.Hash),
++		Hash:      formatarHash(note.Hash),
+ 		Section:   matchedHeading,
+ 		Truncated: truncou,
+ 		TotalSize: note.Size,
+ 
+ 		SectionSynthetic: secaoSintetica,
+ 	}
+ 	if truncou {
+ 		res.NextOffset = &end
+ 	}
+ 
+diff --git a/internal/service/search.go b/internal/service/search.go
+index 0b6a985..c55d22a 100644
+--- a/internal/service/search.go
++++ b/internal/service/search.go
+@@ -112,20 +112,51 @@ type SearchResult struct {
+ 	// pôde ser lido para montar o trecho — nota travada por outro processo,
+ 	// cofre desmontado no meio da resposta.
+ 	//
+ 	// O resultado CONTINUA na página, com trecho vazio: uma nota ilegível não
+ 	// pode apagar as outras 199. Mas zero e "não consegui ler três delas" não
+ 	// podem sair iguais (achado B3), e sem este campo saíam — o chamador
+ 	// escrevia `snip, _ :=` e a falha desaparecia.
+ 	TrechosIndisponiveis int `json:"unavailable_snippets,omitempty"`
+ }
+ 
++// resultadoVazio e a pagina sem nenhum hit — a resposta dos tres caminhos que
++// terminam cedo: consulta que nao produz token, offset alem do total na busca
++// full-text e offset alem do total na busca so por metadados.
++//
++// Os tres montavam o mesmo literal, e as fatias precisam ser NAO-nil: `results`
++// nao tem omitempty, entao nil sairia como `null` no JSON onde o contrato diz
++// lista vazia. Um dos tres esquecer isso e uma resposta que so quebra no
++// caminho menos usado.
++func resultadoVazio(total int, opts SearchOptions) SearchResult {
++	return SearchResult{
++		Hits:                []SearchHit{},
++		Results:             []SearchHit{},
++		Total:               total,
++		Truncated:           false,
++		SnippetCharsEfetivo: opts.SnippetChars,
++		LimitEfetivo:        opts.Limit,
++	}
++}
++
++// pagina devolve o fim da fatia da pagina e se sobrou resultado de fora.
++//
++// Uma conta so para os dois caminhos que paginam. Exige offset < total, que e o
++// que o chamador ja conferiu para poder devolver resultadoVazio antes.
++func pagina(offset, limit, total int) (fim int, truncou bool) {
++	fim = offset + limit
++	if fim < total {
++		return fim, true
++	}
++	return total, false
++}
++
+ // Search executa a busca full-text com ranking BM25 e filtros de metadados.
+ func (s *Service) Search(ctx context.Context, opts SearchOptions) (SearchResult, error) {
+ 	// garanteIndiceDeBusca dispara o carregamento do índice de busca na
+ 	// primeira chamada (modo padrão, --eager-search desligado) e bloqueia até
+ 	// ele terminar — é por isso que a carga entra na latência desta primeira
+ 	// busca, e não da partida do servidor. Chamadas concorrentes esperam a
+ 	// mesma carga; chamadas seguintes, com o índice já pronto, não pagam
+ 	// nada aqui.
+ 	if err := s.garanteIndiceDeBusca(ctx); err != nil {
+ 		return SearchResult{}, Wrap(CodeIndexBuilding, err,
+@@ -182,28 +213,21 @@ func (s *Service) Search(ctx context.Context, opts SearchOptions) (SearchResult,
+ 			rawTerms = append(rawTerms, tok.Raw)
+ 		}
+ 	} else {
+ 		queryTokens = search.Analyze(trimmedQuery)
+ 		for _, tok := range queryTokens {
+ 			rawTerms = append(rawTerms, tok.Raw)
+ 		}
+ 	}
+ 
+ 	if len(queryTokens) == 0 {
+-		return SearchResult{
+-			Hits:                []SearchHit{},
+-			Results:             []SearchHit{},
+-			Total:               0,
+-			Truncated:           false,
+-			SnippetCharsEfetivo: opts.SnippetChars,
+-			LimitEfetivo:        opts.Limit,
+-		}, nil
++		return resultadoVazio(0, opts), nil
+ 	}
+ 
+ 	var idxImpl *index.Index
+ 	if realIdx, ok := s.index.(*index.Index); ok {
+ 		idxImpl = realIdx
+ 	}
+ 
+ 	// Executa pontuação BM25 sobre o índice invertido
+ 	rawHits := search.CalculateBM25(queryTokens, s.inverted, idxImpl)
+ 
+@@ -221,58 +245,46 @@ func (s *Service) Search(ctx context.Context, opts SearchOptions) (SearchResult,
+ 	// Filtra por pasta, tags, frontmatter e data de modificação.
+ 	//
+ 	// A Note vai JUNTO com o hit a partir daqui. Ela já foi buscada para
+ 	// filtrar, e montaSlot a buscava de novo mais abaixo: dois index.Get por
+ 	// resultado da página, o segundo pedindo exatamente o que o primeiro já
+ 	// tinha (achado P13). Cada Get toma o RLock do índice.
+ 	type hitComNota struct {
+ 		hit  search.Result
+ 		note *index.Note
+ 	}
+-	var filteredHits []hitComNota
++	// Capacidade de len(rawHits): o filtro so remove, nunca acrescenta, entao
++	// esse e o teto exato e a fatia nunca cresce no meio do laco.
++	filteredHits := make([]hitComNota, 0, len(rawHits))
+ 	for _, hit := range rawHits {
+ 		note, ok := s.index.Get(vault.CanonicalPath(hit.Path))
+ 		if !ok {
+ 			continue
+ 		}
+ 
+ 		if !s.matchesSearchFilters(note, opts, porFrontmatter) {
+ 			continue
+ 		}
+ 
+ 		if isPhrase && !s.matchPhraseInNote(hit.Path, queryTokens) {
+ 			continue
+ 		}
+ 
+ 		filteredHits = append(filteredHits, hitComNota{hit: hit, note: note})
+ 	}
+ 
+ 	total := len(filteredHits)
+ 	if opts.Offset >= total {
+-		return SearchResult{
+-			Hits:                []SearchHit{},
+-			Results:             []SearchHit{},
+-			Total:               total,
+-			Truncated:           false,
+-			SnippetCharsEfetivo: opts.SnippetChars,
+-			LimitEfetivo:        opts.Limit,
+-		}, nil
+-	}
+-
+-	end := opts.Offset + opts.Limit
+-	truncated := false
+-	if end < total {
+-		truncated = true
+-	} else {
+-		end = total
++		return resultadoVazio(total, opts), nil
+ 	}
+ 
++	end, truncated := pagina(opts.Offset, opts.Limit, total)
+ 	pagedHits := filteredHits[opts.Offset:end]
+ 
+ 	// Um slot por hit, preenchido pelo índice: a ordem do resultado é a ordem
+ 	// do ranking, e não a ordem em que as goroutines terminaram. `ok` diz se o
+ 	// slot foi preenchido; usar Path == "" como sentinela confundiria "nota
+ 	// sumiu do índice" com "goroutine não rodou".
+ 	slots := make([]struct {
+ 		hit SearchHit
+ 		ok  bool
+ 		// semTrecho marca o resultado cujo corpo nao pode ser lido. E por slot,
+@@ -383,38 +395,24 @@ func (s *Service) searchMetadataOnly(opts SearchOptions) (SearchResult, error) {
+ 		Tags:           opts.Tags,
+ 		Frontmatter:    opts.Frontmatter,
+ 		ModifiedAfter:  opts.ModifiedAfter,
+ 		ModifiedBefore: opts.ModifiedBefore,
+ 		Sort:           "path",
+ 		Limit:          0,
+ 	}
+ 
+ 	notes, total := s.index.List(q)
+ 	if opts.Offset >= total {
+-		return SearchResult{
+-			Hits:                []SearchHit{},
+-			Results:             []SearchHit{},
+-			Total:               total,
+-			Truncated:           false,
+-			SnippetCharsEfetivo: opts.SnippetChars,
+-			LimitEfetivo:        opts.Limit,
+-		}, nil
+-	}
+-
+-	end := opts.Offset + opts.Limit
+-	truncated := false
+-	if end < total {
+-		truncated = true
+-	} else {
+-		end = total
++		return resultadoVazio(total, opts), nil
+ 	}
+ 
++	end, truncated := pagina(opts.Offset, opts.Limit, total)
+ 	paged := notes[opts.Offset:end]
+ 	results := make([]SearchHit, 0, len(paged))
+ 
+ 	for _, n := range paged {
+ 		results = append(results, SearchHit{
+ 			Path:            string(n.Path),
+ 			Title:           n.Title,
+ 			Score:           0.0,
+ 			Snippet:         "",
+ 			MatchedHeadings: nil,
+diff --git a/internal/service/tag_list_golden_test.go b/internal/service/tag_list_golden_test.go
+new file mode 100644
+index 0000000..831b619
+--- /dev/null
++++ b/internal/service/tag_list_golden_test.go
+@@ -0,0 +1,111 @@
++package service_test
++
++import (
++	"context"
++	"encoding/json"
++	"os"
++	"path/filepath"
++	"testing"
++
++	"github.com/jonyd/gobsidian/internal/service"
++)
++
++// O golden de tag_list existe para uma refatoracao especifica: TagNode.Children
++// deixou de ser []any e passou a ser []TagNode. O tipo do campo e invisivel para
++// quem consome a tool — o que ele consome e o JSON —, e "o JSON nao muda" e
++// exatamente o tipo de afirmacao que se faz sem conferir. Aqui ela e conferida
++// byte a byte.
++//
++// O cofre e escrito pelo proprio teste, e nao lido de testdata/: o que precisa
++// ser deterministico e o JSON, e um cofre montado a partir de literais nao pode
++// divergir do golden por um arquivo que alguem editou sem reparar.
++
++// cofreDeTagsHierarquicas escreve um cofre com tags em tres niveis, prefixos
++// compartilhados e um empate de contagem.
++//
++// O empate (proj/alpha e docs, ambos em 3 notas) nao e decorativo: com
++// sort=count ele e o unico caso que exercita o desempate por nome, e um golden
++// sem empate passaria mesmo que o desempate sumisse.
++func cofreDeTagsHierarquicas(t *testing.T) string {
++	t.Helper()
++
++	notas := map[string]string{
++		"nota-1.md": "# Um\n\nCorpo da primeira nota. #proj/alpha/um #proj/beta #docs\n",
++		"nota-2.md": "# Dois\n\nCorpo da segunda nota. #proj/alpha/um #proj/alpha/dois #docs\n",
++		"nota-3.md": "# Tres\n\nCorpo da terceira nota. #proj/alpha #docs/api\n",
++		"nota-4.md": "# Quatro\n\nCorpo da quarta nota. #proj/beta #zeta\n",
++	}
++
++	root := t.TempDir()
++	for nome, corpo := range notas {
++		if err := os.WriteFile(filepath.Join(root, nome), []byte(corpo), 0o644); err != nil {
++			t.Fatalf("escrevendo %s: %v", nome, err)
++		}
++	}
++	return root
++}
++
++// variantesDeTagList sao as consultas que o golden cobre. A ordem e fixa porque
++// ela e a ordem do JSON gravado.
++var variantesDeTagList = []struct {
++	Nome string             `json:"nome"`
++	Req  service.TagRequest `json:"requisicao"`
++}{
++	{"hierarquico_nome", service.TagRequest{Sort: "name", Hierarchical: true}},
++	{"hierarquico_contagem", service.TagRequest{Sort: "count", Hierarchical: true}},
++	{"hierarquico_prefixo_proj", service.TagRequest{Sort: "name", Hierarchical: true, Prefix: "proj"}},
++	// Prefixo que corta NO MEIO de um caminho de tag: "proj" nao casa
++	// "proj/al", e mesmo assim aparece como raiz de "proj/alpha" — com a
++	// contagem cheia, e nao com zero. E a unica variante que fixa isso, e ela
++	// existe porque a alternativa considerada para este item (filtrar ja na
++	// varredura das notas, em vez de depois) apagaria a contagem do ancestral
++	// em silencio.
++	{"hierarquico_prefixo_no_meio", service.TagRequest{Sort: "name", Hierarchical: true, Prefix: "proj/al"}},
++	{"hierarquico_min_count_2", service.TagRequest{Sort: "count", Hierarchical: true, MinCount: 2}},
++	{"plano_contagem", service.TagRequest{Sort: "count"}},
++}
++
++func TestTagListGolden(t *testing.T) {
++	svc := servicoDoCofre(t, cofreDeTagsHierarquicas(t))
++
++	type entrada struct {
++		Nome      string             `json:"nome"`
++		Requisica service.TagRequest `json:"requisicao"`
++		Resultado service.TagResult  `json:"resultado"`
++	}
++
++	saida := make([]entrada, 0, len(variantesDeTagList))
++	for _, v := range variantesDeTagList {
++		res, err := svc.TagList(context.Background(), v.Req)
++		if err != nil {
++			t.Fatalf("TagList(%s): %v", v.Nome, err)
++		}
++		if len(res.Tags) == 0 {
++			t.Fatalf("TagList(%s) devolveu zero tags; um golden vazio nao cobre nada", v.Nome)
++		}
++		saida = append(saida, entrada{Nome: v.Nome, Requisica: v.Req, Resultado: res})
++	}
++
++	got, err := json.MarshalIndent(saida, "", "  ")
++	if err != nil {
++		t.Fatalf("serializando: %v", err)
++	}
++	got = append(got, '\n')
++
++	goldenPath := filepath.Join("..", "..", "testdata", "tag_list_hierarquico.json")
++
++	if *atualizaGolden {
++		if err := os.WriteFile(goldenPath, got, 0o644); err != nil {
++			t.Fatalf("gravando golden: %v", err)
++		}
++		return
++	}
++
++	want, err := os.ReadFile(goldenPath)
++	if err != nil {
++		t.Fatalf("lendo golden (rode com -update para criar): %v", err)
++	}
++	if string(got) != string(want) {
++		t.Errorf("o JSON de tag_list mudou\n--- esperado ---\n%s\n--- obtido ---\n%s", want, got)
++	}
++}
+diff --git a/internal/service/write.go b/internal/service/write.go
+index b477ea8..b59b2f5 100644
+--- a/internal/service/write.go
++++ b/internal/service/write.go
+@@ -12,22 +12,34 @@ import (
+ 	"time"
+ 
+ 	"github.com/cespare/xxhash/v2"
+ 	"github.com/jonyd/gobsidian/internal/index"
+ 	"github.com/jonyd/gobsidian/internal/parser"
+ 	"github.com/jonyd/gobsidian/internal/vault"
+ 	"github.com/jonyd/gobsidian/internal/writer"
+ 	"gopkg.in/yaml.v3"
+ )
+ 
++// formatarHash e a UNICA conta do formato do hash publicado. Os quatro sitios
++// que o emitem — note_read, note_list, note_metadata e o hash do conteudo
++// recem-escrito — precisam concordar em largura e em base, senao um cliente que
++// compara o hash que recebeu de uma tool com o que recebeu de outra le
++// diferenca onde nao ha. Zero a esquerda ate 16 digitos porque um uint64 com
++// nibble alto zero encurtaria a string e quebraria a comparacao textual.
++func formatarHash(h uint64) string {
++	return fmt.Sprintf("%016x", h)
++}
++
++// hashDoConteudo e o hash de um corpo ainda nao indexado, na mesma grafia que o
++// indice publica.
+ func hashDoConteudo(data []byte) string {
+-	return fmt.Sprintf("%016x", xxhash.Sum64(data))
++	return formatarHash(xxhash.Sum64(data))
+ }
+ 
+ // CreateNoteRequest carrega os parametros para note_create.
+ type CreateNoteRequest struct {
+ 	Path          string         `json:"path"`
+ 	Content       string         `json:"content"`
+ 	Frontmatter   map[string]any `json:"frontmatter,omitempty"`
+ 	CreateFolders bool           `json:"create_folders"`
+ 	DryRun        bool           `json:"dry_run"`
+ }
+@@ -553,95 +565,88 @@ func (s *Service) MoveNote(ctx context.Context, req MoveNoteRequest) (MoveNoteRe
+ 
+ 	// Sort keys of affectedNotes alphabetically for deterministic processing order
+ 	affectedKeys := make([]vault.CanonicalPath, 0, len(affectedNotes))
+ 	for k := range affectedNotes {
+ 		affectedKeys = append(affectedKeys, k)
+ 	}
+ 	sort.Slice(affectedKeys, func(i, j int) bool {
+ 		return affectedKeys[i] < affectedKeys[j]
+ 	})
+ 
++	var rewrittenList []string
++	var linksUpdatedCount int
++
++	// moveNoteErro monta o resultado PARCIAL que acompanha uma falha depois que
++	// o move ja comecou. Os cinco sitios montavam o mesmo literal a mao, e tres
++	// deles tinham de lembrar de reportar o que ja fora reescrito — quem
++	// esquecesse devolveria "nenhum link atualizado" sobre um cofre em que
++	// alguns ja estavam.
++	//
++	// Fecha sobre rewrittenList e linksUpdatedCount de proposito: elas crescem
++	// durante o laco, e o que o chamador precisa saber e quanto tinha sido feito
++	// no instante da falha.
++	moveNoteErro := func(err error) (MoveNoteResult, error) {
++		return MoveNoteResult{
++			From:          string(canonicalFrom),
++			To:            string(canonicalTo),
++			Rewritten:     rewrittenList,
++			LinksUpdated:  linksUpdatedCount,
++			BrokenAnchors: brokenAnchors,
++		}, err
++	}
++
+ 	// O diretorio de destino precisa existir ANTES do move do corpo.
+ 	//
+ 	// Ele era criado depois, o que funcionava enquanto o corpo se movia por
+ 	// ultimo. Com a nova ordem, criar depois faz WriteAtomic falhar em
+ 	// "criando temporario em <dir>: The system cannot find the path
+ 	// specified" — pego pelos testes de move existentes, nao por leitura.
+ 	if _, err := os.Stat(dirTo); os.IsNotExist(err) {
+ 		if err := os.MkdirAll(dirTo, 0755); err != nil {
+-			return MoveNoteResult{
+-				From:          string(canonicalFrom),
+-				To:            string(canonicalTo),
+-				BrokenAnchors: brokenAnchors,
+-			}, Errorf(CodeInternal, "criando diretorio %q: %v", dirTo, err)
++			return moveNoteErro(Errorf(CodeInternal, "criando diretorio %q: %v", dirTo, err))
+ 		}
+ 	}
+ 
+ 	// O CORPO se move ANTES de qualquer citante ser reescrito.
+ 	//
+ 	// A ordem era a inversa, e custava duas coisas ao mesmo tempo. Medido em
+ 	// teste: com a origem travada para leitura, o citante ja tinha sido gravado
+ 	// como `ver [[destino]] aqui.` e a nota nunca se movia — links persistidos
+ 	// em disco apontando para um destino inexistente, sem compensacao.
+ 	//
+ 	// A inversao troca quem fica inconsistente quando a segunda etapa falha:
+ 	// agora sobra link apontando para o caminho antigo, que e VISIVEL e
+ 	// recuperavel, em vez de nota duplicada, que e silenciosa. Nao e nada de
+ 	// graca — e menos grave, e esta escrito.
+ 	if err := s.moverCorpo(ctx, canonicalFrom, canonicalTo, absTo); err != nil {
+-		return MoveNoteResult{
+-			From:          string(canonicalFrom),
+-			To:            string(canonicalTo),
+-			BrokenAnchors: brokenAnchors,
+-		}, err
++		return moveNoteErro(err)
+ 	}
+ 
+-	var rewrittenList []string
+-	var linksUpdatedCount int
+-
+ 	for _, refPath := range affectedKeys {
+ 		replacements := affectedNotes[refPath]
+ 		unlock := s.locker.Lock(refPath)
+ 		absRef := s.vault.Abs(refPath)
+ 		raw, err := os.ReadFile(absRef)
+ 		if err != nil {
+ 			unlock()
+-			return MoveNoteResult{
+-				From:          string(canonicalFrom),
+-				To:            string(canonicalTo),
+-				Rewritten:     rewrittenList,
+-				LinksUpdated:  linksUpdatedCount,
+-				BrokenAnchors: brokenAnchors,
+-			}, Errorf(CodeInternal, "lendo nota %q: %v", refPath, err)
++			return moveNoteErro(Errorf(CodeInternal, "lendo nota %q: %v", refPath, err))
+ 		}
+ 
+ 		rewritten, err := writer.RewriteLinks(raw, replacements)
+ 		if err != nil {
+ 			unlock()
+-			return MoveNoteResult{
+-				From:          string(canonicalFrom),
+-				To:            string(canonicalTo),
+-				Rewritten:     rewrittenList,
+-				LinksUpdated:  linksUpdatedCount,
+-				BrokenAnchors: brokenAnchors,
+-			}, Errorf(CodeInternal, "reescrevendo links em %q: %v", refPath, err)
++			return moveNoteErro(Errorf(CodeInternal, "reescrevendo links em %q: %v", refPath, err))
+ 		}
+ 
+ 		if err := writer.WriteAtomic(ctx, absRef, rewritten); err != nil {
+ 			unlock()
+-			return MoveNoteResult{
+-				From:          string(canonicalFrom),
+-				To:            string(canonicalTo),
+-				Rewritten:     rewrittenList,
+-				LinksUpdated:  linksUpdatedCount,
+-				BrokenAnchors: brokenAnchors,
+-			}, Errorf(CodeInternal, "escrevendo nota %q: %v", refPath, err)
++			return moveNoteErro(Errorf(CodeInternal, "escrevendo nota %q: %v", refPath, err))
+ 		}
+ 
+ 		unlock()
+ 		rewrittenList = append(rewrittenList, string(refPath))
+ 		linksUpdatedCount += len(replacements)
+ 	}
+ 
+ 	return MoveNoteResult{
+ 		From:          string(canonicalFrom),
+ 		To:            string(canonicalTo),
+diff --git a/internal/text/normalize.go b/internal/text/normalize.go
+index bdc9a7d..675ebf4 100644
+--- a/internal/text/normalize.go
++++ b/internal/text/normalize.go
+@@ -1,14 +1,15 @@
+ // Package text oferece utilidades de processamento de texto.
+ package text
+ 
+ import (
++	"path/filepath"
+ 	"strings"
+ 	"sync"
+ 	"unicode"
+ 
+ 	"golang.org/x/text/runes"
+ 	"golang.org/x/text/transform"
+ 	"golang.org/x/text/unicode/norm"
+ )
+ 
+ // transformerPool reutiliza transformers entre chamadas de Normalize e RemoveAccents. Um transformer por
+@@ -47,16 +48,36 @@ func RemoveAccents(s string) string {
+ // O que ela resolve: `í` precomposto (U+00ED, NFC) e `i` + acento combinante
+ // (U+0069 U+0301, NFD) sao a mesma letra para quem le e strings DIFERENTES para
+ // um mapa de Go. Um cofre sincronizado com macOS grava NFD e um cliente Windows
+ // pede NFC — e ate 2026-08-31 ResolvePath respondia "nao encontrada" para uma
+ // nota que existia.
+ //
+ // NFC e a forma canonica escolhida porque e o que a maioria dos clientes envia
+ // e o que o Go emite por padrao.
+ func ParaNFC(s string) string { return norm.NFC.String(s) }
+ 
++// ChaveDeCaminho e a chave insensivel a caixa e a forma Unicode de um caminho
++// inteiro. E a conta unica: o indice a usa para lowerPath (a chave que
++// ResolvePath consulta) e o writer a usa para a trava por caminho.
++//
++// Ela mora aqui, e nao em internal/index, porque internal/writer nao importa o
++// indice e nao vai importar — o grafo de dependencias e aciclico e a aresta
++// writer -> index nao existe. Duas copias da mesma conta foi exatamente o
++// defeito: ate 2026-09-06 a trava do writer so baixava a caixa, entao o indice
++// tratava as duas grafias de "Acao" como UMA nota e o locker as tratava como
++// dois arquivos — duas escritas concorrentes na mesma nota pegavam travas
++// diferentes e nao se excluiam.
++//
++// ToSlash antes de tudo porque "pasta\nota.md" e "pasta/nota.md" sao o mesmo
++// caminho no Windows; ParaNFC porque um cofre sincronizado com macOS grava NFD
++// e um cliente Windows manda NFC; ToLower por ultimo porque o Windows nao
++// distingue caixa em nome de arquivo.
++func ChaveDeCaminho(path string) string {
++	return strings.ToLower(ParaNFC(filepath.ToSlash(path)))
++}
++
+ // Normalize remove acentos e converte para caixa baixa.
+ // Reutiliza transformer de um pool para evitar alocação a cada chamada.
+ // Thread-safety: sync.Pool garante que cada goroutine tenha sua própria instância.
+ func Normalize(s string) string {
+ 	return strings.ToLower(RemoveAccents(s))
+ }
+diff --git a/internal/writer/lock.go b/internal/writer/lock.go
+index 4c32052..ea64522 100644
+--- a/internal/writer/lock.go
++++ b/internal/writer/lock.go
+@@ -1,24 +1,31 @@
+ // Package writer implementa operacoes de escrita e modificacao de notas
+ // no cofre com suporte a escritas atomicas, locks por caminho e preservacao de EOL/BOM.
+ package writer
+ 
+ import (
+-	"strings"
+ 	"sync"
+ 
++	"github.com/jonyd/gobsidian/internal/text"
+ 	"github.com/jonyd/gobsidian/internal/vault"
+ )
+ 
+-// normalizeKey converte o caminho para minusculas para garantir sensibilidade a casing uniforme (Windows).
++// normalizeKey e a chave do registro de travas.
++//
++// Delega a text.ChaveDeCaminho, que e a mesma conta que o indice usa para
++// lowerPath. Aqui ela so baixava a caixa: o indice tratava as duas grafias
++// Unicode do mesmo nome como UMA nota e o locker as tratava como dois arquivos,
++// entao duas escritas concorrentes na mesma nota pegavam travas diferentes e
++// nao se excluiam. Uma conta por regra, inclusive nos pontos que ja pareciam
++// certos.
+ func normalizeKey(p vault.CanonicalPath) string {
+-	return strings.ToLower(string(p))
++	return text.ChaveDeCaminho(string(p))
+ }
+ 
+ type lockEntry struct {
+ 	mu       sync.Mutex
+ 	refCount int
+ }
+ 
+ // PathLocker gerencia travas de escrita por caminho de nota.
+ type PathLocker struct {
+ 	mu    sync.Mutex
+diff --git a/internal/writer/lock_unicode_test.go b/internal/writer/lock_unicode_test.go
+new file mode 100644
+index 0000000..75e9547
+--- /dev/null
++++ b/internal/writer/lock_unicode_test.go
+@@ -0,0 +1,76 @@
++package writer
++
++import (
++	"testing"
++	"time"
++
++	"github.com/jonyd/gobsidian/internal/vault"
++)
++
++// As duas grafias do MESMO nome de arquivo. Um cofre sincronizado com macOS
++// grava NFD e um cliente Windows manda NFC; sao a mesma nota para quem le e
++// strings diferentes para um mapa de Go.
++//
++// As duas se parecem no editor e e por isso que o teste comeca conferindo que
++// elas DIFEREM: um editor que normalize o arquivo ao gravar faria as duas
++// virarem a mesma string, e o teste passaria sem cobrir nada.
++const (
++	acaoNFC vault.CanonicalPath = "Ação.md"   // precompostos
++	acaoNFD vault.CanonicalPath = "Ação.md" // c + cedilha, a + til
++)
++
++// TestChaveDaTravaUneAsDuasGrafias cobra que a trava de escrita seja UMA para
++// as duas grafias do mesmo nome.
++//
++// Ate a Task 169 normalizeKey so baixava a caixa, enquanto a chave do indice
++// (index/chave.go) tambem normalizava para NFC. Duas contas para a mesma
++// pergunta: o indice tratava as duas grafias como uma nota, e o locker as
++// tratava como dois arquivos — duas escritas concorrentes na MESMA nota
++// pegavam travas diferentes e nao se excluiam.
++func TestChaveDaTravaUneAsDuasGrafias(t *testing.T) {
++	if acaoNFC == acaoNFD {
++		t.Fatal("as duas constantes sao a mesma string; o teste nao cobre nada")
++	}
++
++	if a, b := normalizeKey(acaoNFC), normalizeKey(acaoNFD); a != b {
++		t.Errorf("chaves diferentes para a mesma nota:\n NFC -> %q\n NFD -> %q", a, b)
++	}
++
++	// E pela porta publica: com a trava de uma grafia na mao, a outra tem de
++	// esperar. Sem isto o teste cobriria so a funcao interna, e a trava e o que
++	// o resto do pacote usa.
++	l := NewPathLocker()
++	destravar := l.Lock(acaoNFC)
++
++	comecou := make(chan struct{})
++	pegou := make(chan func(), 1)
++	go func() {
++		close(comecou)
++		pegou <- l.Lock(acaoNFD)
++	}()
++
++	// Espera a goroutine estar a ponto de travar, para que uma falha em pegar a
++	// trava seja bloqueio de verdade e nao goroutine que ainda nao rodou.
++	<-comecou
++
++	select {
++	case destravarNFD := <-pegou:
++		destravarNFD()
++		destravar()
++		t.Fatal("a grafia NFD pegou a trava enquanto a NFC a segurava; sao a mesma nota")
++	case <-time.After(200 * time.Millisecond):
++	}
++
++	destravar()
++
++	select {
++	case destravarNFD := <-pegou:
++		destravarNFD()
++	case <-time.After(5 * time.Second):
++		t.Fatal("a grafia NFD nunca pegou a trava depois de a NFC solta-la")
++	}
++
++	if n := l.Count(); n != 0 {
++		t.Errorf("o registro ficou com %d travas depois de tudo solto; esperado 0", n)
++	}
++}
+diff --git a/testdata/tag_list_hierarquico.json b/testdata/tag_list_hierarquico.json
+new file mode 100644
+index 0000000..f942b74
+--- /dev/null
++++ b/testdata/tag_list_hierarquico.json
+@@ -0,0 +1,252 @@
++[
++  {
++    "nome": "hierarquico_nome",
++    "requisicao": {
++      "prefix": "",
++      "min_count": 0,
++      "sort": "name",
++      "hierarchical": true
++    },
++    "resultado": {
++      "tags": [
++        {
++          "tag": "docs",
++          "count": 3,
++          "children": [
++            {
++              "tag": "docs/api",
++              "count": 1
++            }
++          ]
++        },
++        {
++          "tag": "proj",
++          "count": 4,
++          "children": [
++            {
++              "tag": "proj/alpha",
++              "count": 3,
++              "children": [
++                {
++                  "tag": "proj/alpha/dois",
++                  "count": 1
++                },
++                {
++                  "tag": "proj/alpha/um",
++                  "count": 2
++                }
++              ]
++            },
++            {
++              "tag": "proj/beta",
++              "count": 2
++            }
++          ]
++        },
++        {
++          "tag": "zeta",
++          "count": 1
++        }
++      ]
++    }
++  },
++  {
++    "nome": "hierarquico_contagem",
++    "requisicao": {
++      "prefix": "",
++      "min_count": 0,
++      "sort": "count",
++      "hierarchical": true
++    },
++    "resultado": {
++      "tags": [
++        {
++          "tag": "proj",
++          "count": 4,
++          "children": [
++            {
++              "tag": "proj/alpha",
++              "count": 3,
++              "children": [
++                {
++                  "tag": "proj/alpha/um",
++                  "count": 2
++                },
++                {
++                  "tag": "proj/alpha/dois",
++                  "count": 1
++                }
++              ]
++            },
++            {
++              "tag": "proj/beta",
++              "count": 2
++            }
++          ]
++        },
++        {
++          "tag": "docs",
++          "count": 3,
++          "children": [
++            {
++              "tag": "docs/api",
++              "count": 1
++            }
++          ]
++        },
++        {
++          "tag": "zeta",
++          "count": 1
++        }
++      ]
++    }
++  },
++  {
++    "nome": "hierarquico_prefixo_proj",
++    "requisicao": {
++      "prefix": "proj",
++      "min_count": 0,
++      "sort": "name",
++      "hierarchical": true
++    },
++    "resultado": {
++      "tags": [
++        {
++          "tag": "proj",
++          "count": 4,
++          "children": [
++            {
++              "tag": "proj/alpha",
++              "count": 3,
++              "children": [
++                {
++                  "tag": "proj/alpha/dois",
++                  "count": 1
++                },
++                {
++                  "tag": "proj/alpha/um",
++                  "count": 2
++                }
++              ]
++            },
++            {
++              "tag": "proj/beta",
++              "count": 2
++            }
++          ]
++        }
++      ]
++    }
++  },
++  {
++    "nome": "hierarquico_prefixo_no_meio",
++    "requisicao": {
++      "prefix": "proj/al",
++      "min_count": 0,
++      "sort": "name",
++      "hierarchical": true
++    },
++    "resultado": {
++      "tags": [
++        {
++          "tag": "proj",
++          "count": 4,
++          "children": [
++            {
++              "tag": "proj/alpha",
++              "count": 3,
++              "children": [
++                {
++                  "tag": "proj/alpha/dois",
++                  "count": 1
++                },
++                {
++                  "tag": "proj/alpha/um",
++                  "count": 2
++                }
++              ]
++            }
++          ]
++        }
++      ]
++    }
++  },
++  {
++    "nome": "hierarquico_min_count_2",
++    "requisicao": {
++      "prefix": "",
++      "min_count": 2,
++      "sort": "count",
++      "hierarchical": true
++    },
++    "resultado": {
++      "tags": [
++        {
++          "tag": "proj",
++          "count": 4,
++          "children": [
++            {
++              "tag": "proj/alpha",
++              "count": 3,
++              "children": [
++                {
++                  "tag": "proj/alpha/um",
++                  "count": 2
++                }
++              ]
++            },
++            {
++              "tag": "proj/beta",
++              "count": 2
++            }
++          ]
++        },
++        {
++          "tag": "docs",
++          "count": 3
++        }
++      ]
++    }
++  },
++  {
++    "nome": "plano_contagem",
++    "requisicao": {
++      "prefix": "",
++      "min_count": 0,
++      "sort": "count",
++      "hierarchical": false
++    },
++    "resultado": {
++      "tags": [
++        {
++          "tag": "docs",
++          "count": 2
++        },
++        {
++          "tag": "proj/alpha/um",
++          "count": 2
++        },
++        {
++          "tag": "proj/beta",
++          "count": 2
++        },
++        {
++          "tag": "docs/api",
++          "count": 1
++        },
++        {
++          "tag": "proj/alpha",
++          "count": 1
++        },
++        {
++          "tag": "proj/alpha/dois",
++          "count": 1
++        },
++        {
++          "tag": "zeta",
++          "count": 1
++        }
++      ]
++    }
++  }
++]
