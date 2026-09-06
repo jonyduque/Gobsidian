@@ -82,6 +82,8 @@ Fachada. Cada tool MCP corresponde a um método aqui. Responsabilidades:
 
 Abstração de caminho e I/O bruto. Traduz entre o caminho absoluto do sistema de arquivos e o **caminho canônico** interno.
 
+A **substituição atômica de arquivo** mora aqui (`ReplaceFile`, `WriteAtomic`, `SweepStaleTempFiles`, `TempFilePrefix`): temporário no mesmo diretório, `Sync`, rename com retry, `fsync` do diretório atrás de build tag, e a varredura de temporários órfãos no boot. É I/O do cofre, e `vault` é a única camada que toca o sistema de arquivos — o mesmo motivo pelo qual o filtro de ruído da varredura usa a mesma constante de prefixo, e não uma segunda cópia do literal. `ReplaceFile` recebe o conteúdo por callback `func(*os.File) error` porque os caches de índice e de busca codificam em streaming; `WriteAtomic` é o caso particular em que os bytes já existem.
+
 ### 2.6 `internal/parser`
 
 Transforma bytes de um arquivo em uma `ParsedNote`. Puro: sem I/O, sem estado. Recebe `[]byte`, devolve estrutura. Isso o torna trivialmente testável por *golden files* e trivialmente paralelizável.
@@ -100,7 +102,9 @@ Guarda o resultado do parse de todas as notas, mais os grafos derivados (backlin
 
 ### 2.10 `internal/writer`
 
-Escritas atômicas e transformações estruturais de conteúdo (inserir sob heading, substituir seção, reescrever links).
+Serialização de escritas por caminho canônico e transformações estruturais de conteúdo (inserir sob heading, substituir seção, reescrever links, diff).
+
+A substituição atômica em si passou para `internal/vault` (§2.5). O que resta em `writer/atomic.go` são encaminhadores transitórios, que somem quando o último chamador migrar. Eles não levam o marcador `// Deprecated:` de propósito: com `staticcheck` ligado, o marcador reprovaria o gate em cada chamador ainda não migrado, e um gate vermelho por desenho é um gate que alguém contorna.
 
 ### 2.11 `internal/ipc`
 

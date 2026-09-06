@@ -106,6 +106,39 @@ func TestWalkExcludesAndClassifies(t *testing.T) {
 	}
 }
 
+// TestWalkIgnoraTemporarioDeBinarioAntigo prende a conta unica do prefixo, que
+// desde a Task 171 e vault.TempFilePrefix tambem aqui no filtro da varredura.
+//
+// O arquivo e criado com o LITERAL, nao com a constante: e o que o disco tem de
+// um binario antigo. Se a constante do filtro mudar, este teste e o que avisa
+// que o lixo antigo passaria a entrar no indice.
+//
+// O nome termina em ".md" de proposito. Sem extensao de nota, o filtro de
+// extensao o descartaria com ou sem isNoise, e o teste passaria mesmo com a
+// constante trocada — provaria uma poda que nunca acontece.
+func TestWalkIgnoraTemporarioDeBinarioAntigo(t *testing.T) {
+	root := t.TempDir()
+	writeFile(t, root, ".gobsidian-tmp-abc123.md", "escrita atomica interrompida")
+	writeFile(t, root, "a.md", "# a\n")
+
+	v, err := vault.New(root)
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+
+	var vistos []string
+	if err := v.Walk(context.Background(), func(e vault.Entry) error {
+		vistos = append(vistos, string(e.Path))
+		return nil
+	}); err != nil {
+		t.Fatalf("Walk: %v", err)
+	}
+
+	if len(vistos) != 1 || vistos[0] != "a.md" {
+		t.Fatalf("o temporario entrou no walk: %v", vistos)
+	}
+}
+
 func TestNewRejectsMissingRoot(t *testing.T) {
 	if _, err := vault.New(filepath.Join(t.TempDir(), "nao-existe")); err == nil {
 		t.Fatal("New com raiz inexistente deveria falhar")

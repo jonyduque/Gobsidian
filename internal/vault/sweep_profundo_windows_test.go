@@ -1,6 +1,6 @@
 //go:build windows
 
-package writer_test
+package vault_test
 
 import (
 	"context"
@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/jonyd/gobsidian/internal/writer"
+	"github.com/jonyd/gobsidian/internal/vault"
 )
 
 // TestSweepAlcancaCaminhoAlemDeMaxPath fixa o alcance real da varredura — e
@@ -44,7 +44,7 @@ func TestSweepAlcancaCaminhoAlemDeMaxPath(t *testing.T) {
 		t.Skipf("nao foi possivel criar arvore profunda (%d chars): %v", len(fundo), err)
 	}
 
-	temp := filepath.Join(fundo, writer.TempFilePrefix+"orfao")
+	temp := filepath.Join(fundo, vault.TempFilePrefix+"orfao")
 	if err := os.WriteFile(temp, []byte("lixo"), 0644); err != nil {
 		t.Skipf("nao foi possivel criar o temporario profundo: %v", err)
 	}
@@ -55,7 +55,7 @@ func TestSweepAlcancaCaminhoAlemDeMaxPath(t *testing.T) {
 	}
 	t.Logf("caminho com %d caracteres", len(temp))
 
-	varr, err := writer.SweepStaleTempFiles(context.Background(), raiz)
+	varr, err := vault.SweepStaleTempFiles(context.Background(), raiz)
 	if err != nil {
 		t.Fatalf("SweepStaleTempFiles: %v", err)
 	}

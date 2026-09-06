@@ -39,6 +39,10 @@ gobsidian/
 │   │   ├── path_windows.go       casing e separadores (build tag windows)
 │   │   ├── path_other.go         idem (build tag !windows)
 │   │   ├── walk.go               varredura com exclusões
+│   │   ├── atomic.go             temporário + sync + rename, com retry; varredura
+│   │   │                         de temporários órfãos no boot
+│   │   ├── syncdir_unix.go       fsync do diretório após o rename (build tag !windows)
+│   │   ├── syncdir_windows.go    no-op documentado: o Windows não expõe o handle
 │   │   ├── ignore.go             .gitignore e .gobsidianignore
 │   │   ├── eol.go                detecção e preservação de CRLF/LF — ÚNICA conta de EOL
 │   │   ├── longpath_windows.go   prefixo de caminho longo p/ syscall direta (build tag windows)
@@ -112,9 +116,9 @@ gobsidian/
 │   ├── writer/
 │   │   ├── writer.go             fachada de escrita
 │   │   ├── lock.go               mutex por caminho canônico; serializa escritas
-│   │   ├── atomic.go             temporário + sync + rename, com retry
-│   │   ├── syncdir_unix.go       fsync do diretório após o rename (build tag !windows)
-│   │   ├── syncdir_windows.go    no-op documentado: o Windows não expõe o handle
+│   │   ├── atomic.go             encaminhadores transitórios para vault.WriteAtomic
+│   │   │                         e vault.SweepStaleTempFiles; somem quando o
+│   │   │                         último chamador migrar
 │   │   ├── section.go            inserir e substituir sob heading
 │   │   ├── block.go              substituir bloco por ^id
 │   │   ├── linkrewrite.go        reescrita de links em note_move

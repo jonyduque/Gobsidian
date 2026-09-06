@@ -66,7 +66,8 @@ internal/
   config/          struct de configuração, flags cobra, defaults, VaultKey
   lifecycle/       stdin-eof, sinais, vigília do PID pai, shutdown com orçamento
   vault/           raiz, caminho canônico e confinamento, walk com exclusões,
-                   EOL, detecção de somente-nuvem
+                   EOL, detecção de somente-nuvem, temp+sync+rename atômico
+                   (ReplaceFile/WriteAtomic) e varredura de temporários órfãos
   vaulttest/       apoio a teste: condições de ambiente do Windows; só _test.go
                    importa
   parser/          goldmark + extensões [[wikilink]], ^blockid, #tag,
@@ -79,8 +80,8 @@ internal/
                    cache binário formato 6 + arena mmap
   watcher/         fsnotify, debounce, filtro de relevância, apply,
                    rename por hash, reconciliação pós-overflow
-  writer/          lock por caminho canônico, temp+sync+rename atômico,
-                   edição sob heading/bloco, reescrita de link, diff
+  writer/          lock por caminho canônico, edição sob heading/bloco,
+                   reescrita de link, diff
   service/         fachada das tools em tipos de domínio; erros em errors.go
   mcpsrv/          ÚNICO pacote onde tipos do SDK de MCP existem
   console/         marcadores ASCII e cor decidida pelo destino de saída

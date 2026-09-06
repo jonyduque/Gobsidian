@@ -1,4 +1,4 @@
-package writer_test
+package vault_test
 
 import (
 	"context"
@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/jonyd/gobsidian/internal/writer"
+	"github.com/jonyd/gobsidian/internal/vault"
 )
 
 // TestWriteAtomicPreservaOModoDoAlvo é metade do achado M12.
@@ -34,7 +34,7 @@ func TestWriteAtomicPreservaOModoDoAlvo(t *testing.T) {
 		t.Fatalf("chmod: %v", err)
 	}
 
-	if err := writer.WriteAtomic(context.Background(), alvo, []byte("depois\n")); err != nil {
+	if err := vault.WriteAtomic(context.Background(), alvo, []byte("depois\n")); err != nil {
 		t.Fatalf("WriteAtomic: %v", err)
 	}
 
@@ -61,7 +61,7 @@ func TestWriteAtomicRespeitaCancelamento(t *testing.T) {
 	cancel()
 
 	inicio := time.Now()
-	err := writer.WriteAtomic(ctx, alvo, []byte("conteudo\n"))
+	err := vault.WriteAtomic(ctx, alvo, []byte("conteudo\n"))
 	if err == nil {
 		t.Fatal("contexto cancelado foi ignorado: a escrita seguiu")
 	}
@@ -73,7 +73,7 @@ func TestWriteAtomicRespeitaCancelamento(t *testing.T) {
 	if _, err := os.Stat(alvo); err == nil {
 		t.Error("a nota foi criada apesar do cancelamento")
 	}
-	sobras, _ := filepath.Glob(filepath.Join(dir, writer.TempFilePrefix+"*"))
+	sobras, _ := filepath.Glob(filepath.Join(dir, vault.TempFilePrefix+"*"))
 	if len(sobras) > 0 {
 		t.Errorf("temporario sobrou depois do cancelamento: %v", sobras)
 	}

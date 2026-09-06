@@ -1,6 +1,6 @@
 //go:build !windows
 
-package writer
+package vault
 
 import "os"
 

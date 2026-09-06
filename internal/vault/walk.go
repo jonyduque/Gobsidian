@@ -71,7 +71,7 @@ func isNoise(name string) bool {
 	// Defensivo pelo mesmo motivo do ramo acima, nao alcancavel por efeito.
 	case strings.HasSuffix(lower, ".tmp"):
 		return true
-	case strings.HasPrefix(name, ".gobsidian-tmp-"):
+	case strings.HasPrefix(name, TempFilePrefix):
 		return true
 	}
 	return false

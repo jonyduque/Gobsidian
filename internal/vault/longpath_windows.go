@@ -23,7 +23,7 @@ const longPathThreshold = 240
 // 2026-08-27: MkdirAll, WriteFile e WalkDir alcancaram 318 caracteres sem
 // prefixo nenhum. Uma versao anterior desta tarefa acrescentou aqui um
 // LongPathSempre para a raiz de varredura e a prova de mutacao o reprovou como
-// guarda morta — ver o comentario em writer.SweepStaleTempFiles.
+// guarda morta — ver o comentario em SweepStaleTempFiles.
 func LongPath(abs string) string {
 	if len(abs) < longPathThreshold {
 		return abs

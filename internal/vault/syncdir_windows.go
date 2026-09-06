@@ -1,6 +1,6 @@
 //go:build windows
 
-package writer
+package vault
 
 // sincronizarDiretorio nao existe no Windows, e este arquivo diz isso em vez de
 // fingir.

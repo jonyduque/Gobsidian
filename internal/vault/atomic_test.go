@@ -1,8 +1,9 @@
-package writer_test
+package vault_test
 
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -13,7 +14,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/jonyd/gobsidian/internal/writer"
+	"github.com/jonyd/gobsidian/internal/vault"
 )
 
 // avisoPronto e o que o processo filho imprime imediatamente antes de chamar
@@ -34,7 +35,7 @@ func TestMain(m *testing.M) {
 			fmt.Print(avisoPronto)
 			_ = os.Stdout.Sync()
 
-			_ = writer.WriteAtomic(context.Background(), targetPath, data)
+			_ = vault.WriteAtomic(context.Background(), targetPath, data)
 		}
 		os.Exit(0)
 	}
@@ -166,13 +167,13 @@ func TestRNF11NoCorruptionUnder1000Crashes(t *testing.T) {
 		// nao havia sobras: a linha de cima garantia a de baixo, e a
 		// assercao nao podia falhar. Medido: com a limpeza neutralizada, este
 		// teste reprova — havia temporarios reais sendo mascarados.
-		antesDaVarredura, _ := filepath.Glob(filepath.Join(dir, writer.TempFilePrefix+"*"))
+		antesDaVarredura, _ := filepath.Glob(filepath.Join(dir, vault.TempFilePrefix+"*"))
 		mu.Lock()
 		orfaos += len(antesDaVarredura)
 		mu.Unlock()
 
 		// t.Fatalf so pode ser chamado da goroutine do teste; aqui e Errorf.
-		varr, err := writer.SweepStaleTempFiles(context.Background(), dir)
+		varr, err := vault.SweepStaleTempFiles(context.Background(), dir)
 		if err != nil {
 			t.Errorf("iteracao %d: SweepStaleTempFiles: %v", i, err)
 			return
@@ -185,7 +186,7 @@ func TestRNF11NoCorruptionUnder1000Crashes(t *testing.T) {
 			t.Errorf("iteracao %d: %d subarvores inacessiveis num diretorio temporario do teste",
 				i, varr.Inacessiveis)
 		}
-		if sobras, _ := filepath.Glob(filepath.Join(dir, writer.TempFilePrefix+"*")); len(sobras) > 0 {
+		if sobras, _ := filepath.Glob(filepath.Join(dir, vault.TempFilePrefix+"*")); len(sobras) > 0 {
 			t.Errorf("iteracao %d: temporario sobrou DEPOIS da varredura: %v", i, sobras)
 		}
 	}
@@ -224,12 +225,51 @@ func TestRNF11NoCorruptionUnder1000Crashes(t *testing.T) {
 	}
 }
 
+// TestReplaceFileCallbackFalhaNaoTocaOAlvo cobre o que o callback trouxe de
+// novo: os caches codificam em streaming, e um codec pode falhar no meio da
+// gravacao — com metade do cache ja no temporario. O alvo tem de continuar
+// intacto, o erro tem de chegar embrulhado ao chamador (senao ele grava um
+// cache pela metade achando que gravou inteiro), e o temporario nao pode ficar
+// para tras.
+func TestReplaceFileCallbackFalhaNaoTocaOAlvo(t *testing.T) {
+	alvo := filepath.Join(t.TempDir(), "a.md")
+	if err := os.WriteFile(alvo, []byte("antes"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	quero := errors.New("codec falhou")
+
+	err := vault.ReplaceFile(context.Background(), alvo, func(f *os.File) error {
+		// Escreve antes de falhar: o caso interessante e o temporario ja com
+		// bytes dentro, nao o vazio.
+		if _, wErr := f.Write([]byte("metade do cache")); wErr != nil {
+			t.Errorf("escrevendo no temporario: %v", wErr)
+		}
+		return quero
+	})
+	if !errors.Is(err, quero) {
+		t.Fatalf("err = %v, quero %v embrulhado", err, quero)
+	}
+
+	got, rErr := os.ReadFile(alvo)
+	if rErr != nil {
+		t.Fatalf("ReadFile: %v", rErr)
+	}
+	if string(got) != "antes" {
+		t.Fatalf("alvo mudou para %q", got)
+	}
+
+	restos, _ := filepath.Glob(filepath.Join(filepath.Dir(alvo), vault.TempFilePrefix+"*"))
+	if len(restos) != 0 {
+		t.Fatalf("temporario ficou para tras: %v", restos)
+	}
+}
+
 func TestWriteAtomic_TempInSameDir(t *testing.T) {
 	dir := t.TempDir()
 	alvo := filepath.Join(dir, "nota.md")
 	data := []byte("conteudo de teste")
 
-	if err := writer.WriteAtomic(context.Background(), alvo, data); err != nil {
+	if err := vault.WriteAtomic(context.Background(), alvo, data); err != nil {
 		t.Fatalf("WriteAtomic: %v", err)
 	}
 
@@ -253,12 +293,12 @@ func TestWriteAtomic_CreatesTempInTargetDir(t *testing.T) {
 
 	done := make(chan error, 1)
 	go func() {
-		done <- writer.WriteAtomic(context.Background(), alvo, data)
+		done <- vault.WriteAtomic(context.Background(), alvo, data)
 	}()
 
 	foundInDir := false
 	for start := time.Now(); time.Since(start) < 2*time.Second; {
-		matches, _ := filepath.Glob(filepath.Join(dir, writer.TempFilePrefix+"*"))
+		matches, _ := filepath.Glob(filepath.Join(dir, vault.TempFilePrefix+"*"))
 		if len(matches) > 0 {
 			foundInDir = true
 			break
@@ -282,7 +322,7 @@ func TestWriteAtomic_PreservesBOMAndCRLF(t *testing.T) {
 	// BOM + CRLF
 	data := []byte("\xef\xbb\xbf# Nota com BOM\r\n\r\nLinha 1\r\nLinha 2\r\n")
 
-	if err := writer.WriteAtomic(context.Background(), alvo, data); err != nil {
+	if err := vault.WriteAtomic(context.Background(), alvo, data); err != nil {
 		t.Fatalf("WriteAtomic: %v", err)
 	}
 
@@ -311,7 +351,7 @@ func TestWriteAtomic_RenameRetryOnLock(t *testing.T) {
 
 	done := make(chan error, 1)
 	go func() {
-		done <- writer.WriteAtomic(context.Background(), alvo, []byte("substituido"))
+		done <- vault.WriteAtomic(context.Background(), alvo, []byte("substituido"))
 	}()
 
 	// Solta o bloqueio apos 30ms para exercitar o retry do rename
@@ -362,7 +402,7 @@ func TestWriteAtomicConcurrentSameDirectory(t *testing.T) {
 			alvo := filepath.Join(dir, fmt.Sprintf("nota%02d.md", w))
 			esperado := []byte(fmt.Sprintf("conteudo do escritor %02d\r\n", w))
 			for i := 0; i < porEscritor; i++ {
-				if err := writer.WriteAtomic(context.Background(), alvo, esperado); err != nil {
+				if err := vault.WriteAtomic(context.Background(), alvo, esperado); err != nil {
 					erros <- fmt.Errorf("escritor %d, iteracao %d: %w", w, i, err)
 					return
 				}
@@ -394,7 +434,7 @@ func TestWriteAtomicConcurrentSameDirectory(t *testing.T) {
 
 	// E nenhum temporario pode sobrar: aqui nenhum processo morreu, entao o
 	// defer de cada WriteAtomic removeu o seu.
-	if sobras, _ := filepath.Glob(filepath.Join(dir, writer.TempFilePrefix+"*")); len(sobras) > 0 {
+	if sobras, _ := filepath.Glob(filepath.Join(dir, vault.TempFilePrefix+"*")); len(sobras) > 0 {
 		t.Errorf("temporario sobrou apos escritas bem-sucedidas: %v", sobras)
 	}
 }
