@@ -1,0 +1,219 @@
+[
+  {
+    "nome": "hierarquico_nome",
+    "requisicao": {
+      "prefix": "",
+      "min_count": 0,
+      "sort": "name",
+      "hierarchical": true
+    },
+    "resultado": {
+      "tags": [
+        {
+          "tag": "docs",
+          "count": 3,
+          "children": [
+            {
+              "tag": "docs/api",
+              "count": 1
+            }
+          ]
+        },
+        {
+          "tag": "proj",
+          "count": 4,
+          "children": [
+            {
+              "tag": "proj/alpha",
+              "count": 3,
+              "children": [
+                {
+                  "tag": "proj/alpha/dois",
+                  "count": 1
+                },
+                {
+                  "tag": "proj/alpha/um",
+                  "count": 2
+                }
+              ]
+            },
+            {
+              "tag": "proj/beta",
+              "count": 2
+            }
+          ]
+        },
+        {
+          "tag": "zeta",
+          "count": 1
+        }
+      ]
+    }
+  },
+  {
+    "nome": "hierarquico_contagem",
+    "requisicao": {
+      "prefix": "",
+      "min_count": 0,
+      "sort": "count",
+      "hierarchical": true
+    },
+    "resultado": {
+      "tags": [
+        {
+          "tag": "proj",
+          "count": 4,
+          "children": [
+            {
+              "tag": "proj/alpha",
+              "count": 3,
+              "children": [
+                {
+                  "tag": "proj/alpha/um",
+                  "count": 2
+                },
+                {
+                  "tag": "proj/alpha/dois",
+                  "count": 1
+                }
+              ]
+            },
+            {
+              "tag": "proj/beta",
+              "count": 2
+            }
+          ]
+        },
+        {
+          "tag": "docs",
+          "count": 3,
+          "children": [
+            {
+              "tag": "docs/api",
+              "count": 1
+            }
+          ]
+        },
+        {
+          "tag": "zeta",
+          "count": 1
+        }
+      ]
+    }
+  },
+  {
+    "nome": "hierarquico_prefixo_proj",
+    "requisicao": {
+      "prefix": "proj",
+      "min_count": 0,
+      "sort": "name",
+      "hierarchical": true
+    },
+    "resultado": {
+      "tags": [
+        {
+          "tag": "proj",
+          "count": 4,
+          "children": [
+            {
+              "tag": "proj/alpha",
+              "count": 3,
+              "children": [
+                {
+                  "tag": "proj/alpha/dois",
+                  "count": 1
+                },
+                {
+                  "tag": "proj/alpha/um",
+                  "count": 2
+                }
+              ]
+            },
+            {
+              "tag": "proj/beta",
+              "count": 2
+            }
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "nome": "hierarquico_min_count_2",
+    "requisicao": {
+      "prefix": "",
+      "min_count": 2,
+      "sort": "count",
+      "hierarchical": true
+    },
+    "resultado": {
+      "tags": [
+        {
+          "tag": "proj",
+          "count": 4,
+          "children": [
+            {
+              "tag": "proj/alpha",
+              "count": 3,
+              "children": [
+                {
+                  "tag": "proj/alpha/um",
+                  "count": 2
+                }
+              ]
+            },
+            {
+              "tag": "proj/beta",
+              "count": 2
+            }
+          ]
+        },
+        {
+          "tag": "docs",
+          "count": 3
+        }
+      ]
+    }
+  },
+  {
+    "nome": "plano_contagem",
+    "requisicao": {
+      "prefix": "",
+      "min_count": 0,
+      "sort": "count",
+      "hierarchical": false
+    },
+    "resultado": {
+      "tags": [
+        {
+          "tag": "docs",
+          "count": 2
+        },
+        {
+          "tag": "proj/alpha/um",
+          "count": 2
+        },
+        {
+          "tag": "proj/beta",
+          "count": 2
+        },
+        {
+          "tag": "docs/api",
+          "count": 1
+        },
+        {
+          "tag": "proj/alpha",
+          "count": 1
+        },
+        {
+          "tag": "proj/alpha/dois",
+          "count": 1
+        },
+        {
+          "tag": "zeta",
+          "count": 1
+        }
+      ]
+    }
+  }
+]
