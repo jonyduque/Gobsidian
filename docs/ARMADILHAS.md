@@ -20,7 +20,8 @@ regra sem história é preferência, e preferência não merece espaço aqui.
 ## Ciclo de vida e encerramento
 
 **`io.TeeReader` não propaga EOF.** Copia bytes; EOF não é byte. Usar
-`mirrorReader`, que faz `dst.CloseWithError(err)`. Sem isso o monitor de stdin
+`mirrorReader` (`internal/boot/espelho.go`, montado por `boot.VigiarHost`), que
+faz `dst.CloseWithError(err)`. Sem isso o monitor de stdin
 do lifecycle fica inerte e `lc.Wait()` só retorna por acidente. O espelho é
 **auxiliar**: falha de escrita nele não pode virar erro da leitura principal —
 mataria sessão saudável por motivo que o cliente não pode agir.

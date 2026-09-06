@@ -5,6 +5,13 @@
 // alcancava. Os subcomandos de CLI nao passam por aqui: index, search e
 // inspect montam o indice por conta propria, sem watcher e sem Service.
 //
-// Nao importa mcpsrv nem lifecycle: quem monta nao decide como o host
-// conversa nem quando encerra.
+// Monta tambem a VIGILIA do host (VigiarHost) e os passos de encerramento
+// que os tres pontos de saida repetiam — o pipe espelhado mais lifecycle.New
+// em serve e na ponte, e os passos "close-pipe" e "watcher". Por isso importa
+// lifecycle: e o mesmo andaime, e a ordem entre as pecas importa.
+//
+// Nao importa mcpsrv: quem monta nao decide como o host conversa. E nao
+// decide QUANDO encerrar — lifecycle.Shutdown continua sendo chamada por
+// quem serve, com os passos que so ela conhece (in-flight, half-close,
+// close-conn).
 package boot

@@ -150,12 +150,16 @@ gobsidian/
 │   │   ├── vt_windows.go         habilita terminal virtual (build tag windows)
 │   │   └── vt_other.go           no-op documentado (build tag !windows)
 │   │
-│   ├── boot/                     a sequência de boot que serve e daemon
-│   │   │                         compartilham; não importa mcpsrv nem lifecycle
+│   ├── boot/                     a sequência de boot e a vigília do host que
+│   │   │                         serve, ponte e daemon compartilham; não importa mcpsrv
 │   │   ├── doc.go                por que o pacote existe e o que ele não decide
 │   │   ├── indice.go             AbrirIndice: cache fresco ou construção, e grava
 │   │   ├── busca.go              PrepararBusca: adota o cache, retoma ou constrói
-│   │   └── montar.go             Montar: cofre, varredura, índices, watcher, Service
+│   │   ├── montar.go             Montar: cofre, varredura, índices, watcher, Service;
+│   │   │                         PassoWatcher (passo "watcher", 500 ms)
+│   │   ├── espelho.go            mirrorReader: espelha stdin e propaga o EOF fechando dst
+│   │   └── vigia.go              VigiarHost: pipe + espelho + lifecycle.New;
+│   │                             PassoFecharEspelho (passo "close-pipe", 500 ms)
 │   │
 │   ├── ipc/
 │   │   ├── ipc.go                transporte local: socket, saudação, handshake

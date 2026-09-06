@@ -85,8 +85,9 @@ internal/
   service/         fachada das tools em tipos de domínio; erros em errors.go
   mcpsrv/          ÚNICO pacote onde tipos do SDK de MCP existem
   console/         marcadores ASCII e cor decidida pelo destino de saída
-  boot/            monta cofre, índice, busca, watcher e Service; serve e
-                   daemon chamam
+  boot/            monta cofre, índice, busca, watcher e Service; a vigília do
+                   host (pipe espelhado + lifecycle) e os passos de shutdown
+                   compartilhados; serve, ponte e daemon chamam
   ipc/             transporte local: socket, saudação, handshake
   daemon/          N conexões sobre um índice; spawn; posse por trava do
                    kernel (flock / LockFileEx), nunca por arquivo com PID
@@ -105,7 +106,8 @@ scripts/           gates e utilitários PowerShell — ver Comandos
 Grafo de dependências, acíclico e **re-extraído dos imports de produção em
 2026-09-06** — `GOOS=windows go list -f '{{.Imports}}'` pacote a pacote, que NÃO
 enxerga arquivo `_test.go`. Duas linhas mudaram desde 2026-09-02: a do `writer`
-e a do `boot`, que é nova. As justificativas estão logo abaixo do bloco:
+e a do `boot`, que é nova — e a do `boot` ganhou `lifecycle` no mesmo dia
+(Task 177). As justificativas estão logo abaixo do bloco:
 
 ```
 text  vault  config  console  lifecycle      folhas
@@ -117,17 +119,26 @@ search   → index, parser, text, vault
 watcher  → index, search, vault
 service  → index, parser, search, vault, writer
 mcpsrv   → config, index, parser, service, vault
-boot     → config, index, search, service, vault, watcher
+boot     → config, index, lifecycle, search, service, vault, watcher
 daemon   → config, ipc, mcpsrv
 doctor   → config, daemon, ipc, vault
 ```
 
-`boot` é de 2026-09-06 (Task 174) e não traz aresta nova nenhuma: as seis são
-exatamente as que `cmd/gobsidian` já tinha. A sequência de boot — cofre,
+`boot` é de 2026-09-06 (Task 174) e nasceu sem aresta nova nenhuma: as seis
+eram exatamente as que `cmd/gobsidian` já tinha. A sequência de boot — cofre,
 varredura de temporários, índice de metadados, índice de busca, watcher,
 Service — vivia em `cmd/gobsidian`, onde nenhum teste de pacote a alcançava.
-`boot` não importa `mcpsrv` nem `lifecycle`: quem monta não decide como o host
-conversa nem quando encerra. E nenhum pacote de domínio importa `boot` — só
+
+`boot → lifecycle` é a sétima, de 2026-09-06 (Task 177), e a justificativa é o
+mesmo **andaime escrito duas vezes**: pipe, `mirrorReader` e `lifecycle.New`,
+nessa ordem — a ordem é o que faz o EOF do host chegar ao monitor de stdin —
+estavam em `serveEmProcesso` e em `servePonteRemota`, e os passos `close-pipe` e
+`watcher` estavam nos três pontos de saída. `boot.VigiarHost` e
+`(*Componentes).PassoWatcher` são a conta única disso. `lifecycle` continua
+folha. `boot` continua sem importar `mcpsrv`: quem monta não decide como o host
+conversa. E não decide **quando** encerrar — `lifecycle.Shutdown` é chamada por
+`cmd/gobsidian`, com os passos que só quem serve conhece (`in-flight`,
+`half-close`, `close-conn`). E nenhum pacote de domínio importa `boot` — só
 `cmd/gobsidian`.
 
 `writer → text` é de 2026-09-06 (Task 169) e a justificativa é **uma conta por

@@ -8,6 +8,7 @@ import (
 
 	"github.com/jonyd/gobsidian/internal/config"
 	"github.com/jonyd/gobsidian/internal/index"
+	"github.com/jonyd/gobsidian/internal/lifecycle"
 	"github.com/jonyd/gobsidian/internal/search"
 	"github.com/jonyd/gobsidian/internal/service"
 	"github.com/jonyd/gobsidian/internal/vault"
@@ -32,6 +33,17 @@ type Componentes struct {
 
 // Esperar bloqueia ate as goroutines de fundo (busca, watcher) terminarem.
 func (c *Componentes) Esperar() { c.espera.Wait() }
+
+// PassoWatcher fecha o watcher; 500 ms de orcamento.
+//
+// Os tres pontos de saida do processo (serveEmProcesso, servePonteRemota e
+// runDaemon) escreviam este mesmo passo a mao. O nome "watcher" e o
+// orcamento sao lidos pelo gate de orfaos e pelos logs: nao mudam.
+func (c *Componentes) PassoWatcher() lifecycle.Step {
+	return lifecycle.Step{Name: "watcher", Budget: 500 * time.Millisecond, Fn: func(context.Context) error {
+		return c.Watcher.Close()
+	}}
+}
 
 // Montar monta o indice de metadados, o watcher e o indice de busca (em
 // segundo plano) para cfg.VaultPath, e devolve o servico de dominio pronto

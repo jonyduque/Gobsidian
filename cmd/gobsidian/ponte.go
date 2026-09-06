@@ -20,6 +20,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/jonyd/gobsidian/internal/boot"
 	"github.com/jonyd/gobsidian/internal/config"
 	"github.com/jonyd/gobsidian/internal/daemon"
 	"github.com/jonyd/gobsidian/internal/ipc"
@@ -137,9 +138,9 @@ func errnoDe(err error) int {
 // Ela nao interpreta o que passa por dentro.
 //
 // Os tres mecanismos continuam valendo aqui exatamente como em
-// serveEmProcesso: lifecycle.New e o mesmo pacote, montado do mesmo jeito,
-// porque a garantia de nao deixar orfao nao pode depender de qual dos dois
-// caminhos serviu a sessao.
+// serveEmProcesso: e a MESMA boot.VigiarHost, e nao uma copia montada do
+// mesmo jeito, porque a garantia de nao deixar orfao nao pode depender de
+// qual dos dois caminhos serviu a sessao.
 //
 // stdin e stdout sao parametros, e nao os.Stdin/os.Stdout lidos aqui dentro,
 // porque sem isso esta funcao nao e testavel de forma deterministica: sob
@@ -156,26 +157,19 @@ func servePonteRemota(parent context.Context, conn ipc.Conn, stdin io.Reader, st
 	// O monitor de stdin do lifecycle consome bytes, e o stdin aqui pertence
 	// ao daemon do outro lado do socket. A saida e espelhar: a copia de
 	// verdade le do espelho, e o lifecycle observa so a copia. io.TeeReader
-	// nao serve — nao propaga EOF, copia bytes e EOF nao e byte — por isso
-	// mirrorReader, que faz dst.CloseWithError(err) (ver serve.go).
-	pr, pw := io.Pipe()
-	teed := &mirrorReader{src: stdin, dst: pw}
-
-	ctx, lc := lifecycle.New(parent, lifecycle.Options{
-		Stdin:     pr,
-		ParentPID: lifecycle.ParentPID(),
-		Logger:    log,
-	})
+	// nao serve — nao propaga EOF, copia bytes e EOF nao e byte — por isso o
+	// mirrorReader de boot.VigiarHost, que faz dst.CloseWithError(err).
+	ctx, vig := boot.VigiarHost(parent, stdin, log)
 
 	// As duas direcoes da copia sao goroutines independentes, e nenhuma
 	// delas entra no WaitGroup do lifecycle: uma goroutine parada em Read
 	// nao e desenrolavel por cancelamento de context (a mesma razao pela
 	// qual watchStdin fica fora do WaitGroup em internal/lifecycle), entao
-	// so o fechamento explicito de pw e conn nos passos de shutdown abaixo
-	// as desbloqueia.
+	// so o fechamento explicito do espelho (vig.PassoFecharEspelho) e de conn
+	// nos passos de shutdown abaixo as desbloqueia.
 	hostParaDaemon := make(chan error, 1)
 	go func() {
-		_, err := io.Copy(conn, teed)
+		_, err := io.Copy(conn, vig.Stdin)
 		hostParaDaemon <- err
 	}()
 
@@ -202,9 +196,7 @@ func servePonteRemota(parent context.Context, conn ipc.Conn, stdin io.Reader, st
 	}
 
 	lifecycle.Shutdown(ctx, log, 6*time.Second,
-		lifecycle.Step{Name: "close-pipe", Budget: 500 * time.Millisecond, Fn: func(context.Context) error {
-			return pw.Close()
-		}},
+		vig.PassoFecharEspelho(),
 		// MEIO-FECHAMENTO antes de fechar a conexao inteira.
 		//
 		// `ipc.Conn` exige `CloseWrite` desde sempre — `DialAndHandshake`
@@ -238,7 +230,7 @@ func servePonteRemota(parent context.Context, conn ipc.Conn, stdin io.Reader, st
 		}},
 	)
 
-	lc.Wait()
+	vig.LC.Wait()
 
 	// ctx.Canceled no retorno do loop de copia e encerramento normal — a
 	// mesma regra que vale para o serve loop de serveEmProcesso (ver

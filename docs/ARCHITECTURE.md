@@ -130,7 +130,9 @@ Existe porque `serve` e `daemon` precisam da **mesma** sequência, na mesma orde
 
 Numeração fora de ordem de propósito: a camada é nova (Task 174) e renumerar §2.2–§2.13 quebraria as referências que o resto da documentação já faz a elas.
 
-`boot` não importa `mcpsrv` nem `lifecycle`. Quem monta não decide como o host conversa nem quando o processo encerra — essas decisões continuam em `cmd/gobsidian`, e é o que mantém a montagem testável sem levantar um processo.
+Desde a Task 177 `boot` monta também a **vigília do host** — `VigiarHost`, §7.3 — e os passos de encerramento que os três pontos de saída repetiam. Daí a aresta `boot → lifecycle`: é o mesmo andaime de pipe espelhado mais `lifecycle.New`, e a ordem entre as peças importa.
+
+`boot` não importa `mcpsrv`: quem monta não decide como o host conversa. E não decide **quando** encerrar — `lifecycle.Shutdown` continua sendo chamada por `cmd/gobsidian`, com os passos que só quem serve conhece (`in-flight`, `half-close`, `close-conn`). É o que mantém a montagem testável sem levantar um processo.
 
 ---
 
@@ -540,6 +542,10 @@ Se não: cancelar o context
 ```
 
 A verificação de identidade importa. PIDs são reutilizados. Verificar apenas existência produz falso negativo quando o PID do pai morto é reciclado por um processo novo. No Windows, isso se resolve comparando o *creation time* do processo além do PID.
+
+**Onde os três são ligados: `boot.VigiarHost`.** O monitor de §7.1 **consome** bytes, e o stdin que ele leria pertence ao JSON-RPC — ou, no processo-ponte, ao daemon do outro lado do socket. A saída é espelhar: um `io.Pipe`, um `mirrorReader` que copia o que lê para a ponta de escrita e **fecha** essa ponta quando a origem termina (`io.TeeReader` não serve: copia bytes, e EOF não é byte), e `lifecycle.New` observando a ponta de leitura. Quem serve lê do espelho. A ordem entre as três peças é o que faz o EOF do host chegar ao monitor, e ela estava escrita duas vezes — em `serveEmProcesso` e em `servePonteRemota`. `boot.VigiarHost` (Task 177) é a conta única: devolve o *context* que cancela e um `Vigia` com o `*lifecycle.Lifecycle` que diz por qual dos três mecanismos e o `Stdin` espelhado. O *context* vem **à parte**, e não como campo do `Vigia`, pela mesma razão que `lifecycle.New` já o devolvia assim: um `ctx` lido de um campo de struct não prova descender do *context* do chamador — a documentação do pacote `context` desaconselha, e `contextcheck` acusa. O daemon **não** usa `VigiarHost` — não tem host para vigiar (§7.5).
+
+`Vigia` e `Componentes` também produzem os passos de shutdown que os três pontos de saída repetiam: `PassoFecharEspelho()` (`close-pipe`, 500 ms) e `PassoWatcher()` (`watcher`, 500 ms). Os nomes e orçamentos são lidos pelo gate de órfãos e pelos logs. Os passos que **não** são compartilhados ficam onde estão, porque só quem serve os conhece: `in-flight` (3 s) em `serveEmProcesso`, `half-close` (2 s) e `close-conn` (500 ms) em `servePonteRemota`.
 
 ### 7.4 Shutdown
 

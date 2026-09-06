@@ -113,7 +113,10 @@ func novoLoggerDoDaemon(vaultPath string, level slog.Level) (*slog.Logger, func(
 //
 // Diferente de serveEmProcesso, o daemon nao tem stdin de host nem pai
 // vigiavel: quem o inicia e uma ponte que sai logo depois de lanca-lo (ver
-// internal/daemon, comentario do pacote). lifecycle.New roda so com o
+// internal/daemon, comentario do pacote). Por isso ele NAO usa
+// boot.VigiarHost — nao ha host para vigiar, e forcar um espelho de stdin
+// aqui ligaria uma vigilia sobre um descritor que ninguem alimenta.
+// lifecycle.New roda so com o
 // mecanismo de sinal -- Stdin e ParentPID ficam no zero-valor de
 // proposito, o que desliga os outros dois mecanismos (ver
 // internal/lifecycle.New: Stdin nil pula watchStdin, ParentPID<=0 pula
@@ -171,9 +174,7 @@ func runDaemon(parent context.Context, cfg config.Config, ociosidade time.Durati
 	d.Run(ctx, lc.Trigger)
 
 	lifecycle.Shutdown(ctx, log, 6*time.Second,
-		lifecycle.Step{Name: "watcher", Budget: 500 * time.Millisecond, Fn: func(context.Context) error {
-			return c.Watcher.Close()
-		}},
+		c.PassoWatcher(),
 	)
 	lc.Wait()
 	c.Esperar()

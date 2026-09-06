@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"io"
 	"log/slog"
 	"os"
 	"time"
@@ -87,15 +86,10 @@ func runServe(parent context.Context, cfg config.Config) error {
 // incompativel caem todos aqui.
 func serveEmProcesso(parent context.Context, cfg config.Config, log *slog.Logger) error {
 	// O monitor de stdin consome bytes, e o stdin aqui pertence ao JSON-RPC.
-	// A saida e espelhar: o SDK le do espelho, e o lifecycle observa a copia.
-	pr, pw := io.Pipe()
-	teed := &mirrorReader{src: os.Stdin, dst: pw}
-
-	ctx, lc := lifecycle.New(parent, lifecycle.Options{
-		Stdin:     pr,
-		ParentPID: lifecycle.ParentPID(),
-		Logger:    log,
-	})
+	// A saida e espelhar: o SDK le de vig.Stdin, e o lifecycle observa a
+	// copia. boot.VigiarHost monta o andaime — pipe, espelho e lifecycle.New,
+	// nessa ordem — que este caminho e a ponte (ponte.go) compartilham.
+	ctx, vig := boot.VigiarHost(parent, os.Stdin, log)
 
 	// boot.Montar monta o indice, o watcher e o servico de dominio -- a mesma
 	// sequencia que o daemon (internal/daemon + cmd/gobsidian/daemon.go,
@@ -116,7 +110,7 @@ func serveEmProcesso(parent context.Context, cfg config.Config, log *slog.Logger
 	srv := mcpsrv.New(ctx, c.Service, cfg, log)
 
 	serveErr := make(chan error, 1)
-	go func() { serveErr <- srv.Serve(ctx, teed, os.Stdout) }()
+	go func() { serveErr <- srv.Serve(ctx, vig.Stdin, os.Stdout) }()
 
 	// serveErr tem capacidade 1 e recebe exatamente um valor. Se o select
 	// abaixo ja o consumiu, a etapa in-flight nao pode tentar le-lo de novo —
@@ -129,7 +123,7 @@ func serveEmProcesso(parent context.Context, cfg config.Config, log *slog.Logger
 	// ela, e pode ficar orfa se o orcamento estourar antes dela terminar —
 	// "abandonada" quer dizer exatamente isso. Se ela escrevesse direto em
 	// loopErr, essa escrita correria com a leitura da goroutine principal
-	// logo depois de lc.Wait(). Um canal com buffer 1 carrega a garantia de
+	// logo depois de vig.LC.Wait(). Um canal com buffer 1 carrega a garantia de
 	// happens-before que uma variavel compartilhada nao tem.
 	lateErr := make(chan error, 1)
 
@@ -156,15 +150,11 @@ func serveEmProcesso(parent context.Context, cfg config.Config, log *slog.Logger
 			}
 			return nil
 		}},
-		lifecycle.Step{Name: "close-pipe", Budget: 500 * time.Millisecond, Fn: func(context.Context) error {
-			return pw.Close()
-		}},
-		lifecycle.Step{Name: "watcher", Budget: 500 * time.Millisecond, Fn: func(context.Context) error {
-			return c.Watcher.Close()
-		}},
+		vig.PassoFecharEspelho(),
+		c.PassoWatcher(),
 	)
 
-	lc.Wait()
+	vig.LC.Wait()
 	c.Esperar()
 
 	// Depois de Wait, nao antes: a etapa in-flight pode ter sido abandonada
@@ -190,45 +180,4 @@ func serveEmProcesso(parent context.Context, cfg config.Config, log *slog.Logger
 	// aplicado ao MESMO loopErr, e duplicar a chamada a os.Exit nos dois
 	// caminhos teria dado a cada um seu proprio codigo de saida.
 	return loopErr
-}
-
-// mirrorDst e o subconjunto de *io.PipeWriter que mirrorReader usa. Extrair
-// para interface nao muda nada em producao — pw continua sendo um
-// *io.PipeWriter de verdade — mas deixa o teste trocar o espelho por um
-// dublê que conta tentativas de escrita. Sem isso nao ha como observar, de
-// fora, que a guarda !m.broken impediu uma segunda escrita: o retorno de
-// Read e o mesmo com ou sem a guarda, so o numero de chamadas ao espelho
-// difere.
-type mirrorDst interface {
-	io.Writer
-	CloseWithError(error) error
-}
-
-// mirrorReader espelha o que le para dst e, crucialmente, propaga o fim da
-// leitura fechando dst. E o que faz o EOF do host chegar ao monitor de stdin
-// do lifecycle — io.TeeReader nao serve aqui porque so copia bytes, e EOF nao
-// e um byte.
-type mirrorReader struct {
-	src    io.Reader
-	dst    mirrorDst
-	broken bool // espelho desistiu; a leitura principal segue intacta
-}
-
-func (m *mirrorReader) Read(p []byte) (int, error) {
-	n, err := m.src.Read(p)
-
-	// O espelho e auxiliar: existe so para o lifecycle enxergar o EOF. Se a
-	// escrita nele falhar, o JSON-RPC continua — devolver o erro da escrita
-	// no lugar do resultado da leitura injetaria uma falha inventada em uma
-	// sessao saudavel, e o cliente veria a conexao morrer sem motivo.
-	if n > 0 && !m.broken {
-		if _, werr := m.dst.Write(p[:n]); werr != nil {
-			m.broken = true
-		}
-	}
-
-	if err != nil {
-		_ = m.dst.CloseWithError(err)
-	}
-	return n, err
 }
