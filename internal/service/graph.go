@@ -269,15 +269,24 @@ type TagRequest struct {
 
 // TagNode e um no na arvore de tags ou um item da lista plana.
 //
-// Children e []TagNode, e nao []any: o filho de um no de tag so pode ser outro
-// no de tag. Com []any o tipo tinha de ser recuperado por type-assert a cada
-// ordenacao, e um assert que falhasse gravaria um TagNode zerado no lugar do
-// filho — em silencio, porque `ok` era descartado. O JSON de saida e o mesmo
-// nos dois casos; o golden de testdata/tag_list_hierarquico.json e quem prova.
+// Children e []any, e NAO []TagNode, por um motivo que nao se ve daqui: o SDK
+// de MCP gera o schema de saida de cada tool por reflexao sobre o tipo, e um
+// tipo que se referencia a si mesmo o faz entrar em panico na REGISTRACAO da
+// tool — antes de qualquer requisicao:
+//
+//	panic: AddTool: tool "tag_list": output schema: ForType(service.TagResult):
+//	computing element schema: computing element schema: cycle detected for type
+//	service.TagNode
+//
+// Ou seja: o servidor nao sobe. []any quebra o ciclo porque a reflexao para em
+// `any`. A Task 169 trocou o campo por []TagNode — o JSON de saida continuou
+// identico, o golden continuou batendo byte a byte, e o pacote service passou
+// inteiro; quem pegou foi go test -race no pacote mcpsrv. **Nao troque de
+// volta.**
 type TagNode struct {
-	Tag      string    `json:"tag"`
-	Count    int       `json:"count"`
-	Children []TagNode `json:"children,omitempty"`
+	Tag      string `json:"tag"`
+	Count    int    `json:"count"`
+	Children []any  `json:"children,omitempty"`
 }
 
 // TagResult e o retorno de tag_list, com a contagem por tag.
@@ -298,14 +307,22 @@ func ordenarTags(tags []TagNode, sortMode string) {
 			return cmp.Compare(a.Tag, b.Tag)
 		})
 	}
+	// A guarda nao e decorativa, e o numero esta medido: sem ela, a lista PLANA
+	// — onde todo no e folha — paga uma chamada recursiva por tag para ordenar
+	// nada, e BenchmarkTagListPlano subiu 5,22% (p=0,000, n=12, 19,43us +/- 1%
+	// -> 20,44us +/- 4%).
 	for i := range tags {
-		// A guarda nao e decorativa, e o numero esta medido: sem ela, a lista
-		// PLANA — onde todo no e folha — paga uma chamada recursiva por tag para
-		// ordenar nada, e BenchmarkTagListPlano subiu 5,22% (p=0,000, n=12,
-		// 19,43us +/- 1% -> 20,44us +/- 4%). Ela existia antes de Children virar
-		// []TagNode e foi removida junto com o type-assert que a acompanhava.
 		if len(tags[i].Children) > 0 {
-			ordenarTags(tags[i].Children, sortMode)
+			childList := make([]TagNode, len(tags[i].Children))
+			for j, ch := range tags[i].Children {
+				if node, ok := ch.(TagNode); ok {
+					childList[j] = node
+				}
+			}
+			ordenarTags(childList, sortMode)
+			for j, node := range childList {
+				tags[i].Children[j] = node
+			}
 		}
 	}
 }
@@ -426,13 +443,18 @@ func (s *Service) tagListHierarchical(req TagRequest) TagResult {
 	convert = func(m map[string]*tempTagNode) []TagNode {
 		res := make([]TagNode, 0, len(m))
 		for _, tn := range m {
-			// A folha recebe a fatia vazia que convert devolve para um mapa sem
-			// filhos, e nao nil como antes. O `omitempty` do campo omite as
-			// duas, entao o JSON e o mesmo — e o golden e quem afirma isso.
+			childList := convert(tn.children)
+			var anyChildren []any
+			if len(childList) > 0 {
+				anyChildren = make([]any, len(childList))
+				for i, ch := range childList {
+					anyChildren[i] = ch
+				}
+			}
 			res = append(res, TagNode{
 				Tag:      tn.fullTag,
 				Count:    tn.count,
-				Children: convert(tn.children),
+				Children: anyChildren,
 			})
 		}
 		return res
