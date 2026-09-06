@@ -1,0 +1,30 @@
+feat(cli): search loads the index and the search cache like serve does
+
+Until now `search` always rebuilt both indices from scratch on every
+invocation -- index.New()+Build, then a serial inv.Update loop -- even
+when `serve` had already written a cache for the same vault. It routes
+through boot.AbrirIndice and boot.PrepararBusca now, the same two
+functions boot.Montar uses for serve, and gained --cache-dir and
+--log-level to match. A new config.LogLevelExplicito field and
+cli_log.go:loggerDeCLI keep CLI subcommands quiet below Warn unless the
+operator asked for a level, so a background boot log doesn't spam a
+one-shot search.
+
+Measured on vault_5000 (--json --limit 200 "execucao"), 3 cold runs
+(cache dir wiped before each) + 3 warm runs per binary:
+
+  before (commit ebf29ad, no --cache-dir, always rebuilds):
+    cold median ~1687 ms (8339 / 1687 / 1632)
+    warm median ~1631 ms (1700 / 1631 / 1598)
+  after:
+    cold median ~1905 ms (1906 / 1921 / 1797)
+    warm median ~214 ms (235 / 214 / 190)
+
+Warm-after stays well under 1/5 of cold-after (median ~214 ms vs a
+~360-384 ms ceiling), which is what the task promises. The absolute
+numbers don't match the M4 baseline in docs/ESTADO.md (10.5-11.0 s
+before / 475-528 ms serve-warm) -- different machine/disk-cache state
+this run, noted in both docs.
+
+Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01P5wkw6PAdBFzF3uB1w1jNj

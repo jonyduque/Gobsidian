@@ -1,0 +1,443 @@
+8d3626e feat(cli): search loads the index and the search cache like serve does
+ README.md                             |  6 ++++--
+ cmd/gobsidian/cli_log.go              | 22 ++++++++++++++++++++
+ cmd/gobsidian/cli_subcommands_test.go |  6 +++---
+ cmd/gobsidian/search.go               | 16 +++++++-------
+ cmd/gobsidian/search_cache_test.go    | 39 +++++++++++++++++++++++++++++++++++
+ docs/ESTADO.md                        |  1 +
+ docs/OPERACAO.md                      | 34 ++++++++++++++++++++++++++++++
+ internal/config/config.go             |  6 ++++++
+ internal/config/config_test.go        | 26 +++++++++++++++++++++++
+ 9 files changed, 144 insertions(+), 12 deletions(-)
+diff --git a/README.md b/README.md
+index f98f765..e5ac57e 100644
+--- a/README.md
++++ b/README.md
+@@ -195,29 +195,31 @@ code --add-mcp '{"name":"gobsidian","command":"gobsidian","args":["serve","--vau
+ <summary>🎛️ <b>CLI flags</b></summary>
+ 
+ <br>
+ 
+ A flag declared by a subcommand but never read by it promises a contract the code doesn't keep — `index` and `inspect` used to declare `--read-only`, `--debounce-ms` and `--max-results` this way. The **Subcommands** column is the actual contract: what each subcommand declares.
+ 
+ | Flag | Effect | Subcommands |
+ |---|---|---|
+ | `--vault <path>` | Vault root. Required. | all |
+ | `--read-only` | Removes the entire write surface. | `serve`, `daemon`, `doctor` |
+-| `--cache-dir <path>` | Cache directory. Default: a hash of the vault path, always **outside** it. | `serve`, `daemon` |
++| `--cache-dir <path>` | Cache directory. Default: a hash of the vault path, always **outside** it. | `serve`, `search`, `daemon` |
+ | `--debounce-ms <n>` | Watcher coalescing window. | `serve`, `daemon`, `doctor` |
+-| `--log-level <level>` | `debug`, `info`, `warn` or `error`. | `serve`, `daemon` |
++| `--log-level <level>` | `debug`, `info`, `warn` or `error`. | `serve`, `search`, `daemon` |
+ | `--eager-search` | Loads the search index at boot. Default: lazy — most sessions read and write without ever searching. | `serve`, `daemon` |
+ | `--max-results <n>` | Caps results per query. | `serve`, `search`, `daemon`, `doctor` |
+ | `--follow-symlinks` | Follows a symlink inside the vault; the default refuses, because confinement doesn't reach the target. | all |
+ | `--json` | Structured JSON output. | `search`, `index`, `inspect` |
+ | `--limit <n>` | Maximum results returned. Default: 20. | `search` |
+ 
++`search` reuses the index and search cache from `serve`; the first run builds and writes it, later runs load it.
++
+ </details>
+ 
+ > [!TIP]
+ > Start with `--read-only` until you trust the configuration. You keep search, reading and the link graph, with no tool able to touch the disk.
+ 
+ ---
+ 
+ ## 🧰 MCP tools
+ 
+ Full contracts, schemas and error codes in [`docs/TOOLS.md`](docs/TOOLS.md).
+diff --git a/cmd/gobsidian/cli_log.go b/cmd/gobsidian/cli_log.go
+new file mode 100644
+index 0000000..d527d06
+--- /dev/null
++++ b/cmd/gobsidian/cli_log.go
+@@ -0,0 +1,22 @@
++package main
++
++import (
++	"log/slog"
++
++	"github.com/spf13/cobra"
++
++	"github.com/jonyd/gobsidian/internal/config"
++)
++
++// loggerDeCLI e o logger dos subcomandos de CLI (search, index, inspect):
++// escreve em cmd.ErrOrStderr() para que teste capture, e cala tudo abaixo de
++// Warn a menos que o operador tenha pedido um nivel — um subcomando que
++// imprime "servidor pronto" a cada chamada polui o terminal de quem so
++// queria o resultado.
++func loggerDeCLI(cmd *cobra.Command, cfg config.Config) *slog.Logger {
++	nivel := slog.LevelWarn
++	if cfg.LogLevelExplicito {
++		nivel = cfg.LogLevel
++	}
++	return slog.New(slog.NewTextHandler(cmd.ErrOrStderr(), &slog.HandlerOptions{Level: nivel}))
++}
+diff --git a/cmd/gobsidian/cli_subcommands_test.go b/cmd/gobsidian/cli_subcommands_test.go
+index a0dacc1..85cdc53 100644
+--- a/cmd/gobsidian/cli_subcommands_test.go
++++ b/cmd/gobsidian/cli_subcommands_test.go
+@@ -78,39 +78,39 @@ func TestIndexCmd_StdoutAndJSON(t *testing.T) {
+ }
+ 
+ func TestSearchCmd_StdoutAndJSON(t *testing.T) {
+ 	vaultDir := createTestVault(t)
+ 
+ 	// Mode 1: Non-JSON
+ 	cmd := newSearchCmd()
+ 	var stdout, stderr bytes.Buffer
+ 	cmd.SetOut(&stdout)
+ 	cmd.SetErr(&stderr)
+-	cmd.SetArgs([]string{"--vault", vaultDir, "nota"})
++	cmd.SetArgs([]string{"--vault", vaultDir, "--cache-dir", t.TempDir(), "nota"})
+ 
+ 	if err := cmd.Execute(); err != nil {
+ 		t.Fatalf("search Execute: %v", err)
+ 	}
+ 
+ 	if stderr.Len() > 0 {
+ 		t.Errorf("stderr NAO deveria conter nada, continha: %q", stderr.String())
+ 	}
+ 	if stdout.Len() == 0 {
+ 		t.Error("stdout deveria conter os resultados da busca")
+ 	}
+ 
+ 	// Mode 2: --json
+ 	cmdJSON := newSearchCmd()
+ 	var stdoutJSON, stderrJSON bytes.Buffer
+ 	cmdJSON.SetOut(&stdoutJSON)
+ 	cmdJSON.SetErr(&stderrJSON)
+-	cmdJSON.SetArgs([]string{"--vault", vaultDir, "nota", "--json"})
++	cmdJSON.SetArgs([]string{"--vault", vaultDir, "--cache-dir", t.TempDir(), "nota", "--json"})
+ 
+ 	if err := cmdJSON.Execute(); err != nil {
+ 		t.Fatalf("search --json Execute: %v", err)
+ 	}
+ 
+ 	if stderrJSON.Len() > 0 {
+ 		t.Errorf("stderr NAO deveria conter nada, continha: %q", stderrJSON.String())
+ 	}
+ 
+ 	var data map[string]any
+@@ -176,21 +176,21 @@ func TestSearchCLIRespeitaMaxResults(t *testing.T) {
+ 	root := t.TempDir()
+ 	for i := 0; i < 5; i++ {
+ 		p := filepath.Join(root, fmt.Sprintf("n%d.md", i))
+ 		if err := os.WriteFile(p, []byte("# Nota\n\npalavra unica aqui\n"), 0644); err != nil {
+ 			t.Fatalf("WriteFile: %v", err)
+ 		}
+ 	}
+ 	var out bytes.Buffer
+ 	cmd := newSearchCmd()
+ 	cmd.SetOut(&out)
+-	cmd.SetArgs([]string{"--vault", root, "--json", "--max-results", "2", "palavra"})
++	cmd.SetArgs([]string{"--vault", root, "--cache-dir", t.TempDir(), "--json", "--max-results", "2", "palavra"})
+ 	if err := cmd.Execute(); err != nil {
+ 		t.Fatal(err)
+ 	}
+ 	var res struct {
+ 		Results []json.RawMessage `json:"results"`
+ 	}
+ 	if err := json.Unmarshal(out.Bytes(), &res); err != nil {
+ 		t.Fatalf("saida nao e JSON: %v\n%s", err, out.String())
+ 	}
+ 	if len(res.Results) != 2 {
+diff --git a/cmd/gobsidian/search.go b/cmd/gobsidian/search.go
+index e0932e2..feccae1 100644
+--- a/cmd/gobsidian/search.go
++++ b/cmd/gobsidian/search.go
+@@ -1,19 +1,19 @@
+ package main
+ 
+ import (
+ 	"encoding/json"
+ 	"fmt"
+ 
++	"github.com/jonyd/gobsidian/internal/boot"
+ 	"github.com/jonyd/gobsidian/internal/config"
+ 	"github.com/jonyd/gobsidian/internal/console"
+-	"github.com/jonyd/gobsidian/internal/index"
+ 	"github.com/jonyd/gobsidian/internal/search"
+ 	"github.com/jonyd/gobsidian/internal/service"
+ 	"github.com/jonyd/gobsidian/internal/vault"
+ 	"github.com/spf13/cobra"
+ )
+ 
+ func newSearchCmd() *cobra.Command {
+ 	var flags config.Flags
+ 	var jsonOutput bool
+ 	var limit int
+@@ -28,29 +28,29 @@ func newSearchCmd() *cobra.Command {
+ 			cfg, err := config.Load(flags)
+ 			if err != nil {
+ 				return err
+ 			}
+ 
+ 			v, err := vault.New(cfg.VaultPath, vault.SeguirSymlinks(cfg.FollowSymlinks))
+ 			if err != nil {
+ 				return err
+ 			}
+ 
+-			idx := index.New()
+-			if err := idx.Build(cmd.Context(), v); err != nil {
++			log := loggerDeCLI(cmd, cfg)
++			idx, _, err := boot.AbrirIndice(cmd.Context(), v, cfg, log)
++			if err != nil {
+ 				return err
+ 			}
+-
+ 			inv := search.NewInverted()
+-			for _, p := range idx.NotePaths() {
+-				_ = inv.Update(cmd.Context(), v, p)
+-			}
++			inv.MarkBuilding()
++			boot.PrepararBusca(cmd.Context(), v, idx, inv, cfg, log)
++			defer func() { _ = inv.Close() }()
+ 
+ 			svc := service.New(v, idx, inv, nil, service.Options{ReadOnly: cfg.ReadOnly, MaxResults: cfg.MaxResults})
+ 
+ 			res, err := svc.Search(cmd.Context(), service.SearchOptions{
+ 				Query: args[0],
+ 				Limit: limit,
+ 			})
+ 			if err != nil {
+ 				return err
+ 			}
+@@ -84,13 +84,15 @@ func newSearchCmd() *cobra.Command {
+ 			return nil
+ 		},
+ 	}
+ 
+ 	cmd.Flags().StringVar(&flags.VaultPath, "vault", "", "caminho da raiz do cofre (obrigatorio)")
+ 	cmd.Flags().BoolVar(&jsonOutput, "json", false, "saida estruturada em formato JSON")
+ 	cmd.Flags().IntVar(&limit, "limit", 20, "limite maximo de resultados")
+ 	cmd.Flags().BoolVar(&flags.FollowSymlinks, "follow-symlinks", false,
+ 		"segue symlink dentro do cofre; o padrao recusa, porque o confinamento nao alcanca o alvo")
+ 	cmd.Flags().IntVar(&flags.MaxResults, "max-results", 0, "teto de resultados por consulta")
++	cmd.Flags().StringVar(&flags.CacheDir, "cache-dir", "", "diretorio do cache de indice")
++	cmd.Flags().StringVar(&flags.LogLevel, "log-level", "", "debug, info, warn ou error")
+ 
+ 	return cmd
+ }
+diff --git a/cmd/gobsidian/search_cache_test.go b/cmd/gobsidian/search_cache_test.go
+new file mode 100644
+index 0000000..3e4d275
+--- /dev/null
++++ b/cmd/gobsidian/search_cache_test.go
+@@ -0,0 +1,39 @@
++package main
++
++import (
++	"bytes"
++	"os"
++	"path/filepath"
++	"strings"
++	"testing"
++)
++
++func TestSearchCLISegundaExecucaoUsaCache(t *testing.T) {
++	cofre := t.TempDir()
++	if err := os.WriteFile(filepath.Join(cofre, "n.md"), []byte("# N\n\nexecucao do teste\n"), 0o644); err != nil {
++		t.Fatal(err)
++	}
++	cache := t.TempDir()
++	roda := func() string {
++		var stdout, stderr bytes.Buffer
++		cmd := newSearchCmd()
++		cmd.SetOut(&stdout)
++		cmd.SetErr(&stderr)
++		cmd.SetArgs([]string{"--vault", cofre, "--cache-dir", cache, "--log-level", "info", "--json", "execucao"})
++		if err := cmd.Execute(); err != nil {
++			t.Fatalf("search: %v\nstderr:\n%s", err, stderr.String())
++		}
++		if !strings.Contains(stdout.String(), `"n.md"`) {
++			t.Fatalf("stdout sem o resultado esperado:\n%s", stdout.String())
++		}
++		return stderr.String()
++	}
++	primeira := roda()
++	if !strings.Contains(primeira, "origem=construcao") {
++		t.Fatalf("primeira execucao devia construir o indice de busca:\n%s", primeira)
++	}
++	segunda := roda()
++	if !strings.Contains(segunda, "origem=cache") {
++		t.Fatalf("segunda execucao devia adotar o cache de busca:\n%s", segunda)
++	}
++}
+diff --git a/docs/ESTADO.md b/docs/ESTADO.md
+index 8c68057..2381500 100644
+--- a/docs/ESTADO.md
++++ b/docs/ESTADO.md
+@@ -152,20 +152,21 @@ e `.txt`.
+ Fatos medidos sem benchmark:
+ 
+ - `vault_5000`: 112 tags distintas, 0 hierárquicas. Cofres reais do dono: **não medido** neste plano.
+ - Cobertura por função (`go test -coverprofile`, 2026-09-02): `construirServico` 6,5 %, `carregarIndiceDoCache` 0 %, `prepararIndiceDeBusca` 0 %, `runServe` 0 %, `serveEmProcesso` 20,6 %, `buildInvertedIndex` 60,7 %; `WriteAtomic` 71,1 %, `SweepStaleTempFiles` 62,5 %, `CleanStaleTempFiles` 0 %; `SaveIndexCache` 64,5 %, `SaveInvertedCache` 56,0 %; `Tags` 91,7 %, `coletarLocked` 87,6 %, `tagListHierarchical` 94,1 %, `LinkGraph` 78,1 %; `Search` 96 %; `mcpsrv.Server.Serve` 0 %, `Close` 0 %; `doctor.checkDaemonLog` 44,4 %, `checkLocksDeDaemon` 58,6 %.
+ - Tempo de suíte (`go test ./... -count=1 -cover`): service 51,7 s, writer 32,5 s, search 31,1 s, watcher 26,2 s, index 22,3 s, vault 22,0 s, doctor 19,4 s, mcpsrv 17,0 s.
+ - Raio de explosão de `service.Index` (gopls references, medido antes da Task 173): `Get` 13, `ResolvePath` 8, `Backlinks` 5, `List` 4, `NotePaths` 2, `TotalSize`/`Tags`/`NoteCount`/`Generation`/`AssetCount`/`AliasCollisions` 1 cada, `Paths` **0**. `service.New` recebe `*index.Index`; a interface foi removida em 2026-09 (Task 173) — tinha uma implementação e nenhum fake.
+ - Raio de `writer.WriteAtomic` (medido em 2026-09-02, antes das Tasks 171-172): 6 sítios em `internal/service/write.go` (`:149,:248,:378,:619,:751,:832`) + 3 arquivos de teste; `SweepStaleTempFiles`: 1 sítio (`cmd/gobsidian/servico.go:78`). Depois das Tasks 171-172, `writer.WriteAtomic` e `writer.SweepStaleTempFiles` não existem mais — os chamadores usam `vault.WriteAtomic`/`vault.SweepStaleTempFiles` diretamente.
+ - Prefixo `.gobsidian-tmp-` em 4 literais (medido em 2026-09-02, antes das Tasks 171-172): `writer/atomic.go:14` (constante), `vault/walk.go:74`, `search/persist.go:87`, `index/persist.go:124`. Depois das Tasks 171-172, o literal existe numa só linha: `vault/atomic.go:14`.
+ - `hits` × `results`: `search --json --limit 200 --vault vault_5000 "execucao"` (binário de 6c5d1f1): `hits` e `results` são 200 itens e **byte a byte iguais** (`hits == results` → `True` em Python). JSON compacto: 195 481 bytes com `hits`, 97 787 sem — **50,0 % do payload é a cópia**. Arquivo indentado: 216 304 bytes.
+ - CLI a frio × `serve` com cache: cofre `vault_5000`, mesmo binário. `search` a frio (Build + `inv.Update` serial por nota): **10 520 / 10 819 / 11 046 ms** de parede em 3 execuções. `inspect` a frio (só Build): **770 / 767 / 739 ms**. `serve` em processo (`GOBSIDIAN_NO_DAEMON=1 --eager-search`) com cache quente, 5 execuções: `index_ms` **101–123**, índice de busca `duracao_ms` **13–20**, parede boot→saída **475–528 ms**. Ou seja: a CLI de busca paga ~10 s que o `serve` não paga; adotar o cache na CLI (Task 175) tem teto de ganho medido, não estimado.
++- Task 175, `search` reaproveitando `boot.AbrirIndice`/`boot.PrepararBusca` como o `serve`: cofre `vault_5000`, `--json --limit 200 "execucao"`, 3 execuções frias + 3 quentes por binário (`Measure-Command`, `TotalMilliseconds`). **Antes** (commit `ebf29ad`, sem `--cache-dir`, constrói tudo em memória sempre): frias **8338,6 / 1687,0 / 1631,9 ms**, "quentes" (mesmo binário, sem cache — repetição idêntica) **1700,4 / 1631,0 / 1597,7 ms**. **Depois**: frias (`--cache-dir` novo, apagado antes de cada uma) **1905,6 / 1921,2 / 1796,7 ms**; quentes (mesmo diretório de cache) **234,7 / 214,0 / 190,2 ms**. A quente do depois fica bem abaixo de 1/5 da fria do depois (1/5 de ~1800–1920 ms é ~360–384 ms; medi 190–235 ms). Os números não batem com a faixa do M4 acima (10 520–11 046 ms de "antes", 475–528 ms de `serve` quente) — a máquina/estado de disco nesta rodada não é o mesmo; a primeira chamada "antes" (8338,6 ms) sugere cache de disco do SO ainda frio nela e já quente nas cinco seguintes. Binário `antes`: worktree Git separado no commit base, sem tocar a árvore principal (`git worktree add --detach`).
+ 
+ ---
+ 
+ ## Decisões fechadas que não se re-litigam sem dado novo
+ 
+ **O RNF-30 mudou de redação, não de intenção** (Task 90, autorizado pelo dono em
+ 2026-08-05). Era "nenhum socket"; é "nenhum socket que saia da máquina".
+ `tools/netcheck` aceita `net.Dial`/`net.Listen` **apenas com a rede na constante
+ literal `"unix"`** — rede vinda de variável é recusada. Escreva a string no
+ lugar; guardá-la numa variável deixa o `check_net` vermelho, e isso é a regra
+diff --git a/docs/OPERACAO.md b/docs/OPERACAO.md
+index 9b852b2..8c6d722 100644
+--- a/docs/OPERACAO.md
++++ b/docs/OPERACAO.md
+@@ -2694,10 +2694,44 @@ contra o teto do RNF-01 (3.000 ms em vez de 300 ms).
+ Medido em 2026-09-01, cache quente: 54, 93, 164, 134 e **514 ms**. Todos passam
+ folgado no teto de 3.000 ms que o script cobra, e o de 5.685 notas **não** passa
+ no teto de 300 ms do RNF-02, que é o requisito que aquele número realmente nomeia.
+ 
+ Com o cache apagado, o mesmo campo passa a medir construção: 726, 474, 2.658, 747
+ e **6.052 ms** — e aí o TJSP estoura o teto de 3.000 ms. **Amostra única por
+ cofre, e o TJSP está em OneDrive**; não vira número publicado sem repetição.
+ 
+ É a mesma classe que este documento já registra duas vezes: medir o que é fácil
+ em vez do que o requisito nomeia.
++
++---
++
++## `search` de CLI passou a reaproveitar o cache do `serve` (2026-09-06, Task 175)
++
++Até a Task 174, `search` sempre construía os dois índices do zero a cada
++chamada — `index.New()` + `Build`, depois um laço `inv.Update` nota a nota —
++mesmo que `serve` já tivesse gravado o cache do mesmo cofre. O M4 (registrado
++em `docs/ESTADO.md`) media isso em ~10,5–11,0 s de parede contra 475–528 ms
++do `serve` com cache quente: a CLI pagava de novo um custo que já estava
++resolvido em disco.
++
++A Task 175 trocou esse bloco por `boot.AbrirIndice` + `boot.PrepararBusca` —
++as mesmas duas funções que `boot.Montar` usa para `serve` — e deu a `search`
++as flags `--cache-dir` e `--log-level` que `serve` já tinha. `search`
++continua sem passar pelo daemon: ela chama `vault.New` direto, nunca
++`servePonte`; o ganho vem só de reaproveitar os arquivos de cache no disco.
++
++Medido no cofre `vault_5000`, `--json --limit 200 "execucao"`, 3 execuções
++frias (cache apagado antes de cada uma) e 3 quentes por binário:
++
++- **Antes** (commit `ebf29ad`, sem `--cache-dir`): 8338,6 / 1687,0 / 1631,9 ms
++  frias; 1700,4 / 1631,0 / 1597,7 ms nas repetições seguintes — sem cache em
++  disco, todas as seis reconstroem do zero.
++- **Depois**: 1905,6 / 1921,2 / 1796,7 ms frias (constrói e grava os dois
++  caches); 234,7 / 214,0 / 190,2 ms quentes (carrega os dois caches) — a
++  quente fica abaixo de 1/5 da fria, o teto que a Task exigia.
++
++Os números absolutos não batem com a faixa do M4 (10,5–11,0 s / 475–528 ms):
++a rodada foi feita em outro estado de disco/máquina, e a primeira chamada
++"antes" (8,3 s) sugere que o cache do sistema operacional para os arquivos do
++cofre ainda estava frio nela e já estava quente nas cinco seguintes. O
++detalhamento das 12 linhas e o binário usado estão em `docs/ESTADO.md`
++("medições publicadas").
+diff --git a/internal/config/config.go b/internal/config/config.go
+index 55b95ca..b7eeab3 100644
+--- a/internal/config/config.go
++++ b/internal/config/config.go
+@@ -57,20 +57,24 @@ type Config struct {
+ 	DebounceMS  int
+ 	CacheDir    string
+ 	MaxResults  int
+ 	EagerSearch bool
+ 
+ 	// FollowSymlinks liga o comportamento anterior a 2026-08-26. Padrao false:
+ 	// o cofre recusa symlink na varredura e na leitura. Ver
+ 	// vault.SeguirSymlinks para a razao de o padrao ser recusar, e para por que
+ 	// a saida existe.
+ 	FollowSymlinks bool
++
++	// LogLevelExplicito e true quando GOBSIDIAN_LOG_LEVEL ou --log-level foi
++	// dado; os subcomandos de CLI so mostram log acima de Warn sem ele.
++	LogLevelExplicito bool
+ }
+ 
+ // Load resolve a configuracao com precedencia flag > env > default.
+ func Load(f Flags) (Config, error) {
+ 	cfg := Defaults()
+ 
+ 	if strings.TrimSpace(f.VaultPath) == "" {
+ 		return Config{}, fmt.Errorf("caminho do cofre nao informado: use --vault")
+ 	}
+ 	abs, err := filepath.Abs(f.VaultPath)
+@@ -78,27 +82,29 @@ func Load(f Flags) (Config, error) {
+ 		return Config{}, fmt.Errorf("resolvendo caminho do cofre %q: %w", f.VaultPath, err)
+ 	}
+ 	cfg.VaultPath = abs
+ 
+ 	if v := os.Getenv("GOBSIDIAN_LOG_LEVEL"); v != "" {
+ 		lvl, err := parseLevel(v)
+ 		if err != nil {
+ 			return Config{}, fmt.Errorf("GOBSIDIAN_LOG_LEVEL: %w", err)
+ 		}
+ 		cfg.LogLevel = lvl
++		cfg.LogLevelExplicito = true
+ 	}
+ 	if f.LogLevel != "" {
+ 		lvl, err := parseLevel(f.LogLevel)
+ 		if err != nil {
+ 			return Config{}, fmt.Errorf("--log-level: %w", err)
+ 		}
+ 		cfg.LogLevel = lvl
++		cfg.LogLevelExplicito = true
+ 	}
+ 
+ 	if v := os.Getenv("GOBSIDIAN_READ_ONLY"); v != "" {
+ 		b, err := parseReadOnly(v)
+ 		if err != nil {
+ 			return Config{}, fmt.Errorf("GOBSIDIAN_READ_ONLY: %w", err)
+ 		}
+ 		cfg.ReadOnly = b
+ 	}
+ 	if f.ReadOnlySet {
+diff --git a/internal/config/config_test.go b/internal/config/config_test.go
+index 4cb22bf..ed36066 100644
+--- a/internal/config/config_test.go
++++ b/internal/config/config_test.go
+@@ -214,10 +214,36 @@ func TestLoadCacheDir(t *testing.T) {
+ 	t.Run("explicit cache dir wins over derivation", func(t *testing.T) {
+ 		c, err := config.Load(config.Flags{VaultPath: "C:/vault/four", CacheDir: "C:/explicit/cache"})
+ 		if err != nil {
+ 			t.Fatalf("Load() error = %v", err)
+ 		}
+ 		if c.CacheDir != "C:/explicit/cache" {
+ 			t.Errorf("CacheDir = %q, esperado o valor explicito da flag", c.CacheDir)
+ 		}
+ 	})
+ }
++
++func TestLoadMarcaLogLevelExplicito(t *testing.T) {
++	t.Setenv("GOBSIDIAN_LOG_LEVEL", "")
++	cfg, err := config.Load(config.Flags{VaultPath: t.TempDir()})
++	if err != nil {
++		t.Fatal(err)
++	}
++	if cfg.LogLevelExplicito {
++		t.Fatal("sem env e sem flag, LogLevelExplicito devia ser false")
++	}
++	cfg, err = config.Load(config.Flags{VaultPath: t.TempDir(), LogLevel: "debug"})
++	if err != nil {
++		t.Fatal(err)
++	}
++	if !cfg.LogLevelExplicito || cfg.LogLevel != slog.LevelDebug {
++		t.Fatalf("flag dada: Explicito=%v LogLevel=%v", cfg.LogLevelExplicito, cfg.LogLevel)
++	}
++	t.Setenv("GOBSIDIAN_LOG_LEVEL", "warn")
++	cfg, err = config.Load(config.Flags{VaultPath: t.TempDir()})
++	if err != nil {
++		t.Fatal(err)
++	}
++	if !cfg.LogLevelExplicito || cfg.LogLevel != slog.LevelWarn {
++		t.Fatalf("env dada: Explicito=%v LogLevel=%v", cfg.LogLevelExplicito, cfg.LogLevel)
++	}
++}

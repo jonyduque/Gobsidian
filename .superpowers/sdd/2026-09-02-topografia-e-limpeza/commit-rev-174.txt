@@ -1,0 +1,9 @@
+docs(sdd): record the Task 174 review, the fix round and the orphans gate logs
+
+Review of eac13c9 (approved, five doc should-fixes closed by 33cff51), the
+two review packages, the implementer report with its Round 1, and the two
+orphans gate logs: run 1 refused signal and daemon-idle because the binary
+predated a comment edit; the rerun on a fresh build passed both.
+
+Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01P5wkw6PAdBFzF3uB1w1jNj
