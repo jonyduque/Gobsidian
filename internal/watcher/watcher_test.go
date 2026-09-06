@@ -8,12 +8,14 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/jonyd/gobsidian/internal/index"
 	"github.com/jonyd/gobsidian/internal/search"
 	"github.com/jonyd/gobsidian/internal/vault"
+	"github.com/jonyd/gobsidian/internal/vaulttest"
 )
 
 func TestWatcher(t *testing.T) {
@@ -40,8 +42,7 @@ func TestWatcher(t *testing.T) {
 		errc <- w.Run(ctx)
 	}()
 
-	// Wait for watcher to start
-	time.Sleep(100 * time.Millisecond)
+	EsperarWatcherAtivo(t, w)
 
 	// Create a note
 	notePath := filepath.Join(dir, "teste.md")
@@ -50,17 +51,12 @@ func TestWatcher(t *testing.T) {
 	}
 
 	// Verify event via index
-	found := false
 	canon, _ := vault.Canonicalize(dir, notePath)
-	for range 50 {
-		if _, ok := idx.Get(canon); ok {
-			found = true
-			break
-		}
-		time.Sleep(20 * time.Millisecond)
-	}
-	if !found {
-		t.Fatal("timeout waiting for index to update with 'teste.md'")
+	if !EsperarAte(vaulttest.Prazo, func() bool {
+		_, ok := idx.Get(canon)
+		return ok
+	}) {
+		t.Fatalf("o indice nao recebeu 'teste.md' em %v\n%s", vaulttest.Prazo, diagnostico(w))
 	}
 
 	// Shutdown test
@@ -108,7 +104,7 @@ func TestWatcher_CloseReleasesHandles(t *testing.T) {
 		errc <- w.Run(ctx)
 	}()
 
-	time.Sleep(50 * time.Millisecond)
+	EsperarWatcherAtivo(t, w)
 
 	cancel()
 	<-errc
@@ -139,7 +135,7 @@ func TestWatcher_EventsChannelClosedOnShutdown(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	go func() { _ = w.Run(ctx) }()
 
-	time.Sleep(50 * time.Millisecond)
+	EsperarWatcherAtivo(t, w)
 
 	cancel()
 	_ = w.Close()
@@ -170,14 +166,24 @@ func TestWatcher_DirCreatedAfterStartIsWatched(t *testing.T) {
 	defer func() { _ = w.Close() }()
 
 	go func() { _ = w.Run(ctx) }()
-	time.Sleep(50 * time.Millisecond)
+	EsperarWatcherAtivo(t, w)
 
 	subDir := filepath.Join(tmp, "nova_pasta")
 	if err := os.MkdirAll(subDir, 0755); err != nil {
 		t.Fatal(err)
 	}
 
-	time.Sleep(100 * time.Millisecond)
+	// O sinal observavel de "o watch do diretorio novo ja foi registrado" e a
+	// lista de watches do proprio fsnotify — leitura, nao escrita em canal
+	// interno. Os 100 ms que estavam aqui eram um palpite sobre quanto o Run
+	// leva para tratar o evento de criacao, e errar esse palpite nao produz uma
+	// falha honesta: a nota seria escrita ANTES do Add, o evento dela nunca
+	// existiria, e o teste reprovaria dizendo "subdiretorio nao vigiado" quando
+	// o que houve foi uma corrida do proprio teste.
+	if !EsperarAte(vaulttest.Prazo, func() bool { return estaVigiado(w, subDir) }) {
+		t.Fatalf("o watch em %s nao foi registrado em %v; lista=%v\n%s",
+			subDir, vaulttest.Prazo, w.fsWatcher.WatchList(), diagnostico(w))
+	}
 
 	notePath := filepath.Join(subDir, "subnota.md")
 	if err := os.WriteFile(notePath, []byte("# Subnota\n"), 0644); err != nil {
@@ -185,19 +191,29 @@ func TestWatcher_DirCreatedAfterStartIsWatched(t *testing.T) {
 	}
 
 	canon, _ := vault.Canonicalize(tmp, notePath)
-	deadline := time.Now().Add(3 * time.Second)
-	found := false
-	for time.Now().Before(deadline) {
-		if _, ok := idx.Get(canon); ok {
-			found = true
-			break
-		}
-		time.Sleep(20 * time.Millisecond)
+	if !EsperarAte(vaulttest.Prazo, func() bool {
+		_, ok := idx.Get(canon)
+		return ok
+	}) {
+		t.Errorf("nota em subdiretório criado dinamicamente (%s) não foi indexada\n%s",
+			canon, diagnostico(w))
 	}
+}
 
-	if !found {
-		t.Errorf("nota em subdiretório criado dinamicamente (%s) não foi indexada", canon)
+// estaVigiado diz se o fsnotify tem watch registrado naquele diretorio.
+//
+// A comparacao e por caminho limpo e sem distincao de caixa porque o nome que
+// chega em WatchList e o que o backend recebeu no Add — no Windows ele vem do
+// evento do sistema operacional, e a caixa dele nao e a que o teste escreveu.
+// Comparar as strings cruas daria um "nao vigiado" falso.
+func estaVigiado(w *Watcher, dir string) bool {
+	alvo := filepath.Clean(dir)
+	for _, p := range w.fsWatcher.WatchList() {
+		if strings.EqualFold(filepath.Clean(p), alvo) {
+			return true
+		}
 	}
+	return false
 }
 
 func TestNew_FailsOnUnwatchablePath(t *testing.T) {
@@ -239,7 +255,7 @@ func TestWatcherUpdatesSearchIndex(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	go func() { _ = w.Run(ctx) }()
-	time.Sleep(100 * time.Millisecond) // watcher precisa estar observando
+	EsperarWatcherAtivo(t, w)
 
 	// CRIACAO: a nota nova tem de passar a ser encontravel.
 	if err := os.WriteFile(filepath.Join(tmp, "nova.md"), []byte("prescricao intercorrente"), 0644); err != nil {
@@ -255,23 +271,20 @@ func TestWatcherUpdatesSearchIndex(t *testing.T) {
 	esperaTermo(t, inv, "prescricao", "nova.md", false)
 }
 
-// esperaTermo espera em laco com condicao de saida. time.Sleep fixo como
+// esperaTermo espera pelo estado do indice de busca. time.Sleep fixo como
 // assercao e o que faz um teste passar sem o mecanismo existir.
 func esperaTermo(t *testing.T, inv *search.Inverted, termo, path string, quer bool) {
 	t.Helper()
-	limite := time.Now().Add(3 * time.Second)
-	for time.Now().Before(limite) {
-		presente := false
+	ok := EsperarAte(vaulttest.Prazo, func() bool {
 		for _, p := range inv.Postings(termo) {
 			if p.Path == path {
-				presente = true
+				return quer
 			}
 		}
-		if presente == quer {
-			return
-		}
-		time.Sleep(10 * time.Millisecond)
+		return !quer
+	})
+	if !ok {
+		t.Fatalf("apos %v, %q em %q: presente=%v, quer %v — a busca nao acompanhou o cofre",
+			vaulttest.Prazo, termo, path, !quer, quer)
 	}
-	t.Fatalf("apos 3s, %q em %q: presente=%v, quer %v — a busca nao acompanhou o cofre",
-		termo, path, !quer, quer)
 }

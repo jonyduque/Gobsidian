@@ -15,6 +15,7 @@ import (
 	"github.com/fsnotify/fsnotify"
 	"github.com/jonyd/gobsidian/internal/index"
 	"github.com/jonyd/gobsidian/internal/vault"
+	"github.com/jonyd/gobsidian/internal/vaulttest"
 )
 
 // bufferDeLog acumula o que o watcher registrou, para o teste despejar quando
@@ -90,8 +91,7 @@ func setupTestWatcher(t *testing.T) (*Watcher, context.CancelFunc, string, *inde
 	ctx, cancel := context.WithCancel(context.Background())
 	go func() { _ = w.Run(ctx) }()
 
-	// Wait for watcher to start
-	time.Sleep(50 * time.Millisecond)
+	EsperarWatcherAtivo(t, w)
 
 	return w, cancel, dir, idx
 }
@@ -105,16 +105,8 @@ func TestCounters_EventsReceived(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	for range 50 {
-		if w.Stats().EventsReceived > 0 {
-			break
-		}
-		time.Sleep(20 * time.Millisecond)
-	}
-
-	stats := w.Stats()
-	if stats.EventsReceived == 0 {
-		t.Error("EventsReceived = 0, want > 0")
+	if !EsperarAte(vaulttest.Prazo, func() bool { return w.Stats().EventsReceived > 0 }) {
+		t.Errorf("EventsReceived = 0 apos %v, want > 0\n%s", vaulttest.Prazo, diagnostico(w))
 	}
 }
 
@@ -127,16 +119,8 @@ func TestCounters_EventsDropped(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	for range 50 {
-		if w.Stats().EventsDropped > 0 {
-			break
-		}
-		time.Sleep(20 * time.Millisecond)
-	}
-
-	stats := w.Stats()
-	if stats.EventsDropped == 0 {
-		t.Error("EventsDropped = 0, want > 0")
+	if !EsperarAte(vaulttest.Prazo, func() bool { return w.Stats().EventsDropped > 0 }) {
+		t.Errorf("EventsDropped = 0 apos %v, want > 0\n%s", vaulttest.Prazo, diagnostico(w))
 	}
 }
 
@@ -149,16 +133,8 @@ func TestCounters_EventsProcessed(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	for range 50 {
-		if w.Stats().EventsProcessed > 0 {
-			break
-		}
-		time.Sleep(20 * time.Millisecond)
-	}
-
-	stats := w.Stats()
-	if stats.EventsProcessed == 0 {
-		t.Error("EventsProcessed = 0, want > 0")
+	if !EsperarAte(vaulttest.Prazo, func() bool { return w.Stats().EventsProcessed > 0 }) {
+		t.Errorf("EventsProcessed = 0 apos %v, want > 0\n%s", vaulttest.Prazo, diagnostico(w))
 	}
 }
 
@@ -171,70 +147,60 @@ func TestCounters_EventsSkipped(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	for range 50 {
-		if w.Stats().EventsProcessed > 0 {
-			break
-		}
-		time.Sleep(20 * time.Millisecond)
-	}
-
-	stats := w.Stats()
-	if stats.EventsProcessed == 0 {
-		t.Fatal("EventsProcessed = 0, want > 0")
+	if !EsperarAte(vaulttest.Prazo, func() bool { return w.Stats().EventsProcessed > 0 }) {
+		t.Fatalf("EventsProcessed = 0 apos %v, want > 0\n%s", vaulttest.Prazo, diagnostico(w))
 	}
 
 	canon, _ := vault.Canonicalize(dir, notePath)
 	w.debounced <- []vault.CanonicalPath{canon}
 
-	for range 50 {
-		if w.Stats().EventsSkipped > 0 {
-			break
-		}
-		time.Sleep(20 * time.Millisecond)
-	}
-
-	stats = w.Stats()
-	if stats.EventsSkipped == 0 {
-		t.Error("EventsSkipped = 0, want > 0")
+	if !EsperarAte(vaulttest.Prazo, func() bool { return w.Stats().EventsSkipped > 0 }) {
+		t.Errorf("EventsSkipped = 0 apos %v, want > 0\n%s", vaulttest.Prazo, diagnostico(w))
 	}
 }
 
+// TestCounters_Reconciliations chama handleFSError, que e o corpo que Run
+// executa ao receber um erro do fsnotify.
+//
+// A versao anterior escrevia `fsnotify.ErrEventOverflow` em `w.fsWatcher.Errors`
+// e esperava 100 ms. As duas metades estavam erradas: escrever no canal do
+// fsnotify corre com o backend kqueue e o detector reprova em macOS com DATA
+// RACE — e por isso que TestRun_OverflowSchedulesExactlyOne deixou de fazer isso
+// (overflow_test.go:138-147) —, e o sleep esperava por um numero em vez de por
+// um sinal. Chamando o metodo, o contador ja subiu quando ele retorna: nao ha o
+// que esperar.
 func TestCounters_Reconciliations(t *testing.T) {
 	w, cancel, _, _ := setupTestWatcher(t)
 	defer cancel()
 
-	w.fsWatcher.Errors <- fsnotify.ErrEventOverflow
+	w.handleFSError(fsnotify.ErrEventOverflow)
 
-	time.Sleep(100 * time.Millisecond)
-
-	stats := w.Stats()
-	if stats.Reconciliations == 0 {
-		t.Error("Reconciliations = 0, want > 0")
+	if got := w.Stats().Reconciliations; got == 0 {
+		t.Errorf("Reconciliations = %d, want > 0\n%s", got, diagnostico(w))
 	}
 }
 
+// TestCounters_DropReasons chama emite, que e o corpo que Run executa para cada
+// evento — o mesmo filtro e os mesmos contadores.
+//
+// A versao anterior escrevia os quatro eventos em `w.fsWatcher.Events` e depois
+// esperava em laco o filtro reagir. Escrever num canal interno do fsnotify e a
+// corrida que overflow_test.go:138-147 registra; e como emite e sincrona, a
+// espera some junto.
 func TestCounters_DropReasons(t *testing.T) {
 	w, cancel, dir, _ := setupTestWatcher(t)
 	defer cancel()
 
-	// 1. Chmod
-	w.fsWatcher.Events <- fsnotify.Event{Name: filepath.Join(dir, "nota.md"), Op: fsnotify.Chmod}
-	// 2. Outside vault
-	w.fsWatcher.Events <- fsnotify.Event{Name: "D:\\fora\\nota.md", Op: fsnotify.Write}
-	// 3. Excluded (.git)
-	w.fsWatcher.Events <- fsnotify.Event{Name: filepath.Join(dir, ".git", "config"), Op: fsnotify.Write}
-	// 4. Unknown op
-	w.fsWatcher.Events <- fsnotify.Event{Name: filepath.Join(dir, "nota.md"), Op: 0}
-
-	for range 50 {
-		st := w.Stats()
-		if st.DroppedByReason["chmod"] == 1 &&
-			st.DroppedByReason["outside_vault"] == 1 &&
-			st.DroppedByReason["excluded"] == 1 &&
-			st.DroppedByReason["unknown_op"] == 1 {
-			break
+	ctx := context.Background()
+	for _, e := range []fsnotify.Event{
+		{Name: filepath.Join(dir, "nota.md"), Op: fsnotify.Chmod},        // 1. Chmod
+		{Name: "D:\\fora\\nota.md", Op: fsnotify.Write},                  // 2. Outside vault
+		{Name: filepath.Join(dir, ".git", "config"), Op: fsnotify.Write}, // 3. Excluded (.git)
+		{Name: filepath.Join(dir, "nota.md"), Op: 0},                     // 4. Unknown op
+	} {
+		if err := w.emite(ctx, e); err != nil {
+			t.Fatalf("emite(%+v): %v", e, err)
 		}
-		time.Sleep(20 * time.Millisecond)
 	}
 
 	st := w.Stats()
@@ -263,10 +229,12 @@ func TestCounters_ActiveState(t *testing.T) {
 	}
 
 	cancel()
-	time.Sleep(100 * time.Millisecond)
 
-	if w.Stats().Active {
-		t.Error("Active = true, want false after cancel")
+	// O sinal observavel do cancelamento e o proprio Active voltando a false —
+	// Run o marca no defer, ao sair do laco.
+	if !EsperarAte(vaulttest.Prazo, func() bool { return !w.Stats().Active }) {
+		t.Errorf("Active = true apos %v do cancel, want false — o laco de Run nao saiu",
+			vaulttest.Prazo)
 	}
 }
 
@@ -287,15 +255,12 @@ func TestCounters_Coalesced(t *testing.T) {
 	in <- Event{Path: canon, Op: OpCreate}
 	in <- Event{Path: canon, Op: OpWrite}
 
-	for range 50 {
-		if w.Stats().EventsCoalesced > 0 {
-			break
-		}
-		time.Sleep(10 * time.Millisecond)
+	if !EsperarAte(vaulttest.Prazo, func() bool { return w.Stats().EventsCoalesced > 0 }) {
+		t.Fatalf("EventsCoalesced continuou 0 apos %v: o debouncer nao juntou os "+
+			"dois eventos do mesmo caminho", vaulttest.Prazo)
 	}
-
-	if w.Stats().EventsCoalesced != 1 {
-		t.Errorf("EventsCoalesced = %d, want 1", w.Stats().EventsCoalesced)
+	if got := w.Stats().EventsCoalesced; got != 1 {
+		t.Errorf("EventsCoalesced = %d, want 1", got)
 	}
 }
 
@@ -356,18 +321,15 @@ func setupSoReconciliador(t *testing.T) (*Watcher, string) {
 const prazoReconciliacao = 30 * time.Second
 
 // esperaContador repete a leitura ate o contador chegar em `quer` ou o prazo
-// acabar, e devolve o ultimo valor visto.
+// acabar, e devolve o ultimo valor visto — e o ultimo valor, e nao um booleano,
+// porque a mensagem de falha do chamador o imprime.
 func esperaContador(t *testing.T, ler func() int64, quer int64) int64 {
 	t.Helper()
-	limite := time.Now().Add(prazoReconciliacao)
 	var ultimo int64
-	for time.Now().Before(limite) {
+	EsperarAte(prazoReconciliacao, func() bool {
 		ultimo = ler()
-		if ultimo >= quer {
-			return ultimo
-		}
-		time.Sleep(10 * time.Millisecond)
-	}
+		return ultimo >= quer
+	})
 	return ultimo
 }
 
@@ -440,13 +402,10 @@ func TestPastaQueChegaComArquivosDentro(t *testing.T) {
 		t.Skipf("rename de diretorio nao suportado neste ambiente: %v", err)
 	}
 
-	limite := time.Now().Add(30 * time.Second)
-	for time.Now().Before(limite) {
-		if idx.NoteCount() >= len(esperados) {
-			break
-		}
-		time.Sleep(10 * time.Millisecond)
-	}
+	// O resultado da espera nao decide nada: quem reprova, e com o nome da nota
+	// que faltou e os contadores, e o laco abaixo. Estourar o prazo aqui so
+	// significa "vai reprovar com uma mensagem melhor daqui a uma linha".
+	_ = EsperarAte(prazoReconciliacao, func() bool { return idx.NoteCount() >= len(esperados) })
 
 	for rel := range esperados {
 		if _, ok := idx.Get(vault.CanonicalPath(rel)); !ok {
@@ -470,13 +429,11 @@ func TestPastaQueChegaComArquivosDentro(t *testing.T) {
 	if err := os.WriteFile(depois, []byte("# D\n\nnota criada depois.\n"), 0644); err != nil {
 		t.Fatal(err)
 	}
-	limite = time.Now().Add(30 * time.Second)
-	for time.Now().Before(limite) {
-		if _, ok := idx.Get(vault.CanonicalPath("chegou/sub/d.md")); ok {
-			return
-		}
-		time.Sleep(10 * time.Millisecond)
+	if !EsperarAte(prazoReconciliacao, func() bool {
+		_, ok := idx.Get(vault.CanonicalPath("chegou/sub/d.md"))
+		return ok
+	}) {
+		t.Errorf("chegou/sub/d.md nao foi indexada: o subdiretorio varrido ficou sem watch\n%s",
+			diagnostico(w))
 	}
-	t.Errorf("chegou/sub/d.md nao foi indexada: o subdiretorio varrido ficou sem watch\n%s",
-		diagnostico(w))
 }

@@ -17,6 +17,7 @@ import (
 	"github.com/jonyd/gobsidian/internal/index"
 	"github.com/jonyd/gobsidian/internal/search"
 	"github.com/jonyd/gobsidian/internal/vault"
+	"github.com/jonyd/gobsidian/internal/vaulttest"
 )
 
 // TestReconcile_CorrectsLostEvents roda SEM watcher. Isso e a tarefa inteira:
@@ -106,18 +107,16 @@ func TestApply_ReconcileSignal(t *testing.T) {
 	}
 	reconcile <- struct{}{}
 
-	// Espera em laco com condicao de saida. time.Sleep fixo como assercao e o
-	// que fez o teste anterior passar sem mecanismo nenhum.
+	// Espera pelo estado do indice, e nao por um relogio: time.Sleep fixo como
+	// assercao e o que fez o teste anterior passar sem mecanismo nenhum.
 	quer := int64(len("depois, bem maior"))
-	deadline := time.Now().Add(3 * time.Second)
-	for time.Now().Before(deadline) {
-		if n, ok := idx.Get("nota.md"); ok && n.Size == quer {
-			return
-		}
-		time.Sleep(10 * time.Millisecond)
+	if !EsperarAte(vaulttest.Prazo, func() bool {
+		n, ok := idx.Get("nota.md")
+		return ok && n.Size == quer
+	}) {
+		n, _ := idx.Get("nota.md")
+		t.Fatalf("indice nao foi corrigido pelo sinal de reconciliacao: %+v", n)
 	}
-	n, _ := idx.Get("nota.md")
-	t.Fatalf("indice nao foi corrigido pelo sinal de reconciliacao: %+v", n)
 }
 
 func TestRun_OverflowSchedulesExactlyOne(t *testing.T) {

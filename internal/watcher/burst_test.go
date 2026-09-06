@@ -35,8 +35,7 @@ func TestWatcher_Burst(t *testing.T) {
 		_ = w.Run(ctx)
 	}()
 
-	// Wait for watcher to start
-	time.Sleep(100 * time.Millisecond)
+	EsperarWatcherAtivo(t, w)
 
 	count := 500
 	for i := 0; i < count; i++ {
@@ -53,13 +52,7 @@ func TestWatcher_Burst(t *testing.T) {
 	// 60 s e generoso de proposito. Ele nao afrouxa nada: se a convergencia nao
 	// acontecer, o teste continua reprovando, e com o numero parcial na
 	// mensagem para distinguir "parou" de "estava devagar".
-	prazo := time.Now().Add(60 * time.Second)
-	for time.Now().Before(prazo) {
-		if idx.NoteCount() == count {
-			break
-		}
-		time.Sleep(100 * time.Millisecond)
-	}
+	_ = EsperarAte(60*time.Second, func() bool { return idx.NoteCount() == count })
 
 	if idx.NoteCount() != count {
 		t.Fatalf("esperava %d notas no indice, encontrou %d", count, idx.NoteCount())

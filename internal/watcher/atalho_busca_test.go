@@ -7,11 +7,11 @@ import (
 	"path/filepath"
 	"sync/atomic"
 	"testing"
-	"time"
 
 	"github.com/jonyd/gobsidian/internal/index"
 	"github.com/jonyd/gobsidian/internal/search"
 	"github.com/jonyd/gobsidian/internal/vault"
+	"github.com/jonyd/gobsidian/internal/vaulttest"
 )
 
 // TestAtalhoDoApplyConsultaOIndiceDeBusca cobre a assimetria A7.
@@ -75,17 +75,11 @@ func TestAtalhoDoApplyConsultaOIndiceDeBusca(t *testing.T) {
 
 	entrada <- []vault.CanonicalPath{canon}
 
-	limite := time.Now().Add(5 * time.Second)
-	for time.Now().Before(limite) {
-		if inv.HasDoc("nota.md") {
-			return
-		}
-		time.Sleep(10 * time.Millisecond)
+	if !EsperarAte(vaulttest.Prazo, func() bool { return inv.HasDoc("nota.md") }) {
+		t.Errorf("o indice de busca NAO se recompos: o atalho de mtime/tamanho pulou o "+
+			"evento sem consultar HasDoc (skipped=%d, processed=%d)",
+			skipped.Load(), processed.Load())
 	}
-
-	t.Errorf("o indice de busca NAO se recompos: o atalho de mtime/tamanho pulou o "+
-		"evento sem consultar HasDoc (skipped=%d, processed=%d)",
-		skipped.Load(), processed.Load())
 }
 
 // TestAtalhoDoApplyAindaPulaQuandoTudoEstaEmDia é o contrapeso.
@@ -124,13 +118,8 @@ func TestAtalhoDoApplyAindaPulaQuandoTudoEstaEmDia(t *testing.T) {
 
 	entrada <- []vault.CanonicalPath{canon}
 
-	limite := time.Now().Add(5 * time.Second)
-	for time.Now().Before(limite) {
-		if skipped.Load() > 0 {
-			return
-		}
-		time.Sleep(10 * time.Millisecond)
+	if !EsperarAte(vaulttest.Prazo, func() bool { return skipped.Load() > 0 }) {
+		t.Error("o atalho deixou de pular um evento espurio com tudo em dia; " +
+			"a guarda ficou larga demais e o OneDrive passa a reindexar sem motivo")
 	}
-	t.Error("o atalho deixou de pular um evento espurio com tudo em dia; " +
-		"a guarda ficou larga demais e o OneDrive passa a reindexar sem motivo")
 }

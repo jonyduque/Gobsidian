@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/jonyd/gobsidian/internal/vault"
+	"github.com/jonyd/gobsidian/internal/vaulttest"
 )
 
 func TestDebounce_Coalescence(t *testing.T) {
@@ -39,13 +40,29 @@ func TestDebounce_Coalescence(t *testing.T) {
 	in <- Event{Path: path2, Op: OpWrite}
 	in <- Event{Path: path3, Op: OpWrite}
 
-	// Wait for tick
-	time.Sleep(100 * time.Millisecond)
+	// Espera pelo LOTE, e nao pelo relogio. O sinal observavel do tick do
+	// debouncer e o que ele escreve em `out`; um sleep de 100 ms contra um tick
+	// de 50 ms so tinha folga enquanto a maquina estivesse ociosa, e cancelava o
+	// debouncer antes do flush quando nao estivesse.
+	var results []vault.CanonicalPath
+	prazo := time.After(vaulttest.Prazo)
+	for len(results) < 3 {
+		select {
+		case lote := <-out:
+			results = append(results, lote...)
+		case <-prazo:
+			t.Fatalf("o debouncer emitiu %d caminho(s) em %v, quer 3: %v",
+				len(results), vaulttest.Prazo, results)
+		}
+	}
+
 	cancel()
 	wg.Wait()
 	close(out)
 
-	var results []vault.CanonicalPath
+	// Drena o que sobrou, e e aqui que "coalescido" se prova: um debouncer que
+	// nao juntasse as 10 escritas em file1.md teria mais lotes na fila depois
+	// dos tres primeiros caminhos, e o len abaixo passaria de 3.
 	for p := range out {
 		results = append(results, p...)
 	}
@@ -106,9 +123,13 @@ func TestDebounce_NoStarvation(t *testing.T) {
 		}
 	}()
 
+	// Este sleep e ESTIMULO, nao sincronizacao: ele espaca as escritas para que
+	// elas cubram os 50 ms de forma continua e cruzem varios ticks de 10 ms. Nao
+	// ha sinal observavel a esperar aqui — o que se aguarda e o proprio relogio,
+	// que e a variavel independente do teste.
 	for time.Since(start) < 50*time.Millisecond {
 		in <- Event{Path: path, Op: OpWrite}
-		time.Sleep(1 * time.Millisecond) // Continuous fast writes
+		time.Sleep(1 * time.Millisecond)
 	}
 
 	cancel()

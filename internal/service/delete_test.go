@@ -122,7 +122,13 @@ func TestDeleteNote_TrashNameCollision(t *testing.T) {
 	}
 	_ = idx.Build(context.Background(), v)
 
-	time.Sleep(10 * time.Millisecond)
+	// Havia um time.Sleep(10ms) aqui, e ele nao esperava por nada. A hipotese
+	// implicita era que os dois destinos na lixeira se distinguem pelo sufixo
+	// `_<UnixNano>` e que duas chamadas rapidas demais receberiam o mesmo
+	// numero. Nao e como funciona: `.trash/a.md` nao existe na PRIMEIRA
+	// exclusao, entao res1 fica sem sufixo nenhum; so a segunda encontra o nome
+	// ocupado e ganha o sufixo. Os dois caminhos diferem por CONSTRUCAO, e nao
+	// por resolucao de relogio. O sleep so somava 10 ms a suite.
 
 	// Segunda exclusao com mesmo nome
 	res2, err := svc.DeleteNote(context.Background(), service.DeleteNoteRequest{
@@ -137,11 +143,23 @@ func TestDeleteNote_TrashNameCollision(t *testing.T) {
 		t.Errorf("colisao de nomes na lixeira: res1=%q, res2=%q", res1.TrashPath, res2.TrashPath)
 	}
 
-	if _, err := os.Stat(filepath.Join(root, filepath.FromSlash(res1.TrashPath))); err != nil {
-		t.Errorf("primeiro arquivo da lixeira sumiu: %v", err)
-	}
-	if _, err := os.Stat(filepath.Join(root, filepath.FromSlash(res2.TrashPath))); err != nil {
-		t.Errorf("segundo arquivo da lixeira sumiu: %v", err)
+	// Conteudo, e nao so existencia: dois arquivos na lixeira com o mesmo corpo
+	// significariam que a segunda exclusao sobrescreveu a primeira e o caminho
+	// devolvido mentiu. Ler os dois e o que distingue "nao colidiu" de "colidiu
+	// e ninguem viu".
+	for _, caso := range []struct{ caminho, quer string }{
+		{res1.TrashPath, "Versao 1"},
+		{res2.TrashPath, "Versao 2"},
+	} {
+		b, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(caso.caminho)))
+		if err != nil {
+			t.Errorf("arquivo da lixeira %q sumiu: %v", caso.caminho, err)
+			continue
+		}
+		if string(b) != caso.quer {
+			t.Errorf("lixeira %q tem %q, quer %q: uma exclusao sobrescreveu a outra",
+				caso.caminho, string(b), caso.quer)
+		}
 	}
 }
 
@@ -185,7 +203,21 @@ func TestDeleteNote_DryRunDoesNotDelete(t *testing.T) {
 	svc, _, _, root := createDeleteService(t, files)
 
 	alvoPath := filepath.Join(root, "alvo.md")
-	infoBefore, _ := os.Stat(alvoPath)
+
+	// mtime fixado no PASSADO antes da chamada, em vez de lido antes e comparado
+	// depois.
+	//
+	// A versao anterior tirava um os.Stat, chamava DeleteNote e comparava com um
+	// segundo os.Stat, sem nada entre os dois capaz de mover o relogio. Se o
+	// dry_run reescrevesse o arquivo dentro do mesmo tique de mtime, os dois
+	// valores sairiam iguais e a assercao passaria: um teste que so pode falhar
+	// quando a maquina esta lenta o bastante. Com 2020 no mtime, QUALQUER
+	// reescrita — que carimba a hora atual — reprova, e a resolucao do sistema
+	// de arquivos deixa de fazer parte da conta.
+	antigo := time.Date(2020, 1, 2, 3, 4, 5, 0, time.UTC)
+	if err := os.Chtimes(alvoPath, antigo, antigo); err != nil {
+		t.Fatal(err)
+	}
 
 	res, err := svc.DeleteNote(context.Background(), service.DeleteNoteRequest{
 		Path:              "alvo.md",
@@ -210,7 +242,8 @@ func TestDeleteNote_DryRunDoesNotDelete(t *testing.T) {
 		t.Fatalf("alvo.md sumiu apos dry_run: %v", err)
 	}
 
-	if !infoBefore.ModTime().Equal(infoAfter.ModTime()) {
-		t.Error("mtime de alvo.md foi alterado durante dry_run")
+	if !infoAfter.ModTime().Equal(antigo) {
+		t.Errorf("mtime de alvo.md = %v, quer %v: o dry_run tocou o arquivo",
+			infoAfter.ModTime(), antigo)
 	}
 }

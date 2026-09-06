@@ -11,6 +11,7 @@ import (
 
 	"github.com/jonyd/gobsidian/internal/index"
 	"github.com/jonyd/gobsidian/internal/vault"
+	"github.com/jonyd/gobsidian/internal/vaulttest"
 	"github.com/jonyd/gobsidian/internal/watcher"
 )
 
@@ -429,6 +430,13 @@ func TestWatcher_RenameEndToEnd(t *testing.T) {
 
 	go func() { _ = w.Run(ctx) }()
 
+	// Era o unico teste do pacote que mexia no disco sem esperar o laco de Run
+	// arrancar. Ele nao reprovava por isso porque os watches sao registrados em
+	// New, e nao em Run — mas dependia disso sem dizer, e um dia em que Run
+	// passasse a registrar alguma coisa o teste viraria intermitente sem que
+	// nada no texto dele explicasse por que.
+	watcher.EsperarWatcherAtivo(t, w)
+
 	// Rename no disco
 	if err := os.Remove(filepath.Join(tmp, "origem.md")); err != nil {
 		t.Fatal(err)
@@ -437,15 +445,16 @@ func TestWatcher_RenameEndToEnd(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Aguarda processamento do debounce e correlação
-	deadline := time.Now().Add(3 * time.Second)
-	for time.Now().Before(deadline) {
-		if _, ok := idx.Get("destino.md"); ok {
-			if _, oldOk := idx.Get("origem.md"); !oldOk {
-				break
-			}
-		}
-		time.Sleep(20 * time.Millisecond)
+	// Aguarda o SINAL da correlacao: destino.md dentro do indice e origem.md
+	// fora dele. As duas metades importam — so a primeira passaria com um
+	// rename tratado como criacao, deixando a nota antiga para tras.
+	if !watcher.EsperarAte(vaulttest.Prazo, func() bool {
+		_, novo := idx.Get("destino.md")
+		_, velho := idx.Get("origem.md")
+		return novo && !velho
+	}) {
+		t.Logf("a correlacao de rename nao convergiu em %v; as assercoes abaixo dizem o que faltou",
+			vaulttest.Prazo)
 	}
 
 	if _, ok := idx.Get("origem.md"); ok {
