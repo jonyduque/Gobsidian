@@ -1,0 +1,31 @@
+refactor(boot): host watch and shutdown steps shared by serve, bridge and daemon
+
+The pipe + mirrorReader + lifecycle.New scaffold was written twice, in
+serveEmProcesso and in servePonteRemota, and the order between the three
+pieces is what makes the host's EOF reach the stdin monitor: the mirror must
+exist before lifecycle.New receives the read end. Two copies of an order that
+matters is one copy that will fall behind. The close-pipe and watcher steps
+were written three times, once per exit point.
+
+boot.VigiarHost is now the single account for the scaffold, and it returns the
+context separately from the Vigia rather than as a field: a ctx read from a
+struct field cannot prove it descends from the caller's context, which is what
+the context package documents and what contextcheck flags.
+(*Componentes).PassoWatcher is the single account for the watcher step.
+
+Budgets and step names are unchanged -- 6 s hard limit, 3 s in-flight, 500 ms
+close-pipe, 500 ms watcher, 2 s half-close, 500 ms close-conn. The orphans
+gate and the logs key on those names. The steps that are not shared stay where
+only the server that runs them knows about them: in-flight in serveEmProcesso,
+half-close and close-conn in servePonteRemota. The daemon does not use
+VigiarHost -- it has no host stdin to watch.
+
+mirrorReader/mirrorDst move to internal/boot/espelho.go with their three tests,
+which now exercise the code where it lives.
+
+boot gains exactly one import edge, lifecycle, measured with
+`go list -f '{{.Imports}}' ./internal/boot/`:
+config index lifecycle search service vault watcher
+
+Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01P5wkw6PAdBFzF3uB1w1jNj

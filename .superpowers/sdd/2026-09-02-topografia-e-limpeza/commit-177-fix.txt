@@ -1,0 +1,11 @@
+test(boot): the close-pipe step must actually reach the stdin watch [sem-doc]
+
+TestVigiarHostEOFDoStdinCancelaCtx only checked that the step's Fn returns
+nil, and a Fn that does nothing returns nil too -- `return v.pw.Close()` could
+become `return nil` with the whole ./internal/boot/ suite still green (review
+finding N1). The new test keeps the host stdin open, so the only path to a
+cancelled context is the step closing the mirror's write end, and asserts the
+effect: ctx done and Reason() == "stdin-eof".
+
+Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01P5wkw6PAdBFzF3uB1w1jNj

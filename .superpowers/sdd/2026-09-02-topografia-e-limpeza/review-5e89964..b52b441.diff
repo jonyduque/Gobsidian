@@ -1,0 +1,1314 @@
+b52b441 refactor(boot): host watch and shutdown steps shared by serve, bridge and daemon
+
+ CLAUDE.md                     |  27 +++--
+ cmd/gobsidian/daemon.go       |   9 +-
+ cmd/gobsidian/ponte.go        |  32 +++---
+ cmd/gobsidian/serve.go        |  69 ++-----------
+ cmd/gobsidian/serve_test.go   | 219 ----------------------------------------
+ docs/ARCHITECTURE.md          |   8 +-
+ docs/ARMADILHAS.md            |   3 +-
+ docs/ESTRUTURA.md             |  10 +-
+ internal/boot/doc.go          |  11 +-
+ internal/boot/espelho.go      |  44 ++++++++
+ internal/boot/espelho_test.go | 226 ++++++++++++++++++++++++++++++++++++++++++
+ internal/boot/montar.go       |  12 +++
+ internal/boot/vigia.go        |  62 ++++++++++++
+ internal/boot/vigia_test.go   |  37 +++++++
+ 14 files changed, 451 insertions(+), 318 deletions(-)
+
+diff --git a/CLAUDE.md b/CLAUDE.md
+index 3eba55b..d8c2baa 100644
+--- a/CLAUDE.md
++++ b/CLAUDE.md
+@@ -78,63 +78,74 @@ internal/
+                    das chaves derivadas (NFC + caixa)
+   search/          analyzer, índice invertido base/delta, BM25, trecho,
+                    cache binário formato 6 + arena mmap
+   watcher/         fsnotify, debounce, filtro de relevância, apply,
+                    rename por hash, reconciliação pós-overflow
+   writer/          lock por caminho canônico, edição sob heading/bloco,
+                    reescrita de link, diff
+   service/         fachada das tools em tipos de domínio; erros em errors.go
+   mcpsrv/          ÚNICO pacote onde tipos do SDK de MCP existem
+   console/         marcadores ASCII e cor decidida pelo destino de saída
+-  boot/            monta cofre, índice, busca, watcher e Service; serve e
+-                   daemon chamam
++  boot/            monta cofre, índice, busca, watcher e Service; a vigília do
++                   host (pipe espelhado + lifecycle) e os passos de shutdown
++                   compartilhados; serve, ponte e daemon chamam
+   ipc/             transporte local: socket, saudação, handshake
+   daemon/          N conexões sobre um índice; spawn; posse por trava do
+                    kernel (flock / LockFileEx), nunca por arquivo com PID
+   doctor/          diagnóstico de ambiente e do runtime do daemon
+   text/            normalização
+ docs/              normativa, papéis, história, wiki
+ testdata/          golden files do parser, cofre pequeno, corpus de paridade
+ tools/             netcheck (analisador da RNF-30); parity-dumper (plugin de
+                    dev do Obsidian, não é produto)
+ scripts/           gates e utilitários PowerShell — ver Comandos
+ .claude/           skills, workflows e settings do projeto (fonte única;
+                    .agents/ é espelho gerado e não versionado)
+ .superpowers/sdd/  briefs e ledger
+ ```
+ 
+ Grafo de dependências, acíclico e **re-extraído dos imports de produção em
+ 2026-09-06** — `GOOS=windows go list -f '{{.Imports}}'` pacote a pacote, que NÃO
+ enxerga arquivo `_test.go`. Duas linhas mudaram desde 2026-09-02: a do `writer`
+-e a do `boot`, que é nova. As justificativas estão logo abaixo do bloco:
++e a do `boot`, que é nova — e a do `boot` ganhou `lifecycle` no mesmo dia
++(Task 177). As justificativas estão logo abaixo do bloco:
+ 
+ ```
+ text  vault  config  console  lifecycle      folhas
+ parser   → text
+ ipc      → config
+ writer   → parser, text, vault
+ index    → parser, text, vault
+ search   → index, parser, text, vault
+ watcher  → index, search, vault
+ service  → index, parser, search, vault, writer
+ mcpsrv   → config, index, parser, service, vault
+-boot     → config, index, search, service, vault, watcher
++boot     → config, index, lifecycle, search, service, vault, watcher
+ daemon   → config, ipc, mcpsrv
+ doctor   → config, daemon, ipc, vault
+ ```
+ 
+-`boot` é de 2026-09-06 (Task 174) e não traz aresta nova nenhuma: as seis são
+-exatamente as que `cmd/gobsidian` já tinha. A sequência de boot — cofre,
++`boot` é de 2026-09-06 (Task 174) e nasceu sem aresta nova nenhuma: as seis
++eram exatamente as que `cmd/gobsidian` já tinha. A sequência de boot — cofre,
+ varredura de temporários, índice de metadados, índice de busca, watcher,
+ Service — vivia em `cmd/gobsidian`, onde nenhum teste de pacote a alcançava.
+-`boot` não importa `mcpsrv` nem `lifecycle`: quem monta não decide como o host
+-conversa nem quando encerra. E nenhum pacote de domínio importa `boot` — só
++
++`boot → lifecycle` é a sétima, de 2026-09-06 (Task 177), e a justificativa é o
++mesmo **andaime escrito duas vezes**: pipe, `mirrorReader` e `lifecycle.New`,
++nessa ordem — a ordem é o que faz o EOF do host chegar ao monitor de stdin —
++estavam em `serveEmProcesso` e em `servePonteRemota`, e os passos `close-pipe` e
++`watcher` estavam nos três pontos de saída. `boot.VigiarHost` e
++`(*Componentes).PassoWatcher` são a conta única disso. `lifecycle` continua
++folha. `boot` continua sem importar `mcpsrv`: quem monta não decide como o host
++conversa. E não decide **quando** encerrar — `lifecycle.Shutdown` é chamada por
++`cmd/gobsidian`, com os passos que só quem serve conhece (`in-flight`,
++`half-close`, `close-conn`). E nenhum pacote de domínio importa `boot` — só
+ `cmd/gobsidian`.
+ 
+ `writer → text` é de 2026-09-06 (Task 169) e a justificativa é **uma conta por
+ regra**: a trava por caminho do `writer` e a chave `lowerPath` do `index` são a
+ mesma derivação, e eram duas — a do `writer` só baixava caixa, então o índice
+ tratava as duas grafias Unicode de um nome como uma nota e o locker as tratava
+ como dois arquivos. A conta mudou-se para `text.ChaveDeCaminho` porque `writer`
+ não importa `index` e não vai importar. `text` continua folha: ganhou
+ `path/filepath`, que é stdlib.
+ 
+diff --git a/cmd/gobsidian/daemon.go b/cmd/gobsidian/daemon.go
+index 7e4eaeb..bfa2cf6 100644
+--- a/cmd/gobsidian/daemon.go
++++ b/cmd/gobsidian/daemon.go
+@@ -106,21 +106,24 @@ func novoLoggerDoDaemon(vaultPath string, level slog.Level) (*slog.Logger, func(
+ 	return log, f.Close, nil
+ }
+ 
+ // runDaemon monta o indice/watcher/servico UMA VEZ (boot.Montar -- a mesma
+ // sequencia de boot que serveEmProcesso usa) e o
+ // serve para N conexoes -- a diferenca central entre o daemon e
+ // serveEmProcesso, que serve exatamente uma sessao sobre stdio.
+ //
+ // Diferente de serveEmProcesso, o daemon nao tem stdin de host nem pai
+ // vigiavel: quem o inicia e uma ponte que sai logo depois de lanca-lo (ver
+-// internal/daemon, comentario do pacote). lifecycle.New roda so com o
++// internal/daemon, comentario do pacote). Por isso ele NAO usa
++// boot.VigiarHost — nao ha host para vigiar, e forcar um espelho de stdin
++// aqui ligaria uma vigilia sobre um descritor que ninguem alimenta.
++// lifecycle.New roda so com o
+ // mecanismo de sinal -- Stdin e ParentPID ficam no zero-valor de
+ // proposito, o que desliga os outros dois mecanismos (ver
+ // internal/lifecycle.New: Stdin nil pula watchStdin, ParentPID<=0 pula
+ // watchParent). A ociosidade substitui os dois: lc.Trigger("idle") usa a
+ // MESMA infraestrutura de cancelamento e log que sinal e EOF de stdin usam
+ // nos outros processos, e o gate de orfaos confere "reason=idle" do mesmo
+ // jeito que confere os outros tres motivos (ver
+ // scripts/test_orphans.ps1, cenario "daemon-idle").
+ func runDaemon(parent context.Context, cfg config.Config, ociosidade time.Duration, log *slog.Logger) error {
+ 	// A sonda de orfao e o bind vao sob o MESMO lock.
+@@ -164,20 +167,18 @@ func runDaemon(parent context.Context, cfg config.Config, ociosidade time.Durati
+ 		_ = ln.Close()
+ 		return err
+ 	}
+ 
+ 	srv := mcpsrv.New(ctx, c.Service, cfg, log)
+ 
+ 	d := daemon.New(ln, srv, daemon.Config{Vault: cfg, OciosidadeMax: ociosidade}, log)
+ 	d.Run(ctx, lc.Trigger)
+ 
+ 	lifecycle.Shutdown(ctx, log, 6*time.Second,
+-		lifecycle.Step{Name: "watcher", Budget: 500 * time.Millisecond, Fn: func(context.Context) error {
+-			return c.Watcher.Close()
+-		}},
++		c.PassoWatcher(),
+ 	)
+ 	lc.Wait()
+ 	c.Esperar()
+ 
+ 	log.Info("daemon encerrado", "reason", lc.Reason())
+ 	return nil
+ }
+diff --git a/cmd/gobsidian/ponte.go b/cmd/gobsidian/ponte.go
+index dfe8417..81a16ef 100644
+--- a/cmd/gobsidian/ponte.go
++++ b/cmd/gobsidian/ponte.go
+@@ -13,20 +13,21 @@ package main
+ 
+ import (
+ 	"context"
+ 	"errors"
+ 	"io"
+ 	"log/slog"
+ 	"os"
+ 	"syscall"
+ 	"time"
+ 
++	"github.com/jonyd/gobsidian/internal/boot"
+ 	"github.com/jonyd/gobsidian/internal/config"
+ 	"github.com/jonyd/gobsidian/internal/daemon"
+ 	"github.com/jonyd/gobsidian/internal/ipc"
+ 	"github.com/jonyd/gobsidian/internal/lifecycle"
+ )
+ 
+ // ipcDialTimeout limita quanto tempo a ponte espera por um daemon antes de
+ // desistir e cair no modo em processo. Curto de proposito: D-M7-6 mediu
+ // 25,7 us de ida e volta para um socket Unix local respondendo — o tempo
+ // aqui e so para nao travar quando o arquivo do socket existe mas ninguem
+@@ -130,59 +131,52 @@ func errnoDe(err error) int {
+ 	}
+ 	return -1
+ }
+ 
+ // servePonteRemota copia bytes entre o stdio deste processo e o socket do
+ // daemon, ate um dos dois lados fechar ou um dos tres mecanismos de
+ // encerramento (EOF em stdin, sinal do SO, morte do processo pai) disparar.
+ // Ela nao interpreta o que passa por dentro.
+ //
+ // Os tres mecanismos continuam valendo aqui exatamente como em
+-// serveEmProcesso: lifecycle.New e o mesmo pacote, montado do mesmo jeito,
+-// porque a garantia de nao deixar orfao nao pode depender de qual dos dois
+-// caminhos serviu a sessao.
++// serveEmProcesso: e a MESMA boot.VigiarHost, e nao uma copia montada do
++// mesmo jeito, porque a garantia de nao deixar orfao nao pode depender de
++// qual dos dois caminhos serviu a sessao.
+ //
+ // stdin e stdout sao parametros, e nao os.Stdin/os.Stdout lidos aqui dentro,
+ // porque sem isso esta funcao nao e testavel de forma deterministica: sob
+ // `go test` no Linux o stdin do processo e /dev/null e devolve EOF na hora,
+ // entao a ponte encerrava antes de o teste conseguir escrever do lado do
+ // daemon, e o teste falhava com "read/write on closed pipe" -- so no Linux,
+ // porque no Windows o stdin de teste bloqueia. Medido: verde no Windows e no
+ // macOS, vermelho no ubuntu, no MESMO commit.
+ //
+ // O ganho e maior que a estabilidade: com stdout injetavel, o teste passa a
+ // conferir os BYTES que atravessaram a ponte, que e o que ela existe para
+ // fazer. Antes ele so conseguia afirmar que a leitura nao travava.
+ func servePonteRemota(parent context.Context, conn ipc.Conn, stdin io.Reader, stdout io.Writer, log *slog.Logger) error {
+ 	// O monitor de stdin do lifecycle consome bytes, e o stdin aqui pertence
+ 	// ao daemon do outro lado do socket. A saida e espelhar: a copia de
+ 	// verdade le do espelho, e o lifecycle observa so a copia. io.TeeReader
+-	// nao serve — nao propaga EOF, copia bytes e EOF nao e byte — por isso
+-	// mirrorReader, que faz dst.CloseWithError(err) (ver serve.go).
+-	pr, pw := io.Pipe()
+-	teed := &mirrorReader{src: stdin, dst: pw}
+-
+-	ctx, lc := lifecycle.New(parent, lifecycle.Options{
+-		Stdin:     pr,
+-		ParentPID: lifecycle.ParentPID(),
+-		Logger:    log,
+-	})
++	// nao serve — nao propaga EOF, copia bytes e EOF nao e byte — por isso o
++	// mirrorReader de boot.VigiarHost, que faz dst.CloseWithError(err).
++	ctx, vig := boot.VigiarHost(parent, stdin, log)
+ 
+ 	// As duas direcoes da copia sao goroutines independentes, e nenhuma
+ 	// delas entra no WaitGroup do lifecycle: uma goroutine parada em Read
+ 	// nao e desenrolavel por cancelamento de context (a mesma razao pela
+ 	// qual watchStdin fica fora do WaitGroup em internal/lifecycle), entao
+-	// so o fechamento explicito de pw e conn nos passos de shutdown abaixo
+-	// as desbloqueia.
++	// so o fechamento explicito do espelho (vig.PassoFecharEspelho) e de conn
++	// nos passos de shutdown abaixo as desbloqueia.
+ 	hostParaDaemon := make(chan error, 1)
+ 	go func() {
+-		_, err := io.Copy(conn, teed)
++		_, err := io.Copy(conn, vig.Stdin)
+ 		hostParaDaemon <- err
+ 	}()
+ 
+ 	daemonParaHost := make(chan error, 1)
+ 	go func() {
+ 		_, err := io.Copy(stdout, conn)
+ 		daemonParaHost <- err
+ 	}()
+ 
+ 	var loopErr error
+@@ -195,23 +189,21 @@ func servePonteRemota(parent context.Context, conn ipc.Conn, stdin io.Reader, st
+ 		// O daemon fechou a conexao (ou ela quebrou): e o equivalente, na
+ 		// ponte, ao serve loop de serveEmProcesso retornando.
+ 		loopErr = err
+ 	case err := <-hostParaDaemon:
+ 		loopErr = err
+ 		fimDoHost = true
+ 	case <-ctx.Done():
+ 	}
+ 
+ 	lifecycle.Shutdown(ctx, log, 6*time.Second,
+-		lifecycle.Step{Name: "close-pipe", Budget: 500 * time.Millisecond, Fn: func(context.Context) error {
+-			return pw.Close()
+-		}},
++		vig.PassoFecharEspelho(),
+ 		// MEIO-FECHAMENTO antes de fechar a conexao inteira.
+ 		//
+ 		// `ipc.Conn` exige `CloseWrite` desde sempre — `DialAndHandshake`
+ 		// RECUSA uma conexao que nao o suporte — e nada nunca o chamava
+ 		// (achado M8). No EOF do stdin a ponte fechava a conexao inteira, e
+ 		// toda resposta do daemon ainda em voo era descartada: exatamente o que
+ 		// o meio-fechamento existe para evitar.
+ 		//
+ 		// Fechar so a direcao de escrita sinaliza EOF ao daemon; ele termina o
+ 		// que estava respondendo e fecha do lado dele, o que encerra a copia
+@@ -231,20 +223,20 @@ func servePonteRemota(parent context.Context, conn ipc.Conn, stdin io.Reader, st
+ 				// Orcamento estourado: o close-conn abaixo corta o que sobrou.
+ 				// Perder uma resposta aqui e visivel no log, e nao silencioso.
+ 				return sctx.Err()
+ 			}
+ 		}},
+ 		lifecycle.Step{Name: "close-conn", Budget: 500 * time.Millisecond, Fn: func(context.Context) error {
+ 			return conn.Close()
+ 		}},
+ 	)
+ 
+-	lc.Wait()
++	vig.LC.Wait()
+ 
+ 	// ctx.Canceled no retorno do loop de copia e encerramento normal — a
+ 	// mesma regra que vale para o serve loop de serveEmProcesso (ver
+ 	// ipc.EhDesconexaoLimpa).
+ 	if !ipc.EhDesconexaoLimpa(loopErr) {
+ 		return loopErr
+ 	}
+ 	return nil
+ }
+diff --git a/cmd/gobsidian/serve.go b/cmd/gobsidian/serve.go
+index fc0bc23..dad8078 100644
+--- a/cmd/gobsidian/serve.go
++++ b/cmd/gobsidian/serve.go
+@@ -1,15 +1,14 @@
+ package main
+ 
+ import (
+ 	"context"
+-	"io"
+ 	"log/slog"
+ 	"os"
+ 	"time"
+ 
+ 	"github.com/jonyd/gobsidian/internal/boot"
+ 	"github.com/jonyd/gobsidian/internal/config"
+ 	"github.com/jonyd/gobsidian/internal/ipc"
+ 	"github.com/jonyd/gobsidian/internal/lifecycle"
+ 	"github.com/jonyd/gobsidian/internal/mcpsrv"
+ 	"github.com/spf13/cobra"
+@@ -80,63 +79,58 @@ func runServe(parent context.Context, cfg config.Config) error {
+ 	return nil
+ }
+ 
+ // serveEmProcesso monta o indice, o watcher e o servidor MCP dentro deste
+ // processo — o caminho que o servidor sempre usou, antes de existir ponte
+ // nenhuma. E tambem o fallback obrigatorio de servePonte (ponte.go) quando
+ // nao ha daemon para conversar: socket ausente, conexao recusada ou versao
+ // incompativel caem todos aqui.
+ func serveEmProcesso(parent context.Context, cfg config.Config, log *slog.Logger) error {
+ 	// O monitor de stdin consome bytes, e o stdin aqui pertence ao JSON-RPC.
+-	// A saida e espelhar: o SDK le do espelho, e o lifecycle observa a copia.
+-	pr, pw := io.Pipe()
+-	teed := &mirrorReader{src: os.Stdin, dst: pw}
+-
+-	ctx, lc := lifecycle.New(parent, lifecycle.Options{
+-		Stdin:     pr,
+-		ParentPID: lifecycle.ParentPID(),
+-		Logger:    log,
+-	})
++	// A saida e espelhar: o SDK le de vig.Stdin, e o lifecycle observa a
++	// copia. boot.VigiarHost monta o andaime — pipe, espelho e lifecycle.New,
++	// nessa ordem — que este caminho e a ponte (ponte.go) compartilham.
++	ctx, vig := boot.VigiarHost(parent, os.Stdin, log)
+ 
+ 	// boot.Montar monta o indice, o watcher e o servico de dominio -- a mesma
+ 	// sequencia que o daemon (internal/daemon + cmd/gobsidian/daemon.go,
+ 	// Task 92) usa para servir N conexoes em vez de uma. Extraida para as
+ 	// duas nunca divergirem (ver o comentario do pacote em internal/boot).
+ 	c, err := boot.Montar(ctx, cfg, log)
+ 	if err != nil {
+ 		// O irmao do ramo equivalente em runDaemon. Vale mesmo tendo aqui um
+ 		// stderr com leitor: o fallback em processo e obrigatorio quando o
+ 		// daemon nao sobe, e se os DOIS caminhos de boot morrerem calados um
+ 		// cofre mal configurado nao produz mensagem acionavel em lugar
+ 		// nenhum. Foi o que aconteceu com um dos cofres do dono por dois dias.
+ 		log.Error("nao foi possivel montar o servico",
+ 			"vault", cfg.VaultPath, "err", err)
+ 		return err
+ 	}
+ 
+ 	srv := mcpsrv.New(ctx, c.Service, cfg, log)
+ 
+ 	serveErr := make(chan error, 1)
+-	go func() { serveErr <- srv.Serve(ctx, teed, os.Stdout) }()
++	go func() { serveErr <- srv.Serve(ctx, vig.Stdin, os.Stdout) }()
+ 
+ 	// serveErr tem capacidade 1 e recebe exatamente um valor. Se o select
+ 	// abaixo ja o consumiu, a etapa in-flight nao pode tentar le-lo de novo —
+ 	// ficaria bloqueada ate estourar o orcamento, atrasando todo encerramento
+ 	// normal em 3 segundos e registrando uma falha que nao aconteceu.
+ 	serveReturned := false
+ 	var loopErr error
+ 
+ 	// A etapa in-flight roda na goroutine que lifecycle.Shutdown lanca para
+ 	// ela, e pode ficar orfa se o orcamento estourar antes dela terminar —
+ 	// "abandonada" quer dizer exatamente isso. Se ela escrevesse direto em
+ 	// loopErr, essa escrita correria com a leitura da goroutine principal
+-	// logo depois de lc.Wait(). Um canal com buffer 1 carrega a garantia de
++	// logo depois de vig.LC.Wait(). Um canal com buffer 1 carrega a garantia de
+ 	// happens-before que uma variavel compartilhada nao tem.
+ 	lateErr := make(chan error, 1)
+ 
+ 	select {
+ 	case err := <-serveErr:
+ 		serveReturned = true
+ 		loopErr = err
+ 		if err != nil {
+ 			log.Error("servidor encerrou com erro", "err", err)
+ 		}
+@@ -149,29 +143,25 @@ func serveEmProcesso(parent context.Context, cfg config.Config, log *slog.Logger
+ 				return nil
+ 			}
+ 			select {
+ 			case err := <-serveErr:
+ 				lateErr <- err
+ 			case <-ctx.Done():
+ 				return ctx.Err()
+ 			}
+ 			return nil
+ 		}},
+-		lifecycle.Step{Name: "close-pipe", Budget: 500 * time.Millisecond, Fn: func(context.Context) error {
+-			return pw.Close()
+-		}},
+-		lifecycle.Step{Name: "watcher", Budget: 500 * time.Millisecond, Fn: func(context.Context) error {
+-			return c.Watcher.Close()
+-		}},
++		vig.PassoFecharEspelho(),
++		c.PassoWatcher(),
+ 	)
+ 
+-	lc.Wait()
++	vig.LC.Wait()
+ 	c.Esperar()
+ 
+ 	// Depois de Wait, nao antes: a etapa in-flight pode ter sido abandonada
+ 	// por estouro de orcamento, e sua goroutine ainda estar a caminho do
+ 	// canal. Wait e o ultimo ponto em que esperar por ela e de graca.
+ 	//
+ 	// A drenagem continua nao-bloqueante. Se mesmo assim nao houver valor, o
+ 	// erro tardio e descartado de proposito: o encerramento ja estourou o
+ 	// orcamento, e travar aqui trocaria um exit code impreciso por um
+ 	// servidor que nao encerra.
+@@ -184,51 +174,10 @@ func serveEmProcesso(parent context.Context, cfg config.Config, log *slog.Logger
+ 	}
+ 
+ 	// Diferente do runServe de antes da ponte (Task 91), esta funcao AGORA
+ 	// retorna em vez de terminar o processo: quem decide o codigo de saida e
+ 	// runServe, um nivel acima, porque e o mesmo lugar que decide entre este
+ 	// caminho e servePonteRemota — os dois precisam do mesmo shutdownExitCode
+ 	// aplicado ao MESMO loopErr, e duplicar a chamada a os.Exit nos dois
+ 	// caminhos teria dado a cada um seu proprio codigo de saida.
+ 	return loopErr
+ }
+-
+-// mirrorDst e o subconjunto de *io.PipeWriter que mirrorReader usa. Extrair
+-// para interface nao muda nada em producao — pw continua sendo um
+-// *io.PipeWriter de verdade — mas deixa o teste trocar o espelho por um
+-// dublê que conta tentativas de escrita. Sem isso nao ha como observar, de
+-// fora, que a guarda !m.broken impediu uma segunda escrita: o retorno de
+-// Read e o mesmo com ou sem a guarda, so o numero de chamadas ao espelho
+-// difere.
+-type mirrorDst interface {
+-	io.Writer
+-	CloseWithError(error) error
+-}
+-
+-// mirrorReader espelha o que le para dst e, crucialmente, propaga o fim da
+-// leitura fechando dst. E o que faz o EOF do host chegar ao monitor de stdin
+-// do lifecycle — io.TeeReader nao serve aqui porque so copia bytes, e EOF nao
+-// e um byte.
+-type mirrorReader struct {
+-	src    io.Reader
+-	dst    mirrorDst
+-	broken bool // espelho desistiu; a leitura principal segue intacta
+-}
+-
+-func (m *mirrorReader) Read(p []byte) (int, error) {
+-	n, err := m.src.Read(p)
+-
+-	// O espelho e auxiliar: existe so para o lifecycle enxergar o EOF. Se a
+-	// escrita nele falhar, o JSON-RPC continua — devolver o erro da escrita
+-	// no lugar do resultado da leitura injetaria uma falha inventada em uma
+-	// sessao saudavel, e o cliente veria a conexao morrer sem motivo.
+-	if n > 0 && !m.broken {
+-		if _, werr := m.dst.Write(p[:n]); werr != nil {
+-			m.broken = true
+-		}
+-	}
+-
+-	if err != nil {
+-		_ = m.dst.CloseWithError(err)
+-	}
+-	return n, err
+-}
+diff --git a/cmd/gobsidian/serve_test.go b/cmd/gobsidian/serve_test.go
+index 01ec1bc..7d114b1 100644
+--- a/cmd/gobsidian/serve_test.go
++++ b/cmd/gobsidian/serve_test.go
+@@ -1,240 +1,21 @@
+ package main
+ 
+ import (
+-	"bytes"
+ 	"context"
+ 	"errors"
+ 	"fmt"
+ 	"io"
+ 	"os"
+ 	"testing"
+-	"time"
+-
+-	"github.com/jonyd/gobsidian/internal/vaulttest"
+ )
+ 
+-// eofReader devolve os bytes de data, em quantas chamadas a Read forem
+-// necessarias para o buffer do chamador, e so entao io.EOF. Ao contrario de
+-// um copy-e-sent-incondicional, ele nao descarta o resto dos dados quando o
+-// buffer do chamador e menor que len(data) — importante porque
+-// TestMirrorReaderBrokenMirrorDoesNotPoisonRead depende de duas leituras
+-// verem, cada uma, um pedaco diferente.
+-type eofReader struct {
+-	data []byte
+-	pos  int
+-}
+-
+-func (r *eofReader) Read(p []byte) (int, error) {
+-	if r.pos >= len(r.data) {
+-		return 0, io.EOF
+-	}
+-	n := copy(p, r.data[r.pos:])
+-	r.pos += n
+-	return n, nil
+-}
+-
+-// chunkReader devolve uma fatia de data por chamada a Read, imitando uma
+-// origem que entrega bytes em pedacos distintos (como um stdin real, em
+-// leituras sucessivas) em vez de tudo de uma vez.
+-type chunkReader struct {
+-	chunks [][]byte
+-	idx    int
+-}
+-
+-func (r *chunkReader) Read(p []byte) (int, error) {
+-	if r.idx >= len(r.chunks) {
+-		return 0, io.EOF
+-	}
+-	n := copy(p, r.chunks[r.idx])
+-	r.idx++
+-	return n, nil
+-}
+-
+-// spyDst implementa mirrorDst e conta quantas vezes Write foi chamado, para
+-// que o teste do latch broken possa afirmar que uma segunda tentativa de
+-// escrita NAO aconteceu — coisa que o valor de retorno de Read sozinho nao
+-// expoe, porque e o mesmo com ou sem a guarda !m.broken.
+-type spyDst struct {
+-	writes int
+-	fail   bool
+-}
+-
+-func (s *spyDst) Write(p []byte) (int, error) {
+-	s.writes++
+-	if s.fail {
+-		return 0, io.ErrClosedPipe
+-	}
+-	return len(p), nil
+-}
+-
+-func (s *spyDst) CloseWithError(error) error { return nil }
+-
+-func TestMirrorReaderCopiesToMirror(t *testing.T) {
+-	src := &eofReader{data: []byte("ola mundo")}
+-	pr, pw := io.Pipe()
+-	m := &mirrorReader{src: src, dst: pw}
+-
+-	// Fechar as duas pontas no fim do teste desbloqueia qualquer goroutine
+-	// abaixo que ainda esteja presa em Read/Write caso o teste reprove pelo
+-	// timeout: sem isso, uma mutacao que apaga a copia deixaria uma
+-	// goroutine vazando ate o processo de teste inteiro terminar.
+-	t.Cleanup(func() {
+-		_ = pr.Close()
+-		_ = pw.Close()
+-	})
+-
+-	// A leitura da mirrorReader precisa acontecer concorrentemente com a
+-	// leitura do lado espelhado: io.Pipe nao tem buffer, entao o Write
+-	// dentro de Read bloqueia ate alguem ler do outro lado.
+-	type readResult struct {
+-		n   int
+-		err error
+-	}
+-	readDone := make(chan readResult, 1)
+-	buf := make([]byte, 64)
+-	go func() {
+-		n, err := m.Read(buf)
+-		readDone <- readResult{n, err}
+-	}()
+-
+-	mirrored := make([]byte, len("ola mundo"))
+-	mirrorDone := make(chan error, 1)
+-	go func() {
+-		_, err := io.ReadFull(pr, mirrored)
+-		mirrorDone <- err
+-	}()
+-
+-	// Acha 1: sem limite de tempo aqui, uma mutacao que apaga o bloco de
+-	// escrita no espelho pendura o io.ReadFull para sempre e o "go test
+-	// -race ./..." do projeto (sem -timeout) so reprova depois de 10
+-	// minutos, derrubando o binario do pacote inteiro com um dump de
+-	// goroutines em vez de uma falha nomeada.
+-	select {
+-	case err := <-mirrorDone:
+-		if err != nil {
+-			t.Fatalf("leitura do espelho falhou: %v", err)
+-		}
+-	case <-time.After(vaulttest.Prazo):
+-		t.Fatalf("leitura do espelho nao chegou em %s: mirrorReader parou de copiar para o espelho", vaulttest.Prazo)
+-	}
+-
+-	var res readResult
+-	select {
+-	case res = <-readDone:
+-	case <-time.After(vaulttest.Prazo):
+-		t.Fatalf("Read da origem nao retornou em %s", vaulttest.Prazo)
+-	}
+-
+-	if res.err != nil {
+-		t.Fatalf("Read da origem devolveu erro inesperado: %v", res.err)
+-	}
+-	if got := string(buf[:res.n]); got != "ola mundo" {
+-		t.Fatalf("Read devolveu %q, esperado %q", got, "ola mundo")
+-	}
+-	if !bytes.Equal(mirrored, []byte("ola mundo")) {
+-		t.Fatalf("espelho recebeu %q, esperado %q", mirrored, "ola mundo")
+-	}
+-}
+-
+-func TestMirrorReaderPropagatesEOF(t *testing.T) {
+-	src := &eofReader{} // origem ja no fim: nenhum dado, pos 0 >= len(data) 0
+-	pr, pw := io.Pipe()
+-	m := &mirrorReader{src: src, dst: pw}
+-
+-	t.Cleanup(func() {
+-		_ = pr.Close()
+-		_ = pw.Close()
+-	})
+-
+-	n, err := m.Read(make([]byte, 8))
+-	if n != 0 {
+-		t.Fatalf("Read devolveu %d bytes no EOF, esperado 0", n)
+-	}
+-	if !errors.Is(err, io.EOF) {
+-		t.Fatalf("Read devolveu err=%v, esperado io.EOF", err)
+-	}
+-
+-	// E o comportamento que io.TeeReader nao tem: sem o CloseWithError do
+-	// mirrorReader, o lado de leitura do pipe nunca veria o fim, e o monitor
+-	// de stdin do lifecycle ficaria inerte esperando um EOF que nunca chega.
+-	//
+-	// Acha 1: a leitura abaixo roda numa goroutine com prazo, nao inline —
+-	// sem CloseWithError ela pendura, e sem o limite de tempo essa pendura
+-	// so aparece depois do timeout padrao de 10 minutos do "go test
+-	// -race ./..." sem -timeout, matando o binario do pacote inteiro.
+-	type readResult struct {
+-		n   int
+-		err error
+-	}
+-	rc := make(chan readResult, 1)
+-	go func() {
+-		n, err := pr.Read(make([]byte, 8))
+-		rc <- readResult{n, err}
+-	}()
+-
+-	select {
+-	case res := <-rc:
+-		if !errors.Is(res.err, io.EOF) {
+-			t.Fatalf("lado de leitura do pipe devolveu err=%v, esperado io.EOF", res.err)
+-		}
+-	case <-time.After(vaulttest.Prazo):
+-		t.Fatalf("lado de leitura do pipe nao recebeu EOF em %s: mirrorReader nao fechou dst", vaulttest.Prazo)
+-	}
+-}
+-
+-func TestMirrorReaderBrokenMirrorDoesNotPoisonRead(t *testing.T) {
+-	// Duas leituras da origem, em dois pedacos: a primeira aciona o latch
+-	// broken (o espelho falha), a segunda precisa provar que o latch
+-	// realmente impediu uma nova tentativa de escrita — nao so que o campo
+-	// ficou true.
+-	src := &chunkReader{chunks: [][]byte{[]byte("dados"), []byte("mais")}}
+-	dst := &spyDst{fail: true}
+-	m := &mirrorReader{src: src, dst: dst}
+-
+-	n, err := m.Read(make([]byte, 64))
+-	if err != nil {
+-		t.Fatalf("Read devolveu err=%v, esperado nil (erro e da origem, nao do espelho)", err)
+-	}
+-	if n != len("dados") {
+-		t.Fatalf("Read devolveu n=%d, esperado %d", n, len("dados"))
+-	}
+-	if !m.broken {
+-		t.Fatal("mirrorReader.broken deveria estar true apos escrita falhar no espelho")
+-	}
+-	if dst.writes != 1 {
+-		t.Fatalf("espelho recebeu %d tentativas de escrita apos a primeira leitura, esperado 1", dst.writes)
+-	}
+-
+-	// Segunda leitura: dados novos chegam (n > 0), mas o espelho ja esta
+-	// broken. Se a guarda !m.broken fosse removida, esta leitura tentaria
+-	// escrever de novo no espelho e dst.writes subiria para 2 — e isso, nao
+-	// o valor de retorno de Read, e o que este teste trava.
+-	n2, err2 := m.Read(make([]byte, 64))
+-	if err2 != nil {
+-		t.Fatalf("segunda leitura devolveu err=%v, esperado nil", err2)
+-	}
+-	if n2 != len("mais") {
+-		t.Fatalf("segunda leitura devolveu n=%d, esperado %d", n2, len("mais"))
+-	}
+-	if dst.writes != 1 {
+-		t.Fatalf("espelho recebeu %d tentativas de escrita apos ficar broken, esperado continuar em 1", dst.writes)
+-	}
+-
+-	// Terceira leitura: a origem chegou ao fim. Confirma que o espelho
+-	// quebrado nao deixou a leitura principal travada nem incorreta.
+-	n3, err3 := m.Read(make([]byte, 64))
+-	if n3 != 0 || !errors.Is(err3, io.EOF) {
+-		t.Fatalf("terceira leitura devolveu (%d, %v), esperado (0, io.EOF)", n3, err3)
+-	}
+-}
+-
+ func TestShutdownExitCode(t *testing.T) {
+ 	cases := []struct {
+ 		name string
+ 		err  error
+ 		want int
+ 	}{
+ 		{"nil", nil, 0},
+ 		{"context.Canceled", context.Canceled, 0},
+ 		{"erro embrulhado com context.Canceled", fmt.Errorf("serve: %w", context.Canceled), 0},
+ 		{"io.EOF", io.EOF, 0},
+diff --git a/docs/ARCHITECTURE.md b/docs/ARCHITECTURE.md
+index 50a0bcb..ff08416 100644
+--- a/docs/ARCHITECTURE.md
++++ b/docs/ARCHITECTURE.md
+@@ -123,21 +123,23 @@ Duas regras moldam o pacote. **Os marcadores continuam em ASCII** (`[OK]`, `[!]`
+ `serve` não passa por aqui. Seu stdout pertence ao JSON-RPC, e uma sequência ANSI ali corrompe a sessão do mesmo jeito que um `fmt.Println`.
+ 
+ ### 2.14 `internal/boot`
+ 
+ A **montagem** é camada própria: fica acima de `service` — ela constrói o `*service.Service` — e abaixo de `cmd/gobsidian` e de `mcpsrv`, que recebem o serviço pronto. `boot.Montar` executa os passos 3 a 7 de §5.1: cofre, varredura de temporários órfãos em paralelo, índice de metadados (`AbrirIndice`: cache fresco ou construção), índice de busca (`PrepararBusca`: adoção do cache, retomada de parcial ou construção), watcher e `Service`. Devolve um `Componentes` com tudo isso e um `Esperar()` que bloqueia até as goroutines de fundo terminarem.
+ 
+ Existe porque `serve` e `daemon` precisam da **mesma** sequência, na mesma ordem, e ela vivia em `cmd/gobsidian` — onde nenhum teste de pacote a alcançava, e onde uma divergência entre os dois caminhos de boot só apareceria em produção. A ordem não é livre, e a parte dela que vale depende do modo: `watcher.New` registra os watches **antes** da construção do índice de busca nos dois modos, mas `w.Run` só consome a fila **depois** dela no modo *eager*, porque a adoção do cache substitui o conteúdo do índice invertido (§6). No modo padrão (lazy) não há o que ordenar: `Montar` parte `w.Run` de imediato e a busca só é carregada na primeira `vault_search`, por `opts.CarregarBusca`. Se o watcher tiver escrito no índice invertido até lá, `AdotarDe` **recusa** o cache e `PrepararBusca` cai para a construção, que conta o que o watcher já escreveu via `HasDoc` — mais lento que o caminho de cache, nunca incorreto (achado A6, `docs/SUGESTOES.md`).
+ 
+ Numeração fora de ordem de propósito: a camada é nova (Task 174) e renumerar §2.2–§2.13 quebraria as referências que o resto da documentação já faz a elas.
+ 
+-`boot` não importa `mcpsrv` nem `lifecycle`. Quem monta não decide como o host conversa nem quando o processo encerra — essas decisões continuam em `cmd/gobsidian`, e é o que mantém a montagem testável sem levantar um processo.
++Desde a Task 177 `boot` monta também a **vigília do host** — `VigiarHost`, §7.3 — e os passos de encerramento que os três pontos de saída repetiam. Daí a aresta `boot → lifecycle`: é o mesmo andaime de pipe espelhado mais `lifecycle.New`, e a ordem entre as peças importa.
++
++`boot` não importa `mcpsrv`: quem monta não decide como o host conversa. E não decide **quando** encerrar — `lifecycle.Shutdown` continua sendo chamada por `cmd/gobsidian`, com os passos que só quem serve conhece (`in-flight`, `half-close`, `close-conn`). É o que mantém a montagem testável sem levantar um processo.
+ 
+ ---
+ 
+ ## 3. Modelo de caminhos
+ 
+ ### 3.1 Caminho canônico
+ 
+ Todo caminho de nota é representado internamente por uma única forma, o **caminho canônico**:
+ 
+ - Relativo à raiz do cofre
+@@ -534,20 +536,24 @@ Não cobre `taskkill /F` nem `SIGKILL` — nada cobre, e não precisa: nesses ca
+ O mecanismo de rede de segurança, para o caso em que o host morre de forma que deixe o stdin do filho sem fechar — reparentamento, herança de handle por outro processo, comportamento anômalo do host.
+ 
+ ```
+ No startup: capturar os.Getppid()
+ A cada 5 s: verificar se o processo pai ainda existe E ainda é o mesmo processo
+ Se não: cancelar o context
+ ```
+ 
+ A verificação de identidade importa. PIDs são reutilizados. Verificar apenas existência produz falso negativo quando o PID do pai morto é reciclado por um processo novo. No Windows, isso se resolve comparando o *creation time* do processo além do PID.
+ 
++**Onde os três são ligados: `boot.VigiarHost`.** O monitor de §7.1 **consome** bytes, e o stdin que ele leria pertence ao JSON-RPC — ou, no processo-ponte, ao daemon do outro lado do socket. A saída é espelhar: um `io.Pipe`, um `mirrorReader` que copia o que lê para a ponta de escrita e **fecha** essa ponta quando a origem termina (`io.TeeReader` não serve: copia bytes, e EOF não é byte), e `lifecycle.New` observando a ponta de leitura. Quem serve lê do espelho. A ordem entre as três peças é o que faz o EOF do host chegar ao monitor, e ela estava escrita duas vezes — em `serveEmProcesso` e em `servePonteRemota`. `boot.VigiarHost` (Task 177) é a conta única: devolve o *context* que cancela e um `Vigia` com o `*lifecycle.Lifecycle` que diz por qual dos três mecanismos e o `Stdin` espelhado. O *context* vem **à parte**, e não como campo do `Vigia`, pela mesma razão que `lifecycle.New` já o devolvia assim: um `ctx` lido de um campo de struct não prova descender do *context* do chamador — a documentação do pacote `context` desaconselha, e `contextcheck` acusa. O daemon **não** usa `VigiarHost` — não tem host para vigiar (§7.5).
++
++`Vigia` e `Componentes` também produzem os passos de shutdown que os três pontos de saída repetiam: `PassoFecharEspelho()` (`close-pipe`, 500 ms) e `PassoWatcher()` (`watcher`, 500 ms). Os nomes e orçamentos são lidos pelo gate de órfãos e pelos logs. Os passos que **não** são compartilhados ficam onde estão, porque só quem serve os conhece: `in-flight` (3 s) em `serveEmProcesso`, `half-close` (2 s) e `close-conn` (500 ms) em `servePonteRemota`.
++
+ ### 7.4 Shutdown
+ 
+ ```
+ context cancelado
+   → parar de aceitar novas chamadas MCP
+   → aguardar chamadas em voo                       orçamento: 3 s
+   → fechar o watcher                               libera handles do sistema de arquivos
+   → fechar arquivos abertos
+   → persistir o índice em cache                    orçamento: 2 s, best-effort
+   → os.Exit(0)
+diff --git a/docs/ARMADILHAS.md b/docs/ARMADILHAS.md
+index c73ab25..e05d333 100644
+--- a/docs/ARMADILHAS.md
++++ b/docs/ARMADILHAS.md
+@@ -13,21 +13,22 @@ regra sem história é preferência, e preferência não merece espaço aqui.
+ - [Daemon e IPC](#daemon-e-ipc)
+ - [Medição e benchmark](#medição-e-benchmark)
+ - [Contratos de API](#contratos-de-api)
+ - [Ferramentas deste ambiente](#ferramentas-deste-ambiente)
+ 
+ ---
+ 
+ ## Ciclo de vida e encerramento
+ 
+ **`io.TeeReader` não propaga EOF.** Copia bytes; EOF não é byte. Usar
+-`mirrorReader`, que faz `dst.CloseWithError(err)`. Sem isso o monitor de stdin
++`mirrorReader` (`internal/boot/espelho.go`, montado por `boot.VigiarHost`), que
++faz `dst.CloseWithError(err)`. Sem isso o monitor de stdin
+ do lifecycle fica inerte e `lc.Wait()` só retorna por acidente. O espelho é
+ **auxiliar**: falha de escrita nele não pode virar erro da leitura principal —
+ mataria sessão saudável por motivo que o cliente não pode agir.
+ 
+ **Vigília do pai precisa de `exitTime`, não só creation time.** O Windows
+ mantém PID e creation time consultáveis muito tempo depois da morte do
+ processo. Comparar `(pid, created)` nunca detecta pai morto — deixou 5 de 5
+ órfãos no primeiro teste ponta a ponta. Em Unix, comparar o ppid capturado no
+ startup, não a constante 1: sob Docker+tini, systemd ou s6 o reaper não é PID 1.
+ 
+diff --git a/docs/ESTRUTURA.md b/docs/ESTRUTURA.md
+index 674cd17..dbd8e2a 100644
+--- a/docs/ESTRUTURA.md
++++ b/docs/ESTRUTURA.md
+@@ -143,26 +143,30 @@ gobsidian/
+ │   ├── text/
+ │   │   └── normalize.go          normalização de texto — ÚNICA conta usada por
+ │   │                             título, alias e chave de citante
+ │   │
+ │   ├── console/
+ │   │   ├── console.go            marcadores e cores da saída de CLI; decide sobre cor por destino
+ │   │   ├── cobra.go              template de ajuda realçado
+ │   │   ├── vt_windows.go         habilita terminal virtual (build tag windows)
+ │   │   └── vt_other.go           no-op documentado (build tag !windows)
+ │   │
+-│   ├── boot/                     a sequência de boot que serve e daemon
+-│   │   │                         compartilham; não importa mcpsrv nem lifecycle
++│   ├── boot/                     a sequência de boot e a vigília do host que
++│   │   │                         serve, ponte e daemon compartilham; não importa mcpsrv
+ │   │   ├── doc.go                por que o pacote existe e o que ele não decide
+ │   │   ├── indice.go             AbrirIndice: cache fresco ou construção, e grava
+ │   │   ├── busca.go              PrepararBusca: adota o cache, retoma ou constrói
+-│   │   └── montar.go             Montar: cofre, varredura, índices, watcher, Service
++│   │   ├── montar.go             Montar: cofre, varredura, índices, watcher, Service;
++│   │   │                         PassoWatcher (passo "watcher", 500 ms)
++│   │   ├── espelho.go            mirrorReader: espelha stdin e propaga o EOF fechando dst
++│   │   └── vigia.go              VigiarHost: pipe + espelho + lifecycle.New;
++│   │                             PassoFecharEspelho (passo "close-pipe", 500 ms)
+ │   │
+ │   ├── ipc/
+ │   │   ├── ipc.go                transporte local: socket, saudação, handshake
+ │   │   ├── ipc_windows.go        diretório de runtime e permissão (build tag windows)
+ │   │   └── ipc_unix.go           diretório de runtime e permissão 0600 (build tag !windows)
+ │   │
+ │   ├── daemon/
+ │   │   ├── daemon.go             laço de aceitação de N conexões sobre um índice
+ │   │   ├── log.go                caminho do log e as últimas linhas, para o doctor
+ │   │   ├── lock.go               corrida de inicialização: um daemon por cofre
+diff --git a/internal/boot/doc.go b/internal/boot/doc.go
+index 779ca39..308d07f 100644
+--- a/internal/boot/doc.go
++++ b/internal/boot/doc.go
+@@ -1,10 +1,17 @@
+ // Package boot monta o servidor: cofre, indice de metadados (do cache ou
+ // construido), indice de busca (adotado do cache, retomado ou construido),
+ // watcher e Service. Existe porque serve e daemon precisam da mesma
+ // montagem, e ela vivia em cmd/gobsidian, onde nenhum teste de pacote a
+ // alcancava. Os subcomandos de CLI nao passam por aqui: index, search e
+ // inspect montam o indice por conta propria, sem watcher e sem Service.
+ //
+-// Nao importa mcpsrv nem lifecycle: quem monta nao decide como o host
+-// conversa nem quando encerra.
++// Monta tambem a VIGILIA do host (VigiarHost) e os passos de encerramento
++// que os tres pontos de saida repetiam — o pipe espelhado mais lifecycle.New
++// em serve e na ponte, e os passos "close-pipe" e "watcher". Por isso importa
++// lifecycle: e o mesmo andaime, e a ordem entre as pecas importa.
++//
++// Nao importa mcpsrv: quem monta nao decide como o host conversa. E nao
++// decide QUANDO encerrar — lifecycle.Shutdown continua sendo chamada por
++// quem serve, com os passos que so ela conhece (in-flight, half-close,
++// close-conn).
+ package boot
+diff --git a/internal/boot/espelho.go b/internal/boot/espelho.go
+new file mode 100644
+index 0000000..074c4a9
+--- /dev/null
++++ b/internal/boot/espelho.go
+@@ -0,0 +1,44 @@
++package boot
++
++import "io"
++
++// mirrorDst e o subconjunto de *io.PipeWriter que mirrorReader usa. Extrair
++// para interface nao muda nada em producao — pw continua sendo um
++// *io.PipeWriter de verdade — mas deixa o teste trocar o espelho por um
++// dublê que conta tentativas de escrita. Sem isso nao ha como observar, de
++// fora, que a guarda !m.broken impediu uma segunda escrita: o retorno de
++// Read e o mesmo com ou sem a guarda, so o numero de chamadas ao espelho
++// difere.
++type mirrorDst interface {
++	io.Writer
++	CloseWithError(error) error
++}
++
++// mirrorReader espelha o que le para dst e, crucialmente, propaga o fim da
++// leitura fechando dst. E o que faz o EOF do host chegar ao monitor de stdin
++// do lifecycle — io.TeeReader nao serve aqui porque so copia bytes, e EOF nao
++// e um byte.
++type mirrorReader struct {
++	src    io.Reader
++	dst    mirrorDst
++	broken bool // espelho desistiu; a leitura principal segue intacta
++}
++
++func (m *mirrorReader) Read(p []byte) (int, error) {
++	n, err := m.src.Read(p)
++
++	// O espelho e auxiliar: existe so para o lifecycle enxergar o EOF. Se a
++	// escrita nele falhar, o JSON-RPC continua — devolver o erro da escrita
++	// no lugar do resultado da leitura injetaria uma falha inventada em uma
++	// sessao saudavel, e o cliente veria a conexao morrer sem motivo.
++	if n > 0 && !m.broken {
++		if _, werr := m.dst.Write(p[:n]); werr != nil {
++			m.broken = true
++		}
++	}
++
++	if err != nil {
++		_ = m.dst.CloseWithError(err)
++	}
++	return n, err
++}
+diff --git a/internal/boot/espelho_test.go b/internal/boot/espelho_test.go
+new file mode 100644
+index 0000000..7f5f313
+--- /dev/null
++++ b/internal/boot/espelho_test.go
+@@ -0,0 +1,226 @@
++package boot
++
++import (
++	"bytes"
++	"errors"
++	"io"
++	"testing"
++	"time"
++
++	"github.com/jonyd/gobsidian/internal/vaulttest"
++)
++
++// eofReader devolve os bytes de data, em quantas chamadas a Read forem
++// necessarias para o buffer do chamador, e so entao io.EOF. Ao contrario de
++// um copy-e-sent-incondicional, ele nao descarta o resto dos dados quando o
++// buffer do chamador e menor que len(data) — importante porque
++// TestMirrorReaderBrokenMirrorDoesNotPoisonRead depende de duas leituras
++// verem, cada uma, um pedaco diferente.
++type eofReader struct {
++	data []byte
++	pos  int
++}
++
++func (r *eofReader) Read(p []byte) (int, error) {
++	if r.pos >= len(r.data) {
++		return 0, io.EOF
++	}
++	n := copy(p, r.data[r.pos:])
++	r.pos += n
++	return n, nil
++}
++
++// chunkReader devolve uma fatia de data por chamada a Read, imitando uma
++// origem que entrega bytes em pedacos distintos (como um stdin real, em
++// leituras sucessivas) em vez de tudo de uma vez.
++type chunkReader struct {
++	chunks [][]byte
++	idx    int
++}
++
++func (r *chunkReader) Read(p []byte) (int, error) {
++	if r.idx >= len(r.chunks) {
++		return 0, io.EOF
++	}
++	n := copy(p, r.chunks[r.idx])
++	r.idx++
++	return n, nil
++}
++
++// spyDst implementa mirrorDst e conta quantas vezes Write foi chamado, para
++// que o teste do latch broken possa afirmar que uma segunda tentativa de
++// escrita NAO aconteceu — coisa que o valor de retorno de Read sozinho nao
++// expoe, porque e o mesmo com ou sem a guarda !m.broken.
++type spyDst struct {
++	writes int
++	fail   bool
++}
++
++func (s *spyDst) Write(p []byte) (int, error) {
++	s.writes++
++	if s.fail {
++		return 0, io.ErrClosedPipe
++	}
++	return len(p), nil
++}
++
++func (s *spyDst) CloseWithError(error) error { return nil }
++
++func TestMirrorReaderCopiesToMirror(t *testing.T) {
++	src := &eofReader{data: []byte("ola mundo")}
++	pr, pw := io.Pipe()
++	m := &mirrorReader{src: src, dst: pw}
++
++	// Fechar as duas pontas no fim do teste desbloqueia qualquer goroutine
++	// abaixo que ainda esteja presa em Read/Write caso o teste reprove pelo
++	// timeout: sem isso, uma mutacao que apaga a copia deixaria uma
++	// goroutine vazando ate o processo de teste inteiro terminar.
++	t.Cleanup(func() {
++		_ = pr.Close()
++		_ = pw.Close()
++	})
++
++	// A leitura da mirrorReader precisa acontecer concorrentemente com a
++	// leitura do lado espelhado: io.Pipe nao tem buffer, entao o Write
++	// dentro de Read bloqueia ate alguem ler do outro lado.
++	type readResult struct {
++		n   int
++		err error
++	}
++	readDone := make(chan readResult, 1)
++	buf := make([]byte, 64)
++	go func() {
++		n, err := m.Read(buf)
++		readDone <- readResult{n, err}
++	}()
++
++	mirrored := make([]byte, len("ola mundo"))
++	mirrorDone := make(chan error, 1)
++	go func() {
++		_, err := io.ReadFull(pr, mirrored)
++		mirrorDone <- err
++	}()
++
++	// Acha 1: sem limite de tempo aqui, uma mutacao que apaga o bloco de
++	// escrita no espelho pendura o io.ReadFull para sempre e o "go test
++	// -race ./..." do projeto (sem -timeout) so reprova depois de 10
++	// minutos, derrubando o binario do pacote inteiro com um dump de
++	// goroutines em vez de uma falha nomeada.
++	select {
++	case err := <-mirrorDone:
++		if err != nil {
++			t.Fatalf("leitura do espelho falhou: %v", err)
++		}
++	case <-time.After(vaulttest.Prazo):
++		t.Fatalf("leitura do espelho nao chegou em %s: mirrorReader parou de copiar para o espelho", vaulttest.Prazo)
++	}
++
++	var res readResult
++	select {
++	case res = <-readDone:
++	case <-time.After(vaulttest.Prazo):
++		t.Fatalf("Read da origem nao retornou em %s", vaulttest.Prazo)
++	}
++
++	if res.err != nil {
++		t.Fatalf("Read da origem devolveu erro inesperado: %v", res.err)
++	}
++	if got := string(buf[:res.n]); got != "ola mundo" {
++		t.Fatalf("Read devolveu %q, esperado %q", got, "ola mundo")
++	}
++	if !bytes.Equal(mirrored, []byte("ola mundo")) {
++		t.Fatalf("espelho recebeu %q, esperado %q", mirrored, "ola mundo")
++	}
++}
++
++func TestMirrorReaderPropagatesEOF(t *testing.T) {
++	src := &eofReader{} // origem ja no fim: nenhum dado, pos 0 >= len(data) 0
++	pr, pw := io.Pipe()
++	m := &mirrorReader{src: src, dst: pw}
++
++	t.Cleanup(func() {
++		_ = pr.Close()
++		_ = pw.Close()
++	})
++
++	n, err := m.Read(make([]byte, 8))
++	if n != 0 {
++		t.Fatalf("Read devolveu %d bytes no EOF, esperado 0", n)
++	}
++	if !errors.Is(err, io.EOF) {
++		t.Fatalf("Read devolveu err=%v, esperado io.EOF", err)
++	}
++
++	// E o comportamento que io.TeeReader nao tem: sem o CloseWithError do
++	// mirrorReader, o lado de leitura do pipe nunca veria o fim, e o monitor
++	// de stdin do lifecycle ficaria inerte esperando um EOF que nunca chega.
++	//
++	// Acha 1: a leitura abaixo roda numa goroutine com prazo, nao inline —
++	// sem CloseWithError ela pendura, e sem o limite de tempo essa pendura
++	// so aparece depois do timeout padrao de 10 minutos do "go test
++	// -race ./..." sem -timeout, matando o binario do pacote inteiro.
++	type readResult struct {
++		n   int
++		err error
++	}
++	rc := make(chan readResult, 1)
++	go func() {
++		n, err := pr.Read(make([]byte, 8))
++		rc <- readResult{n, err}
++	}()
++
++	select {
++	case res := <-rc:
++		if !errors.Is(res.err, io.EOF) {
++			t.Fatalf("lado de leitura do pipe devolveu err=%v, esperado io.EOF", res.err)
++		}
++	case <-time.After(vaulttest.Prazo):
++		t.Fatalf("lado de leitura do pipe nao recebeu EOF em %s: mirrorReader nao fechou dst", vaulttest.Prazo)
++	}
++}
++
++func TestMirrorReaderBrokenMirrorDoesNotPoisonRead(t *testing.T) {
++	// Duas leituras da origem, em dois pedacos: a primeira aciona o latch
++	// broken (o espelho falha), a segunda precisa provar que o latch
++	// realmente impediu uma nova tentativa de escrita — nao so que o campo
++	// ficou true.
++	src := &chunkReader{chunks: [][]byte{[]byte("dados"), []byte("mais")}}
++	dst := &spyDst{fail: true}
++	m := &mirrorReader{src: src, dst: dst}
++
++	n, err := m.Read(make([]byte, 64))
++	if err != nil {
++		t.Fatalf("Read devolveu err=%v, esperado nil (erro e da origem, nao do espelho)", err)
++	}
++	if n != len("dados") {
++		t.Fatalf("Read devolveu n=%d, esperado %d", n, len("dados"))
++	}
++	if !m.broken {
++		t.Fatal("mirrorReader.broken deveria estar true apos escrita falhar no espelho")
++	}
++	if dst.writes != 1 {
++		t.Fatalf("espelho recebeu %d tentativas de escrita apos a primeira leitura, esperado 1", dst.writes)
++	}
++
++	// Segunda leitura: dados novos chegam (n > 0), mas o espelho ja esta
++	// broken. Se a guarda !m.broken fosse removida, esta leitura tentaria
++	// escrever de novo no espelho e dst.writes subiria para 2 — e isso, nao
++	// o valor de retorno de Read, e o que este teste trava.
++	n2, err2 := m.Read(make([]byte, 64))
++	if err2 != nil {
++		t.Fatalf("segunda leitura devolveu err=%v, esperado nil", err2)
++	}
++	if n2 != len("mais") {
++		t.Fatalf("segunda leitura devolveu n=%d, esperado %d", n2, len("mais"))
++	}
++	if dst.writes != 1 {
++		t.Fatalf("espelho recebeu %d tentativas de escrita apos ficar broken, esperado continuar em 1", dst.writes)
++	}
++
++	// Terceira leitura: a origem chegou ao fim. Confirma que o espelho
++	// quebrado nao deixou a leitura principal travada nem incorreta.
++	n3, err3 := m.Read(make([]byte, 64))
++	if n3 != 0 || !errors.Is(err3, io.EOF) {
++		t.Fatalf("terceira leitura devolveu (%d, %v), esperado (0, io.EOF)", n3, err3)
++	}
++}
+diff --git a/internal/boot/montar.go b/internal/boot/montar.go
+index a998e8a..41ab70d 100644
+--- a/internal/boot/montar.go
++++ b/internal/boot/montar.go
+@@ -1,20 +1,21 @@
+ package boot
+ 
+ import (
+ 	"context"
+ 	"log/slog"
+ 	"sync"
+ 	"time"
+ 
+ 	"github.com/jonyd/gobsidian/internal/config"
+ 	"github.com/jonyd/gobsidian/internal/index"
++	"github.com/jonyd/gobsidian/internal/lifecycle"
+ 	"github.com/jonyd/gobsidian/internal/search"
+ 	"github.com/jonyd/gobsidian/internal/service"
+ 	"github.com/jonyd/gobsidian/internal/vault"
+ 	"github.com/jonyd/gobsidian/internal/watcher"
+ )
+ 
+ // Componentes e tudo que serve e daemon compartilham depois de montar: o
+ // cofre, os dois indices, o servico de dominio pronto para um *mcpsrv.Server,
+ // o watcher (para Stats() e para ser fechado no encerramento) e o WaitGroup
+ // que acompanha as goroutines de fundo (construcao do indice de busca e o loop
+@@ -26,20 +27,31 @@ type Componentes struct {
+ 	Inverted *search.Inverted
+ 	Watcher  *watcher.Watcher
+ 	Service  *service.Service
+ 
+ 	espera sync.WaitGroup
+ }
+ 
+ // Esperar bloqueia ate as goroutines de fundo (busca, watcher) terminarem.
+ func (c *Componentes) Esperar() { c.espera.Wait() }
+ 
++// PassoWatcher fecha o watcher; 500 ms de orcamento.
++//
++// Os tres pontos de saida do processo (serveEmProcesso, servePonteRemota e
++// runDaemon) escreviam este mesmo passo a mao. O nome "watcher" e o
++// orcamento sao lidos pelo gate de orfaos e pelos logs: nao mudam.
++func (c *Componentes) PassoWatcher() lifecycle.Step {
++	return lifecycle.Step{Name: "watcher", Budget: 500 * time.Millisecond, Fn: func(context.Context) error {
++		return c.Watcher.Close()
++	}}
++}
++
+ // Montar monta o indice de metadados, o watcher e o indice de busca (em
+ // segundo plano) para cfg.VaultPath, e devolve o servico de dominio pronto
+ // para ser exposto por um *mcpsrv.Server -- uma sessao (serveEmProcesso) ou N
+ // sessoes sobre um socket (o daemon).
+ //
+ // As duas precisam da MESMA sequencia de boot: cache do indice de metadados,
+ // varredura de temporarios, watcher.New ANTES da construcao do indice
+ // invertido, e o carregamento em segundo plano do cache de busca. Uma funcao
+ // so evita a classe de divergencia que o CLAUDE.md registra para "chave de
+ // mapa calculada em dois lugares": aqui seria "sequencia de boot construida em
+diff --git a/internal/boot/vigia.go b/internal/boot/vigia.go
+new file mode 100644
+index 0000000..beade39
+--- /dev/null
++++ b/internal/boot/vigia.go
+@@ -0,0 +1,62 @@
++package boot
++
++import (
++	"context"
++	"io"
++	"log/slog"
++	"time"
++
++	"github.com/jonyd/gobsidian/internal/lifecycle"
++)
++
++// Vigia e o que o processo precisa para saber quando o host foi embora: o
++// Lifecycle que explica por que o encerramento foi pedido, e o stdin
++// espelhado que o servidor le enquanto o lifecycle vigia o EOF. O context
++// que cancela NAO mora aqui — VigiarHost o devolve a parte, como
++// lifecycle.New faz, porque context em campo de struct e o que a
++// documentacao do proprio pacote desaconselha e o que contextcheck acusa:
++// quem recebe `ctx` de um campo nao consegue provar que ele descende do
++// context do chamador.
++//
++// O andaime que ele guarda — pipe, mirrorReader, lifecycle.New — estava
++// escrito duas vezes, em serveEmProcesso e em servePonteRemota, e a ORDEM
++// entre as tres pecas e o que faz o EOF do host chegar ao monitor de stdin:
++// o mirrorReader tem de existir antes de lifecycle.New receber a ponta de
++// leitura do pipe. Duas copias de uma ordem que importa e uma copia que vai
++// ficar para tras.
++type Vigia struct {
++	LC    *lifecycle.Lifecycle
++	Stdin io.Reader
++	pw    *io.PipeWriter
++}
++
++// VigiarHost liga a vigilia e devolve o context que EOF em stdin ou morte do
++// PID pai cancelam, junto com o Vigia que o explica e alimenta.
++//
++// O monitor de stdin do lifecycle CONSOME bytes, e o stdin aqui pertence ao
++// JSON-RPC (ou, na ponte, ao daemon do outro lado do socket). A saida e
++// espelhar: quem serve le de Stdin, e o lifecycle observa so a copia.
++func VigiarHost(parent context.Context, stdin io.Reader, log *slog.Logger) (context.Context, *Vigia) {
++	pr, pw := io.Pipe()
++	ctx, lc := lifecycle.New(parent, lifecycle.Options{
++		Stdin:     pr,
++		ParentPID: lifecycle.ParentPID(),
++		Logger:    log,
++	})
++
++	return ctx, &Vigia{
++		LC:    lc,
++		Stdin: &mirrorReader{src: stdin, dst: pw},
++		pw:    pw,
++	}
++}
++
++// PassoFecharEspelho fecha o pipe para que o leitor de stdin do servidor
++// receba EOF; 500 ms de orcamento.
++//
++// O nome "close-pipe" e lido pelo gate de orfaos e pelos logs: nao muda.
++func (v *Vigia) PassoFecharEspelho() lifecycle.Step {
++	return lifecycle.Step{Name: "close-pipe", Budget: 500 * time.Millisecond, Fn: func(context.Context) error {
++		return v.pw.Close()
++	}}
++}
+diff --git a/internal/boot/vigia_test.go b/internal/boot/vigia_test.go
+new file mode 100644
+index 0000000..f49dda4
+--- /dev/null
++++ b/internal/boot/vigia_test.go
+@@ -0,0 +1,37 @@
++package boot_test
++
++import (
++	"context"
++	"io"
++	"testing"
++	"time"
++
++	"github.com/jonyd/gobsidian/internal/boot"
++	"github.com/jonyd/gobsidian/internal/vaulttest"
++)
++
++func TestVigiarHostEOFDoStdinCancelaCtx(t *testing.T) {
++	pr, pw := io.Pipe()
++	ctx, v := boot.VigiarHost(context.Background(), pr, logSilencioso())
++	// O servidor leria v.Stdin; aqui basta drenar para o espelho nao travar.
++	go func() { _, _ = io.Copy(io.Discard, v.Stdin) }()
++	if _, err := pw.Write([]byte("{}\n")); err != nil {
++		t.Fatal(err)
++	}
++	_ = pw.Close()
++	select {
++	case <-ctx.Done():
++	case <-time.After(vaulttest.Prazo):
++		t.Fatal("EOF em stdin nao cancelou o ctx")
++	}
++	if r := v.LC.Reason(); r != "stdin-eof" {
++		t.Fatalf("Reason = %q, quero \"stdin-eof\"", r)
++	}
++	passo := v.PassoFecharEspelho()
++	if passo.Name != "close-pipe" || passo.Budget != 500*time.Millisecond {
++		t.Fatalf("PassoFecharEspelho = {%q %v}", passo.Name, passo.Budget)
++	}
++	if err := passo.Fn(context.Background()); err != nil {
++		t.Fatalf("fechar o espelho: %v", err)
++	}
++}

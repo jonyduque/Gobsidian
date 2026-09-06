@@ -1,0 +1,69 @@
+
+########## cenario: stdin-eof ##########
+[...] 100 ciclos de encerramento abrupto (host com pipe real em stdin)
+[i] logs e PIDs em C:\Users\jonyd\AppData\Local\Temp\gobsidian_orphan_15ba4b8311f8431385d4c62c7176c548
+[i] 10/100
+[i] 20/100
+[i] 30/100
+[i] 40/100
+[i] 50/100
+[i] 60/100
+[i] 70/100
+[i] 80/100
+[i] 90/100
+[i] 100/100
+[i] motivos observados nos logs de debug:
+    stdin-eof: 100x
+[OK] Nenhum orfao em 100 ciclos
+
+########## cenario: parent-death ##########
+[...] 100 ciclos de encerramento abrupto (host com pipe real em stdin)
+[i] logs e PIDs em C:\Users\jonyd\AppData\Local\Temp\gobsidian_orphan_aa792ee52f664931bad831b79fbde70b
+[i] 10/100
+[i] 20/100
+[i] 30/100
+[i] 40/100
+[i] 50/100
+[i] 60/100
+[i] 70/100
+[i] 80/100
+[i] 90/100
+[i] 100/100
+[i] motivos observados nos logs de debug:
+    parent-gone: 100x
+[OK] Nenhum orfao em 100 ciclos
+
+########## cenario: signal ##########
+[...] 100 ciclos de encerramento abrupto (host com pipe real em stdin)
+[i] logs e PIDs em C:\Users\jonyd\AppData\Local\Temp\gobsidian_orphan_628cfc5d7adb46b897916347d1821a89
+[i] 10/100
+[i] 20/100
+[i] 30/100
+[i] 40/100
+[i] 50/100
+[i] 60/100
+[i] 70/100
+[i] 80/100
+[i] 90/100
+[i] 100/100
+[i] motivos observados nos logs de debug:
+    signal: 100x
+[OK] Nenhum orfao em 100 ciclos
+
+########## cenario: daemon-idle ##########
+[...] 100 ciclos de ociosidade do daemon (sem cliente conectado, sem pai vigiavel)
+[i] logs em C:\Users\jonyd\AppData\Local\Temp\gobsidian_orphan_daemonidle_28814cf0bc4346f79c69f6a45897e822
+[i] encerrando 1 daemon(s) deixado(s) pelos cenarios anteriores neste cofre
+[i] 10/100
+[i] 20/100
+[i] 30/100
+[i] 40/100
+[i] 50/100
+[i] 60/100
+[i] 70/100
+[i] 80/100
+[i] 90/100
+[i] 100/100
+[OK] Nenhum daemon orfao em 100 ciclos -- todos sairam por ociosidade (reason=idle) apos a unica ponte ser morta
+
+[OK] Nenhum orfao em 100 ciclos nos quatro mecanismos: stdin-eof, parent-death, signal, daemon-idle
