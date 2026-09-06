@@ -1,0 +1,7 @@
+feat(service)!: vault_search returns results only
+
+BREAKING CHANGE: the hits field, a byte-for-byte copy of results that
+doubled the payload, is gone. Read results.
+
+Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01P5wkw6PAdBFzF3uB1w1jNj

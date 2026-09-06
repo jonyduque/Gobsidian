@@ -1,0 +1,18 @@
+fix(service): note_metadata rejects unknown include values
+
+Any string in MetadataRequest.Include was silently accepted and simply
+ignored if it did not match a known field. A typo like "headers" for
+"headings" returned successfully with the field missing, and the model
+had no way to tell "no such field" from "field empty" from "typo".
+
+camposDeMetadata now names the seven accepted values once, and
+ValidarEnum rejects anything else with INVALID_ARGUMENT. The default
+set (frontmatter, tags, headings, links, backlinks) moves into
+incluidosPorPadrao alongside it, so the two lists that have to agree
+live next to each other instead of being duplicated inline. The
+mcpsrv jsonschema tag for note_metadata's include parameter now names
+the same seven values in its description, since jsonschema-go emits
+tag text as description only — there is no enum to keep in sync.
+
+Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01P5wkw6PAdBFzF3uB1w1jNj

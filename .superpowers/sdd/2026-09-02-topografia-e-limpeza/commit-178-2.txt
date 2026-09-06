@@ -1,0 +1,28 @@
+docs(tools): describe the schema the server actually serves; limits and enums are enforced server-side
+
+jsonschema-go v0.4.2 emits a tag's jsonschema:"..." text as description
+only. Every "minimum", "maximum", "enum" and "default" key shown in
+TOOLS.md's JSON blocks (except note_read, hand-patched separately) was
+never part of what the host receives, and several of the numbers it
+implied were also unverified.
+
+A new note at the top of the contracts section says this plainly, and
+each minimum/maximum key is replaced with prose stating what the
+server does at the boundary: clamps (vault_search limit/snippet_chars,
+note_list/link_graph limit, link_graph depth, note_outline
+max_candidates), rejects (note_read offset, note_metadata include, and
+the six ValidarEnum-backed enums), or — for three heading_level
+parameters — does neither. note_read's heading_level is used as an
+unchecked equality filter; note_append's builds a heading line with an
+unchecked '#' count; note_patch's is accepted by the schema and never
+read at all, a dead field masked by check_tool_params' documented
+level-2 blind spot for same-named fields across structs
+(AppendNoteRequest.HeadingLevel is read, so PatchNoteRequest's passes).
+Recorded as docs/SUGESTOES.md B19; not fixed here, since this commit
+is docs-only.
+
+Also: the resources listing limit is a hardcoded 200 (resources.go:66),
+not a configurable default as the previous wording implied.
+
+Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01P5wkw6PAdBFzF3uB1w1jNj

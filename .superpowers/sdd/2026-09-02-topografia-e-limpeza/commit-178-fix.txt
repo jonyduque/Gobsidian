@@ -1,0 +1,9 @@
+test(mcpsrv): the include schema must name exactly the values the service accepts [sem-doc]
+
+CamposDeMetadata (internal/service) and the jsonschema tag of
+noteMetadataInput.Include (internal/mcpsrv) listed the same seven values with
+nothing keeping them in sync; a new test reads the tag via reflection and
+fails if either side gains or loses a value the other does not have.
+
+Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01P5wkw6PAdBFzF3uB1w1jNj

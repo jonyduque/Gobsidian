@@ -1,0 +1,856 @@
+9803b01 feat(service)!: vault_search returns results only
+b6cf8be docs(tools): describe the schema the server actually serves; limits and enums are enforced server-side
+364a3df fix(service): note_metadata rejects unknown include values
+
+ docs/ESTADO.md                            |  2 +-
+ docs/SUGESTOES.md                         | 18 ++++++++++-
+ docs/TOOLS.md                             | 34 ++++++++++----------
+ internal/mcpsrv/filtro_data_test.go       |  8 +----
+ internal/mcpsrv/search_sem_hits_test.go   | 39 +++++++++++++++++++++++
+ internal/mcpsrv/tools_read.go             |  2 +-
+ internal/service/graph.go                 | 30 +++++++++++++----
+ internal/service/match_offset_test.go     | 14 ++++----
+ internal/service/max_results_test.go      | 11 +++----
+ internal/service/metadata_include_test.go | 53 +++++++++++++++++++++++++++++++
+ internal/service/search.go                |  4 ---
+ 11 files changed, 162 insertions(+), 53 deletions(-)
+
+diff --git a/docs/ESTADO.md b/docs/ESTADO.md
+index 2381500..895fc42 100644
+--- a/docs/ESTADO.md
++++ b/docs/ESTADO.md
+@@ -150,21 +150,21 @@ saída bruta: `%LOCALAPPDATA%\gobsidian-bench\2026-09-02\{antes,depois}172_{inde
+ e `.txt`.
+ 
+ Fatos medidos sem benchmark:
+ 
+ - `vault_5000`: 112 tags distintas, 0 hierárquicas. Cofres reais do dono: **não medido** neste plano.
+ - Cobertura por função (`go test -coverprofile`, 2026-09-02): `construirServico` 6,5 %, `carregarIndiceDoCache` 0 %, `prepararIndiceDeBusca` 0 %, `runServe` 0 %, `serveEmProcesso` 20,6 %, `buildInvertedIndex` 60,7 %; `WriteAtomic` 71,1 %, `SweepStaleTempFiles` 62,5 %, `CleanStaleTempFiles` 0 %; `SaveIndexCache` 64,5 %, `SaveInvertedCache` 56,0 %; `Tags` 91,7 %, `coletarLocked` 87,6 %, `tagListHierarchical` 94,1 %, `LinkGraph` 78,1 %; `Search` 96 %; `mcpsrv.Server.Serve` 0 %, `Close` 0 %; `doctor.checkDaemonLog` 44,4 %, `checkLocksDeDaemon` 58,6 %.
+ - Tempo de suíte (`go test ./... -count=1 -cover`): service 51,7 s, writer 32,5 s, search 31,1 s, watcher 26,2 s, index 22,3 s, vault 22,0 s, doctor 19,4 s, mcpsrv 17,0 s.
+ - Raio de explosão de `service.Index` (gopls references, medido antes da Task 173): `Get` 13, `ResolvePath` 8, `Backlinks` 5, `List` 4, `NotePaths` 2, `TotalSize`/`Tags`/`NoteCount`/`Generation`/`AssetCount`/`AliasCollisions` 1 cada, `Paths` **0**. `service.New` recebe `*index.Index`; a interface foi removida em 2026-09 (Task 173) — tinha uma implementação e nenhum fake.
+ - Raio de `writer.WriteAtomic` (medido em 2026-09-02, antes das Tasks 171-172): 6 sítios em `internal/service/write.go` (`:149,:248,:378,:619,:751,:832`) + 3 arquivos de teste; `SweepStaleTempFiles`: 1 sítio (`cmd/gobsidian/servico.go:78`). Depois das Tasks 171-172, `writer.WriteAtomic` e `writer.SweepStaleTempFiles` não existem mais — os chamadores usam `vault.WriteAtomic`/`vault.SweepStaleTempFiles` diretamente.
+ - Prefixo `.gobsidian-tmp-` em 4 literais (medido em 2026-09-02, antes das Tasks 171-172): `writer/atomic.go:14` (constante), `vault/walk.go:74`, `search/persist.go:87`, `index/persist.go:124`. Depois das Tasks 171-172, o literal existe numa só linha: `vault/atomic.go:14`.
+-- `hits` × `results`: `search --json --limit 200 --vault vault_5000 "execucao"` (binário de 6c5d1f1): `hits` e `results` são 200 itens e **byte a byte iguais** (`hits == results` → `True` em Python). JSON compacto: 195 481 bytes com `hits`, 97 787 sem — **50,0 % do payload é a cópia**. Arquivo indentado: 216 304 bytes.
++- `hits` × `results`: `search --json --limit 200 --vault vault_5000 "execucao"` (binário de 6c5d1f1): `hits` e `results` são 200 itens e **byte a byte iguais** (`hits == results` → `True` em Python). JSON compacto: 195 481 bytes com `hits`, 97 787 sem — **50,0 % do payload é a cópia**. Arquivo indentado: 216 304 bytes. **Depois (Task 179, `hits` removido, commit `b6cf8be`+):** mesmo comando, mais `--max-results 200` (sem a flag, o teto administrativo `MaxResults` — padrão 50 desde a Task 168 — corta a página a 50 itens antes que a comparação faça sentido) e `--cache-dir` novo: 200 itens em `results`, sem `hits`. Arquivo indentado: **108 204 bytes**. JSON compacto: **95 969 bytes** (medido com o mesmo one-liner Python; a pequena diferença ante os 97 787 esperados vem do conteúdo do corpus — snippets e `modified` variam com o estado atual do `vault_5000`, não com o formato).
+ - CLI a frio × `serve` com cache: cofre `vault_5000`, mesmo binário. `search` a frio (Build + `inv.Update` serial por nota): **10 520 / 10 819 / 11 046 ms** de parede em 3 execuções. `inspect` a frio (só Build): **770 / 767 / 739 ms**. `serve` em processo (`GOBSIDIAN_NO_DAEMON=1 --eager-search`) com cache quente, 5 execuções: `index_ms` **101–123**, índice de busca `duracao_ms` **13–20**, parede boot→saída **475–528 ms**. Ou seja: a CLI de busca paga ~10 s que o `serve` não paga; adotar o cache na CLI (Task 175) tem teto de ganho medido, não estimado.
+ - Task 175, `search` reaproveitando `boot.AbrirIndice`/`boot.PrepararBusca` como o `serve`: cofre `vault_5000`, `--json --limit 200 "execucao"`, 3 execuções frias + 3 quentes por binário (`Measure-Command`, `TotalMilliseconds`). **Antes** (commit `ebf29ad`, sem `--cache-dir`, constrói tudo em memória sempre): frias **8338,6 / 1687,0 / 1631,9 ms**, "quentes" (mesmo binário, sem cache — repetição idêntica) **1700,4 / 1631,0 / 1597,7 ms**. **Depois**: frias (`--cache-dir` novo, apagado antes de cada uma) **1905,6 / 1921,2 / 1796,7 ms**; quentes (mesmo diretório de cache) **234,7 / 214,0 / 190,2 ms**. A quente do depois fica bem abaixo de 1/5 da fria do depois (1/5 de ~1800–1920 ms é ~360–384 ms; medi 190–235 ms). Os números não batem com a faixa do M4 acima (10 520–11 046 ms de "antes", 475–528 ms de `serve` quente) — a máquina/estado de disco nesta rodada não é o mesmo; a primeira chamada "antes" (8338,6 ms) sugere cache de disco do SO ainda frio nela e já quente nas cinco seguintes. Binário `antes`: worktree Git separado no commit base, sem tocar a árvore principal (`git worktree add --detach`).
+ 
+ ---
+ 
+ ## Decisões fechadas que não se re-litigam sem dado novo
+ 
+ **O RNF-30 mudou de redação, não de intenção** (Task 90, autorizado pelo dono em
+ 2026-08-05). Era "nenhum socket"; é "nenhum socket que saia da máquina".
+ `tools/netcheck` aceita `net.Dial`/`net.Listen` **apenas com a rede na constante
+diff --git a/docs/SUGESTOES.md b/docs/SUGESTOES.md
+index e549c6b..b70385f 100644
+--- a/docs/SUGESTOES.md
++++ b/docs/SUGESTOES.md
+@@ -493,20 +493,36 @@ não fazer sem ele. Detalhe no plano, Fase 2.4.
+   ("moveu"="não havia nada"); ramo `v==nil` faz `Stat` de caminho RELATIVO contra o
+   CWD (`update.go:489-492,510-516`). Inalcançável hoje pelos chamadores atuais.
+   CONFIRMADO (latente).
+ - **B17** Dry-run engole erro de leitura (`fromRaw, _ :=` em `write.go:514`) — diff
+   vazio apresentado como resultado. CONFIRMADO.
+ - **B18** Nota documental: `internal/ipc` e `internal/daemon` importam `net` — conforme
+   a RNF-30 reformulada (Task 90: "nenhum socket que saia da máquina"; gate
+   `tools/netcheck` com `"unix"` literal cumprido), mas destoante da redação antiga da
+   regra que proíbe `net` sob `internal/`. Alinhar o texto para a próxima revisão não
+   apontar falsa violação. CONFIRMADO (fato; prevalência é decisão do dono).
++- **B19** `heading_level` (schema `minimum: 1, maximum: 6`) não tem a faixa aplicada em
++  três tools, em graus diferentes: `note_read` (`read.go:276,308,332`) usa o valor como
++  filtro de igualdade sem validar a faixa — fora dela simplesmente não casa nenhum
++  heading e a chamada cai em `HEADING_NOT_FOUND`; `note_append` (`write.go:244-246`) usa
++  o valor sem teto para construir a linha do heading criado (`strings.Repeat("#",
++  level)`), então um valor acima de 6 produz um heading que o Markdown não reconhece
++  como tal; `note_patch` (`PatchNoteRequest.HeadingLevel`, `write.go:80`) é o pior caso —
++  o campo é aceito pelo schema e **nunca lido** em `PatchNote` (`write.go:268-385`), que
++  resolve o heading só por `req.Heading` via `writer.FindHeading`. `scripts/check_tool_params.ps1`
++  não pega o terceiro caso: é exatamente a limitação de nível 2 que o próprio script
++  documenta no cabeçalho — `AppendNoteRequest.HeadingLevel` (lido) e
++  `PatchNoteRequest.HeadingLevel` (não lido) têm o mesmo nome de campo, e a checagem por
++  `.HeadingLevel` em qualquer lugar de `internal/` conta a leitura de um pelo outro.
++  Achado durante a auditoria de schema da Task 178 (2026-09-06); documentado em
++  `docs/TOOLS.md` nas três tools. CONFIRMADO (mecanismo e código lidos; não corrigido
++  nesta tarefa, que é `docs:`).
+ 
+ ---
+ 
+ ## Oportunidades maiores (decisão de arquitetura; da revisão de 2026-08-15, ainda abertas)
+ 
+ Registradas sem re-análise profunda nesta rodada — a revisão anterior as detalha com
+ código e trade-offs (`docs/REVISAO-2026-08-15.md`):
+ 
+ 1. **BM25 em espaço de IDs densos** (item 36): usa o `baseSoA` que já atribui IDs
+    int32; subsume P1–P3 de brinde e tira milhares de mapas do grafo do GC por consulta.
+@@ -1362,21 +1378,21 @@ deixa a janela aberta exatamente no commit que a usa.
+ 
+ ---
+ 
+ ## Decisões fechadas em 2026-08-25 (dono do projeto) — não re-litigar
+ 
+ As nove pendências que este relatório listava como bloqueantes foram decididas. O que
+ está aqui é o contrato; divergir dele exige dado novo, não preferência.
+ 
+ | # | Decisão | O que isso manda fazer |
+ |---|---|---|
+-| **P5** | Remover `Hits`; `results` fica | Apagar o campo `Hits` de `SearchResponse` (`service/search.go:97`) e as três atribuições (`:176,220,315,338,370`). Atualizar `TOOLS.md:62`, que hoje diz *"contendo `results` (e `hits`)"*. Grep em goldens e CLI antes — reprovar a suíte por um campo que ninguém lê seria custo sem ganho. |
++| **P5** | Remover `Hits`; `results` fica | Apagar o campo `Hits` de `SearchResponse` (`service/search.go:97`) e as três atribuições (`:176,220,315,338,370`). Atualizar `TOOLS.md:62`, que hoje diz *"contendo `results` (e `hits`)"*. Grep em goldens e CLI antes — reprovar a suíte por um campo que ninguém lê seria custo sem ganho. — **feito em 2026-09 (Task 179)** |
+ | **C2** | Flag agora, `os.Root` depois | **(F)** `--follow-symlinks`, padrão **recusa**, com o skip visível via `RecordSkip`/`doctor` — o usuário recebe a informação em vez de a nota sumir. **(L)** migrar `Open`/`ReadRange`/`ReadAll` (`vault.go:114,124,163`), `WriteAtomic` e o sweep para `os.OpenRoot` como tarefa de arquitetura própria, com AD-10 e medição do custo de syscall no boot. Não fazer (L) dentro da tarefa de (F). |
+ | **M15** | Não mexer; documentar a limitação | A tolerância de gap em bytes está **recusada**: trocaria falso-negativo silencioso por falso-positivo silencioso, e o próprio plano admite que não dá para distinguir sem re-tokenizar. Registrar em `TOOLS.md` que frase exata casa adjacência por byte e não atravessa pontuação nem CRLF. O ordinal de token (Oportunidade 2) segue aberto como trabalho estrutural. |
+ | **Oport. 1** | Medir antes de decidir | Baseline + perfil de alocação do caminho BM25, para saber que fração do custo de `vault_search` está nos mapas que os IDs densos eliminariam. **P1, P2 e P3 ficam congelados até o número existir** — fazê-los antes é arriscar jogar os três fora. |
+ | **A6** | Orçamento no primeiro chamador | Porta `chan struct{}` no lugar do mutex de `cargaUnica`; concorrentes fazem `select` em `ctx.Done()`; o primeiro chamador recebe `INDEX_BUILDING` com `Retryable` após orçamento em vez de bloquear minutos. Exige desacoplar `f()` da vida do primeiro chamador — goroutine dona da carga. Preservar a retentativa pós-falha, que já é testada. |
+ | **B7** | Fail-open **instrumentado** | Manter `return false` em erro de `GetFileAttributes` (`cloud_windows.go:23-26`), mas com contador e log por motivo. A política definitiva se decide com o número: hoje ninguém sabe se o ramo dispara uma vez por ano ou mil vezes por boot, e sem isso a escolha é palpite. |
+ | **M17 + B9** | `--label`, com fallback para o basename | Uma decisão só para os dois itens. `instructions` e `vault_info` usam o rótulo; sem flag, `filepath.Base(vaultPath)`. **Caminho absoluto nunca vai no fio** — nem no `instructions`, nem na `vault_info`, nem em mensagem de erro host-facing (B9); absoluto só no `slog`. | <!-- check-doc-refs: ignore vault_info -- tool PROPOSTA pelo M17; a ausencia dela e o achado -->
+ | **Daemon** | Medir o cenário real antes | Rodar N cofres × M sessões na configuração atual antes de considerar (a), (b) ou (c). As decisões D-M7-* seguem fechadas até o dado existir. |
+ | **B18** | Não era decisão | A redação vigente já estava em `PRD.md:265`, `ARCHITECTURE.md:654` e `OPERACAO.md:205`, e o `tools/netcheck` já a implementa. Quem divergia era o `CLAUDE.md` e o `AGENTS.md`, **corrigidos em 2026-08-25**. |
+ 
+ Consequência de acoplamento: com M15 decidido por (c), o bump de `CacheFormatVersion`
+diff --git a/docs/TOOLS.md b/docs/TOOLS.md
+index dbbe75a..1bc0833 100644
+--- a/docs/TOOLS.md
++++ b/docs/TOOLS.md
+@@ -3,21 +3,21 @@
+ Contrato de cada *tool*. Schemas em JSON Schema, como declarados ao host.
+ 
+ ---
+ 
+ ## Convenções gerais
+ 
+ **Caminhos.** Todo parâmetro `path` é relativo à raiz do cofre, com separador `/`, incluindo a extensão `.md`. Exemplo: `Civil/PONTO 03.md`. Caminhos absolutos são rejeitados. Travessia para fora do cofre é rejeitada.
+ 
+ **Casing.** A resolução tenta correspondência exata primeiro, depois insensível a maiúsculas. Se a busca insensível encontrar mais de um candidato, a chamada falha com erro de ambiguidade listando os candidatos — nunca escolhe por conta própria.
+ 
+-**Limites.** Toda tool que devolve lista aceita `limit` e `offset`. Padrão e teto de `limit` variam por tool (`vault_search`: padrão 20, teto 200; `note_list` e `link_graph`: padrão 100, teto 500 — ver o schema de cada uma). Respostas truncadas trazem `truncated: true` e `total`.
++**Limites.** Toda tool que devolve lista aceita `limit` e `offset`. Padrão e teto de `limit` variam por tool (`vault_search`: padrão 20, teto embutido 200, mais o teto administrativo de `max_results`; `note_list` e `link_graph`: padrão 100, teto 500). O clamp é aplicado pelo servidor, não pelo schema — ver "Schemas servidos" abaixo. Respostas truncadas trazem `truncated: true` e `total`.
+ 
+ **Dry-run.** Toda tool de escrita aceita `dry_run`. Quando verdadeiro, devolve o diff unificado do que seria feito e não toca o disco.
+ 
+ **Erros.** Devolvidos como resultado MCP de erro, com `code` legível por máquina e `message` acionável por humano ou modelo. O servidor jamais cai por erro de tool.
+ 
+ **Título.** O campo `title`, presente em vários retornos, é resolvido nesta ordem: campo `title` do frontmatter, primeiro heading de nível 1 do corpo, nome do arquivo sem a extensão. Sempre tem valor.
+ 
+ **Hash.** `note_read`, `note_list` e `note_metadata` devolvem `hash`, um xxhash do conteúdo bruto do arquivo — frontmatter e BOM incluídos. É o valor aceito em `expected_hash` nas tools de escrita, e a única forma de detectar que o Obsidian alterou a nota entre a leitura e a escrita.
+ 
+ **Filtro `frontmatter`.** Presente em `vault_search` e `note_list`. Um objeto de pares chave/valor, todos os quais precisam casar. As regras:
+@@ -26,47 +26,49 @@ Contrato de cada *tool*. Schemas em JSON Schema, como declarados ao host.
+ |---|---|
+ | Valor escalar, campo escalar | São iguais, com comparação de string insensível a maiúsculas e acentos |
+ | Valor escalar, campo lista | A lista contém o valor |
+ | Valor lista, campo lista | O campo contém **todos** os valores |
+ | Valor `null` | O campo existe, com qualquer valor |
+ | Chave com ponto (`meta.autor`) | Navega em objetos aninhados |
+ | Campo ausente | Nunca casa, exceto se o valor pedido for `null` e a chave existir |
+ 
+ Datas do frontmatter são comparadas como datas quando ambos os lados são parseáveis como tal, e como string caso contrário. Não há operadores de intervalo aqui — para isso existem `modified_after` e `modified_before`, que operam sobre o mtime do arquivo, não sobre campos do frontmatter.
+ 
++**Schemas servidos.** Os blocos JSON Schema abaixo documentam o que cada tool aceita, mas o schema que o host efetivamente recebe traz só `type` e `description` — limitação de `jsonschema-go v0.4.2` (`jsonschema.For[T]`), que lê a tag `jsonschema:"…"` apenas como `description`. Nenhum `enum`, `minimum`, `maximum` ou `default` chega ao host; a única exceção é `note_read`, cujo schema é remendado à mão (`schemaDoNoteRead`, `alvo_note_read.go:71`). Limites e enumerações são aplicados pelo servidor, não pelo host: um valor fora de um conjunto fechado (`tag_mode`, `sort`, `order`, `direction`, `mode`, `include`) volta como `INVALID_ARGUMENT`; um `limit`, `depth`, `max_candidates` ou `snippet_chars` acima do teto volta clampado, e o valor efetivo aparece em `effective_*` quando o campo existe. Por isso os blocos abaixo não mostram mais `minimum`/`maximum` como chave de schema — a faixa é descrita em prosa, junto do que o servidor faz quando ela é violada.
++
+ ---
+ 
+ # Leitura
+ 
+ ## `vault_search`
+ 
+ Busca full-text com ranking, combinável com filtros de metadados.
+ 
+ ```json
+ {
+   "type": "object",
+   "properties": {
+     "query":        { "type": "string", "description": "Termos de busca. Aspas duplas delimitam frase exata." },
+     "folder":       { "type": "string", "description": "Restringe a uma pasta e suas subpastas." },
+     "tags":         { "type": "array", "items": { "type": "string" }, "description": "Notas que contenham TODAS as tags." },
+     "frontmatter":  { "type": "object", "description": "Pares chave/valor que devem casar no frontmatter." },
+     "modified_after":  { "type": "string", "description": "Data mínima de modificação. Aceita RFC3339 ('2006-01-02T15:04:05Z07:00') ou data curta ('2006-01-02')." },
+     "modified_before": { "type": "string", "description": "Data máxima de modificação. Aceita RFC3339 ('2006-01-02T15:04:05Z07:00') ou data curta ('2006-01-02')." },
+-    "snippet_chars":   { "type": "integer", "default": 240, "maximum": 1000, "description": "Tamanho máximo do trecho em caracteres. Teto máximo: 1000." },
+-    "limit":  { "type": "integer", "default": 20, "maximum": 200 },
++    "snippet_chars":   { "type": "integer", "default": 240, "description": "Tamanho do trecho em caracteres. Acima de 1000, o servidor clampa a 1000." },
++    "limit":  { "type": "integer", "default": 20, "description": "Acima de 200, o servidor clampa a 200; o teto administrativo max_results pode reduzir ainda mais o valor efetivo." },
+     "offset": { "type": "integer", "default": 0 }
+   },
+   "required": ["query"]
+ }
+ ```
+ 
+-**Retorno.** Objeto contendo `results` (e `hits`), `total`, `truncated`, mais `effective_snippet_chars` (valor efetivo de `snippet_chars`) e `effective_limit` (valor efetivo de `limit` clampado pelo teto `max_results`). O teto vem de `--max-results` ou de `GOBSIDIAN_MAX_RESULTS`, aceita de 1 a 500 (`MaxResultsCeiling`), e o padrão é 50. Os dois campos existem porque um clamp silencioso não se parece com um controle: quem pediu 200 e recebeu 50 precisa saber que o pedido foi reduzido, e por qual teto. Cada item traz `path`, `title`, `score`, `snippet`, `matched_headings`, `modified` e — quando houve trecho — `match_offset`. `unavailable_snippets` aparece quando alguma nota da página não pôde ser lida para montar o trecho — nota travada por outro processo, cofre desmontado no meio da resposta. O resultado continua na página, com `snippet` vazio: uma nota ilegível não apaga as outras. Mas zero e "não consegui ler três delas" não podem sair iguais, e até 2026-08-28 saíam. <!-- check-doc-refs: ignore max_results -- flag de CLI da configuracao que define o teto maximo do limit -->
++**Retorno.** Objeto contendo `results`, `total`, `truncated`, mais `effective_snippet_chars` (valor efetivo de `snippet_chars`) e `effective_limit` (valor efetivo de `limit` clampado pelo teto `max_results`). O teto vem de `--max-results` ou de `GOBSIDIAN_MAX_RESULTS`, aceita de 1 a 500 (`MaxResultsCeiling`), e o padrão é 50. Os dois campos existem porque um clamp silencioso não se parece com um controle: quem pediu 200 e recebeu 50 precisa saber que o pedido foi reduzido, e por qual teto. Cada item traz `path`, `title`, `score`, `snippet`, `matched_headings`, `modified` e — quando houve trecho — `match_offset`. `unavailable_snippets` aparece quando alguma nota da página não pôde ser lida para montar o trecho — nota travada por outro processo, cofre desmontado no meio da resposta. O resultado continua na página, com `snippet` vazio: uma nota ilegível não apaga as outras. Mas zero e "não consegui ler três delas" não podem sair iguais, e até 2026-08-28 saíam. <!-- check-doc-refs: ignore max_results -- flag de CLI da configuracao que define o teto maximo do limit -->
+ 
+ **`match_offset` e o encadeamento que ele existe para permitir.** É o offset
+ absoluto do casamento no arquivo, na mesma coordenada que `note_read(offset=)`
+ aceita. O fluxo é `vault_search` → `match_offset` → `note_read(path,
+ offset=match_offset, max_bytes=8000)`: encontrar o termo numa nota de 255 KB e
+ ler os bytes em volta dele, sem baixar o arquivo inteiro.
+ 
+ O campo é **ausente**, nunca zero, quando o hit não tem trecho — nota
+ somente-nuvem, nota ilegível, nenhuma ocorrência localizada no corpo. Zero é um
+ offset válido (o início do arquivo), então devolvê-lo ali mandaria o cliente ler
+@@ -84,23 +86,23 @@ O índice de busca carrega sob demanda: a primeira chamada de `vault_search` num
+ 
+ Lê uma nota inteira, uma seção, ou um bloco — ou várias notas numa só chamada, via `paths`.
+ 
+ ```json
+ {
+   "type": "object",
+   "properties": {
+     "path":     { "type": "string", "description": "Caminho de uma nota. Mutuamente exclusivo com paths." },
+     "paths":    { "type": "array", "items": { "oneOf": [ { "type": "string" }, { "type": "object", "properties": { "path": {"type":"string"}, "heading": {"type":"string"}, "heading_level": {"type":"integer"}, "block_id": {"type":"string"}, "offset": {"type":"integer"}, "max_bytes": {"type":"integer"}, "include_frontmatter": {"type":"boolean"} }, "required": ["path"] } ] }, "description": "Vários caminhos numa só chamada, até 50. Cada item é um caminho ou um objeto que sobrepõe os campos de topo só para ele. Mutuamente exclusivo com path; falha de um item não derruba os demais." },
+     "heading":  { "type": "string", "description": "Texto do heading. Lê a seção até o próximo heading de nível igual ou superior." },
+-    "heading_level": { "type": "integer", "minimum": 1, "maximum": 6, "description": "Desambigua quando o mesmo texto aparece em níveis diferentes." },
++    "heading_level": { "type": "integer", "description": "Desambigua quando o mesmo texto aparece em níveis diferentes (headings reais vão de 1 a 6). O servidor NÃO valida nem clampa este valor: fora da faixa real do arquivo, ele simplesmente não casa nenhum heading e a chamada cai em HEADING_NOT_FOUND." },
+     "block_id": { "type": "string", "description": "Identificador de bloco, sem o circunflexo." },
+-    "offset":   { "type": "integer", "minimum": 0, "description": "Offset de byte a partir do início da nota (byte 0). Mutuamente exclusivo com heading e block_id. Ignora include_frontmatter." },
++    "offset":   { "type": "integer", "description": "Offset de byte a partir do início da nota (byte 0), 0 ou maior. Mutuamente exclusivo com heading e block_id. Ignora include_frontmatter. Negativo ou maior que o tamanho da nota é INVALID_ARGUMENT." },
+     "include_frontmatter": { "type": "boolean", "default": true },
+     "max_bytes": { "type": "integer", "default": 100000, "description": "Aplica-se por nota, não ao lote inteiro." }
+   }
+ }
+ ```
+ 
+ **Retorno com `path`.** `content`, `hash`, `total_size`, `next_offset` (quando houver mais conteúdo), `truncated`, e — quando `heading` foi usado — `section` com nível, texto e faixa de offsets, mais `section_synthetic`. Corresponde a `service.ReadResult`.
+ 
+ **`heading` resolve candidato quando não há heading Markdown que case.** Numa nota convertida de PDF, DOCX ou EPUB o título é parágrafo em negrito, e `note_read(heading="13.1 Substituição")` passa a funcionar nela — antes exigia `note_outline` seguido de leitura por offset, duas chamadas para o que o heading resolve em uma.
+ 
+@@ -154,21 +156,21 @@ Ler uma seção lê apenas os bytes da seção. Uma seção de 2 KB em uma nota
+ 
+ ## `note_outline`
+ 
+ O mapa de uma nota: os headings Markdown reais **e** os candidatos a título que uma nota convertida usa no lugar deles.
+ 
+ ```json
+ {
+   "type": "object",
+   "properties": {
+     "path": { "type": "string", "description": "Caminho da nota." },
+-    "max_candidates": { "type": "integer", "default": 200, "maximum": 1000, "description": "Máximo de candidatos devolvidos. O retorno traz 'truncated' quando corta." }
++    "max_candidates": { "type": "integer", "default": 200, "description": "Máximo de candidatos devolvidos. Acima de 1000, o servidor clampa a 1000. O retorno traz 'truncated' quando corta." }
+   },
+   "required": ["path"]
+ }
+ ```
+ 
+ **Retorno.** `path`, `total_size`, `headings`, `candidates` e `truncated`.
+ 
+ - `headings` vem do índice, sem reler o disco: nível, texto, slug e offsets. É **estrutura Markdown de verdade**.
+ - `candidates` é calculado na chamada, sobre os bytes da nota. Cada um tem `kind` (`strong_paragraph` ou `setext`), `text`, `start`, `end`, e `level` **quando houver numeração hierárquica** — `13` dá 1, `13.1` dá 2, `13.1.10` dá 3. Sem numeração, `level` é **ausente**, não zero: zero literal afirmaria um nível que ninguém pode ler no arquivo.
+ 
+@@ -198,21 +200,21 @@ Lista notas por critérios estruturais. Não toca o índice de texto.
+   "properties": {
+     "folder":    { "type": "string" },
+     "glob":      { "type": "string", "description": "Padrão de caminho, ex.: 'Civil/PONTO *.md'" },
+     "tags":      { "type": "array", "items": { "type": "string" } },
+     "tag_mode":  { "type": "string", "enum": ["all", "any"], "default": "all" },
+     "frontmatter": { "type": "object" },
+     "recursive": { "type": "boolean", "default": true },
+     "sort":      { "type": "string", "enum": ["path", "modified", "size", "title"], "default": "path" },
+     "order":     { "type": "string", "enum": ["asc", "desc"], "default": "asc" },
+     "fields":    { "type": "array", "items": { "type": "string" }, "description": "Campos de frontmatter a incluir no retorno." },
+-    "limit":     { "type": "integer", "default": 100, "maximum": 500 },
++    "limit":     { "type": "integer", "default": 100, "description": "Acima de 500, o servidor clampa a 500." },
+     "offset":    { "type": "integer", "default": 0 }
+   }
+ }
+ ```
+ 
+ **Retorno.** Lista com `path`, `title`, `hash`, `modified`, `size`, `tags`, e os campos pedidos em `fields`.
+ 
+ **Notas.** Servida direto do índice em memória. Latência de microssegundos. É a tool correta para "que notas existem na pasta X", "que notas têm a tag Y" — usar `vault_search` para isso é ordens de grandeza mais caro.
+ 
+ Lista apenas notas `.md`. Anexos são indexados para que embeds resolvam (PRD RF-60), mas não aparecem aqui; para inventário de anexos, use `vault_stats`.
+@@ -221,25 +223,21 @@ Lista apenas notas `.md`. Anexos são indexados para que embeds resolvam (PRD RF
+ 
+ ## `note_metadata`
+ 
+ Metadados estruturais completos de uma nota, sem o corpo.
+ 
+ ```json
+ {
+   "type": "object",
+   "properties": {
+     "path": { "type": "string" },
+-    "include": {
+-      "type": "array",
+-      "items": { "type": "string", "enum": ["frontmatter", "tags", "headings", "blocks", "links", "backlinks", "inline_fields"] },
+-      "default": ["frontmatter", "tags", "headings", "links", "backlinks"]
+-    }
++    "include": { "type": "array", "items": { "type": "string" }, "description": "Campos a devolver. Aceitos: frontmatter, tags, headings, blocks, links, backlinks, inline_fields. Valor fora da lista devolve INVALID_ARGUMENT. Omitido devolve frontmatter, tags, headings, links, backlinks." }
+   },
+   "required": ["path"]
+ }
+ ```
+ 
+ **Retorno.** Sempre `path`, `title` e `hash`. Os demais campos conforme pedido em `include`. `headings` traz nível, texto, slug e offsets — o que permite planejar uma leitura ou uma escrita seletiva antes de fazê-la. `inline_fields` traz os campos `chave:: valor` do corpo, agrupados por chave. `links` distingue wikilink, embed e link Markdown, e marca os não resolvidos. `backlinks` traz origem, o contexto textual ao redor de cada referência (~80 bytes de cada lado, em `context`) e o título da seção da nota de origem em que a referência está (`heading`, vazio quando ela vem antes do primeiro título). O `heading` é derivado dos headings já indexados e não custa espaço no cache; ele existe porque saber *em que seção* a nota cita você costuma decidir mais que prosa adicional, e porque não custa espaço.
+ 
+ Cada entrada de `links` traz `state` com um de três valores, e `via` com a forma pela qual resolveu:
+ 
+ | `state` | Significado |
+@@ -264,24 +262,24 @@ Cada entrada de `links` traz `state` com um de três valores, e `via` com a form
+ ## `link_graph`
+ 
+ Vizinhança de links de uma nota.
+ 
+ ```json
+ {
+   "type": "object",
+   "properties": {
+     "path":      { "type": "string" },
+     "direction": { "type": "string", "enum": ["outgoing", "incoming", "both"], "default": "both" },
+-    "depth":     { "type": "integer", "default": 1, "minimum": 1, "maximum": 3 },
++    "depth":     { "type": "integer", "default": 1, "description": "Menor que 1 vira 1; acima de 3, o servidor clampa a 3." },
+     "include_broken":  { "type": "boolean", "default": true },
+     "include_embeds":  { "type": "boolean", "default": true },
+-    "limit":     { "type": "integer", "default": 100, "maximum": 500 }
++    "limit":     { "type": "integer", "default": 100, "description": "Acima de 500, o servidor clampa a 500." }
+   },
+   "required": ["path"]
+ }
+ ```
+ 
+ **Retorno.** `nodes` com `path`, `title` e `distance` (saltos até a nota de origem; a travessia é em largura, então a primeira vez que um nó sai da fila já é pela rota mais curta), e `edges` com `source`, `target`, `kind`, `alias`, `anchor` e `resolved`.
+ 
+ `alias` e `anchor` fazem parte da IDENTIDADE da aresta: `A→B#Prescrição` e `A→B#Honorários` são referências diferentes e saem como arestas separadas. `resolved` só vem falso com `include_broken`, que é o único caminho que produz aresta sem alvo no cofre.
+ 
+ **Notas.** `depth` acima de 2 pode devolver uma fração grande do cofre em bases densamente ligadas. O teto de 3 é intencional.
+@@ -364,21 +362,21 @@ O retorno traz `hash`, o xxhash do conteúdo **gravado** — é o valor a passar
+ 
+ ## `note_append`
+ 
+ ```json
+ {
+   "type": "object",
+   "properties": {
+     "path":    { "type": "string" },
+     "content": { "type": "string" },
+     "heading": { "type": "string", "description": "Anexa ao fim desta seção. Ausente, anexa ao fim do arquivo." },
+-    "heading_level":    { "type": "integer", "minimum": 1, "maximum": 6 },
++    "heading_level":    { "type": "integer", "description": "Nível do heading a criar (Markdown vai de 1 a 6) quando create_if_missing cria um heading novo. O servidor NÃO valida a faixa: um valor fora dela produz um heading com esse número de '#', que pode não ser reconhecido como heading." },
+     "create_if_missing": { "type": "boolean", "default": false, "description": "Cria o heading ao fim do arquivo se não existir." },
+     "ensure_blank_line": { "type": "boolean", "default": true },
+     "expected_hash": { "type": "string", "description": "Hash da nota obtido em leitura anterior. Se divergir, a chamada falha com HASH_MISMATCH." },
+     "dry_run": { "type": "boolean", "default": false }
+   },
+   "required": ["path", "content"]
+ }
+ ```
+ 
+ **Notas.** "Fim da seção" é imediatamente antes do próximo heading de nível igual ou superior — não o fim do arquivo. Anexar sob `## Capítulo 117` insere antes de `## Capítulo 118`, não depois de tudo.
+@@ -391,21 +389,21 @@ O retorno traz `hash`, o xxhash do conteúdo **gravado** — é o valor a passar
+ 
+ ## `note_patch`
+ 
+ ```json
+ {
+   "type": "object",
+   "properties": {
+     "path":     { "type": "string" },
+     "content":  { "type": "string" },
+     "heading":  { "type": "string" },
+-    "heading_level": { "type": "integer", "minimum": 1, "maximum": 6 },
++    "heading_level": { "type": "integer", "description": "Aceito pelo schema, mas sem efeito: note_patch localiza o heading só pelo texto de heading, e o código nunca lê este campo (achado docs/SUGESTOES.md B19)." },
+     "block_id": { "type": "string" },
+     "mode":     { "type": "string", "enum": ["replace_section", "replace_heading_and_section", "replace_block"], "default": "replace_section (replace_block quando block_id vem)" },
+     "expected_hash": { "type": "string", "description": "Hash da nota obtido em leitura anterior. Se divergir, a chamada falha." },
+     "dry_run":  { "type": "boolean", "default": false }
+   },
+   "required": ["path", "content"]
+ }
+ ```
+ 
+ **Notas.** `replace_section` preserva a linha do heading e substitui apenas o conteúdo abaixo dela, incluindo subseções. `replace_heading_and_section` substitui também a linha do heading. `heading` e `block_id` juntos são `INVALID_ARGUMENT`. Qualquer outro valor de `mode` é `INVALID_ARGUMENT` com a lista dos três.
+@@ -475,21 +473,21 @@ Notas são expostas como *resources* MCP, permitindo que o host as anexe ao cont
+ | MIME | `text/markdown` |
+ | Nome | Título da nota (H1, ou nome do arquivo) |
+ | Descrição | Primeiros 200 caracteres do corpo |
+ 
+ **Três barras, e o caminho vem escapado.** `gobsidian://` seguido do caminho parece natural e está errado: em RFC 3986, o que vem logo depois de `//` é a **autoridade**, não o caminho. Com duas barras, `Civil/PONTO 03.md` faz `Civil` virar nome de host — e uma nota na raiz do cofre com espaço no nome faz o host inteiro ser `Minha nota.md`, que é inválido. O servidor morria no boot, dentro do registro do resource, antes de anunciar qualquer tool.
+ 
+ A terceira barra declara autoridade vazia e faz o caminho começar onde deve. Os bytes fora de `A-Za-z0-9-._~` viram `%XX`; a `/` permanece crua, porque separa segmentos. Assim `Civil/PONTO 03.md` é publicado como `gobsidian:///Civil/PONTO%2003.md`.
+ 
+ Na leitura o servidor também aceita a forma antiga de duas barras, para não transformar documentação desatualizada em nota inalcançável.
+ 
+-A listagem de resources é paginada e serve o índice em memória. Em cofres grandes, listar todas as notas como resources é caro para o host; a listagem respeita um limite configurável (padrão: 200, ordenadas por data de modificação decrescente).
++A listagem de resources é paginada e serve o índice em memória. Em cofres grandes, listar todas as notas como resources é caro para o host; a listagem respeita um limite fixo de 200 (`resources.go:66`), ordenadas por data de modificação decrescente — não há flag nem parâmetro que o mude.
+ 
+ ---
+ 
+ # Códigos de erro
+ 
+ | Código | Significado | Ação sugerida ao cliente |
+ |---|---|---|
+ | `PATH_OUTSIDE_VAULT` | Caminho resolve para fora do cofre | Corrigir o caminho |
+ | | **Não** é devolvido para nota inexistente — esse caso é `NOTE_NOT_FOUND`. O host lê `PATH_OUTSIDE_VAULT` como tentativa de escapar do cofre, e usá-lo para um nome errado acusaria o cliente de algo que ele não fez (achado M2, corrigido em 2026-08-27) | |
+ | `NOTE_NOT_FOUND` | Nota inexistente | Verificar com `note_list` |
+diff --git a/internal/mcpsrv/filtro_data_test.go b/internal/mcpsrv/filtro_data_test.go
+index f785c83..835bfe0 100644
+--- a/internal/mcpsrv/filtro_data_test.go
++++ b/internal/mcpsrv/filtro_data_test.go
+@@ -75,38 +75,32 @@ func TestFiltroDeDataInvalidoNaoViraSilencio(t *testing.T) {
+ 		res, err := session.CallTool(ctx, &mcp.CallToolParams{
+ 			Name: "vault_search", Arguments: args,
+ 		})
+ 		if err != nil {
+ 			t.Fatalf("CallTool: %v", err)
+ 		}
+ 		if res.IsError {
+ 			return -1, true
+ 		}
+ 		var out struct {
+-			Hits []struct {
+-				Path string `json:"path"`
+-			} `json:"hits"`
+ 			Results []struct {
+ 				Path string `json:"path"`
+ 			} `json:"results"`
+ 		}
+ 		bruto, err := json.Marshal(res.StructuredContent)
+ 		if err != nil {
+ 			t.Fatalf("resposta nao serializa: %v", err)
+ 		}
+ 		if err := json.Unmarshal(bruto, &out); err != nil {
+ 			t.Fatalf("resposta ilegivel: %v\n%s", err, bruto)
+ 		}
+-		n := len(out.Hits)
+-		if n == 0 && len(out.Results) > 0 {
+-			n = len(out.Results)
+-		}
++		n := len(out.Results)
+ 		return n, false
+ 	}
+ 
+ 	if n, _ := buscar(t, nil); n != 3 {
+ 		t.Fatalf("sem filtro: hits = %d, quer 3", n)
+ 	}
+ 
+ 	if n, _ := buscar(t, map[string]any{"modified_after": "2100-01-01T00:00:00Z"}); n != 0 {
+ 		t.Fatalf("modified_after no futuro: hits = %d, quer 0 — o filtro nao e aplicado", n)
+ 	}
+diff --git a/internal/mcpsrv/search_sem_hits_test.go b/internal/mcpsrv/search_sem_hits_test.go
+new file mode 100644
+index 0000000..c2b78db
+--- /dev/null
++++ b/internal/mcpsrv/search_sem_hits_test.go
+@@ -0,0 +1,39 @@
++package mcpsrv_test
++
++import (
++	"encoding/json"
++	"os"
++	"path/filepath"
++	"testing"
++
++	"github.com/modelcontextprotocol/go-sdk/mcp"
++)
++
++func TestVaultSearchNaoDevolveHits(t *testing.T) {
++	root := t.TempDir()
++	if err := os.WriteFile(filepath.Join(root, "a.md"), []byte("# A\n\npalavra comum\n"), 0o644); err != nil {
++		t.Fatal(err)
++	}
++	session, ctx := sessaoComBusca(t, root)
++	res, err := session.CallTool(ctx, &mcp.CallToolParams{
++		Name: "vault_search", Arguments: map[string]any{"query": "comum"},
++	})
++	if err != nil || res.IsError {
++		t.Fatalf("CallTool: err=%v isError=%v", err, res.IsError)
++	}
++	bruto, err := json.Marshal(res.StructuredContent)
++	if err != nil {
++		t.Fatal(err)
++	}
++	var out map[string]json.RawMessage
++	if err := json.Unmarshal(bruto, &out); err != nil {
++		t.Fatalf("resposta ilegivel: %v\n%s", err, bruto)
++	}
++	if _, tem := out["hits"]; tem {
++		t.Fatalf("a resposta ainda traz \"hits\":\n%s", bruto)
++	}
++	var results []json.RawMessage
++	if err := json.Unmarshal(out["results"], &results); err != nil || len(results) != 1 {
++		t.Fatalf("results = %s (err=%v), quero 1 item", out["results"], err)
++	}
++}
+diff --git a/internal/mcpsrv/tools_read.go b/internal/mcpsrv/tools_read.go
+index 65fec9b..3d5895f 100644
+--- a/internal/mcpsrv/tools_read.go
++++ b/internal/mcpsrv/tools_read.go
+@@ -366,21 +366,21 @@ type noteListInput struct {
+ 	Recursive   *bool                  `json:"recursive,omitempty"`
+ 	Sort        string                 `json:"sort,omitempty"`
+ 	Order       string                 `json:"order,omitempty"`
+ 	Fields      []string               `json:"fields,omitempty" jsonschema:"Campos de frontmatter a incluir no retorno."`
+ 	Limit       *int                   `json:"limit,omitempty"`
+ 	Offset      *int                   `json:"offset,omitempty"`
+ }
+ 
+ type noteMetadataInput struct {
+ 	Path    string   `json:"path"`
+-	Include []string `json:"include,omitempty"`
++	Include []string `json:"include,omitempty" jsonschema:"campos a devolver; aceitos: frontmatter, tags, headings, blocks, links, backlinks, inline_fields; omitido devolve frontmatter, tags, headings, links, backlinks"`
+ }
+ 
+ type linkGraphInput struct {
+ 	Path          string `json:"path"`
+ 	Direction     string `json:"direction,omitempty"`
+ 	Depth         *int   `json:"depth,omitempty"`
+ 	IncludeBroken *bool  `json:"include_broken,omitempty"`
+ 	IncludeEmbeds *bool  `json:"include_embeds,omitempty"`
+ 	Limit         *int   `json:"limit,omitempty"`
+ }
+diff --git a/internal/service/graph.go b/internal/service/graph.go
+index 0d0d107..b862162 100644
+--- a/internal/service/graph.go
++++ b/internal/service/graph.go
+@@ -593,45 +593,61 @@ type MetadataResult struct {
+ 	Blocks    []string             `json:"blocks,omitempty"`
+ 	Links     []index.ResolvedLink `json:"links,omitempty"`
+ 	Backlinks []index.Backlink     `json:"backlinks,omitempty"`
+ 	// InlineFields atende o valor "inline_fields" do enum de include, que era
+ 	// aceito pelo schema e descartado pelo codigo (achado M4). Schema que
+ 	// promete e codigo que ignora e pior que parametro ausente: o modelo do
+ 	// outro lado le o schema para decidir o que pedir.
+ 	InlineFields map[string][]string `json:"inline_fields,omitempty"`
+ }
+ 
++// camposDeMetadata sao os valores aceitos em MetadataRequest.Include. A lista
++// mora aqui, no service, porque a validacao e o schema (mcpsrv) precisam
++// concordar e so um dos dois pode ser a fonte.
++var camposDeMetadata = []string{"frontmatter", "tags", "headings", "blocks", "links", "backlinks", "inline_fields"}
++
++// incluidosPorPadrao e o que note_metadata devolve quando include e omitido:
++// blocks e inline_fields ficam de fora porque sao os dois campos que crescem
++// com o tamanho da nota.
++var incluidosPorPadrao = []string{"frontmatter", "tags", "headings", "links", "backlinks"}
++
+ // NoteMetadata devolve tudo o que o indice sabe de uma nota sem abrir o
+ // arquivo.
+ func (s *Service) NoteMetadata(_ context.Context, req MetadataRequest) (MetadataResult, error) {
+ 	if s.index == nil {
+ 		return MetadataResult{}, Errorf(CodeVaultUnavailable, "indice indisponivel")
+ 	}
+ 	cp, err := s.index.ResolvePath(req.Path)
+ 	if err != nil {
+ 		return MetadataResult{}, ErroDeResolucao(req.Path, err)
+ 	}
+ 	n, ok := s.index.Get(cp)
+ 	if !ok {
+ 		return MetadataResult{}, Wrap(CodeNoteNotFound, nil, "note not found")
+ 	}
+ 
+-	includeSet := make(map[string]bool)
++	includeSet := make(map[string]bool, len(camposDeMetadata))
+ 	if len(req.Include) == 0 {
+-		includeSet["frontmatter"] = true
+-		includeSet["tags"] = true
+-		includeSet["headings"] = true
+-		includeSet["links"] = true
+-		includeSet["backlinks"] = true
++		for _, c := range incluidosPorPadrao {
++			includeSet[c] = true
++		}
+ 	} else {
+ 		for _, inc := range req.Include {
+-			includeSet[inc] = true
++			v, err := ValidarEnum("include", inc, "", camposDeMetadata...)
++			if err != nil {
++				return MetadataResult{}, err
++			}
++			if v == "" {
++				return MetadataResult{}, Errorf(CodeInvalidArgument,
++					"include = \"\" invalido; aceitos: %s", strings.Join(camposDeMetadata, ", "))
++			}
++			includeSet[v] = true
+ 		}
+ 	}
+ 
+ 	res := MetadataResult{
+ 		Path:  string(n.Path),
+ 		Title: n.Title,
+ 		Hash:  formatarHash(n.Hash),
+ 	}
+ 
+ 	if includeSet["frontmatter"] {
+diff --git a/internal/service/match_offset_test.go b/internal/service/match_offset_test.go
+index 563a378..e19be21 100644
+--- a/internal/service/match_offset_test.go
++++ b/internal/service/match_offset_test.go
+@@ -25,25 +25,25 @@ func TestSearchMatchOffsetApontaParaOTermoNoArquivo(t *testing.T) {
+ 		"outra.md":  "nota sem o termo, so para o cofre nao ter uma nota so\n",
+ 	})
+ 
+ 	res, err := svc.Search(context.Background(), service.SearchOptions{
+ 		Query: "xifopago",
+ 		Limit: 5,
+ 	})
+ 	if err != nil {
+ 		t.Fatalf("Search: %v", err)
+ 	}
+-	if len(res.Hits) == 0 {
++	if len(res.Results) == 0 {
+ 		t.Fatal("nenhum resultado para um termo que existe na nota")
+ 	}
+ 
+-	h := res.Hits[0]
++	h := res.Results[0]
+ 	if h.Path != "grande.md" {
+ 		t.Fatalf("primeiro hit = %q, quer grande.md", h.Path)
+ 	}
+ 	if h.MatchOffset == nil {
+ 		t.Fatal("MatchOffset ausente num hit que tem trecho")
+ 	}
+ 	if *h.MatchOffset == 0 {
+ 		t.Fatal("MatchOffset = 0, e o termo esta a mais de 40 KB do inicio do arquivo")
+ 	}
+ 
+@@ -68,24 +68,24 @@ func TestSearchMatchOffsetDentroDosLimites(t *testing.T) {
+ 	svc, _, _, _ := createSearchService(t, map[string]string{
+ 		"a.md":     "alfa beta gama\n",
+ 		"b.md":     strings.Repeat("beta\n", 200) + "alfa no fim\n",
+ 		"sub/c.md": "# Titulo\n\nalfa numa subpasta\n",
+ 	})
+ 
+ 	res, err := svc.Search(context.Background(), service.SearchOptions{Query: "alfa", Limit: 20})
+ 	if err != nil {
+ 		t.Fatalf("Search: %v", err)
+ 	}
+-	if len(res.Hits) != 3 {
+-		t.Fatalf("hits = %d, quer 3 — a fixture nao monta o teste", len(res.Hits))
++	if len(res.Results) != 3 {
++		t.Fatalf("hits = %d, quer 3 — a fixture nao monta o teste", len(res.Results))
+ 	}
+-	for _, h := range res.Hits {
++	for _, h := range res.Results {
+ 		if h.Snippet == "" {
+ 			t.Fatalf("%s: trecho vazio", h.Path)
+ 		}
+ 		if h.MatchOffset == nil {
+ 			t.Fatalf("%s: hit COM trecho veio sem MatchOffset", h.Path)
+ 		}
+ 		// Le um byte no offset: se ele estiver fora da faixa, ReadNote falha, e
+ 		// essa e a asserção — nao um numero escrito a mao.
+ 		if _, err := svc.ReadNote(context.Background(), service.ReadRequest{
+ 			Path: h.Path, Offset: h.MatchOffset, MaxBytes: 1,
+@@ -108,24 +108,24 @@ func TestSearchMatchOffsetAusenteQuandoNaoHaTrecho(t *testing.T) {
+ 
+ 	// Depois de indexada, antes de buscar: o recorte le o disco, o indice nao.
+ 	if err := os.Remove(filepath.Join(v.Root(), "some.md")); err != nil {
+ 		t.Fatalf("removendo a nota: %v", err)
+ 	}
+ 
+ 	res, err := svc.Search(context.Background(), service.SearchOptions{Query: "xifopago", Limit: 5})
+ 	if err != nil {
+ 		t.Fatalf("Search: %v", err)
+ 	}
+-	if len(res.Hits) == 0 {
++	if len(res.Results) == 0 {
+ 		t.Fatal("a nota sumiu do DISCO, nao do indice: o hit tinha de continuar na pagina")
+ 	}
+ 
+-	h := res.Hits[0]
++	h := res.Results[0]
+ 	if h.Snippet != "" {
+ 		t.Fatalf("a fixture nao monta o teste: o hit tem trecho %q, "+
+ 			"e este teste precisa do caso SEM trecho", h.Snippet)
+ 	}
+ 	if h.MatchOffset != nil {
+ 		t.Fatalf("hit SEM trecho veio com match_offset=%d; "+
+ 			"sem ocorrencia localizada o campo tem de ficar ausente", *h.MatchOffset)
+ 	}
+ }
+diff --git a/internal/service/max_results_test.go b/internal/service/max_results_test.go
+index b225555..17b7220 100644
+--- a/internal/service/max_results_test.go
++++ b/internal/service/max_results_test.go
+@@ -17,37 +17,34 @@ func TestMaxResultsClampaLimit(t *testing.T) {
+ 
+ 	svc := service.New(v, idx, inv, nil, service.Options{MaxResults: 5})
+ 
+ 	res, err := svc.Search(context.Background(), service.SearchOptions{
+ 		Query: "comum",
+ 		Limit: 100,
+ 	})
+ 	if err != nil {
+ 		t.Fatalf("Search: %v", err)
+ 	}
+-	if len(res.Hits) != 5 && len(res.Results) != 5 {
+-		t.Fatalf("hits = %d, quer 5 (limit=100 clampado por MaxResults=5)", len(res.Hits))
++	if len(res.Results) != 5 {
++		t.Fatalf("results = %d, quero 5 (limit=100 clampado por MaxResults=5)", len(res.Results))
+ 	}
+ 
+ 	semTeto := service.New(v, idx, inv, nil, service.Options{})
+ 	res2, err := semTeto.Search(context.Background(), service.SearchOptions{
+ 		Query: "comum", Limit: 100,
+ 	})
+ 	if err != nil {
+ 		t.Fatalf("Search sem teto: %v", err)
+ 	}
+-	n2 := len(res2.Hits)
+-	if n2 == 0 {
+-		n2 = len(res2.Results)
+-	}
++	n2 := len(res2.Results)
+ 	if n2 != 30 {
+-		t.Fatalf("sem teto: hits = %d, quer 30", n2)
++		t.Fatalf("sem teto: results = %d, quer 30", n2)
+ 	}
+ 
+ 	if res.LimitEfetivo != 5 {
+ 		t.Fatalf("LimitEfetivo = %d, quer 5 — o clamp nao foi anunciado na resposta",
+ 			res.LimitEfetivo)
+ 	}
+ }
+ 
+ func TestSnippetCharsClampAnunciado(t *testing.T) {
+ 	svc, _, _, _ := createSearchService(t, map[string]string{
+diff --git a/internal/service/metadata_include_test.go b/internal/service/metadata_include_test.go
+new file mode 100644
+index 0000000..deafa6c
+--- /dev/null
++++ b/internal/service/metadata_include_test.go
+@@ -0,0 +1,53 @@
++package service
++
++import (
++	"context"
++	"errors"
++	"os"
++	"path/filepath"
++	"testing"
++)
++
++func cofreComUmaNota(t *testing.T) string {
++	t.Helper()
++	root := t.TempDir()
++	if err := os.WriteFile(filepath.Join(root, "n.md"), []byte("---\nk: v\n---\n# N\n\n#tag texto\n"), 0o644); err != nil {
++		t.Fatal(err)
++	}
++	return root
++}
++
++func TestNoteMetadataIncludeInvalidoEInvalidArgument(t *testing.T) {
++	svc := newTestService(t, cofreComUmaNota(t))
++	_, err := svc.NoteMetadata(context.Background(), MetadataRequest{
++		Path: "n.md", Include: []string{"headers"},
++	})
++	var se *Error
++	if !errors.As(err, &se) || se.Code != CodeInvalidArgument {
++		t.Fatalf("include=[\"headers\"]: quero INVALID_ARGUMENT, tenho %v", err)
++	}
++}
++
++func TestNoteMetadataIncludeVazioEInvalidArgument(t *testing.T) {
++	svc := newTestService(t, cofreComUmaNota(t))
++	_, err := svc.NoteMetadata(context.Background(), MetadataRequest{
++		Path: "n.md", Include: []string{""},
++	})
++	var se *Error
++	if !errors.As(err, &se) || se.Code != CodeInvalidArgument {
++		t.Fatalf("include=[\"\"]: quero INVALID_ARGUMENT, tenho %v", err)
++	}
++}
++
++func TestNoteMetadataIncludeValidoContinuaAceito(t *testing.T) {
++	svc := newTestService(t, cofreComUmaNota(t))
++	res, err := svc.NoteMetadata(context.Background(), MetadataRequest{
++		Path: "n.md", Include: []string{"tags", "inline_fields"},
++	})
++	if err != nil {
++		t.Fatal(err)
++	}
++	if len(res.Tags) != 1 {
++		t.Fatalf("tags = %v, quero [tag]", res.Tags)
++	}
++}
+diff --git a/internal/service/search.go b/internal/service/search.go
+index af1a47e..51c482f 100644
+--- a/internal/service/search.go
++++ b/internal/service/search.go
+@@ -95,21 +95,20 @@ type SearchHit struct {
+ 	// note_read(offset=). Ponteiro e omitempty porque AUSENTE e diferente de
+ 	// ZERO: zero e um offset valido — o inicio do arquivo. Um hit sem trecho
+ 	// (nota somente-nuvem, nota ilegivel) nao tem onde apontar, e devolver 0
+ 	// ali mandaria o cliente ler o comeco de uma nota qualquer acreditando
+ 	// estar indo ao termo.
+ 	MatchOffset *int64 `json:"match_offset,omitempty"`
+ }
+ 
+ // SearchResult representa o retorno consolidado da tool vault_search.
+ type SearchResult struct {
+-	Hits                []SearchHit `json:"hits,omitempty"`
+ 	Results             []SearchHit `json:"results"`
+ 	Total               int         `json:"total"`
+ 	Truncated           bool        `json:"truncated"`
+ 	SnippetCharsEfetivo int         `json:"effective_snippet_chars"`
+ 	LimitEfetivo        int         `json:"effective_limit"`
+ 	// TrechosIndisponiveis conta os resultados desta página cujo corpo não
+ 	// pôde ser lido para montar o trecho — nota travada por outro processo,
+ 	// cofre desmontado no meio da resposta.
+ 	//
+ 	// O resultado CONTINUA na página, com trecho vazio: uma nota ilegível não
+@@ -122,21 +121,20 @@ type SearchResult struct {
+ // resultadoVazio e a pagina sem nenhum hit — a resposta dos tres caminhos que
+ // terminam cedo: consulta que nao produz token, offset alem do total na busca
+ // full-text e offset alem do total na busca so por metadados.
+ //
+ // Os tres montavam o mesmo literal, e as fatias precisam ser NAO-nil: `results`
+ // nao tem omitempty, entao nil sairia como `null` no JSON onde o contrato diz
+ // lista vazia. Um dos tres esquecer isso e uma resposta que so quebra no
+ // caminho menos usado.
+ func resultadoVazio(total int, opts SearchOptions) SearchResult {
+ 	return SearchResult{
+-		Hits:                []SearchHit{},
+ 		Results:             []SearchHit{},
+ 		Total:               total,
+ 		Truncated:           false,
+ 		SnippetCharsEfetivo: opts.SnippetChars,
+ 		LimitEfetivo:        opts.Limit,
+ 	}
+ }
+ 
+ // pagina devolve o fim da fatia da pagina e se sobrou resultado de fora.
+ //
+@@ -367,21 +365,20 @@ func (s *Service) Search(ctx context.Context, opts SearchOptions) (SearchResult,
+ 	for _, sl := range slots {
+ 		if sl.semTrecho {
+ 			semTrecho++
+ 		}
+ 		if sl.ok {
+ 			results = append(results, sl.hit)
+ 		}
+ 	}
+ 
+ 	return SearchResult{
+-		Hits:                 results,
+ 		Results:              results,
+ 		Total:                total,
+ 		Truncated:            truncated,
+ 		SnippetCharsEfetivo:  opts.SnippetChars,
+ 		LimitEfetivo:         opts.Limit,
+ 		TrechosIndisponiveis: semTrecho,
+ 	}, nil
+ }
+ 
+ func (s *Service) searchMetadataOnly(opts SearchOptions) (SearchResult, error) {
+@@ -409,21 +406,20 @@ func (s *Service) searchMetadataOnly(opts SearchOptions) (SearchResult, error) {
+ 			Path:            string(n.Path),
+ 			Title:           n.Title,
+ 			Score:           0.0,
+ 			Snippet:         "",
+ 			MatchedHeadings: nil,
+ 			Modified:        n.ModTime.UTC().Format(time.RFC3339),
+ 		})
+ 	}
+ 
+ 	return SearchResult{
+-		Hits:                results,
+ 		Results:             results,
+ 		Total:               total,
+ 		Truncated:           truncated,
+ 		SnippetCharsEfetivo: opts.SnippetChars,
+ 		LimitEfetivo:        opts.Limit,
+ 	}, nil
+ }
+ 
+ func (s *Service) matchesSearchFilters(note *index.Note, opts SearchOptions, porFrontmatter map[vault.CanonicalPath]bool) bool {
+ 	if opts.Folder != "" {
