@@ -62,16 +62,30 @@ type GraphEdge struct {
 	Resolved bool `json:"resolved"`
 }
 
-// chaveDaAresta e a identidade de uma aresta do grafo. Uma funcao so, porque os
+// chaveDaAresta e a identidade de uma aresta do grafo. Uma conta so, porque os
 // tres pontos que inserem em edgesMap tem de concordar: dois deles montavam a
 // chave a mao e o terceiro tambem, e bastava um esquecer a ancora para arestas
 // distintas colapsarem em silencio.
-func chaveDaAresta(e GraphEdge) string {
-	// %q em cada parte, e nao um separador escolhido a dedo: qualquer
-	// separador literal pode aparecer DENTRO de um alias ou de uma ancora, e
-	// ai duas arestas diferentes produzem a mesma chave. A citacao resolve
-	// isso sem depender de suposicao sobre o conteudo.
-	return fmt.Sprintf("%q|%q|%q|%q|%q", e.Source, e.Target, e.Kind, e.Alias, e.Anchor)
+//
+// Struct, e nao string formatada: a identidade e exata por construcao. A versao
+// anterior citava cada parte com %q justamente porque qualquer separador
+// literal pode aparecer DENTRO de um alias ou de uma ancora — uma suposicao
+// sobre o conteudo que a chave estruturada dispensa, e sem pagar um Sprintf e a
+// string que ele aloca por aresta visitada.
+type chaveDaAresta struct {
+	Source, Target, Kind, Alias, Anchor string
+}
+
+// deAresta deriva a chave de uma aresta. Um lugar so: um sitio que esquecesse a
+// ancora faria duas referencias distintas colapsarem em silencio.
+func deAresta(e GraphEdge) chaveDaAresta {
+	return chaveDaAresta{
+		Source: e.Source,
+		Target: e.Target,
+		Kind:   e.Kind,
+		Alias:  e.Alias,
+		Anchor: e.Anchor,
+	}
 }
 
 // GraphResult e o retorno de link_graph.
@@ -111,7 +125,7 @@ func (s *Service) LinkGraph(_ context.Context, req GraphRequest) (GraphResult, e
 	}
 
 	nodesMap := make(map[vault.CanonicalPath]GraphNode)
-	edgesMap := make(map[string]GraphEdge)
+	edgesMap := make(map[chaveDaAresta]GraphEdge)
 
 	type queueItem struct {
 		Path  vault.CanonicalPath
@@ -158,7 +172,7 @@ func (s *Service) LinkGraph(_ context.Context, req GraphRequest) (GraphResult, e
 							Anchor:   link.Anchor,
 							Resolved: true,
 						}
-						edgesMap[chaveDaAresta(a)] = a
+						edgesMap[deAresta(a)] = a
 
 						if !visited[link.Resolved] && len(nodesMap)+len(queue) < limit {
 							queue = append(queue, queueItem{Path: link.Resolved, Depth: curr.Depth + 1})
@@ -182,7 +196,7 @@ func (s *Service) LinkGraph(_ context.Context, req GraphRequest) (GraphResult, e
 							// ganha distancia menor depois.
 							Resolved: false,
 						}
-						edgesMap[chaveDaAresta(a)] = a
+						edgesMap[deAresta(a)] = a
 						if _, ja := nodesMap[vault.CanonicalPath(targetPath)]; !ja {
 							nodesMap[vault.CanonicalPath(targetPath)] = GraphNode{Path: targetPath, Distance: curr.Depth + 1}
 						}
@@ -207,7 +221,7 @@ func (s *Service) LinkGraph(_ context.Context, req GraphRequest) (GraphResult, e
 					Anchor:   bl.Anchor,
 					Resolved: true,
 				}
-				edgesMap[chaveDaAresta(a)] = a
+				edgesMap[deAresta(a)] = a
 
 				if !visited[bl.From] && len(nodesMap)+len(queue) < limit {
 					queue = append(queue, queueItem{Path: bl.From, Depth: curr.Depth + 1})
