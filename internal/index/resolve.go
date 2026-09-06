@@ -407,15 +407,15 @@ func (ix *Index) ResolvePath(input string) (vault.CanonicalPath, error) {
 		}
 	}
 
-	// Alias do frontmatter, com o mesmo criterio.
+	// Alias do frontmatter, com o mesmo criterio — e com o mesmo filtro de
+	// caminho morto que o ramo de cima, em vez de uma copia dele escrita a mao.
+	//
+	// vivosLocked aceita nota OU anexo, e a copia daqui aceitava so nota. Sao a
+	// mesma coisa nesta entrada: byAlias so recebe n.Path de nota (os aliases
+	// saem do frontmatter, que anexo nao tem), e a remocao de uma nota apaga as
+	// entradas de alias dela antes de tirar o caminho de notes.
 	if paths, ok := ix.byAlias[aliasKey(input)]; ok {
-		var vivos []vault.CanonicalPath
-		for _, p := range paths {
-			if _, existe := ix.notes[p]; existe {
-				vivos = append(vivos, p)
-			}
-		}
-		switch len(vivos) {
+		switch vivos := ix.vivosLocked(paths); len(vivos) {
 		case 0:
 		case 1:
 			return vivos[0], nil
