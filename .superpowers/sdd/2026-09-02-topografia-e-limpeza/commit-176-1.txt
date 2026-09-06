@@ -1,0 +1,13 @@
+feat(cli): index and inspect load from the cache
+
+index and inspect used to rebuild the metadata index from scratch on
+every call, even when serve or a prior CLI run had already written a
+fresh cache for the same vault. Both now open through boot.AbrirIndice
+-- the cache when VerifyFreshness confirms it, built and saved
+otherwise -- the same function serve and search already use. index
+--json reports which path was taken in the new "origin" field
+("build" or "cache"), mirroring the index_origin log field serve
+already emits.
+
+Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01P5wkw6PAdBFzF3uB1w1jNj

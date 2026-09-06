@@ -1,0 +1,12 @@
+refactor(cli): register shared vault flags once [sem-doc]
+
+Six subcommands registered --vault and --follow-symlinks by hand, with
+--cache-dir and --log-level duplicated across the four that read an
+index; when the help text changed it changed in five files and not the
+sixth. flagsDeCofre and flagsDeCache in the new cmd/gobsidian/flags.go
+are now the single place that registers each flag, and every
+subcommand calls them instead of repeating the StringVar/BoolVar calls.
+doctor only gets flagsDeCofre -- it never reads a cache.
+
+Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01P5wkw6PAdBFzF3uB1w1jNj

@@ -1,0 +1,572 @@
+8a11cec refactor(cli): register shared vault flags once [sem-doc]
+022d2ef feat(cli): index and inspect load from the cache
+
+ README.md                             |  6 +++--
+ cmd/gobsidian/cli_subcommands_test.go |  8 +++----
+ cmd/gobsidian/daemon.go               |  7 ++----
+ cmd/gobsidian/doctor.go               |  4 +---
+ cmd/gobsidian/flags.go                | 22 ++++++++++++++++++
+ cmd/gobsidian/index.go                | 15 +++++++-----
+ cmd/gobsidian/index_origem_test.go    | 44 +++++++++++++++++++++++++++++++++++
+ cmd/gobsidian/inspect.go              | 12 +++++-----
+ cmd/gobsidian/search.go               |  7 ++----
+ cmd/gobsidian/serve.go                |  7 ++----
+ docs/OPERACAO.md                      | 24 +++++++++++++++++++
+ 11 files changed, 120 insertions(+), 36 deletions(-)
+
+diff --git a/README.md b/README.md
+index e5ac57e..72409b3 100644
+--- a/README.md
++++ b/README.md
+@@ -195,23 +195,23 @@ code --add-mcp '{"name":"gobsidian","command":"gobsidian","args":["serve","--vau
+ <summary>🎛️ <b>CLI flags</b></summary>
+ 
+ <br>
+ 
+ A flag declared by a subcommand but never read by it promises a contract the code doesn't keep — `index` and `inspect` used to declare `--read-only`, `--debounce-ms` and `--max-results` this way. The **Subcommands** column is the actual contract: what each subcommand declares.
+ 
+ | Flag | Effect | Subcommands |
+ |---|---|---|
+ | `--vault <path>` | Vault root. Required. | all |
+ | `--read-only` | Removes the entire write surface. | `serve`, `daemon`, `doctor` |
+-| `--cache-dir <path>` | Cache directory. Default: a hash of the vault path, always **outside** it. | `serve`, `search`, `daemon` |
++| `--cache-dir <path>` | Cache directory. Default: a hash of the vault path, always **outside** it. | `serve`, `search`, `daemon`, `index`, `inspect` |
+ | `--debounce-ms <n>` | Watcher coalescing window. | `serve`, `daemon`, `doctor` |
+-| `--log-level <level>` | `debug`, `info`, `warn` or `error`. | `serve`, `search`, `daemon` |
++| `--log-level <level>` | `debug`, `info`, `warn` or `error`. | `serve`, `search`, `daemon`, `index`, `inspect` |
+ | `--eager-search` | Loads the search index at boot. Default: lazy — most sessions read and write without ever searching. | `serve`, `daemon` |
+ | `--max-results <n>` | Caps results per query. | `serve`, `search`, `daemon`, `doctor` |
+ | `--follow-symlinks` | Follows a symlink inside the vault; the default refuses, because confinement doesn't reach the target. | all |
+ | `--json` | Structured JSON output. | `search`, `index`, `inspect` |
+ | `--limit <n>` | Maximum results returned. Default: 20. | `search` |
+ 
+ `search` reuses the index and search cache from `serve`; the first run builds and writes it, later runs load it.
+ 
+ </details>
+ 
+@@ -259,20 +259,22 @@ Notes are also published as MCP resources under `gobsidian:///<path>`. The schem
+ gobsidian serve   --vault "/path/to/vault"                    # what the MCP host runs
+ gobsidian doctor  --vault "/path/to/vault"                    # diagnoses the environment
+ gobsidian index   --vault "/path/to/vault" --json             # indexes and exits, with a summary
+ gobsidian search  "architecture" --vault "/path/to/vault"     # search without an MCP host
+ gobsidian inspect "Folder/Note.md" --vault "/vault" --json    # how the note was interpreted
+ ```
+ 
+ > [!TIP]
+ > 🩺 `gobsidian doctor` is the first command to run when something does not work: unreachable vault, permissions, cloud-only OneDrive files, paths over 260 characters, and casing collisions.
+ 
++`index` and `inspect` open the metadata index the same way `serve` does: from the cache when it is fresh, built from the vault otherwise. `index --json` reports which one happened in `origin` (`"build"` on the first run against a vault, `"cache"` once a fresh cache exists at `--cache-dir`).
++
+ **Output.** Coloured in a terminal, plain text when redirected — `doctor > report.txt` writes a clean file. The decision is per destination, so a redirected `stdout` does not strip colour from `stderr`. `NO_COLOR` turns everything off. The markers `[OK]`, `[!]`, `[i]`, `[*]` and `[...]` are pure ASCII, and colour only reinforces them.
+ 
+ In `serve`, **stdout belongs entirely to JSON-RPC** and every log goes to stderr. `doctor` and `version` print to stdout on purpose, because they are CLI commands.
+ 
+ ---
+ 
+ ## 🧵 Daemon
+ 
+ On by default. When two or more sessions point at the **same vault at the same time** and one of them searches, the daemon shares a single index between them instead of each loading its own copy.
+ 
+diff --git a/cmd/gobsidian/cli_subcommands_test.go b/cmd/gobsidian/cli_subcommands_test.go
+index 85cdc53..f843c8e 100644
+--- a/cmd/gobsidian/cli_subcommands_test.go
++++ b/cmd/gobsidian/cli_subcommands_test.go
+@@ -31,40 +31,40 @@ func createTestVault(t *testing.T) string {
+ }
+ 
+ func TestIndexCmd_StdoutAndJSON(t *testing.T) {
+ 	vaultDir := createTestVault(t)
+ 
+ 	// Mode 1: Non-JSON
+ 	cmd := newIndexCmd()
+ 	var stdout, stderr bytes.Buffer
+ 	cmd.SetOut(&stdout)
+ 	cmd.SetErr(&stderr)
+-	cmd.SetArgs([]string{"--vault", vaultDir})
++	cmd.SetArgs([]string{"--vault", vaultDir, "--cache-dir", t.TempDir()})
+ 
+ 	if err := cmd.Execute(); err != nil {
+ 		t.Fatalf("index Execute: %v", err)
+ 	}
+ 
+ 	if stderr.Len() > 0 {
+ 		t.Errorf("stderr NAO deveria conter nada, continha: %q", stderr.String())
+ 	}
+ 	outStr := stdout.String()
+ 	if outStr == "" {
+ 		t.Error("stdout deveria conter o resumo da indexacao")
+ 	}
+ 
+ 	// Mode 2: --json
+ 	cmdJSON := newIndexCmd()
+ 	var stdoutJSON, stderrJSON bytes.Buffer
+ 	cmdJSON.SetOut(&stdoutJSON)
+ 	cmdJSON.SetErr(&stderrJSON)
+-	cmdJSON.SetArgs([]string{"--vault", vaultDir, "--json"})
++	cmdJSON.SetArgs([]string{"--vault", vaultDir, "--cache-dir", t.TempDir(), "--json"})
+ 
+ 	if err := cmdJSON.Execute(); err != nil {
+ 		t.Fatalf("index --json Execute: %v", err)
+ 	}
+ 
+ 	if stderrJSON.Len() > 0 {
+ 		t.Errorf("stderr NAO deveria conter nada, continha: %q", stderrJSON.String())
+ 	}
+ 
+ 	var data indexSummaryJSON
+@@ -120,39 +120,39 @@ func TestSearchCmd_StdoutAndJSON(t *testing.T) {
+ }
+ 
+ func TestInspectCmd_StdoutAndJSON(t *testing.T) {
+ 	vaultDir := createTestVault(t)
+ 
+ 	// Mode 1: Non-JSON
+ 	cmd := newInspectCmd()
+ 	var stdout, stderr bytes.Buffer
+ 	cmd.SetOut(&stdout)
+ 	cmd.SetErr(&stderr)
+-	cmd.SetArgs([]string{"--vault", vaultDir, "nota2.md"})
++	cmd.SetArgs([]string{"--vault", vaultDir, "--cache-dir", t.TempDir(), "nota2.md"})
+ 
+ 	if err := cmd.Execute(); err != nil {
+ 		t.Fatalf("inspect Execute: %v", err)
+ 	}
+ 
+ 	if stderr.Len() > 0 {
+ 		t.Errorf("stderr NAO deveria conter nada, continha: %q", stderr.String())
+ 	}
+ 	if stdout.Len() == 0 {
+ 		t.Error("stdout deveria conter a inspecao da nota")
+ 	}
+ 
+ 	// Mode 2: --json
+ 	cmdJSON := newInspectCmd()
+ 	var stdoutJSON, stderrJSON bytes.Buffer
+ 	cmdJSON.SetOut(&stdoutJSON)
+ 	cmdJSON.SetErr(&stderrJSON)
+-	cmdJSON.SetArgs([]string{"--vault", vaultDir, "nota2.md", "--json"})
++	cmdJSON.SetArgs([]string{"--vault", vaultDir, "--cache-dir", t.TempDir(), "nota2.md", "--json"})
+ 
+ 	if err := cmdJSON.Execute(); err != nil {
+ 		t.Fatalf("inspect --json Execute: %v", err)
+ 	}
+ 
+ 	if stderrJSON.Len() > 0 {
+ 		t.Errorf("stderr NAO deveria conter nada, continha: %q", stderrJSON.String())
+ 	}
+ 
+ 	var data inspectResultJSON
+diff --git a/cmd/gobsidian/daemon.go b/cmd/gobsidian/daemon.go
+index 2404a52..7e4eaeb 100644
+--- a/cmd/gobsidian/daemon.go
++++ b/cmd/gobsidian/daemon.go
+@@ -46,28 +46,25 @@ func newDaemonCmd() *cobra.Command {
+ 			log, closeLog, err := novoLoggerDoDaemon(cfg.VaultPath, cfg.LogLevel)
+ 			if err != nil {
+ 				return err
+ 			}
+ 			defer func() { _ = closeLog() }()
+ 
+ 			return runDaemon(cmd.Context(), cfg, time.Duration(idleSeconds)*time.Second, log)
+ 		},
+ 	}
+ 
+-	cmd.Flags().StringVar(&flags.VaultPath, "vault", "", "caminho da raiz do cofre (obrigatorio)")
+-	cmd.Flags().StringVar(&flags.LogLevel, "log-level", "", "debug, info, warn ou error")
++	flagsDeCofre(cmd, &flags)
++	flagsDeCache(cmd, &flags)
+ 	cmd.Flags().BoolVar(&flags.ReadOnly, "read-only", false, "desabilita toda a superficie de escrita")
+ 	cmd.Flags().IntVar(&flags.DebounceMS, "debounce-ms", 0, "janela de coalescencia de eventos do watcher")
+ 	cmd.Flags().IntVar(&flags.MaxResults, "max-results", 0, "teto de resultados por consulta")
+-	cmd.Flags().StringVar(&flags.CacheDir, "cache-dir", "", "diretorio do cache de indice")
+-	cmd.Flags().BoolVar(&flags.FollowSymlinks, "follow-symlinks", false,
+-		"segue symlink dentro do cofre; o padrao recusa, porque o confinamento nao alcanca o alvo")
+ 	cmd.Flags().BoolVar(&flags.EagerSearch, "eager-search", false,
+ 		"carrega o indice de busca no boot em vez de esperar a primeira vault_search")
+ 	cmd.Flags().IntVar(&idleSeconds, "idle-seconds", daemon.DefaultIdleSeconds,
+ 		"segundos sem cliente conectado antes do daemon encerrar (decisao 3 da Task 92; padrao 15 minutos)")
+ 
+ 	return cmd
+ }
+ 
+ // daemonLogPath delega para daemon.CaminhoDoLog: a conta do caminho do log
+ // mora num lugar so, ao lado da do socket e da do lock. Ate 2026-08-26 ela
+diff --git a/cmd/gobsidian/doctor.go b/cmd/gobsidian/doctor.go
+index dea422e..8d491f0 100644
+--- a/cmd/gobsidian/doctor.go
++++ b/cmd/gobsidian/doctor.go
+@@ -57,19 +57,17 @@ func newDoctorCmd() *cobra.Command {
+ 			code := doctor.ExitCode(results)
+ 			if code != 0 {
+ 				con.Err("Ha falhas bloqueantes acima")
+ 				os.Exit(code)
+ 			}
+ 			con.OK("Ambiente apto")
+ 			return nil
+ 		},
+ 	}
+ 
+-	cmd.Flags().StringVar(&flags.VaultPath, "vault", "", "caminho da raiz do cofre (obrigatorio)")
++	flagsDeCofre(cmd, &flags)
+ 	cmd.Flags().BoolVar(&flags.ReadOnly, "read-only", false, "nao verifica permissao de escrita")
+ 	cmd.Flags().IntVar(&flags.DebounceMS, "debounce-ms", 0, "janela de coalescencia de eventos do watcher")
+ 	cmd.Flags().IntVar(&flags.MaxResults, "max-results", 0, "teto de resultados por consulta")
+-	cmd.Flags().BoolVar(&flags.FollowSymlinks, "follow-symlinks", false,
+-		"segue symlink dentro do cofre; o padrao recusa, porque o confinamento nao alcanca o alvo")
+ 
+ 	return cmd
+ }
+diff --git a/cmd/gobsidian/flags.go b/cmd/gobsidian/flags.go
+new file mode 100644
+index 0000000..52fd885
+--- /dev/null
++++ b/cmd/gobsidian/flags.go
+@@ -0,0 +1,22 @@
++package main
++
++import (
++	"github.com/spf13/cobra"
++
++	"github.com/jonyd/gobsidian/internal/config"
++)
++
++// flagsDeCofre registra as flags que todo subcomando que abre um cofre
++// aceita. Seis arquivos registravam --vault e --follow-symlinks com o mesmo
++// texto; quando o texto mudou, mudou em cinco.
++func flagsDeCofre(cmd *cobra.Command, f *config.Flags) {
++	cmd.Flags().StringVar(&f.VaultPath, "vault", "", "caminho da raiz do cofre (obrigatorio)")
++	cmd.Flags().BoolVar(&f.FollowSymlinks, "follow-symlinks", false,
++		"segue symlink dentro do cofre; o padrao recusa, porque o confinamento nao alcanca o alvo")
++}
++
++// flagsDeCache registra as flags de quem le ou grava o cache de indice.
++func flagsDeCache(cmd *cobra.Command, f *config.Flags) {
++	cmd.Flags().StringVar(&f.CacheDir, "cache-dir", "", "diretorio do cache de indice")
++	cmd.Flags().StringVar(&f.LogLevel, "log-level", "", "debug, info, warn ou error")
++}
+diff --git a/cmd/gobsidian/index.go b/cmd/gobsidian/index.go
+index ce89431..f13f26e 100644
+--- a/cmd/gobsidian/index.go
++++ b/cmd/gobsidian/index.go
+@@ -1,26 +1,27 @@
+ package main
+ 
+ import (
+ 	"encoding/json"
+ 	"fmt"
+ 	"time"
+ 
++	"github.com/jonyd/gobsidian/internal/boot"
+ 	"github.com/jonyd/gobsidian/internal/config"
+ 	"github.com/jonyd/gobsidian/internal/console"
+-	"github.com/jonyd/gobsidian/internal/index"
+ 	"github.com/jonyd/gobsidian/internal/vault"
+ 	"github.com/spf13/cobra"
+ )
+ 
+ type indexSummaryJSON struct {
+ 	VaultPath  string `json:"vault_path"`
++	Origin     string `json:"origin"`
+ 	Notes      int    `json:"notes"`
+ 	Assets     int    `json:"assets"`
+ 	Tags       int    `json:"tags"`
+ 	TotalSize  int64  `json:"total_size"`
+ 	DurationMS int64  `json:"duration_ms"`
+ }
+ 
+ func newIndexCmd() *cobra.Command {
+ 	var flags config.Flags
+ 	var jsonOutput bool
+@@ -32,60 +33,62 @@ func newIndexCmd() *cobra.Command {
+ 			cfg, err := config.Load(flags)
+ 			if err != nil {
+ 				return err
+ 			}
+ 
+ 			v, err := vault.New(cfg.VaultPath, vault.SeguirSymlinks(cfg.FollowSymlinks))
+ 			if err != nil {
+ 				return err
+ 			}
+ 
+-			idx := index.New()
++			log := loggerDeCLI(cmd, cfg)
+ 			start := time.Now()
+-			if err := idx.Build(cmd.Context(), v); err != nil {
++			idx, origem, err := boot.AbrirIndice(cmd.Context(), v, cfg, log)
++			if err != nil {
+ 				return err
+ 			}
+ 			dur := time.Since(start)
+ 
+ 			notes := idx.NoteCount()
+ 			assets := idx.AssetCount()
+ 			tags := len(idx.Tags("", 1))
+ 			size := idx.TotalSize()
+ 
+ 			// index e um subcomando de CLI (nao um servidor MCP JSON-RPC),
+ 			// portanto a escrita em stdout e feita de proposito.
+ 			out := cmd.OutOrStdout()
+ 
+ 			if jsonOutput {
+ 				res := indexSummaryJSON{
+ 					VaultPath:  cfg.VaultPath,
++					Origin:     origem,
+ 					Notes:      notes,
+ 					Assets:     assets,
+ 					Tags:       tags,
+ 					TotalSize:  size,
+ 					DurationMS: dur.Milliseconds(),
+ 				}
+ 				b, err := json.MarshalIndent(res, "", "  ")
+ 				if err != nil {
+ 					return err
+ 				}
+ 				_, _ = fmt.Fprintln(out, string(b))
+ 				return nil
+ 			}
+ 
+ 			con := console.New(out)
+ 			con.OK("Indexacao concluida em %d ms", dur.Milliseconds())
++			con.Item("Origem: %s", origem)
+ 			con.Item("Notas: %d", notes)
+ 			con.Item("Anexos: %d", assets)
+ 			con.Item("Tags: %d", tags)
+ 			con.Item("Tamanho total: %d bytes", size)
+ 			return nil
+ 		},
+ 	}
+ 
+-	cmd.Flags().StringVar(&flags.VaultPath, "vault", "", "caminho da raiz do cofre (obrigatorio)")
++	flagsDeCofre(cmd, &flags)
+ 	cmd.Flags().BoolVar(&jsonOutput, "json", false, "saida estruturada em formato JSON")
+-	cmd.Flags().BoolVar(&flags.FollowSymlinks, "follow-symlinks", false,
+-		"segue symlink dentro do cofre; o padrao recusa, porque o confinamento nao alcanca o alvo")
++	flagsDeCache(cmd, &flags)
+ 
+ 	return cmd
+ }
+diff --git a/cmd/gobsidian/index_origem_test.go b/cmd/gobsidian/index_origem_test.go
+new file mode 100644
+index 0000000..6620e0f
+--- /dev/null
++++ b/cmd/gobsidian/index_origem_test.go
+@@ -0,0 +1,44 @@
++package main
++
++import (
++	"bytes"
++	"encoding/json"
++	"os"
++	"path/filepath"
++	"testing"
++)
++
++func TestIndexCmdJSONTrazOrigem(t *testing.T) {
++	cofre := t.TempDir()
++	if err := os.WriteFile(filepath.Join(cofre, "n.md"), []byte("# N\n"), 0o644); err != nil {
++		t.Fatal(err)
++	}
++	cache := t.TempDir()
++	roda := func() string {
++		var stdout, stderr bytes.Buffer
++		cmd := newIndexCmd()
++		cmd.SetOut(&stdout)
++		cmd.SetErr(&stderr)
++		cmd.SetArgs([]string{"--vault", cofre, "--cache-dir", cache, "--json"})
++		if err := cmd.Execute(); err != nil {
++			t.Fatalf("index: %v\nstderr:\n%s", err, stderr.String())
++		}
++		var out struct {
++			Origin string `json:"origin"`
++			Notes  int    `json:"notes"`
++		}
++		if err := json.Unmarshal(stdout.Bytes(), &out); err != nil {
++			t.Fatalf("JSON invalido: %v\n%s", err, stdout.String())
++		}
++		if out.Notes != 1 {
++			t.Fatalf("notes = %d, quero 1", out.Notes)
++		}
++		return out.Origin
++	}
++	if o := roda(); o != "build" {
++		t.Fatalf("primeira execucao: origin = %q, quero \"build\"", o)
++	}
++	if o := roda(); o != "cache" {
++		t.Fatalf("segunda execucao: origin = %q, quero \"cache\"", o)
++	}
++}
+diff --git a/cmd/gobsidian/inspect.go b/cmd/gobsidian/inspect.go
+index 8e0917d..341308f 100644
+--- a/cmd/gobsidian/inspect.go
++++ b/cmd/gobsidian/inspect.go
+@@ -1,21 +1,21 @@
+ package main
+ 
+ import (
+ 	"encoding/json"
+ 	"fmt"
+ 	"strings"
+ 	"time"
+ 
++	"github.com/jonyd/gobsidian/internal/boot"
+ 	"github.com/jonyd/gobsidian/internal/config"
+ 	"github.com/jonyd/gobsidian/internal/console"
+-	"github.com/jonyd/gobsidian/internal/index"
+ 	"github.com/jonyd/gobsidian/internal/vault"
+ 	"github.com/spf13/cobra"
+ )
+ 
+ type inspectResultJSON struct {
+ 	Path        string         `json:"path"`
+ 	Title       string         `json:"title"`
+ 	Size        int64          `json:"size"`
+ 	ModTime     time.Time      `json:"mod_time"`
+ 	Tags        []string       `json:"tags"`
+@@ -37,22 +37,23 @@ func newInspectCmd() *cobra.Command {
+ 			cfg, err := config.Load(flags)
+ 			if err != nil {
+ 				return err
+ 			}
+ 
+ 			v, err := vault.New(cfg.VaultPath, vault.SeguirSymlinks(cfg.FollowSymlinks))
+ 			if err != nil {
+ 				return err
+ 			}
+ 
+-			idx := index.New()
+-			if err := idx.Build(cmd.Context(), v); err != nil {
++			log := loggerDeCLI(cmd, cfg)
++			idx, _, err := boot.AbrirIndice(cmd.Context(), v, cfg, log)
++			if err != nil {
+ 				return err
+ 			}
+ 
+ 			canonical, err := idx.ResolvePath(args[0])
+ 			if err != nil {
+ 				return fmt.Errorf("resolvendo nota %q: %w", args[0], err)
+ 			}
+ 
+ 			n, ok := idx.Get(canonical)
+ 			if !ok {
+@@ -113,17 +114,16 @@ func newInspectCmd() *cobra.Command {
+ 				con.Item("Headings (%d): %s", len(headings), strings.Join(headings, ", "))
+ 			}
+ 			con.Item("Links de saida: %d", len(n.Links))
+ 			if len(backlinks) > 0 {
+ 				con.Item("Backlinks (%d): %s", len(backlinks), strings.Join(backlinks, ", "))
+ 			}
+ 			return nil
+ 		},
+ 	}
+ 
+-	cmd.Flags().StringVar(&flags.VaultPath, "vault", "", "caminho da raiz do cofre (obrigatorio)")
++	flagsDeCofre(cmd, &flags)
+ 	cmd.Flags().BoolVar(&jsonOutput, "json", false, "saida estruturada em formato JSON")
+-	cmd.Flags().BoolVar(&flags.FollowSymlinks, "follow-symlinks", false,
+-		"segue symlink dentro do cofre; o padrao recusa, porque o confinamento nao alcanca o alvo")
++	flagsDeCache(cmd, &flags)
+ 
+ 	return cmd
+ }
+diff --git a/cmd/gobsidian/search.go b/cmd/gobsidian/search.go
+index feccae1..4dc1d21 100644
+--- a/cmd/gobsidian/search.go
++++ b/cmd/gobsidian/search.go
+@@ -78,21 +78,18 @@ func newSearchCmd() *cobra.Command {
+ 			for _, m := range res.Results {
+ 				con.Item("%s (score: %.2f)", m.Path, m.Score)
+ 				if m.Snippet != "" {
+ 					con.Detail("... %s ...", m.Snippet)
+ 				}
+ 			}
+ 			return nil
+ 		},
+ 	}
+ 
+-	cmd.Flags().StringVar(&flags.VaultPath, "vault", "", "caminho da raiz do cofre (obrigatorio)")
++	flagsDeCofre(cmd, &flags)
+ 	cmd.Flags().BoolVar(&jsonOutput, "json", false, "saida estruturada em formato JSON")
+ 	cmd.Flags().IntVar(&limit, "limit", 20, "limite maximo de resultados")
+-	cmd.Flags().BoolVar(&flags.FollowSymlinks, "follow-symlinks", false,
+-		"segue symlink dentro do cofre; o padrao recusa, porque o confinamento nao alcanca o alvo")
+ 	cmd.Flags().IntVar(&flags.MaxResults, "max-results", 0, "teto de resultados por consulta")
+-	cmd.Flags().StringVar(&flags.CacheDir, "cache-dir", "", "diretorio do cache de indice")
+-	cmd.Flags().StringVar(&flags.LogLevel, "log-level", "", "debug, info, warn ou error")
++	flagsDeCache(cmd, &flags)
+ 
+ 	return cmd
+ }
+diff --git a/cmd/gobsidian/serve.go b/cmd/gobsidian/serve.go
+index cfc1d7f..fc0bc23 100644
+--- a/cmd/gobsidian/serve.go
++++ b/cmd/gobsidian/serve.go
+@@ -31,28 +31,25 @@ func newServeCmd() *cobra.Command {
+ 			flags.MaxResultsSet = cmd.Flags().Changed("max-results")
+ 
+ 			cfg, err := config.Load(flags)
+ 			if err != nil {
+ 				return err
+ 			}
+ 			return runServe(cmd.Context(), cfg)
+ 		},
+ 	}
+ 
+-	cmd.Flags().StringVar(&flags.VaultPath, "vault", "", "caminho da raiz do cofre (obrigatorio)")
+-	cmd.Flags().StringVar(&flags.LogLevel, "log-level", "", "debug, info, warn ou error")
++	flagsDeCofre(cmd, &flags)
++	flagsDeCache(cmd, &flags)
+ 	cmd.Flags().BoolVar(&flags.ReadOnly, "read-only", false, "desabilita toda a superficie de escrita")
+ 	cmd.Flags().IntVar(&flags.DebounceMS, "debounce-ms", 0, "janela de coalescencia de eventos do watcher")
+ 	cmd.Flags().IntVar(&flags.MaxResults, "max-results", 0, "teto de resultados por consulta")
+-	cmd.Flags().StringVar(&flags.CacheDir, "cache-dir", "", "diretorio do cache de indice")
+-	cmd.Flags().BoolVar(&flags.FollowSymlinks, "follow-symlinks", false,
+-		"segue symlink dentro do cofre; o padrao recusa, porque o confinamento nao alcanca o alvo")
+ 	cmd.Flags().BoolVar(&flags.EagerSearch, "eager-search", false,
+ 		"carrega o indice de busca no boot em vez de esperar a primeira vault_search")
+ 
+ 	return cmd
+ }
+ 
+ // shutdownExitCode traduz o erro final do serve loop em codigo de saida.
+ //
+ // Existe como funcao separada porque e a unica parte de runServe que da para
+ // testar sem levantar um processo: runServe termina em os.Exit por desenho, e
+diff --git a/docs/OPERACAO.md b/docs/OPERACAO.md
+index 8c6d722..b36c664 100644
+--- a/docs/OPERACAO.md
++++ b/docs/OPERACAO.md
+@@ -2728,10 +2728,34 @@ frias (cache apagado antes de cada uma) e 3 quentes por binário:
+ - **Depois**: 1905,6 / 1921,2 / 1796,7 ms frias (constrói e grava os dois
+   caches); 234,7 / 214,0 / 190,2 ms quentes (carrega os dois caches) — a
+   quente fica abaixo de 1/5 da fria, o teto que a Task exigia.
+ 
+ Os números absolutos não batem com a faixa do M4 (10,5–11,0 s / 475–528 ms):
+ a rodada foi feita em outro estado de disco/máquina, e a primeira chamada
+ "antes" (8,3 s) sugere que o cache do sistema operacional para os arquivos do
+ cofre ainda estava frio nela e já estava quente nas cinco seguintes. O
+ detalhamento das 12 linhas e o binário usado estão em `docs/ESTADO.md`
+ ("medições publicadas").
++
++---
++
++## `index` e `inspect` de CLI também abrem pelo cache (2026-09-06, Task 176)
++
++Mesma troca que a Task 175 fez em `search`: `index` e `inspect` construíam o
++índice de metadados do zero a cada chamada (`index.New()` + `Build`), mesmo
++que `serve` ou uma chamada anterior de `search`/`index` já tivessem gravado o
++cache do mesmo cofre. Os dois passaram a abrir via `boot.AbrirIndice` — cache
++quando `VerifyFreshness` confirma, construído e gravado quando não — e
++ganharam `--cache-dir`/`--log-level`, que só `serve`, `search` e `daemon`
++tinham.
++
++`index --json` reporta qual dos dois caminhos aconteceu no campo `origin`
++(`"build"` ou `"cache"`), na mesma conta que já sai no log `index_origin` de
++`serve`. `inspect` também abre pelo cache mas não expõe a origem — não há
++"resumo da indexação" para anexar o campo, só a nota inspecionada.
++
++As quatro flags que `index`, `inspect`, `search`, `serve`, `daemon` e `doctor`
++registravam repetindo o mesmo texto seis vezes (`--vault`, `--follow-symlinks`
++em todos; `--cache-dir`, `--log-level` em quem lê índice) passaram a vir de
++duas funções únicas em `cmd/gobsidian/flags.go` — `flagsDeCofre` e
++`flagsDeCache` — para que o texto de ajuda pare de divergir quando alguém
++edita um dos seis arquivos e esquece os outros cinco.
