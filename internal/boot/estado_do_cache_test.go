@@ -1,4 +1,4 @@
-package main
+package boot
 
 import (
 	"errors"
@@ -80,7 +80,7 @@ func TestInvertedCacheState(t *testing.T) {
 
 	for _, c := range casos {
 		t.Run(c.nome, func(t *testing.T) {
-			pronta, retomar := invertedCacheState(c.hdr, c.err, c.noteCount)
+			pronta, retomar := estadoDoCache(c.hdr, c.err, c.noteCount)
 			if pronta != c.querPronta {
 				t.Errorf("pronta = %v, quer %v", pronta, c.querPronta)
 			}
@@ -107,7 +107,7 @@ func TestInvertedCacheStateErroNuncaEPronta(t *testing.T) {
 	for _, e := range erros {
 		// Cabecalho generoso de proposito: mesmo dizendo cobrir o cofre inteiro,
 		// um cache que falhou ao carregar nao pode ser dado como pronto.
-		pronta, _ := invertedCacheState(&search.CacheHeader{NoteCount: 999999}, e, 100)
+		pronta, _ := estadoDoCache(&search.CacheHeader{NoteCount: 999999}, e, 100)
 		if pronta {
 			t.Errorf("erro %v resultou em pronta = true", e)
 		}

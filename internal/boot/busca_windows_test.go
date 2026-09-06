@@ -1,6 +1,6 @@
 //go:build windows
 
-package main
+package boot
 
 import (
 	"context"
@@ -25,7 +25,7 @@ const sondaDeBoot = "sesquipedaliano"
 //
 // Este teste existe porque o que "provava" a regra antes era um dublê: um
 // helper chamado construirComoOBoot que chamava Inverted.Update num laço,
-// afirmando em comentário que era "exatamente como buildInvertedIndex faz".
+// afirmando em comentário que era "exatamente como construirBusca faz".
 // Não era — a produção chamava v.ReadAll (um os.ReadFile puro, sem consulta a
 // CloudOnly) e inv.Add direto, escapando da guarda inteira. O teste afirmava
 // sobre a reimplementação, não sobre o código que roda.
@@ -67,7 +67,7 @@ func TestBuildInvertedIndexNaoAbrePlaceholderDeNuvem(t *testing.T) {
 	log := slog.New(slog.NewTextHandler(io.Discard, nil))
 	cfg := config.Config{VaultPath: dir, CacheDir: t.TempDir()}
 
-	buildInvertedIndex(context.Background(), v, idx, inv, cfg, log)
+	construirBusca(context.Background(), v, idx, inv, cfg, log)
 
 	// 1. O placeholder NAO pode ter sido aberto.
 	if postings := inv.Postings(sondaDeBoot); len(postings) != 0 {

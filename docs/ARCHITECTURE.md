@@ -51,7 +51,7 @@ A redação anterior deste parágrafo — "as camadas abaixo dele não se conhec
 
 ### 2.1 `cmd/gobsidian`
 
-Analisa flags, resolve o caminho do cofre, constrói o *context* raiz e despacha para o subcomando. Não contém lógica de domínio.
+Analisa flags, resolve o caminho do cofre, constrói o *context* raiz e despacha para o subcomando. Não contém lógica de domínio. A montagem que `serve` e `daemon` compartilham mora em `internal/boot` (§2.14); aqui fica só a decisão entre os dois caminhos e o encerramento.
 
 ### 2.2 `internal/lifecycle`
 
@@ -121,6 +121,16 @@ Formata a saída dos comandos de CLI: os marcadores de estado, o realce do texto
 Duas regras moldam o pacote. **Os marcadores continuam em ASCII** (`[OK]`, `[!]`, `[i]`, `[*]`, `[...]`) e a cor apenas os reforça, porque um console em CP-850 renderiza o resto como lixo e a informação não pode depender do que se perde. E **a decisão de cor sai do destino**, não de `os.Stdout` global: `doctor > relatorio.txt` grava um arquivo limpo enquanto os erros no `stderr` do terminal continuam coloridos.
 
 `serve` não passa por aqui. Seu stdout pertence ao JSON-RPC, e uma sequência ANSI ali corrompe a sessão do mesmo jeito que um `fmt.Println`.
+
+### 2.14 `internal/boot`
+
+A **montagem** é camada própria: fica acima de `service` — ela constrói o `*service.Service` — e abaixo de `cmd/gobsidian` e de `mcpsrv`, que recebem o serviço pronto. `boot.Montar` executa o fluxo de §5.1 inteiro: cofre, varredura de temporários órfãos em paralelo, índice de metadados (`AbrirIndice`: cache fresco ou construção), índice de busca (`PrepararBusca`: adoção do cache, retomada de parcial ou construção), watcher e `Service`. Devolve um `Componentes` com tudo isso e um `Esperar()` que bloqueia até as goroutines de fundo terminarem.
+
+Existe porque `serve` e `daemon` precisam da **mesma** sequência, na mesma ordem, e ela vivia em `cmd/gobsidian` — onde nenhum teste de pacote a alcançava, e onde uma divergência entre os dois caminhos de boot só apareceria em produção. A ordem não é livre: `watcher.New` registra os watches **antes** da construção do índice de busca, e `w.Run` só consome a fila **depois** dela, porque a adoção do cache substitui o conteúdo do índice invertido (§6).
+
+Numeração fora de ordem de propósito: a camada é nova (Task 174) e renumerar §2.2–§2.13 quebraria as referências que o resto da documentação já faz a elas.
+
+`boot` não importa `mcpsrv` nem `lifecycle`. Quem monta não decide como o host conversa nem quando o processo encerra — essas decisões continuam em `cmd/gobsidian`, e é o que mantém a montagem testável sem levantar um processo.
 
 ---
 

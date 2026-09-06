@@ -1,14 +1,4 @@
-// servico.go extrai a montagem do indice, do watcher e do servico de
-// dominio -- compartilhada entre serveEmProcesso (Task 91, serve.go) e o
-// daemon (Task 92, daemon.go + internal/daemon). As duas precisam da MESMA
-// sequencia de boot: cache do indice de metadados, varredura de
-// temporarios, watcher.New ANTES da construcao do indice invertido, e o
-// carregamento em segundo plano do cache de busca. Extrair para uma funcao
-// so evita a classe de divergencia que o CLAUDE.md registra para "chave de
-// mapa calculada em dois lugares": aqui seria "sequencia de boot construida
-// em dois lugares", com o mesmo risco de um dos dois ficar para tras quando
-// o outro mudar sozinho.
-package main
+package boot
 
 import (
 	"context"
@@ -24,28 +14,43 @@ import (
 	"github.com/jonyd/gobsidian/internal/watcher"
 )
 
-// servicoMontado agrupa o que construirServico produz: o servico de
-// dominio pronto para um *mcpsrv.Server, o watcher (para Stats() e para
-// ser fechado no encerramento) e o WaitGroup que acompanha as goroutines de
-// fundo (construcao do indice de busca e o loop do watcher) -- quem chama
-// tem de esperar por ele APOS o shutdown, do mesmo jeito que serveEmProcesso
-// ja fazia antes desta extracao.
-type servicoMontado struct {
-	svc *service.Service
-	w   *watcher.Watcher
-	wg  *sync.WaitGroup
+// Componentes e tudo que serve e daemon compartilham depois de montar: o
+// cofre, os dois indices, o servico de dominio pronto para um *mcpsrv.Server,
+// o watcher (para Stats() e para ser fechado no encerramento) e o WaitGroup
+// que acompanha as goroutines de fundo (construcao do indice de busca e o loop
+// do watcher) -- quem chama tem de esperar por ele APOS o shutdown, do mesmo
+// jeito que serveEmProcesso ja fazia antes desta extracao.
+type Componentes struct {
+	Vault    *vault.Vault
+	Index    *index.Index
+	Inverted *search.Inverted
+	Watcher  *watcher.Watcher
+	Service  *service.Service
+
+	espera sync.WaitGroup
 }
 
-// construirServico monta o indice de metadados, o watcher e o indice de
-// busca (em segundo plano) para cfg.VaultPath, e devolve o servico de
-// dominio pronto para ser exposto por um *mcpsrv.Server -- uma sessao
-// (serveEmProcesso) ou N sessoes sobre um socket (o daemon).
+// Esperar bloqueia ate as goroutines de fundo (busca, watcher) terminarem.
+func (c *Componentes) Esperar() { c.espera.Wait() }
+
+// Montar monta o indice de metadados, o watcher e o indice de busca (em
+// segundo plano) para cfg.VaultPath, e devolve o servico de dominio pronto
+// para ser exposto por um *mcpsrv.Server -- uma sessao (serveEmProcesso) ou N
+// sessoes sobre um socket (o daemon).
+//
+// As duas precisam da MESMA sequencia de boot: cache do indice de metadados,
+// varredura de temporarios, watcher.New ANTES da construcao do indice
+// invertido, e o carregamento em segundo plano do cache de busca. Uma funcao
+// so evita a classe de divergencia que o CLAUDE.md registra para "chave de
+// mapa calculada em dois lugares": aqui seria "sequencia de boot construida em
+// dois lugares", com o mesmo risco de um dos dois ficar para tras quando o
+// outro mudar sozinho.
 //
 // ctx aqui e o context do CHAMADOR (pos-lifecycle): a goroutine de fundo
 // que esta funcao lanca (construcao do indice de busca + watcher.Run) roda
 // por baixo dele e para quando ele for cancelado, exatamente como antes
 // desta extracao.
-func construirServico(ctx context.Context, cfg config.Config, log *slog.Logger) (*servicoMontado, error) {
+func Montar(ctx context.Context, cfg config.Config, log *slog.Logger) (*Componentes, error) {
 	v, err := vault.New(cfg.VaultPath, vault.SeguirSymlinks(cfg.FollowSymlinks))
 	if err != nil {
 		return nil, err
@@ -79,17 +84,9 @@ func construirServico(ctx context.Context, cfg config.Config, log *slog.Logger) 
 	}()
 
 	buildStart := time.Now()
-	idx, usouCache := carregarIndiceDoCache(ctx, v, cfg, log)
-	indexOrigin := "cache"
-	if !usouCache {
-		indexOrigin = "build"
-		idx = index.New()
-		if err := idx.Build(ctx, v); err != nil {
-			return nil, err
-		}
-		if err := index.SaveIndexCache(ctx, cfg.CacheDir, cfg.VaultPath, idx); err != nil {
-			log.Warn("falha ao salvar cache de indice de metadados", "err", err)
-		}
+	idx, indexOrigin, err := AbrirIndice(ctx, v, cfg, log)
+	if err != nil {
+		return nil, err
 	}
 	indexMS := time.Since(buildStart).Milliseconds()
 
@@ -183,12 +180,12 @@ func construirServico(ctx context.Context, cfg config.Config, log *slog.Logger) 
 		// espera este carregamento, uma edicao no cofre entre a partida e
 		// a primeira busca pode chegar primeiro e escrever no indice
 		// invertido. Nesse caso search.Inverted.AdotarDe recusa o cache
-		// (indice nao vazio) e prepararIndiceDeBusca cai para
-		// buildInvertedIndex, que ja conta o que o watcher escreveu via
+		// (indice nao vazio) e PrepararBusca cai para
+		// construirBusca, que ja conta o que o watcher escreveu via
 		// HasDoc e so le do disco o resto — mais lento que o caminho de
 		// cache, nunca incorreto.
 		opts.CarregarBusca = func(searchCtx context.Context) error {
-			prepararIndiceDeBusca(searchCtx, v, idx, inv, cfg, log)
+			PrepararBusca(searchCtx, v, idx, inv, cfg, log)
 			if err := searchCtx.Err(); err != nil {
 				return err
 			}
@@ -198,12 +195,13 @@ func construirServico(ctx context.Context, cfg config.Config, log *slog.Logger) 
 
 	svc := service.New(v, idx, inv, watcherStats{w: w}, opts)
 
-	var wg sync.WaitGroup
-	wg.Add(1)
+	c := &Componentes{Vault: v, Index: idx, Inverted: inv, Watcher: w, Service: svc}
+
+	c.espera.Add(1)
 	go func() {
-		defer wg.Done()
+		defer c.espera.Done()
 		if cfg.EagerSearch {
-			// prepararIndiceDeBusca ANTES de w.Run, e nao em paralelo com
+			// PrepararBusca ANTES de w.Run, e nao em paralelo com
 			// ele.
 			//
 			// A adocao do cache SUBSTITUI o conteudo do indice (ver
@@ -213,7 +211,7 @@ func construirServico(ctx context.Context, cfg config.Config, log *slog.Logger) 
 			// proximo reinicio. Os eventos desse intervalo nao se perdem:
 			// watcher.New ja registrou os watches, entao eles ficam
 			// enfileirados no fsnotify e w.Run os consome em seguida.
-			prepararIndiceDeBusca(ctx, v, idx, inv, cfg, log)
+			PrepararBusca(ctx, v, idx, inv, cfg, log)
 		}
 		// Modo padrao: o watcher comeca a consumir a fila do fsnotify sem
 		// esperar o indice de busca. Adiar w.Run ate a primeira busca
@@ -242,5 +240,23 @@ func construirServico(ctx context.Context, cfg config.Config, log *slog.Logger) 
 		"index_ms", indexMS,
 		"index_origin", indexOrigin)
 
-	return &servicoMontado{svc: svc, w: w, wg: &wg}, nil
+	return c, nil
+}
+
+type watcherStats struct{ w *watcher.Watcher }
+
+func (a watcherStats) Stats() service.WatchCounters {
+	c := a.w.Stats()
+	return service.WatchCounters{
+		Active:            c.Active,
+		EventsReceived:    c.EventsReceived,
+		EventsDropped:     c.EventsDropped,
+		DroppedByReason:   c.DroppedByReason,
+		EventsCoalesced:   c.EventsCoalesced,
+		EventsProcessed:   c.EventsProcessed,
+		EventsSkipped:     c.EventsSkipped,
+		Reconciliations:   c.Reconciliations,
+		ReconciledUpdated: c.ReconciledUpdated,
+		ReconciledRemoved: c.ReconciledRemoved,
+	}
 }

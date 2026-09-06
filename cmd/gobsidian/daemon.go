@@ -14,6 +14,7 @@ import (
 	"path/filepath"
 	"time"
 
+	"github.com/jonyd/gobsidian/internal/boot"
 	"github.com/jonyd/gobsidian/internal/config"
 	"github.com/jonyd/gobsidian/internal/daemon"
 	"github.com/jonyd/gobsidian/internal/lifecycle"
@@ -108,8 +109,8 @@ func novoLoggerDoDaemon(vaultPath string, level slog.Level) (*slog.Logger, func(
 	return log, f.Close, nil
 }
 
-// runDaemon monta o indice/watcher/servico UMA VEZ (construirServico,
-// servico.go -- a mesma sequencia de boot que serveEmProcesso usa) e o
+// runDaemon monta o indice/watcher/servico UMA VEZ (boot.Montar -- a mesma
+// sequencia de boot que serveEmProcesso usa) e o
 // serve para N conexoes -- a diferenca central entre o daemon e
 // serveEmProcesso, que serve exatamente uma sessao sobre stdio.
 //
@@ -155,7 +156,7 @@ func runDaemon(parent context.Context, cfg config.Config, ociosidade time.Durati
 		"read_only", cfg.ReadOnly,
 		"ociosidade_s", ociosidade.Seconds())
 
-	montado, err := construirServico(ctx, cfg, log)
+	c, err := boot.Montar(ctx, cfg, log)
 	if err != nil {
 		// Este e o ramo que matou os dois daemons de 2026-08-26: e aqui que
 		// vault.New recusa o cofre (internal/vault/vault.go:90-95, "raiz do
@@ -167,18 +168,18 @@ func runDaemon(parent context.Context, cfg config.Config, ociosidade time.Durati
 		return err
 	}
 
-	srv := mcpsrv.New(ctx, montado.svc, cfg, log)
+	srv := mcpsrv.New(ctx, c.Service, cfg, log)
 
 	d := daemon.New(ln, srv, daemon.Config{Vault: cfg, OciosidadeMax: ociosidade}, log)
 	d.Run(ctx, lc.Trigger)
 
 	lifecycle.Shutdown(ctx, log, 6*time.Second,
 		lifecycle.Step{Name: "watcher", Budget: 500 * time.Millisecond, Fn: func(context.Context) error {
-			return montado.w.Close()
+			return c.Watcher.Close()
 		}},
 	)
 	lc.Wait()
-	montado.wg.Wait()
+	c.Esperar()
 
 	log.Info("daemon encerrado", "reason", lc.Reason())
 	return nil

@@ -1522,8 +1522,9 @@ commitado. Duas coisas que ele precisou fazer e que ficam registradas:
 
 **Não existe flag de CLI para o teto do cache de trecho.** O braço desligado
 exigiu um segundo binário, compilado com `SnippetCacheEntries` apontando para
-zero em `cmd/gobsidian/servico.go`; a edição foi aplicada e revertida em bytes
-crus, com SHA-256 conferindo o restauro, e o arquivo versionado está intacto.
+zero em `cmd/gobsidian/servico.go`, hoje `internal/boot/montar.go`; a edição <!-- check-doc-refs: ignore cmd/gobsidian/servico.go -- registro historico de 2026-08-28: o arquivo existia entao, e a Task 174 o moveu para internal/boot/montar.go -->
+foi aplicada e revertida em bytes crus, com SHA-256 conferindo o restauro, e o
+arquivo versionado está intacto.
 
 **Como se sabe que o cache estava cheio.** A chave é
 `{caminho, hash, início, fim, maxChars}`, e dois pares `(caminho, texto)`

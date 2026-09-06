@@ -60,8 +60,8 @@ lugar do seu contexto.
 ```
 cmd/gobsidian/     entrypoint fino e subcomandos: serve, doctor, index, search,
                    inspect, daemon (oculto). ponte.go escolhe daemon vs
-                   em-processo; servico.go monta o Service que serve e daemon
-                   compartilham
+                   em-processo; a montagem que serve e daemon compartilham
+                   mora em internal/boot
 internal/
   config/          struct de configuração, flags cobra, defaults, VaultKey
   lifecycle/       stdin-eof, sinais, vigília do PID pai, shutdown com orçamento
@@ -85,6 +85,8 @@ internal/
   service/         fachada das tools em tipos de domínio; erros em errors.go
   mcpsrv/          ÚNICO pacote onde tipos do SDK de MCP existem
   console/         marcadores ASCII e cor decidida pelo destino de saída
+  boot/            monta cofre, índice, busca, watcher e Service; serve, daemon
+                   e CLI chamam
   ipc/             transporte local: socket, saudação, handshake
   daemon/          N conexões sobre um índice; spawn; posse por trava do
                    kernel (flock / LockFileEx), nunca por arquivo com PID
@@ -102,8 +104,8 @@ scripts/           gates e utilitários PowerShell — ver Comandos
 
 Grafo de dependências, acíclico e **re-extraído dos imports de produção em
 2026-09-06** — `GOOS=windows go list -f '{{.Imports}}'` pacote a pacote, que NÃO
-enxerga arquivo `_test.go`. A única linha que mudou desde 2026-09-02 é a do
-`writer`, e a justificativa da aresta nova está logo abaixo do bloco:
+enxerga arquivo `_test.go`. Duas linhas mudaram desde 2026-09-02: a do `writer`
+e a do `boot`, que é nova. As justificativas estão logo abaixo do bloco:
 
 ```
 text  vault  config  console  lifecycle      folhas
@@ -115,9 +117,18 @@ search   → index, parser, text, vault
 watcher  → index, search, vault
 service  → index, parser, search, vault, writer
 mcpsrv   → config, index, parser, service, vault
+boot     → config, index, search, service, vault, watcher
 daemon   → config, ipc, mcpsrv
 doctor   → config, daemon, ipc, vault
 ```
+
+`boot` é de 2026-09-06 (Task 174) e não traz aresta nova nenhuma: as seis são
+exatamente as que `cmd/gobsidian` já tinha. A sequência de boot — cofre,
+varredura de temporários, índice de metadados, índice de busca, watcher,
+Service — vivia em `cmd/gobsidian`, onde nenhum teste de pacote a alcançava.
+`boot` não importa `mcpsrv` nem `lifecycle`: quem monta não decide como o host
+conversa nem quando encerra. E nenhum pacote de domínio importa `boot` — só
+`cmd/gobsidian`.
 
 `writer → text` é de 2026-09-06 (Task 169) e a justificativa é **uma conta por
 regra**: a trava por caminho do `writer` e a chave `lowerPath` do `index` são a
@@ -144,15 +155,15 @@ e em `GOOS=linux` o mesmo comando devolve só `[testing time]`, porque os
 `_other.go` apenas fazem `t.Skip` (medido em 2026-09-05). O
 que é exclusivo de teste são os imports **de** `vaulttest`: nenhum arquivo de
 produção o importa, só arquivos `_test.go` de `index`, `search`, `service`,
-`vault`, `watcher`, `daemon`, `ipc` e `cmd/gobsidian` — a lista saiu de
+`vault`, `watcher`, `daemon`, `ipc`, `boot` e `cmd/gobsidian` — a lista saiu de
 `git grep -l "internal/vaulttest" -- '*_test.go' | cut -d/ -f1-2 | sort -u`
-(medido em 2026-09-06; `watcher` entrou na Task 164 e a enumeração ficou um dia
-desatualizada). O comando devolve uma nona linha, `internal/vaulttest`: é o
-teste externo do próprio pacote, não um importador. Que não há aresta de produção também é medido, e é o outro
+(medido em 2026-09-06; `watcher` entrou na Task 164 e `boot` na Task 174). O
+comando devolve uma décima linha, `internal/vaulttest`: é o teste externo do
+próprio pacote, não um importador. Que não há aresta de produção também é medido, e é o outro
 comando: `git grep -l "internal/vaulttest" -- '*.go' ':!*_test.go'` volta vazio.
 Por isso ele fica fora do grafo de produção acima, e por isso não pode ganhar
-import de `index`, `search`, `service` ou `parser`: seria ciclo no teste externo
-desses pacotes.
+import de `index`, `search`, `service`, `parser` ou `boot`: seria ciclo no teste
+externo desses pacotes.
 
 ```
 vaulttest → vault             (pacote só de teste; ninguém em produção o importa)

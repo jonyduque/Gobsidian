@@ -15,7 +15,6 @@ gobsidian/
 │       ├── search.go             subcomando search (busca via CLI)
 │       ├── inspect.go            subcomando inspect (dump do parse de uma nota)
 │       ├── ponte.go              escolhe entre daemon e modo em processo; proxy de bytes
-│       ├── servico.go            montagem do Service, compartilhada por serve e daemon
 │       └── daemon.go             subcomando daemon (oculto; quem o inicia é a ponte)
 │
 ├── internal/
@@ -150,6 +149,13 @@ gobsidian/
 │   │   ├── cobra.go              template de ajuda realçado
 │   │   ├── vt_windows.go         habilita terminal virtual (build tag windows)
 │   │   └── vt_other.go           no-op documentado (build tag !windows)
+│   │
+│   ├── boot/                     a sequência de boot que serve, daemon e CLI
+│   │   │                         compartilham; não importa mcpsrv nem lifecycle
+│   │   ├── doc.go                por que o pacote existe e o que ele não decide
+│   │   ├── indice.go             AbrirIndice: cache fresco ou construção, e grava
+│   │   ├── busca.go              PrepararBusca: adota o cache, retoma ou constrói
+│   │   └── montar.go             Montar: cofre, varredura, índices, watcher, Service
 │   │
 │   ├── ipc/
 │   │   ├── ipc.go                transporte local: socket, saudação, handshake
