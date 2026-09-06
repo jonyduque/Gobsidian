@@ -78,6 +78,22 @@ type Inverted struct {
 	terms      map[string]map[string][]TokenPosition // delta: termo -> (path -> posList)
 	docLengths map[string]int                        // delta: path -> total de tokens
 
+	// termosDoDoc é o índice reverso do delta: path -> os termos distintos que
+	// aquele caminho contribuiu para `terms`. É o mesmo papel que
+	// `base.termosDoDoc` cumpre no lado imutável, e existe pelo mesmo motivo:
+	// sem ele, apagar um caminho do delta varre TODO termo do delta.
+	//
+	// Na construção do índice do zero — o laço de buildInvertedIndex, uma
+	// chamada de Add por nota — isso é quadrático: a n-ésima nota varre os
+	// termos que as n-1 anteriores acumularam, só para não achar nada, porque
+	// caminho novo não está em termo nenhum.
+	//
+	// A entrada é escrita em addTermPositionLocked exatamente quando o par
+	// (termo, path) aparece pela primeira vez, e apagada inteira em
+	// removeLocked. Isso mantém a lista sem repetição e exata: `terms[t][p]`
+	// existe se e somente se `t` está em `termosDoDoc[p]`.
+	termosDoDoc map[string][]string
+
 	// geracao conta toda mutacao do indice. E o que invalida a memorizacao de
 	// SomaDocLen — mesmo padrao de index.TotalSize, que a memorizacao contra
 	// geracao acelerou 688x.
@@ -112,8 +128,9 @@ type Inverted struct {
 // consulta. Quem constrói em segundo plano chama MarkBuilding logo em seguida.
 func NewInverted() *Inverted {
 	return &Inverted{
-		terms:      make(map[string]map[string][]TokenPosition),
-		docLengths: make(map[string]int),
+		terms:       make(map[string]map[string][]TokenPosition),
+		docLengths:  make(map[string]int),
+		termosDoDoc: make(map[string][]string),
 	}
 }
 
@@ -166,7 +183,16 @@ func (ix *Inverted) addTermPositionLocked(term, path string, pos TokenPosition) 
 		docs = make(map[string][]TokenPosition)
 		ix.terms[term] = docs
 	}
-	docs[path] = append(docs[path], pos)
+	posList, jaTinha := docs[path]
+	docs[path] = append(posList, pos)
+	// Primeira ocorrência do par (termo, path): registra no índice reverso. A
+	// segunda em diante não registra, senão a lista teria uma entrada por
+	// OCORRÊNCIA em vez de uma por termo. `jaTinha` é a fonte certa dessa
+	// pergunta: `docs[path]` só existe depois de um append, e append nunca
+	// devolve fatia vazia.
+	if !jaTinha {
+		ix.termosDoDoc[path] = append(ix.termosDoDoc[path], term)
+	}
 }
 
 // Remove remove todas as ocorrências do caminho do índice.
@@ -210,14 +236,23 @@ func (ix *Inverted) sombrearLocked(path string) {
 }
 
 // removeLocked apaga o caminho do DELTA. O base é tratado por sombrearLocked.
+//
+// Percorre os termos DAQUELE caminho, e não todos os termos do delta: ver
+// termosDoDoc. Caminho ausente do delta tem lista vazia e sai em O(1), que é o
+// caso do laço de construção — toda nota é nova.
 func (ix *Inverted) removeLocked(path string) {
 	delete(ix.docLengths, path)
-	for term, docs := range ix.terms {
+	for _, term := range ix.termosDoDoc[path] {
+		docs, ok := ix.terms[term]
+		if !ok {
+			continue
+		}
 		delete(docs, path)
 		if len(docs) == 0 {
 			delete(ix.terms, term)
 		}
 	}
+	delete(ix.termosDoDoc, path)
 }
 
 // obsoletoNoBaseLocked diz se o base deve ser ignorado para este caminho.
@@ -724,6 +759,7 @@ func (ix *Inverted) AdotarDe(outro *Inverted) error {
 	ix.termosVivosBase = outro.termosVivosBase
 	ix.terms = outro.terms
 	ix.docLengths = outro.docLengths
+	ix.termosDoDoc = outro.termosDoDoc
 
 	// `outro` fica vazio e utilizável, e não com mapas nil: um índice zerado por
 	// engano deve responder "sem resultados", não entrar em pânico.
@@ -734,6 +770,7 @@ func (ix *Inverted) AdotarDe(outro *Inverted) error {
 	outro.termosVivosBase = 0
 	outro.terms = make(map[string]map[string][]TokenPosition)
 	outro.docLengths = make(map[string]int)
+	outro.termosDoDoc = make(map[string][]string)
 
 	return nil
 }
