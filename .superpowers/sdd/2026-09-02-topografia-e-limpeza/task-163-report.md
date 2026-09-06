@@ -685,6 +685,7 @@ Rodado em foreground, completo (sem `-SkipCross`, sem `-SkipNet`), 23:16 a 23:20
 - 00:00 prova do O2 colhida nas duas direcoes; scratch removido
 - 00:00 `verify.ps1` completo, foreground
 - 00:05 `verify.ps1` verde, 14/14, `[!] 6 testes pulados`
+- 00:06 fix round 2 commitada: `b19316d`
 
 ### O1 — o caminho era um tab vertical, nao uma barra invertida
 
