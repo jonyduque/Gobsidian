@@ -24,8 +24,8 @@ func TestMaxResultsClampaLimit(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Search: %v", err)
 	}
-	if len(res.Hits) != 5 && len(res.Results) != 5 {
-		t.Fatalf("hits = %d, quer 5 (limit=100 clampado por MaxResults=5)", len(res.Hits))
+	if len(res.Results) != 5 {
+		t.Fatalf("results = %d, quero 5 (limit=100 clampado por MaxResults=5)", len(res.Results))
 	}
 
 	semTeto := service.New(v, idx, inv, nil, service.Options{})
@@ -35,12 +35,9 @@ func TestMaxResultsClampaLimit(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Search sem teto: %v", err)
 	}
-	n2 := len(res2.Hits)
-	if n2 == 0 {
-		n2 = len(res2.Results)
-	}
+	n2 := len(res2.Results)
 	if n2 != 30 {
-		t.Fatalf("sem teto: hits = %d, quer 30", n2)
+		t.Fatalf("sem teto: results = %d, quer 30", n2)
 	}
 
 	if res.LimitEfetivo != 5 {

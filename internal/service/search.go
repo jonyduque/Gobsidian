@@ -102,7 +102,6 @@ type SearchHit struct {
 
 // SearchResult representa o retorno consolidado da tool vault_search.
 type SearchResult struct {
-	Hits                []SearchHit `json:"hits,omitempty"`
 	Results             []SearchHit `json:"results"`
 	Total               int         `json:"total"`
 	Truncated           bool        `json:"truncated"`
@@ -129,7 +128,6 @@ type SearchResult struct {
 // caminho menos usado.
 func resultadoVazio(total int, opts SearchOptions) SearchResult {
 	return SearchResult{
-		Hits:                []SearchHit{},
 		Results:             []SearchHit{},
 		Total:               total,
 		Truncated:           false,
@@ -374,7 +372,6 @@ func (s *Service) Search(ctx context.Context, opts SearchOptions) (SearchResult,
 	}
 
 	return SearchResult{
-		Hits:                 results,
 		Results:              results,
 		Total:                total,
 		Truncated:            truncated,
@@ -416,7 +413,6 @@ func (s *Service) searchMetadataOnly(opts SearchOptions) (SearchResult, error) {
 	}
 
 	return SearchResult{
-		Hits:                results,
 		Results:             results,
 		Total:               total,
 		Truncated:           truncated,

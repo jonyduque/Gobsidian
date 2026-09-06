@@ -32,11 +32,11 @@ func TestSearchMatchOffsetApontaParaOTermoNoArquivo(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Search: %v", err)
 	}
-	if len(res.Hits) == 0 {
+	if len(res.Results) == 0 {
 		t.Fatal("nenhum resultado para um termo que existe na nota")
 	}
 
-	h := res.Hits[0]
+	h := res.Results[0]
 	if h.Path != "grande.md" {
 		t.Fatalf("primeiro hit = %q, quer grande.md", h.Path)
 	}
@@ -75,10 +75,10 @@ func TestSearchMatchOffsetDentroDosLimites(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Search: %v", err)
 	}
-	if len(res.Hits) != 3 {
-		t.Fatalf("hits = %d, quer 3 — a fixture nao monta o teste", len(res.Hits))
+	if len(res.Results) != 3 {
+		t.Fatalf("hits = %d, quer 3 — a fixture nao monta o teste", len(res.Results))
 	}
-	for _, h := range res.Hits {
+	for _, h := range res.Results {
 		if h.Snippet == "" {
 			t.Fatalf("%s: trecho vazio", h.Path)
 		}
@@ -115,11 +115,11 @@ func TestSearchMatchOffsetAusenteQuandoNaoHaTrecho(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Search: %v", err)
 	}
-	if len(res.Hits) == 0 {
+	if len(res.Results) == 0 {
 		t.Fatal("a nota sumiu do DISCO, nao do indice: o hit tinha de continuar na pagina")
 	}
 
-	h := res.Hits[0]
+	h := res.Results[0]
 	if h.Snippet != "" {
 		t.Fatalf("a fixture nao monta o teste: o hit tem trecho %q, "+
 			"e este teste precisa do caso SEM trecho", h.Snippet)

@@ -82,9 +82,6 @@ func TestFiltroDeDataInvalidoNaoViraSilencio(t *testing.T) {
 			return -1, true
 		}
 		var out struct {
-			Hits []struct {
-				Path string `json:"path"`
-			} `json:"hits"`
 			Results []struct {
 				Path string `json:"path"`
 			} `json:"results"`
@@ -96,10 +93,7 @@ func TestFiltroDeDataInvalidoNaoViraSilencio(t *testing.T) {
 		if err := json.Unmarshal(bruto, &out); err != nil {
 			t.Fatalf("resposta ilegivel: %v\n%s", err, bruto)
 		}
-		n := len(out.Hits)
-		if n == 0 && len(out.Results) > 0 {
-			n = len(out.Results)
-		}
+		n := len(out.Results)
 		return n, false
 	}
 
