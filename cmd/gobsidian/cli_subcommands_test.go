@@ -218,4 +218,10 @@ func TestIndexEInspectNaoAceitamFlagsQueIgnoram(t *testing.T) {
 			t.Errorf("search declara --%s e nao a usa", flag)
 		}
 	}
+	// doctor legitimamente mantem --read-only e --max-results (o proprio
+	// diagnostico os le); --debounce-ms nao tem watcher para coalescer e
+	// nao deve ser declarada (achado F1 da revisao final).
+	if newDoctorCmd().Flags().Lookup("debounce-ms") != nil {
+		t.Errorf("doctor declara --debounce-ms e nao a usa")
+	}
 }

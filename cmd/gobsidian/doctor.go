@@ -21,7 +21,6 @@ func newDoctorCmd() *cobra.Command {
 			// nao rodar. Toda chamada a config.Load precisa preencher os
 			// companheiros das flags que o comando expoe.
 			flags.ReadOnlySet = cmd.Flags().Changed("read-only")
-			flags.DebounceMSSet = cmd.Flags().Changed("debounce-ms")
 			flags.MaxResultsSet = cmd.Flags().Changed("max-results")
 
 			cfg, err := config.Load(flags)
@@ -66,7 +65,6 @@ func newDoctorCmd() *cobra.Command {
 
 	flagsDeCofre(cmd, &flags)
 	cmd.Flags().BoolVar(&flags.ReadOnly, "read-only", false, "nao verifica permissao de escrita")
-	cmd.Flags().IntVar(&flags.DebounceMS, "debounce-ms", 0, "janela de coalescencia de eventos do watcher")
 	cmd.Flags().IntVar(&flags.MaxResults, "max-results", 0, "teto de resultados por consulta")
 
 	return cmd
