@@ -271,12 +271,17 @@ func checkFreeSpace(ctx context.Context, cfg config.Config) Result {
 // o scan reportam isso como aviso de "varredura interrompida", nunca como
 // "zero encontrado", que seria uma resposta enganosa.
 type vaultScan struct {
-	noteCount        int
-	longestPathLen   int
-	longestPath      string
-	cloudOnlyCount   int
-	casingCollisions []string
-	err              error
+	noteCount      int
+	longestPathLen int
+	longestPath    string
+	// platform carrega os contadores que so o Windows le (arquivos
+	// somente-nuvem, colisoes de casing). Fica num campo proprio, e nao
+	// solto aqui, porque golangci-lint (linux) marca campo nunca lido nem
+	// escrito em build linux como "unused" — e cloudOnlyCount/
+	// casingCollisions soltos aqui SAO isso fora do Windows. Ver
+	// platformScanState em checks_windows.go / checks_other.go.
+	platform platformScanState
+	err      error
 }
 
 // scanStatus traduz o erro de uma varredura interrompida em Result, e e o
@@ -318,7 +323,6 @@ func scanStatus(scan vaultScan, name string) (Result, bool) {
 // mais um erro derivado do mesmo problema ja sinalizado.
 func scanVault(ctx context.Context, cfg config.Config) vaultScan {
 	var scan vaultScan
-	seen := make(map[string]string)
 
 	scan.err = walkVault(ctx, cfg, func(e vault.Entry) {
 		if e.IsNote {
@@ -335,18 +339,13 @@ func scanVault(ctx context.Context, cfg config.Config) vaultScan {
 			return
 		}
 
-		if e.CloudOnly {
-			scan.cloudOnlyCount++
-		}
-
-		key := strings.ToLower(string(e.Path))
-		if prev, ok := seen[key]; ok {
-			if prev != string(e.Path) {
-				scan.casingCollisions = append(scan.casingCollisions, fmt.Sprintf("%s <-> %s", prev, e.Path))
-			}
-			return
-		}
-		seen[key] = string(e.Path)
+		// scan.platform so acumula algo no Windows (checks_windows.go): o
+		// outro sistema de arquivos nao tem atributo somente-nuvem, e nao e
+		// insensivel a maiusculas. Chamar isto incondicionalmente cobraria
+		// de todo cofre, em toda plataforma, o trabalho (o ToLower e o mapa
+		// de colisao por nome) de uma verificacao que so o Windows le — por
+		// isso o custo fica atras do build tag, em platformScanState.observe.
+		scan.platform.observe(e)
 	})
 
 	return scan

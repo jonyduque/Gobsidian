@@ -36,26 +36,18 @@ type check func(context.Context, config.Config) Result
 // Run executa todas as verificacoes na ordem em que importam: as que
 // invalidam as seguintes vem primeiro.
 func Run(ctx context.Context, cfg config.Config) []Result {
-	// halting marca as verificacoes cuja falha invalida tudo o que vem depois.
-	// Sem raiz acessivel ou legivel, as seguintes reportariam falhas derivadas
-	// e o relatorio viraria ruido — que e o oposto do que se quer de um
-	// diagnostico. Comparar pelo nome de uma unica verificacao nao basta: uma
-	// raiz que existe mas nao pode ser lida produz exatamente a mesma cascata.
-	type entry struct {
-		fn      check
-		halting bool
-	}
-
-	checks := []entry{
-		{checkRootExists, true},
-		{checkReadable, true},
-	}
+	// As duas verificacoes abaixo sao HALTING: sua falha invalida tudo o que
+	// vem depois. Sem raiz acessivel ou legivel, as seguintes reportariam
+	// falhas derivadas e o relatorio viraria ruido — que e o oposto do que se
+	// quer de um diagnostico. Por isso o loop devolve assim que uma delas
+	// falha, em vez de rodar as duas sempre.
+	checks := []check{checkRootExists, checkReadable}
 
 	out := make([]Result, 0, 16)
-	for _, c := range checks {
-		res := c.fn(ctx, cfg)
+	for _, fn := range checks {
+		res := fn(ctx, cfg)
 		out = append(out, res)
-		if res.Status == StatusFail && c.halting {
+		if res.Status == StatusFail {
 			return out
 		}
 	}

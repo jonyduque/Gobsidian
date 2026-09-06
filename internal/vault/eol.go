@@ -47,7 +47,8 @@ var bom = []byte(bomPrefix)
 // o tipo so modela LF e CRLF, um arquivo sem nenhum "\r\n" nem "\n" conta
 // zero quebras dos dois tipos e cai no default, EOLLF. Isso e consequencia
 // direta do desenho de dois valores, nao um bug — e o conteudo antigo em CR
-// solto nunca e reescrito, porque NormalizeEOL so processa o texto novo.
+// solto nunca e reescrito, porque writer.NormalizeEOL so processa o texto
+// novo.
 func DetectEOL(data []byte) EOLStyle {
 	crlf := bytes.Count(data, []byte("\r\n"))
 	lf := bytes.Count(data, []byte("\n")) - crlf
@@ -64,22 +65,4 @@ func StripBOM(data []byte) ([]byte, bool) {
 		return data[len(bom):], true
 	}
 	return data, false
-}
-
-// AddBOM reintroduz o marcador. Usado na escrita, quando o arquivo original
-// o tinha.
-func AddBOM(data []byte) []byte {
-	if bytes.HasPrefix(data, bom) {
-		return data
-	}
-	return append(append([]byte{}, bom...), data...)
-}
-
-// NormalizeEOL converte o conteudo novo para o estilo do arquivo alvo.
-func NormalizeEOL(data []byte, style EOLStyle) []byte {
-	flat := bytes.ReplaceAll(data, []byte("\r\n"), []byte("\n"))
-	if style == EOLLF {
-		return flat
-	}
-	return bytes.ReplaceAll(flat, []byte("\n"), []byte("\r\n"))
 }

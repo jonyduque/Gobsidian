@@ -62,8 +62,8 @@ func TestInvertedReindexSameNoteNoDuplicates(t *testing.T) {
 	if len(p) != 1 {
 		t.Fatalf("len(Postings) = %d, quer 1", len(p))
 	}
-	if p[0].Frequency != 1 {
-		t.Errorf("Frequency = %d, quer 1 (reindexacao duplica posicoes se nao limpar)", p[0].Frequency)
+	if got := len(p[0].Positions); got != 1 {
+		t.Errorf("len(Positions) = %d, quer 1 (reindexacao duplica posicoes se nao limpar)", got)
 	}
 }
 

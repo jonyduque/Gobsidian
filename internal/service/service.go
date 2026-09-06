@@ -97,8 +97,3 @@ func New(v *vault.Vault, idx Index, inv *search.Inverted, w WatchStats, opts Opt
 		carregarBusca: opts.CarregarBusca,
 	}
 }
-
-// Inverted devolve a instância do índice invertido.
-func (s *Service) Inverted() *search.Inverted {
-	return s.inverted
-}

@@ -12,6 +12,38 @@ import (
 	"golang.org/x/sys/windows/registry"
 )
 
+// platformScanState acumula, durante a varredura de scanVault, os dois
+// contadores que so os checks deste arquivo leem: notas somente-nuvem e
+// colisoes de casing. Vive atras do build tag porque o custo (ToLower e um
+// mapa por caminho, para cada nota do cofre) so vale a pena onde alguem le o
+// resultado — e porque os proprios campos, fora do Windows, nunca seriam
+// lidos nem escritos (golangci-lint os marca "unused" nesse build).
+type platformScanState struct {
+	cloudOnlyCount   int
+	casingCollisions []string
+	seen             map[string]string
+}
+
+// observe atualiza o estado com os contadores desta entrada. scanVault so
+// chama isto para notas (ja filtrou anexos antes).
+func (p *platformScanState) observe(e vault.Entry) {
+	if e.CloudOnly {
+		p.cloudOnlyCount++
+	}
+
+	if p.seen == nil {
+		p.seen = make(map[string]string)
+	}
+	key := strings.ToLower(string(e.Path))
+	if prev, ok := p.seen[key]; ok {
+		if prev != string(e.Path) {
+			p.casingCollisions = append(p.casingCollisions, fmt.Sprintf("%s <-> %s", prev, e.Path))
+		}
+		return
+	}
+	p.seen[key] = string(e.Path)
+}
+
 // platformChecks adiciona as verificacoes que so fazem sentido no Windows:
 // caminhos longos exigem opt-in do sistema operacional, arquivos
 // somente-nuvem sao um mecanismo de OneDrive/atributo NTFS, e colisao de
@@ -77,11 +109,11 @@ func checkCloudOnlyFiles(scan vaultScan) Result {
 	if res, failed := scanStatus(scan, name); failed {
 		return res
 	}
-	if scan.cloudOnlyCount > 0 {
+	if scan.platform.cloudOnlyCount > 0 {
 		return Result{
 			Name:   name,
 			Status: StatusWarn,
-			Detail: fmt.Sprintf("%d nota(s) ainda nao baixada(s) pelo sincronizador de nuvem", scan.cloudOnlyCount),
+			Detail: fmt.Sprintf("%d nota(s) ainda nao baixada(s) pelo sincronizador de nuvem", scan.platform.cloudOnlyCount),
 		}
 	}
 	return Result{Name: name, Status: StatusOK}
@@ -97,11 +129,11 @@ func checkCasingCollisions(scan vaultScan) Result {
 	if res, failed := scanStatus(scan, name); failed {
 		return res
 	}
-	if len(scan.casingCollisions) > 0 {
+	if len(scan.platform.casingCollisions) > 0 {
 		return Result{
 			Name:   name,
 			Status: StatusWarn,
-			Detail: fmt.Sprintf("%d colisao(oes): %s", len(scan.casingCollisions), strings.Join(scan.casingCollisions, "; ")),
+			Detail: fmt.Sprintf("%d colisao(oes): %s", len(scan.platform.casingCollisions), strings.Join(scan.platform.casingCollisions, "; ")),
 		}
 	}
 	return Result{Name: name, Status: StatusOK}

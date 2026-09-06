@@ -100,7 +100,7 @@ func construirServico(ctx context.Context, cfg config.Config, log *slog.Logger) 
 	// defer, e deixa o temporario no cofre. O boot e o unico momento sem
 	// escrita em voo, e por isso o unico em que varrer o diretorio nao corre
 	// risco de apagar o temporario de outra escrita. Ver
-	// writer.CleanStaleTempFiles.
+	// writer.SweepStaleTempFiles.
 	feita := <-varredura
 	if varr, err := feita.res, feita.err; err != nil {
 		log.Warn("varredura de temporarios interrompida", "err", err)

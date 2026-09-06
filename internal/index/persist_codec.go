@@ -430,6 +430,24 @@ func (l *leitor) uvarint(limite uint64, oque string) uint64 {
 	return v
 }
 
+// uvarintLivre le um uvarint sem teto. Existe porque dois chamadores
+// (o valor solto de frontmatter e o hash da nota) nao tem limite real: o
+// dado ocupa o uint64 inteiro, e chamar uvarint com limite=math.MaxUint64
+// era uma guarda que nunca disparava, porque nenhum uint64 decodificado por
+// binary.Uvarint pode superar o proprio tipo.
+func (l *leitor) uvarintLivre(oque string) uint64 {
+	if l.err != nil {
+		return 0
+	}
+	v, n := binary.Uvarint(l.b[l.i:])
+	if n <= 0 {
+		l.falha("%w: lendo %s: varint invalido em %d", ErrIndexCacheCorrupted, oque, l.i)
+		return 0
+	}
+	l.i += n
+	return v
+}
+
 func (l *leitor) varint() int64 {
 	if l.err != nil {
 		return 0
@@ -636,7 +654,7 @@ func (l *leitor) value(profundidade int) any {
 	case valInt64:
 		return l.varint()
 	case valUint64:
-		return l.uvarint(math.MaxUint64, "valor uint64")
+		return l.uvarintLivre("valor uint64")
 	case valFloat64:
 		return math.Float64frombits(l.fixed64())
 	case valString:
@@ -679,7 +697,7 @@ func (l *leitor) note() *Note {
 	title := l.str("note title")
 	size := int64(l.uvarint(math.MaxInt64, "note size"))
 	modTime := l.timeBlob("note modTime")
-	hash := l.uvarint(math.MaxUint64, "note hash")
+	hash := l.uvarintLivre("note hash")
 	eol := vault.EOLStyle(l.uvarint(1, "note eol"))
 	bom := l.boolean("note bom")
 	cloudOnly := l.boolean("note cloudOnly")

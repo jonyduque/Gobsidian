@@ -13,33 +13,6 @@ import (
 // TempFilePrefix e o prefixo usado para todos os arquivos temporarios de escrita atomica.
 const TempFilePrefix = ".gobsidian-tmp-"
 
-// CleanStaleTempFiles remove os temporarios de escritas interrompidas em UM
-// diretorio. Recuperacao de crash, e so isso: uma escrita que falha por
-// qualquer motivo normal ja remove o proprio temporario no defer de
-// WriteAtomic. O unico caso que sobra e o processo morto, que nao roda defer.
-//
-// NAO CHAME ISTO NO INICIO DE UMA ESCRITA. Ate 2026-07-30 WriteAtomic a chamava
-// ali, e o glob apaga TODOS os temporarios do diretorio — inclusive um que
-// outra escrita em voo esta usando. A trava do writer e por CAMINHO, de
-// proposito: duas notas na mesma pasta escrevem em paralelo. O recurso
-// compartilhado aqui e o DIRETORIO, e a trava por caminho nao o cobre.
-//
-// No Windows a corrida ficava mascarada: os.Remove sobre arquivo com handle
-// aberto falha com sharing violation, e o erro era engolido. Em Linux e macOS o
-// unlink sucede por semantica POSIX — a outra escrita segue gravando num inode
-// desvinculado, Sync e Close passam, e o rename falha com ENOENT. Escrita
-// perdida, com erro cuja causa nao tem relacao com o que o chamador pediu.
-//
-// O lugar certo e o boot, onde nao ha escrita em voo: SweepStaleTempFiles.
-func CleanStaleTempFiles(dir string) {
-	matches, err := filepath.Glob(filepath.Join(dir, TempFilePrefix+"*"))
-	if err == nil {
-		for _, m := range matches {
-			_ = os.Remove(m)
-		}
-	}
-}
-
 // SweepResult e o que a varredura de temporarios encontrou.
 //
 // Era um int so — a contagem de removidos — e todo o resto era descartado
@@ -57,8 +30,15 @@ type SweepResult struct {
 
 // SweepStaleTempFiles remove, do cofre inteiro, os temporarios que escritas
 // interrompidas deixaram, e devolve quantos removeu. Roda no boot, quando
-// nenhuma escrita esta em voo — e por isso nao tem a corrida que CleanStaleTempFiles
-// tem quando chamada durante uma escrita.
+// nenhuma escrita esta em voo — por isso pode varrer o diretorio inteiro
+// sem risco: ate 2026-07-30 WriteAtomic varria assim no INICIO de cada
+// escrita, e o glob apagava TODOS os temporarios do diretorio, inclusive o
+// de outra escrita em voo na mesma pasta (a trava do writer e por CAMINHO,
+// nao por diretorio). No Windows a corrida ficava mascarada — os.Remove
+// sobre arquivo com handle aberto falha com sharing violation, e o erro era
+// engolido; em Linux e macOS o unlink sucede por semantica POSIX, a outra
+// escrita segue gravando num inode desvinculado, e o rename final falhava
+// com ENOENT.
 //
 // Existe tambem porque a varredura preguicosa nao bastava: um temporario orfao
 // numa pasta que nunca mais fosse escrita ficava no cofre do usuario para
@@ -135,9 +115,10 @@ func WriteAtomic(ctx context.Context, targetPath string, data []byte) error {
 	}
 	dir := filepath.Dir(targetPath)
 
-	// Nenhuma varredura aqui: ver o comentario de CleanStaleTempFiles. O
-	// temporario desta escrita e removido pelo defer abaixo em qualquer falha;
-	// o de um processo morto e removido no boot por SweepStaleTempFiles.
+	// Nenhuma varredura de diretorio aqui -- so no boot, por
+	// SweepStaleTempFiles, e pelo motivo no comentario dela. O temporario
+	// desta escrita e removido pelo defer abaixo em qualquer falha; o de um
+	// processo morto (que nao roda defer) fica ate o proximo boot.
 	tmpFile, err := os.CreateTemp(dir, TempFilePrefix+"*")
 	if err != nil {
 		return fmt.Errorf("criando temporario em %q: %w", dir, err)

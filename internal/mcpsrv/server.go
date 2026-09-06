@@ -26,7 +26,6 @@ var Version = "dev"
 type Server struct {
 	mcp *mcp.Server
 	svc *service.Service
-	cfg config.Config
 	log *slog.Logger
 }
 
@@ -38,7 +37,6 @@ func New(ctx context.Context, svc *service.Service, cfg config.Config, log *slog
 	s := &Server{
 		mcp: mcp.NewServer(&mcp.Implementation{Name: "gobsidian", Version: Version}, nil),
 		svc: svc,
-		cfg: cfg,
 		log: log,
 	}
 	s.registerReadTools()

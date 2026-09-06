@@ -419,6 +419,16 @@ func (s *Service) MoveNote(ctx context.Context, req MoveNoteRequest) (MoveNoteRe
 		return MoveNoteResult{}, ErroDeResolucao(req.From, err)
 	}
 
+	// NAO e so para rejeitar "to" vazio (Task 166 propunha trocar isto por um
+	// `if req.To == ""`, e BLOQUEOU aqui): esta chamada resolve o req.To CRU,
+	// antes do ".md" que toInput acrescenta abaixo, e e ela que pega nome de
+	// dispositivo reservado do Windows sem extensao ("COM1"). Desde o Windows
+	// 11 a checagem de nome reservado do Go (filepath.IsLocal, via
+	// RtlIsDosDeviceName_U) para de recusar a forma COM EXTENSAO --
+	// "COM1.md" resolve normalmente -- entao a resolucao de baixo, sobre
+	// toInput, nao pega mais esse caso sozinha. Medido: removendo esta
+	// chamada, TestEscritaRecusaTravessiaComSeparadorDoWindows/windows/COM1
+	// falhou com "MoveNote(to=\"COM1\") devolveu sucesso".
 	_, _, err = vault.Resolve(s.vault.Root(), req.To)
 	if err != nil {
 		return MoveNoteResult{}, mapVaultErr(err)

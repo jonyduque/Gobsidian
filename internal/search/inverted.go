@@ -22,7 +22,6 @@ type TokenPosition struct {
 type Posting struct {
 	Path      string          // Caminho relativo da nota (ex: "b.md")
 	Positions []TokenPosition // Posições (offsets em bytes) das ocorrências
-	Frequency int             // Frequência do termo na nota
 }
 
 // Inverted é um índice invertido thread-safe com suporte a atualizações
@@ -272,7 +271,6 @@ func (ix *Inverted) Postings(term string) []Posting {
 				doBase = append(doBase, Posting{
 					Path:      path,
 					Positions: pos,
-					Frequency: len(pos),
 				})
 			}
 		}
@@ -295,7 +293,6 @@ func (ix *Inverted) Postings(term string) []Posting {
 		result = append(result, Posting{
 			Path:      path,
 			Positions: posList,
-			Frequency: len(posList),
 		})
 	}
 

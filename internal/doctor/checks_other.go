@@ -5,8 +5,16 @@ package doctor
 import (
 	"fmt"
 
+	"github.com/jonyd/gobsidian/internal/vault"
 	"golang.org/x/sys/unix"
 )
+
+// platformScanState nao acumula nada fora do Windows: notas somente-nuvem e
+// colisoes de casing so importam la (ver platformChecks e o observe de
+// checks_windows.go).
+type platformScanState struct{}
+
+func (*platformScanState) observe(vault.Entry) {}
 
 // platformChecks devolve vazio fora do Windows: caminhos longos exigem um
 // opt-in de registro que so existe la, arquivos somente-nuvem sao detectados

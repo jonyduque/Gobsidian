@@ -101,10 +101,6 @@ func exigeEquivalentes(t *testing.T, quer, tem *Inverted, caminhos []string) {
 				t.Errorf("Postings(%q)[%d].Path = %q, quer %q", termo, i, pb[i].Path, pa[i].Path)
 				continue
 			}
-			if pa[i].Frequency != pb[i].Frequency {
-				t.Errorf("Postings(%q)[%d].Frequency = %d, quer %d",
-					termo, i, pb[i].Frequency, pa[i].Frequency)
-			}
 			if len(pa[i].Positions) != len(pb[i].Positions) {
 				t.Errorf("Postings(%q)/%q: %d posições, quer %d",
 					termo, pa[i].Path, len(pb[i].Positions), len(pa[i].Positions))

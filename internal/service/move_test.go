@@ -184,6 +184,37 @@ func TestMoveNote_UpdateLinksFalse(t *testing.T) {
 	}
 }
 
+// TestMoveNoteSemDestinoEInvalidArgument cobre o guard de "to" vazio (Task
+// 166, Step 3): a chamada a vault.Resolve que so descartava os tres retornos
+// virou um if direto sobre req.To, e este teste e a prova de que ele ainda
+// rejeita -- inclusive o "to" so-espaco, que a resolucao de baixo (com ".md"
+// ja concatenado) nao pegaria sozinha.
+func TestMoveNoteSemDestinoEInvalidArgument(t *testing.T) {
+	files := map[string]string{
+		"a.md": "Nota A",
+	}
+
+	svc, _, _, _ := createMoveService(t, files)
+
+	for _, to := range []string{"", "   "} {
+		_, err := svc.MoveNote(context.Background(), service.MoveNoteRequest{
+			From: "a.md",
+			To:   to,
+		})
+		if err == nil {
+			t.Fatalf("MoveNote(to=%q) error = nil, esperado INVALID_ARGUMENT", to)
+		}
+
+		var codeErr *service.Error
+		if !errors.As(err, &codeErr) {
+			t.Fatalf("MoveNote(to=%q) error = %T (%v), quer *service.Error", to, err, err)
+		}
+		if codeErr.Code != service.CodeInvalidArgument {
+			t.Errorf("MoveNote(to=%q) Code = %v, quer CodeInvalidArgument", to, codeErr.Code)
+		}
+	}
+}
+
 func TestMoveNote_CreateFoldersFalseMissingDir(t *testing.T) {
 	files := map[string]string{
 		"alvo.md": "Alvo",

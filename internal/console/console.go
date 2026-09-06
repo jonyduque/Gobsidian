@@ -86,10 +86,6 @@ func NewPlain(w io.Writer) *Stream {
 // Colored informa se este Stream esta emitindo sequencias ANSI.
 func (s *Stream) Colored() bool { return s.color }
 
-// Writer devolve o destino, para quem precisa escrever algo que este pacote
-// nao formata (um bloco JSON, por exemplo).
-func (s *Stream) Writer() io.Writer { return s.w }
-
 func (s *Stream) style(text string, codes ...string) string {
 	if !s.color || len(codes) == 0 {
 		return text

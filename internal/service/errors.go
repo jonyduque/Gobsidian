@@ -33,7 +33,6 @@ const (
 	CodeHashMismatch     Code = "HASH_MISMATCH"
 	CodeFileLocked       Code = "FILE_LOCKED"
 	CodeCloudOnlyFile    Code = "CLOUD_ONLY_FILE"
-	CodePathTooLong      Code = "PATH_TOO_LONG"
 	CodeReadOnlyMode     Code = "READ_ONLY_MODE"
 	// CodeInvalidArgument: a combinacao de parametros recebida nao tem
 	// interpretacao unica (dois campos mutuamente exclusivos preenchidos) ou

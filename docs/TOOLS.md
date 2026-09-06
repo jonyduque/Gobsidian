@@ -504,7 +504,6 @@ A listagem de resources é paginada e serve o índice em memória. Em cofres gra
 | `HASH_MISMATCH` | Nota mudou desde a leitura | Reler e repetir |
 | `FILE_LOCKED` | Arquivo bloqueado após esgotar retries | Fechar a nota no Obsidian e repetir |
 | `CLOUD_ONLY_FILE` | Arquivo não hidratado pelo OneDrive | Abrir uma vez no Explorer, ou desmarcar "somente online" |
-| `PATH_TOO_LONG` | Caminho excede o limite do sistema | Encurtar o caminho ou habilitar caminhos longos |
 | `READ_ONLY_MODE` | Servidor iniciado com `--read-only` | Reiniciar sem a flag |
 | `VAULT_UNAVAILABLE` | Raiz do cofre inacessível, **ou** índice em memória indisponível (`link_graph`, `tag_list`, `note_list`, `note_metadata` antes do índice carregar), **ou** falha de leitura ao abrir o arquivo (`note_outline` sobre nota ilegível) | Verificar com `gobsidian doctor`; se for índice, repetir em alguns segundos |
 | `INTERNAL` | Falha inesperada, já registrada em stderr | Reportar |
