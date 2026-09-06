@@ -262,7 +262,6 @@ func (s *Server) registerReadToolsInternal() {
 				// dominio.
 				depth := valorOuZero(in.Depth)
 				limit := valorOuZero(in.Limit)
-				direction := in.Direction
 				includeBroken := true
 				if in.IncludeBroken != nil {
 					includeBroken = *in.IncludeBroken
@@ -274,7 +273,7 @@ func (s *Server) registerReadToolsInternal() {
 
 				out, err := s.svc.LinkGraph(ctx, service.GraphRequest{
 					Path:          in.Path,
-					Direction:     direction,
+					Direction:     in.Direction,
 					Depth:         depth,
 					IncludeBroken: includeBroken,
 					IncludeEmbeds: includeEmbeds,

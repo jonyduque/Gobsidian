@@ -10,7 +10,7 @@ Contrato de cada *tool*. Schemas em JSON Schema, como declarados ao host.
 
 **Casing.** A resolução tenta correspondência exata primeiro, depois insensível a maiúsculas. Se a busca insensível encontrar mais de um candidato, a chamada falha com erro de ambiguidade listando os candidatos — nunca escolhe por conta própria.
 
-**Limites.** Toda tool que devolve lista aceita `limit` e `offset`. O padrão de `limit` é 50; o teto é 500. Respostas truncadas trazem `truncated: true` e `total`.
+**Limites.** Toda tool que devolve lista aceita `limit` e `offset`. Padrão e teto de `limit` variam por tool (`vault_search`: padrão 20, teto 200; `note_list` e `link_graph`: padrão 100, teto 500 — ver o schema de cada uma). Respostas truncadas trazem `truncated: true` e `total`.
 
 **Dry-run.** Toda tool de escrita aceita `dry_run`. Quando verdadeiro, devolve o diff unificado do que seria feito e não toca o disco.
 

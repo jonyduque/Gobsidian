@@ -161,9 +161,10 @@ func TestRNF11NoCorruptionUnder1000Crashes(t *testing.T) {
 		// comportamento esperado — nao defeito. O que se afirma e que a
 		// recuperacao os remove.
 		//
-		// A versao anterior deste bloco chamava CleanStaleTempFiles e DEPOIS
-		// afirmava que nao havia sobras: a linha de cima garantia a de baixo, e
-		// a assercao nao podia falhar. Medido: com a limpeza neutralizada, este
+		// A versao anterior deste bloco chamava CleanStaleTempFiles (hoje
+		// apagada; era o glob por diretorio, Task 166) e DEPOIS afirmava que
+		// nao havia sobras: a linha de cima garantia a de baixo, e a
+		// assercao nao podia falhar. Medido: com a limpeza neutralizada, este
 		// teste reprova — havia temporarios reais sendo mascarados.
 		antesDaVarredura, _ := filepath.Glob(filepath.Join(dir, writer.TempFilePrefix+"*"))
 		mu.Lock()
@@ -333,9 +334,10 @@ func TestWriteAtomic_RenameRetryOnLock(t *testing.T) {
 }
 
 // TestWriteAtomicConcurrentSameDirectory e o teste de regressao do defeito que
-// a revisao do M4 achou: WriteAtomic chamava CleanStaleTempFiles(dir) no
-// inicio, e o glob apaga TODOS os temporarios do diretorio — inclusive o de
-// outra escrita em voo. A trava do writer e por CAMINHO de proposito, entao
+// a revisao do M4 achou: WriteAtomic chamava CleanStaleTempFiles(dir) (hoje
+// apagada; era o glob por diretorio, Task 166) no inicio, e o glob apaga
+// TODOS os temporarios do diretorio — inclusive o de outra escrita em voo.
+// A trava do writer e por CAMINHO de proposito, entao
 // duas notas na mesma pasta escrevem em paralelo, e o recurso compartilhado
 // (o diretorio) nao esta coberto por ela.
 //

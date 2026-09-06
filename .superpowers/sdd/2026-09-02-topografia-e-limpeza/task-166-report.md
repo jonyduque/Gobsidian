@@ -304,3 +304,102 @@ arquivo de Task 167/168 presente na arvore de trabalho no momento desta execucao
 3. **`atomic_test.go`** mantido sem alteracao (nao listado no brief como candidato a mudanca);
    `TestWriteAtomicPreservaOModoDoAlvo` continua pulado por motivo preexistente, nao-relacionado
    a esta task.
+
+---
+
+## Fix round 1
+
+Resposta a `.superpowers/sdd/2026-09-02-topografia-e-limpeza/review-166-168.md` (revisor
+rev-166-168), achados N1 (bloqueante, Task 166), N2/N3/N4 (nits, Task 166), N5/N6 (nits, Task
+168). Um commit so, paths explicitos.
+
+### Progresso
+
+- 03:30 inicio: leitura de `review-166-168.md` inteiro (secoes `Achados` de 166 e 168, e o
+  Veredito).
+- feito entre 03:30 e 03:35: N1 (`internal/service/move_test.go`) — reescrito o comentario de
+  `TestMoveNoteSemDestinoEInvalidArgument` para parar de afirmar que a chamada `vault.Resolve`
+  "virou um if": ela continua em `write.go:432`, o Passo 3 segue BLOQUEADO, e o comentario novo
+  aponta para o de `write.go:422-431` (por que ela nao pode sumir).
+- feito entre 03:30 e 03:35: N2 (`internal/index/persist_codec.go`) — `uvarint` agora chama
+  `uvarintLivre` e so acrescenta o teste `v > limite`; decode e mensagem de erro moram numa
+  funcao so.
+- feito entre 03:30 e 03:35: N3 (`internal/writer/atomic_test.go:164,336` — deslocaram para
+  ~165/337 apos os outros edits) — as duas mencoes a `CleanStaleTempFiles` ganharam a clausula
+  "(hoje apagada; era o glob por diretorio, Task 166)".
+- feito entre 03:30 e 03:35: N4 (`docs/TOOLS.md:13`) — a sentenca generica de `limit` parou de
+  afirmar um padrao/teto unico (50/500) que nenhuma tool usa; agora nomeia os dois pares reais
+  (`vault_search`: 20/200; `note_list` e `link_graph`: 100/500), conferidos contra o schema de
+  cada tool no mesmo arquivo (linhas 55, 208, 277). Nenhuma outra linha de TOOLS.md tocada.
+  Desvio pequeno do pedido: N4 so cobrava o numero do PADRAO (50); ao editar a frase eu vi que o
+  TETO tambem estava errado para `vault_search` (200, nao 500) e corrigi os dois na mesma
+  sentenca, ja que deixar o teto errado ali do lado do padrao corrigido criaria uma segunda
+  inconsistencia no mesmo lugar.
+- feito entre 03:30 e 03:35: N5 (`internal/mcpsrv/tools_read.go`) — removido o alias local
+  `direction := in.Direction`; o `struct literal` de `service.GraphRequest` agora usa
+  `Direction: in.Direction` direto, como `note_list` ja fazia com `Sort`/`Order`. Conferido que
+  `in.Direction` continua aparecendo literalmente no corpo do handler (a exigencia de
+  `check_tool_params.ps1` nivel 1) — so mudou de "atras de uma variavel" para "no literal".
+- feito entre 03:30 e 03:35: N6 (`task-168-report.md`) — acrescentada a nota explicita: o brief
+  listava `depth` como candidato a MANTER, a medicao em `graph.go:90-96` mostrou que o service ja
+  aplica o default e o clamp, e por isso a decisao foi deletar, contrariando o candidato do
+  brief.
+- 03:36 verificacao: `gofmt -l` nos quatro arquivos de produto/teste tocados e no diff completo
+  (vazio); `go build ./...`; `go vet ./...`; `go test -race` nos quatro pacotes tocados;
+  `pwsh -File scripts/verify.ps1 -SkipCross -SkipNet`.
+- 03:38 commit.
+
+### `gofmt -l`
+
+```
+$ gofmt -l internal/service/move_test.go internal/index/persist_codec.go internal/writer/atomic_test.go internal/mcpsrv/tools_read.go
+(vazio)
+```
+
+### `go build ./...`
+
+```
+$ go build ./...
+(sem saida, exit 0)
+```
+
+### `go vet ./...`
+
+```
+$ go vet ./...
+(sem saida, exit 0)
+```
+
+### `go test -race` nos quatro pacotes tocados
+
+```
+$ go test -race ./internal/index/ ./internal/service/ ./internal/mcpsrv/ ./internal/writer/
+ok  	github.com/jonyd/gobsidian/internal/index	(cached)
+ok  	github.com/jonyd/gobsidian/internal/service	57.273s
+ok  	github.com/jonyd/gobsidian/internal/mcpsrv	(cached)
+ok  	github.com/jonyd/gobsidian/internal/writer	(cached)
+```
+
+### `verify.ps1 -SkipCross -SkipNet`
+
+```
+[...] 1. go build            -> [OK]
+[...] 2. go test -race       -> [OK]
+[...] 3. contagem de pulados -> [!] 6 testes pulados (os mesmos seis, ja conhecidos:
+     TestAjudanteSeguraTrava, TestListenRestringePermissaoUnix, TestSignalCancelsContext,
+     TestPerfilDeHeapServindo, TestNew_FailsOnUnwatchablePath, TestWriteAtomicPreservaOModoDoAlvo)
+[...] 4. go test (tetos)     -> [OK]
+[...] 5. go vet (windows)    -> [OK]  ([i] vet cruzado pulado -SkipCross)
+[...] 6. gofmt               -> [OK]
+[...] 7. golangci-lint       -> [OK]
+[...] 8. golangci-lint (linux) -> [OK]  ([i] check_net pulado -SkipNet)
+[...] 9. check_tool_params   -> [OK]
+[...] 10. check_doc_refs     -> [OK]
+[...] 11. check_readme_anchors -> [OK]
+
+[OK] Bateria completa. Pode commitar.
+```
+
+Cross/net nao rodados por instrucao explicita do team-lead ("as etapas cross/net ja estavam
+verdes duas commits atras nos mesmos arquivos de producao"); nenhum arquivo desta rodada toca
+codigo de plataforma nem `net/*`.

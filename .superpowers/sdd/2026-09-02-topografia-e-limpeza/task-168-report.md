@@ -58,6 +58,13 @@ nao muda nenhum comportamento observavel.
 Nenhum default NOVO foi adicionado ao service — todos os campos deletados de `tools_read.go` ja
 tinham a mesma conta no service ANTES desta task.
 
+Nota sobre `depth` (N6 da revisao): o brief listava `depth` entre os candidatos a MANTER
+("candidatos: `depth`, `recursive`, `include_broken`, `include_embeds`"), e essa linha da tabela
+contradiz esse candidato de proposito — o Passo 1 manda medir antes de decidir, e a medicao
+(`graph.go:90-96`, `Depth<=0` -> 1, clamp 3) mostra que o service ja aplica o default e o teto.
+Por isso `depth` foi para **deletar**, nao para **manter**: o candidato do brief partia de uma
+suposicao, a medicao decidiu.
+
 ## Passo 3 — `valorOuZero`
 
 ```go

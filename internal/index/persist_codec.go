@@ -414,15 +414,10 @@ func (l *leitor) falha(formato string, args ...any) {
 }
 
 func (l *leitor) uvarint(limite uint64, oque string) uint64 {
+	v := l.uvarintLivre(oque)
 	if l.err != nil {
 		return 0
 	}
-	v, n := binary.Uvarint(l.b[l.i:])
-	if n <= 0 {
-		l.falha("%w: lendo %s: varint invalido em %d", ErrIndexCacheCorrupted, oque, l.i)
-		return 0
-	}
-	l.i += n
 	if v > limite {
 		l.falha("%w: %s = %d, acima do limite de %d", ErrIndexCacheCorrupted, oque, v, limite)
 		return 0

@@ -185,10 +185,14 @@ func TestMoveNote_UpdateLinksFalse(t *testing.T) {
 }
 
 // TestMoveNoteSemDestinoEInvalidArgument cobre o guard de "to" vazio (Task
-// 166, Step 3): a chamada a vault.Resolve que so descartava os tres retornos
-// virou um if direto sobre req.To, e este teste e a prova de que ele ainda
-// rejeita -- inclusive o "to" so-espaco, que a resolucao de baixo (com ".md"
-// ja concatenado) nao pegaria sozinha.
+// 166, Step 3 -- BLOQUEADO, nao um refactor concluido). A chamada a
+// vault.Resolve sobre o req.To CRU em write.go:432 continua exatamente como
+// estava: nao virou if. Ela permanece porque e a UNICA recusa de nome de
+// dispositivo do Windows (to: "COM1" so falha porque IsLocal("COM1") = false,
+// enquanto IsLocal("COM1.md") = true -- ver o comentario em write.go:422-431
+// para o porque ela nao pode sumir). Este teste prova a metade que essa
+// chamada tambem cobre de gratis: "to" vazio e "to" so-espaco, que a
+// resolucao de baixo (com ".md" ja concatenado) nao pegaria sozinha.
 func TestMoveNoteSemDestinoEInvalidArgument(t *testing.T) {
 	files := map[string]string{
 		"a.md": "Nota A",
