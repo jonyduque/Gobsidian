@@ -113,15 +113,16 @@ func (p *wikilinkParser) Parse(_ gast.Node, block text.Reader, _ gparser.Context
 
 // splitWikilink reparte "alvo#ancora|alias" nas tres partes. A ordem importa:
 // o alias e sempre o ultimo, e a ancora vem antes dele.
+//
+// O corte do '#' e de splitAnchor (ast.go), que o ramo Markdown de collect
+// tambem usa: uma conta so. Aqui sobra o que e proprio do wikilink — o '|' e o
+// aparo de espaco das tres partes.
 func splitWikilink(inner string) (target, anchor, alias string) {
 	if i := strings.IndexByte(inner, '|'); i >= 0 {
 		alias = inner[i+1:]
 		inner = inner[:i]
 	}
-	if i := strings.IndexByte(inner, '#'); i >= 0 {
-		anchor = inner[i+1:]
-		inner = inner[:i]
-	}
+	inner, anchor = splitAnchor(inner)
 	return strings.TrimSpace(inner), strings.TrimSpace(anchor), strings.TrimSpace(alias)
 }
 

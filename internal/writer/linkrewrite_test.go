@@ -61,6 +61,44 @@ func TestRewriteLinks_PreservesSyntaxAndEmbed(t *testing.T) {
 	}
 }
 
+// A ancora do link Markdown sobrevive a reescrita.
+//
+// Desde 2026-09-06 o parser separa "b.md#Sec" em Target e Anchor, e os ramos
+// Markdown de BuildLinkText formatavam SO o alvo novo: um note_move apagaria o
+// "#Sec" de todo link reescrito, silenciosamente, e o destino da secao viraria
+// o topo da nota.
+//
+// A ultima linha cobre o encoding: o parser devolve a ancora DECODIFICADA
+// ("Com Espaco"), e reemiti-la crua produziria "[x](c.md#Com Espaco)" — um
+// destino com espaco, que o CommonMark nao aceita sem colchete angular, ou
+// seja, um link que deixa de ser link.
+func TestRewriteLinks_PreservaAncoraEmLinkMarkdown(t *testing.T) {
+	input := "Link: [x](b.md#Sec)\nEmbed: ![x](b.md#Sec)\nEspaco: [x](b.md#Com%20Espaco)"
+	src := []byte(input)
+
+	note := parser.Parse(src)
+
+	if len(note.Links) != 3 {
+		t.Fatalf("esperado 3 links, obtido %d", len(note.Links))
+	}
+
+	replacements := []writer.LinkReplacement{
+		{Link: note.Links[0], NewTarget: "c.md"},
+		{Link: note.Links[1], NewTarget: "c.md"},
+		{Link: note.Links[2], NewTarget: "c.md"},
+	}
+
+	got, err := writer.RewriteLinks(src, replacements)
+	if err != nil {
+		t.Fatalf("RewriteLinks: %v", err)
+	}
+
+	want := "Link: [x](c.md#Sec)\nEmbed: ![x](c.md#Sec)\nEspaco: [x](c.md#Com%20Espaco)"
+	if string(got) != want {
+		t.Errorf("obtido %q, quer %q", string(got), want)
+	}
+}
+
 func TestRewriteLinks_MultipleOccurrencesInSameNote(t *testing.T) {
 	input := "Primeiro [[nota_antiga]], segundo [[nota_antiga]] e terceiro [texto](nota_antiga.md)."
 	src := []byte(input)

@@ -43,7 +43,10 @@ const (
 	// motivo pra descartar o cache, e o bug pareceria não corrigido. Mesmo
 	// raciocínio de ARCHITECTURE.md §6.3 para o parser_version do cache de
 	// busca.
-	IndexCacheParserVersion = 1
+	//
+	// 1 -> 2 em 2026-09-06: link Markdown passou a separar ancora; cache antigo
+	// carregaria `Target="b.md#Sec"`.
+	IndexCacheParserVersion = 2
 )
 
 // indexCacheFileName é o nome fixo dentro de cfg.CacheDir — o mesmo

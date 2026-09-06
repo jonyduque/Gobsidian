@@ -94,7 +94,7 @@ func (ix *Index) resolveAllLinks() {
 		alvo := ix.mutarNotaLocked(path, &copia)
 
 		for i := range alvo.Links {
-			resolved, via, state := ix.resolveTarget(alvo.Links[i].Target, alvo.Path)
+			resolved, via, state := ix.resolveTarget(alvo.Links[i].Target, alvo.Links[i].Anchor, alvo.Path)
 			alvo.Links[i].Resolved = resolved
 			alvo.Links[i].Via = via
 			alvo.Links[i].State = state
@@ -106,8 +106,28 @@ func (ix *Index) resolveAllLinks() {
 	}
 }
 
-func (ix *Index) resolveTarget(target string, origin vault.CanonicalPath) (vault.CanonicalPath, ResolveVia, LinkState) {
+// resolveTarget decide alvo, via e estado de um link. Recebe a ancora porque o
+// alvo vazio significa duas coisas diferentes conforme ela exista ou nao, e
+// distingui-las no chamador exigiria a mesma condicao escrita nos TRES pontos
+// que resolvem link (resolveAllLinks, resolveLinksForNoteLocked e
+// reprocessNoteLinksLocked) — uma conta por regra.
+func (ix *Index) resolveTarget(target, anchor string, origin vault.CanonicalPath) (vault.CanonicalPath, ResolveVia, LinkState) {
 	if target == "" {
+		// Link so de ancora — "[x](#Topo)", "[[#Topo]]", "![[#Topo]]" — aponta
+		// para a PROPRIA nota. Ate 2026-09-06 as tres formas caiam em
+		// LinkTargetMissing e entravam na contagem de broken_links; medido no
+		// mesmo dia em cofres reais, 267 alvos comecando com "#" num deles e
+		// 372 em outro, todos falsos positivos.
+		//
+		// ViaPath porque a nota de origem JA e um caminho do cofre: nenhuma
+		// busca por nome nem por alias aconteceu, e inventar uma via nova para
+		// dizer isso nao acrescentaria informacao a quem diagnostica.
+		//
+		// Cai na checagem de ancora normal do chamador, que e o que faz
+		// "[x](#Nada)" virar LinkAnchorMissing em vez de passar por bom.
+		if anchor != "" {
+			return origin, ViaPath, LinkOK
+		}
 		return "", ViaNone, LinkTargetMissing
 	}
 

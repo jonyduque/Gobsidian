@@ -93,10 +93,10 @@ func BuildLinkText(orig parser.Link, newTarget string) string {
 			return formatWikiLink("!", newTarget, orig.Anchor, orig.Alias)
 		}
 		targetEnc := encodeMarkdownTarget(newTarget, orig.Raw)
-		return fmt.Sprintf("![%s](%s)", orig.Alias, targetEnc)
+		return fmt.Sprintf("![%s](%s%s)", orig.Alias, targetEnc, anchorMarkdown(orig.Anchor, orig.Raw))
 	case parser.LinkMarkdown:
 		targetEnc := encodeMarkdownTarget(newTarget, orig.Raw)
-		return fmt.Sprintf("[%s](%s)", orig.Alias, targetEnc)
+		return fmt.Sprintf("[%s](%s%s)", orig.Alias, targetEnc, anchorMarkdown(orig.Anchor, orig.Raw))
 	default:
 		return formatWikiLink("", newTarget, orig.Anchor, orig.Alias)
 	}
@@ -117,6 +117,21 @@ func formatWikiLink(prefix, target, anchor, alias string) string {
 	}
 	sb.WriteString("]]")
 	return sb.String()
+}
+
+// anchorMarkdown reemite o "#ancora" de um link em grafia Markdown, com o
+// MESMO encoding do alvo — a ancora vem decodificada do parser, e um espaco
+// cru fecharia o destino antes da hora.
+//
+// Existe desde 2026-09-06, quando o parser passou a separar a ancora do
+// destino Markdown: ate ali ela vinha grudada em Target e sobrevivia a
+// reescrita por acidente. Depois da separacao, formatar so o alvo novo apagava
+// o "#Sec" de todo link que note_move tocasse.
+func anchorMarkdown(anchor, origRaw string) string {
+	if anchor == "" {
+		return ""
+	}
+	return "#" + encodeMarkdownTarget(anchor, origRaw)
 }
 
 func encodeMarkdownTarget(target string, origRaw string) string {

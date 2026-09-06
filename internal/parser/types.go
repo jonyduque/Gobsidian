@@ -92,10 +92,20 @@ const offsetUnknown int64 = -1
 // Link e uma referencia a outra nota ou a um recurso, na sintaxe wikilink,
 // embed ou markdown.
 type Link struct {
-	Raw    string   `json:"raw"` // texto original, para reescrita fiel
-	Target string   `json:"target"`
-	Alias  string   `json:"alias,omitempty"`
-	Anchor string   `json:"anchor,omitempty"` // heading ou ^bloco
+	Raw    string `json:"raw"` // texto original, para reescrita fiel
+	Target string `json:"target"`
+	Alias  string `json:"alias,omitempty"`
+	// Anchor e o que vem depois do '#': heading ou "^bloco". Vale para os TRES
+	// Kind — wikilink, embed e link Markdown —, e Target nunca traz o '#'.
+	//
+	// Ate 2026-09-06 so o wikilink separava, e "[x](b.md#Sec)" chegava com
+	// Target="b.md#Sec" e Anchor="". O indice procurava uma nota com esse nome,
+	// nao achava, e somava o link em broken_links; "[x](#Topo)", que aponta
+	// para a propria nota, virava alvo ausente do mesmo jeito.
+	//
+	// Anchor vazio com Target vazio nao existe: "[[]]" o parser recusa, e
+	// "[x]()" continua sendo alvo ausente de verdade.
+	Anchor string   `json:"anchor,omitempty"`
 	Kind   LinkKind `json:"kind"`
 
 	// Start e End delimitam o link no buffer, com bodyOffset ja somado.

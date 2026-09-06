@@ -268,7 +268,7 @@ func (ix *Index) removeContributionsLocked(path vault.CanonicalPath) []string {
 
 func (ix *Index) resolveLinksForNoteLocked(n *Note) {
 	for i := range n.Links {
-		resolved, via, state := ix.resolveTarget(n.Links[i].Target, n.Path)
+		resolved, via, state := ix.resolveTarget(n.Links[i].Target, n.Links[i].Anchor, n.Path)
 		n.Links[i].Resolved = resolved
 		n.Links[i].Via = via
 		n.Links[i].State = state
@@ -428,7 +428,7 @@ func (ix *Index) reprocessNoteLinksLocked(path vault.CanonicalPath) {
 	var copia *Note
 
 	for i := range n.Links {
-		resolved, via, state := ix.resolveTarget(n.Links[i].Target, n.Path)
+		resolved, via, state := ix.resolveTarget(n.Links[i].Target, n.Links[i].Anchor, n.Path)
 
 		oldResolved := n.Links[i].Resolved
 

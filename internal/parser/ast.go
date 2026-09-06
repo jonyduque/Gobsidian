@@ -33,9 +33,11 @@ func collect(doc gast.Node, body []byte, bodyOffset int64, note *ParsedNote) {
 				start += bodyOffset
 				end += bodyOffset
 			}
+			target, anchor := splitAnchor(string(node.Destination))
 			note.Links = append(note.Links, Link{
 				Raw:    string(node.Destination),
-				Target: PercentDecode(string(node.Destination)),
+				Target: PercentDecode(target),
+				Anchor: PercentDecode(anchor),
 				Alias:  inlineText(node, body),
 				Kind:   LinkEmbed,
 				Start:  start,
@@ -48,9 +50,11 @@ func collect(doc gast.Node, body []byte, bodyOffset int64, note *ParsedNote) {
 				start += bodyOffset
 				end += bodyOffset
 			}
+			target, anchor := splitAnchor(string(node.Destination))
 			note.Links = append(note.Links, Link{
 				Raw:    string(node.Destination),
-				Target: PercentDecode(string(node.Destination)),
+				Target: PercentDecode(target),
+				Anchor: PercentDecode(anchor),
 				Alias:  inlineText(node, body),
 				Kind:   LinkMarkdown,
 				Start:  start,
@@ -76,6 +80,28 @@ func collect(doc gast.Node, body []byte, bodyOffset int64, note *ParsedNote) {
 
 		return gast.WalkContinue, nil
 	})
+}
+
+// splitAnchor reparte um destino de link no PRIMEIRO '#': antes fica o alvo,
+// depois a ancora — heading ou "^bloco".
+//
+// E a UNICA separacao de '#' do parser: splitWikilink a chama, e os ramos
+// Markdown de collect tambem. Ate 2026-09-06 so o wikilink separava, e o
+// destino Markdown chegava inteiro ao indice, que procurava a nota "b.md#Sec"
+// — inexistente — e a contava como alvo ausente.
+//
+// Nao apara espaco: quem precisa disso e splitWikilink, porque "[[ a | b ]]" e
+// grafia aceita; um destino Markdown vem do goldmark ja delimitado, e aparar
+// aqui mudaria o alvo de quem nao pediu.
+//
+// Roda ANTES de PercentDecode nos ramos Markdown, e a ordem e a regra: "%23" e
+// um '#' que faz parte do NOME do arquivo. Decodificar primeiro o promoveria a
+// separador de uma ancora que ninguem escreveu.
+func splitAnchor(s string) (target, anchor string) {
+	if i := strings.IndexByte(s, '#'); i >= 0 {
+		return s[:i], s[i+1:]
+	}
+	return s, ""
 }
 
 // tagsFromFrontmatter le as chaves "tags" e "tag" do frontmatter. Cada uma
