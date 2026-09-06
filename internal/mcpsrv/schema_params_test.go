@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -258,6 +259,62 @@ func TestLinkGraph_IncludeEmbedsParameter(t *testing.T) {
 	for _, e := range data.Edges {
 		if e.Target == "note_c.md" {
 			t.Errorf("nao esperava aresta de embed quando include_embeds=false, obteve: %+v", e)
+		}
+	}
+}
+
+// tagsDescriptionServida devolve a description que o schema servido traz
+// para o campo "tags" da tool nomeada. O SDK entrega, do lado do cliente,
+// tool.InputSchema como map[string]any (a serializacao default do schema do
+// servidor) -- e o servidor so envia type+description por campo
+// (jsonschema-go v0.4.2, ver docs/TOOLS.md "Schemas servidos"), entao
+// navegar o mapa e o unico jeito de ver o que o host realmente recebe.
+func tagsDescriptionServida(t *testing.T, tools []*mcp.Tool, toolName string) string {
+	t.Helper()
+	for _, tool := range tools {
+		if tool.Name != toolName {
+			continue
+		}
+		schema, ok := tool.InputSchema.(map[string]any)
+		if !ok {
+			t.Fatalf("%s: InputSchema nao e map[string]any: %T", toolName, tool.InputSchema)
+		}
+		props, ok := schema["properties"].(map[string]any)
+		if !ok {
+			t.Fatalf("%s: schema sem properties", toolName)
+		}
+		tagsProp, ok := props["tags"].(map[string]any)
+		if !ok {
+			t.Fatalf("%s: schema sem properties.tags", toolName)
+		}
+		desc, _ := tagsProp["description"].(string)
+		return desc
+	}
+	t.Fatalf("tool %s nao encontrada em ListTools", toolName)
+	return ""
+}
+
+// TestSchemaServidoDescreveTagsHierarquicas e o achado F2 da revisao final:
+// a Task 180 (18d9da4) fez "tags" casar hierarquicamente (subtags) e dobrar
+// caixa/NFC em vault_search e note_list, e o TOOLS.md documentou a prosa,
+// mas a tag `jsonschema` das duas -- a unica coisa que atravessa ate o host,
+// porque o servidor so envia type+description -- nao acompanhou. Sem este
+// teste, o modelo do outro lado nunca saberia que #projeto casa
+// projeto/alpha.
+func TestSchemaServidoDescreveTagsHierarquicas(t *testing.T) {
+	session, cleanup := setupMCPServer(t)
+	defer cleanup()
+
+	ctx := context.Background()
+	res, err := session.ListTools(ctx, nil)
+	if err != nil {
+		t.Fatalf("ListTools: %v", err)
+	}
+
+	for _, toolName := range []string{"vault_search", "note_list"} {
+		desc := tagsDescriptionServida(t, res.Tools, toolName)
+		if !strings.Contains(desc, "subtags") {
+			t.Errorf("%s.tags: description servida nao menciona subtags: %q", toolName, desc)
 		}
 	}
 }

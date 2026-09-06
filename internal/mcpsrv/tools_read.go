@@ -324,7 +324,7 @@ func parseDateFilter(s string) (time.Time, error) {
 type vaultSearchInput struct {
 	Query          string                 `json:"query,omitempty" jsonschema:"Termos de busca. Aspas duplas delimitam frase exata."`
 	Folder         string                 `json:"folder,omitempty" jsonschema:"Restringe a uma pasta e suas subpastas."`
-	Tags           []string               `json:"tags,omitempty" jsonschema:"Notas que contenham TODAS as tags."`
+	Tags           []string               `json:"tags,omitempty" jsonschema:"Notas que contenham TODAS as tags. A tag pedida casa a si mesma e suas subtags; '#' inicial é opcional; comparação insensível a caixa e a forma Unicode (NFC)."`
 	Frontmatter    map[string]interface{} `json:"frontmatter,omitempty" jsonschema:"Pares chave/valor que devem casar no frontmatter."`
 	ModifiedAfter  string                 `json:"modified_after,omitempty" jsonschema:"Data mínima de modificação. Aceita RFC3339 ('2006-01-02T15:04:05Z07:00') ou data curta ('2006-01-02')."`
 	ModifiedBefore string                 `json:"modified_before,omitempty" jsonschema:"Data máxima de modificação. Aceita RFC3339 ('2006-01-02T15:04:05Z07:00') ou data curta ('2006-01-02')."`
@@ -360,7 +360,7 @@ func noteReadValidationError(msg string) (*mcp.CallToolResult, any, error) {
 type noteListInput struct {
 	Folder      string                 `json:"folder,omitempty"`
 	Glob        string                 `json:"glob,omitempty" jsonschema:"Padrão de caminho, ex.: 'Civil/PONTO *.md'"`
-	Tags        []string               `json:"tags,omitempty"`
+	Tags        []string               `json:"tags,omitempty" jsonschema:"A tag pedida casa a si mesma e suas subtags; '#' inicial é opcional; comparação insensível a caixa e a forma Unicode (NFC)."`
 	TagMode     string                 `json:"tag_mode,omitempty"`
 	Frontmatter map[string]interface{} `json:"frontmatter,omitempty"`
 	Recursive   *bool                  `json:"recursive,omitempty"`
