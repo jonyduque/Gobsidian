@@ -67,7 +67,7 @@ internal/
   lifecycle/       stdin-eof, sinais, vigília do PID pai, shutdown com orçamento
   vault/           raiz, caminho canônico e confinamento, walk com exclusões,
                    EOL, detecção de somente-nuvem
-  vaulttest/       apoio a teste: condicoes de ambiente do Windows; so _test.go
+  vaulttest/       apoio a teste: condições de ambiente do Windows; só _test.go
                    importa
   parser/          goldmark + extensões [[wikilink]], ^blockid, #tag,
                    campo::inline; headings com offsets de byte; candidatos a
