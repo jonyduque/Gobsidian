@@ -1,6 +1,7 @@
 package writer
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
 	"sort"
@@ -49,24 +50,36 @@ func RewriteLinks(src []byte, replacements []LinkReplacement) ([]byte, error) {
 		}
 	}
 
-	out := make([]byte, len(src))
-	copy(out, src)
-
-	for _, r := range work {
-		newText := BuildLinkText(r.Link, r.NewTarget)
-		s := int(r.Link.Start)
-		e := int(r.Link.End)
-
-		prefix := out[:s]
-		suffix := out[e:]
-		res := make([]byte, 0, len(prefix)+len(newText)+len(suffix))
-		res = append(res, prefix...)
-		res = append(res, []byte(newText)...)
-		res = append(res, suffix...)
-		out = res
+	// Uma passada e um Grow so, contra um buffer inteiro realocado por
+	// substituicao. O laco anterior copiava src inteiro a cada r: numa nota
+	// indice com 200 links reescritos isso eram 200 copias da nota, O(n*m).
+	//
+	// So e possivel porque `work` ja esta ordenada por Start DECRESCENTE e ja
+	// foi provada sem sobreposicao logo acima. Percorrida ao contrario ela sai
+	// crescente, e cada substituicao consome o trecho intacto entre o cursor e
+	// o Start do proximo link.
+	//
+	// O texto novo e construido antes, no mesmo passo em que se soma o
+	// tamanho final: BuildLinkText roda uma vez por link nos dois casos, mas
+	// aqui o resultado e reusado em vez de descartado.
+	textos := make([]string, len(work))
+	tamanho := len(src)
+	for i, r := range work {
+		textos[i] = BuildLinkText(r.Link, r.NewTarget)
+		tamanho += len(textos[i]) - int(r.Link.End-r.Link.Start)
 	}
 
-	return out, nil
+	var out bytes.Buffer
+	out.Grow(tamanho)
+	cursor := int64(0)
+	for i := len(work) - 1; i >= 0; i-- {
+		out.Write(src[cursor:work[i].Link.Start])
+		out.WriteString(textos[i])
+		cursor = work[i].Link.End
+	}
+	out.Write(src[cursor:])
+
+	return out.Bytes(), nil
 }
 
 // BuildLinkText constroi a string do novo link preservando o tipo (Wiki, Embed, Markdown),
