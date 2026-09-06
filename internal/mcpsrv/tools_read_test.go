@@ -693,3 +693,137 @@ func TestVaultStatsReflectsWatcherUpdate(t *testing.T) {
 		t.Fatalf("vault_stats notes count did not return to 0 after removing note (took %v)", time.Since(startRemove))
 	}
 }
+
+// TestVaultSearchDefaultVemDoServico, TestNoteListDefaultVemDoServico e
+// TestLinkGraphDefaultVemDoServico sao a Task 168: tools_read.go parou de
+// reaplicar os defaults que o service ja aplica (limit/snippet_chars/offset
+// em vault_search; limit/offset/tag_mode/sort/order em note_list;
+// depth/limit/direction em link_graph). Antes desta task, um numero duplicado
+// ERRADO em tools_read.go nunca reprovaria sozinho -- os dois lugares
+// concordariam com a mesma mentira. Estes tres testes chamam a tool SEM o
+// parametro, pelo transporte MCP de verdade (nao a funcao Go direto), porque
+// e so nesse caminho que um "reaplica aqui tambem" a mais voltaria a existir
+// em silencio.
+func TestVaultSearchDefaultVemDoServico(t *testing.T) {
+	root := t.TempDir()
+	writeFile(t, root, "n1.md", "texto de busca um\n")
+	writeFile(t, root, "n2.md", "texto de busca dois\n")
+	srv := newTestServerWithIndex(t, root)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	session := connectTestSession(ctx, t, srv)
+
+	res, err := session.CallTool(ctx, &mcp.CallToolParams{
+		Name:      "vault_search",
+		Arguments: map[string]any{"query": "busca"},
+	})
+	if err != nil {
+		t.Fatalf("CallTool: %v", err)
+	}
+	if res.IsError {
+		t.Fatalf("IsError=true: %v", res.Content)
+	}
+
+	bruto, err := json.Marshal(res.StructuredContent)
+	if err != nil {
+		t.Fatalf("marshal StructuredContent: %v", err)
+	}
+	var out service.SearchResult
+	if err := json.Unmarshal(bruto, &out); err != nil {
+		t.Fatalf("unmarshal SearchResult: %v", err)
+	}
+
+	if out.LimitEfetivo != 20 {
+		t.Errorf("effective_limit = %d, queria 20 (padrao do service.Search, sem limit no pedido)", out.LimitEfetivo)
+	}
+	if out.SnippetCharsEfetivo != 240 {
+		t.Errorf("effective_snippet_chars = %d, queria 240 (padrao do service.Search, sem snippet_chars no pedido)", out.SnippetCharsEfetivo)
+	}
+}
+
+func TestNoteListDefaultVemDoServico(t *testing.T) {
+	root := t.TempDir()
+	writeFile(t, root, "z.md", "---\ntitle: Z\n---\ntexto\n")
+	writeFile(t, root, "a.md", "---\ntitle: A\n---\ntexto\n")
+	writeFile(t, root, "m.md", "---\ntitle: M\n---\ntexto\n")
+	srv := newTestServerWithIndex(t, root)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	session := connectTestSession(ctx, t, srv)
+
+	res, err := session.CallTool(ctx, &mcp.CallToolParams{
+		Name:      "note_list",
+		Arguments: map[string]any{},
+	})
+	if err != nil {
+		t.Fatalf("CallTool: %v", err)
+	}
+	if res.IsError {
+		t.Fatalf("IsError=true: %v", res.Content)
+	}
+
+	bruto, err := json.Marshal(res.StructuredContent)
+	if err != nil {
+		t.Fatalf("marshal StructuredContent: %v", err)
+	}
+	var out service.ListResult
+	if err := json.Unmarshal(bruto, &out); err != nil {
+		t.Fatalf("unmarshal ListResult: %v", err)
+	}
+
+	if len(out.Notes) != 3 {
+		t.Fatalf("len(Notes) = %d, queria 3", len(out.Notes))
+	}
+	got := []string{out.Notes[0].Path, out.Notes[1].Path, out.Notes[2].Path}
+	want := []string{"a.md", "m.md", "z.md"}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Errorf("ordem = %v, queria %v (path ascendente, padrao do service.ListNotes sem sort/order no pedido)", got, want)
+			break
+		}
+	}
+}
+
+func TestLinkGraphDefaultVemDoServico(t *testing.T) {
+	root := t.TempDir()
+	writeFile(t, root, "A.md", "# A\n[[B]]\n")
+	writeFile(t, root, "B.md", "# B\ntexto\n")
+	srv := newTestServerWithIndex(t, root)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	session := connectTestSession(ctx, t, srv)
+
+	// B.md so tem aresta de ENTRADA (A.md -> B.md). Se o default de direction
+	// nao caisse em "both" -- por exemplo, se a string vazia que chega quando
+	// o cliente omite o campo fosse usada crua em vez de passar por
+	// ValidarEnum -- a travessia a partir de B.md nao encontraria A.md.
+	res, err := session.CallTool(ctx, &mcp.CallToolParams{
+		Name:      "link_graph",
+		Arguments: map[string]any{"path": "B.md"},
+	})
+	if err != nil {
+		t.Fatalf("CallTool: %v", err)
+	}
+	if res.IsError {
+		t.Fatalf("IsError=true: %v", res.Content)
+	}
+
+	bruto, err := json.Marshal(res.StructuredContent)
+	if err != nil {
+		t.Fatalf("marshal StructuredContent: %v", err)
+	}
+	var out service.GraphResult
+	if err := json.Unmarshal(bruto, &out); err != nil {
+		t.Fatalf("unmarshal GraphResult: %v", err)
+	}
+
+	achouA := false
+	for _, n := range out.Nodes {
+		if n.Path == "A.md" {
+			achouA = true
+		}
+	}
+	if !achouA {
+		t.Errorf("nodes = %+v, esperava achar A.md (so alcancavel pela aresta de entrada) com direction omitido -- o padrao do service e \"both\"", out.Nodes)
+	}
+}

@@ -16,6 +16,17 @@ import (
 // nao consegue ler de uma vez.
 const maxPathsPorLote = 50
 
+// valorOuZero desembrulha um parametro numerico opcional. Zero e "nao
+// informado" para o service, que aplica o padrao -- a UNICA conta de cada
+// padrao (Task 168). Duplicar o numero aqui, so para desembrulhar o ponteiro,
+// era um segundo lugar para o padrao divergir do que o service aplica.
+func valorOuZero(p *int) int {
+	if p == nil {
+		return 0
+	}
+	return *p
+}
+
 func (s *Server) registerReadToolsInternal() {
 	mcp.AddTool(s.mcp,
 		&mcp.Tool{
@@ -24,18 +35,14 @@ func (s *Server) registerReadToolsInternal() {
 		},
 		guard(s.log, "vault_search",
 			func(ctx context.Context, _ *mcp.CallToolRequest, in vaultSearchInput) (*mcp.CallToolResult, service.SearchResult, error) {
-				snippetChars := 240
-				if in.SnippetChars != nil {
-					snippetChars = *in.SnippetChars
-				}
-				limit := 20
-				if in.Limit != nil {
-					limit = *in.Limit
-				}
-				offset := 0
-				if in.Offset != nil {
-					offset = *in.Offset
-				}
+				// snippet_chars, limit e offset viajam CRUS (0 quando
+				// omitidos): quem aplica o padrao de cada um e
+				// service.Search (search.go), que e tambem o caminho da
+				// CLI. Reaplicar os mesmos numeros aqui era uma segunda
+				// conta do mesmo padrao (Task 168).
+				snippetChars := valorOuZero(in.SnippetChars)
+				limit := valorOuZero(in.Limit)
+				offset := valorOuZero(in.Offset)
 
 				var modAfter, modBefore *time.Time
 				if in.ModifiedAfter != "" {
@@ -182,40 +189,32 @@ func (s *Server) registerReadToolsInternal() {
 		},
 		guard(s.log, "note_list",
 			func(ctx context.Context, _ *mcp.CallToolRequest, in noteListInput) (*mcp.CallToolResult, any, error) {
-				limit := 100
-				if in.Limit != nil {
-					limit = *in.Limit
-				}
-				offset := 0
-				if in.Offset != nil {
-					offset = *in.Offset
-				}
-				tagMode := "all"
-				if in.TagMode != "" {
-					tagMode = in.TagMode
-				}
+				// limit, offset, tag_mode, sort e order viajam CRUS: quem
+				// aplica o padrao de cada um e service.ListNotes (graph.go),
+				// pelo mesmo motivo de vault_search (Task 168). tag_mode,
+				// sort e order vazios chegam la como "" e ValidarEnum troca
+				// pelo padrao.
+				//
+				// recursive e SO deste boundary: e bool, e o service nao tem
+				// como distinguir "nao informado" de "informado false" sem
+				// um ponteiro no dominio -- diferente de limit/offset/tag_mode,
+				// onde zero/vazio ja e a marca inequivoca de "nao informado".
+				limit := valorOuZero(in.Limit)
+				offset := valorOuZero(in.Offset)
 				recursive := true
 				if in.Recursive != nil {
 					recursive = *in.Recursive
-				}
-				sort := "path"
-				if in.Sort != "" {
-					sort = in.Sort
-				}
-				order := "asc"
-				if in.Order != "" {
-					order = in.Order
 				}
 
 				q := index.Query{
 					Folder:      in.Folder,
 					Glob:        in.Glob,
 					Tags:        in.Tags,
-					TagMode:     tagMode,
+					TagMode:     in.TagMode,
 					Frontmatter: in.Frontmatter,
 					Recursive:   recursive,
-					Sort:        sort,
-					Order:       order,
+					Sort:        in.Sort,
+					Order:       in.Order,
 					Limit:       limit,
 					Offset:      offset,
 				}
@@ -254,18 +253,16 @@ func (s *Server) registerReadToolsInternal() {
 		},
 		guard(s.log, "link_graph",
 			func(ctx context.Context, _ *mcp.CallToolRequest, in linkGraphInput) (*mcp.CallToolResult, service.GraphResult, error) {
-				depth := 1
-				if in.Depth != nil {
-					depth = *in.Depth
-				}
-				limit := 100
-				if in.Limit != nil {
-					limit = *in.Limit
-				}
-				direction := "both"
-				if in.Direction != "" {
-					direction = in.Direction
-				}
+				// depth, limit e direction viajam CRUS: service.LinkGraph
+				// (graph.go) ja aplica depth<=0->1 (clamp em 3), o mesmo
+				// ComTeto de note_list para limit, e ValidarEnum para
+				// direction. include_broken e include_embeds continuam
+				// desembrulhados aqui: sao bool, e o service nao distingue
+				// "nao informado" de "informado false" sem um ponteiro no
+				// dominio.
+				depth := valorOuZero(in.Depth)
+				limit := valorOuZero(in.Limit)
+				direction := in.Direction
 				includeBroken := true
 				if in.IncludeBroken != nil {
 					includeBroken = *in.IncludeBroken
