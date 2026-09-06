@@ -1,0 +1,263 @@
+6ec12da perf(writer): rewrite every link in one pass instead of one buffer per link
+8e0670c perf(search): reverse doc->terms map makes delta removal O(terms of doc)
+
+ internal/search/inverted.go    | 45 ++++++++++++++++++++++++++++++++++++++----
+ internal/writer/linkrewrite.go | 43 ++++++++++++++++++++++++++--------------
+ 2 files changed, 69 insertions(+), 19 deletions(-)
+
+diff --git a/internal/search/inverted.go b/internal/search/inverted.go
+index 907997e..50810e0 100644
+--- a/internal/search/inverted.go
++++ b/internal/search/inverted.go
+@@ -71,20 +71,36 @@ type Inverted struct {
+ 	//
+ 	// Existem para TermCount continuar exato. A versão em mapa apagava o termo
+ 	// quando ele ficava sem documento, e `len(ix.terms)` respondia sozinho;
+ 	// aqui o base não pode ser alterado, então a contagem é mantida à parte.
+ 	postsVivasPorTermo []int32
+ 	termosVivosBase    int
+ 
+ 	terms      map[string]map[string][]TokenPosition // delta: termo -> (path -> posList)
+ 	docLengths map[string]int                        // delta: path -> total de tokens
+ 
++	// termosDoDoc é o índice reverso do delta: path -> os termos distintos que
++	// aquele caminho contribuiu para `terms`. É o mesmo papel que
++	// `base.termosDoDoc` cumpre no lado imutável, e existe pelo mesmo motivo:
++	// sem ele, apagar um caminho do delta varre TODO termo do delta.
++	//
++	// Na construção do índice do zero — o laço de buildInvertedIndex, uma
++	// chamada de Add por nota — isso é quadrático: a n-ésima nota varre os
++	// termos que as n-1 anteriores acumularam, só para não achar nada, porque
++	// caminho novo não está em termo nenhum.
++	//
++	// A entrada é escrita em addTermPositionLocked exatamente quando o par
++	// (termo, path) aparece pela primeira vez, e apagada inteira em
++	// removeLocked. Isso mantém a lista sem repetição e exata: `terms[t][p]`
++	// existe se e somente se `t` está em `termosDoDoc[p]`.
++	termosDoDoc map[string][]string
++
+ 	// geracao conta toda mutacao do indice. E o que invalida a memorizacao de
+ 	// SomaDocLen — mesmo padrao de index.TotalSize, que a memorizacao contra
+ 	// geracao acelerou 688x.
+ 	geracao uint64
+ 
+ 	// soma* memorizam SomaDocLen contra a geracao em que foi calculada.
+ 	// somaValida distingue "nunca calculada" de "calculada e deu zero": indice
+ 	// vazio e indice nao medido nao podem dar a mesma resposta.
+ 	somaDocLen  int64
+ 	somaGeracao uint64
+@@ -105,22 +121,23 @@ type Inverted struct {
+ 	building atomic.Bool
+ }
+ 
+ // NewInverted inicializa e devolve um novo índice invertido, PRONTO.
+ //
+ // Pronto por padrão porque a maioria dos chamadores — testes, watcher,
+ // reconstrução incremental — monta o índice inteiro antes de servir qualquer
+ // consulta. Quem constrói em segundo plano chama MarkBuilding logo em seguida.
+ func NewInverted() *Inverted {
+ 	return &Inverted{
+-		terms:      make(map[string]map[string][]TokenPosition),
+-		docLengths: make(map[string]int),
++		terms:       make(map[string]map[string][]TokenPosition),
++		docLengths:  make(map[string]int),
++		termosDoDoc: make(map[string][]string),
+ 	}
+ }
+ 
+ // MarkBuilding declara que o índice está incompleto.
+ func (ix *Inverted) MarkBuilding() { ix.building.Store(true) }
+ 
+ // MarkReady declara que o índice cobre o cofre inteiro.
+ func (ix *Inverted) MarkReady() { ix.building.Store(false) }
+ 
+ // Building diz se o índice ainda está sendo construído.
+@@ -159,21 +176,30 @@ func (ix *Inverted) Add(path string, tokens []Token) {
+ 		}
+ 	}
+ }
+ 
+ func (ix *Inverted) addTermPositionLocked(term, path string, pos TokenPosition) {
+ 	docs, exists := ix.terms[term]
+ 	if !exists {
+ 		docs = make(map[string][]TokenPosition)
+ 		ix.terms[term] = docs
+ 	}
+-	docs[path] = append(docs[path], pos)
++	posList, jaTinha := docs[path]
++	docs[path] = append(posList, pos)
++	// Primeira ocorrência do par (termo, path): registra no índice reverso. A
++	// segunda em diante não registra, senão a lista teria uma entrada por
++	// OCORRÊNCIA em vez de uma por termo. `jaTinha` é a fonte certa dessa
++	// pergunta: `docs[path]` só existe depois de um append, e append nunca
++	// devolve fatia vazia.
++	if !jaTinha {
++		ix.termosDoDoc[path] = append(ix.termosDoDoc[path], term)
++	}
+ }
+ 
+ // Remove remove todas as ocorrências do caminho do índice.
+ // Se um termo ficar com zero documentos, ele é excluído do dicionário de termos.
+ func (ix *Inverted) Remove(path string) {
+ 	ix.mu.Lock()
+ 	defer ix.mu.Unlock()
+ 
+ 	ix.geracao++
+ 	ix.sombrearLocked(path)
+@@ -203,28 +229,37 @@ func (ix *Inverted) sombrearLocked(path string) {
+ 	ix.sombraNoBase++
+ 	for _, t := range ix.base.termosDoDoc(id) {
+ 		ix.postsVivasPorTermo[t]--
+ 		if ix.postsVivasPorTermo[t] == 0 {
+ 			ix.termosVivosBase--
+ 		}
+ 	}
+ }
+ 
+ // removeLocked apaga o caminho do DELTA. O base é tratado por sombrearLocked.
++//
++// Percorre os termos DAQUELE caminho, e não todos os termos do delta: ver
++// termosDoDoc. Caminho ausente do delta tem lista vazia e sai em O(1), que é o
++// caso do laço de construção — toda nota é nova.
+ func (ix *Inverted) removeLocked(path string) {
+ 	delete(ix.docLengths, path)
+-	for term, docs := range ix.terms {
++	for _, term := range ix.termosDoDoc[path] {
++		docs, ok := ix.terms[term]
++		if !ok {
++			continue
++		}
+ 		delete(docs, path)
+ 		if len(docs) == 0 {
+ 			delete(ix.terms, term)
+ 		}
+ 	}
++	delete(ix.termosDoDoc, path)
+ }
+ 
+ // obsoletoNoBaseLocked diz se o base deve ser ignorado para este caminho.
+ func (ix *Inverted) obsoletoNoBaseLocked(path string) bool {
+ 	return ix.base == nil || ix.sombra[path]
+ }
+ 
+ // Postings devolve as ocorrências de um termo (normalizado) no índice.
+ // Os resultados são ordenados deterministicamente por caminho de nota.
+ func (ix *Inverted) Postings(term string) []Posting {
+@@ -717,30 +752,32 @@ func (ix *Inverted) AdotarDe(outro *Inverted) error {
+ 			ErrIndiceNaoVazio, len(ix.terms), len(ix.docLengths), ix.base != nil)
+ 	}
+ 
+ 	ix.base = outro.base
+ 	ix.sombra = outro.sombra
+ 	ix.sombraNoBase = outro.sombraNoBase
+ 	ix.postsVivasPorTermo = outro.postsVivasPorTermo
+ 	ix.termosVivosBase = outro.termosVivosBase
+ 	ix.terms = outro.terms
+ 	ix.docLengths = outro.docLengths
++	ix.termosDoDoc = outro.termosDoDoc
+ 
+ 	// `outro` fica vazio e utilizável, e não com mapas nil: um índice zerado por
+ 	// engano deve responder "sem resultados", não entrar em pânico.
+ 	outro.base = nil
+ 	outro.sombra = nil
+ 	outro.sombraNoBase = 0
+ 	outro.postsVivasPorTermo = nil
+ 	outro.termosVivosBase = 0
+ 	outro.terms = make(map[string]map[string][]TokenPosition)
+ 	outro.docLengths = make(map[string]int)
++	outro.termosDoDoc = make(map[string][]string)
+ 
+ 	return nil
+ }
+ 
+ // Close desfaz o mapeamento de arquivo que o base possa segurar (Task 89),
+ // quando LoadInvertedCache mapeou a arena de posições em vez de decodificar
+ // para o heap. Idempotente: chamar mais de uma vez não desmapeia duas vezes,
+ // e um índice sem arena (o caminho comum, construído do zero ou recusado
+ // para mapear) não faz nada.
+ //
+diff --git a/internal/writer/linkrewrite.go b/internal/writer/linkrewrite.go
+index f072ab1..e0270de 100644
+--- a/internal/writer/linkrewrite.go
++++ b/internal/writer/linkrewrite.go
+@@ -1,13 +1,14 @@
+ package writer
+ 
+ import (
++	"bytes"
+ 	"errors"
+ 	"fmt"
+ 	"sort"
+ 	"strings"
+ 
+ 	"github.com/jonyd/gobsidian/internal/parser"
+ )
+ 
+ var (
+ 	// ErrInvalidLinkOffset e retornado quando um link possui offsets invalidos (-1, fora dos limites ou Start >= End).
+@@ -42,38 +43,50 @@ func RewriteLinks(src []byte, replacements []LinkReplacement) ([]byte, error) {
+ 	sort.Slice(work, func(i, j int) bool {
+ 		return work[i].Link.Start > work[j].Link.Start
+ 	})
+ 
+ 	for i := 0; i < len(work)-1; i++ {
+ 		if work[i+1].Link.End > work[i].Link.Start {
+ 			return nil, fmt.Errorf("%w: [%d:%d] and [%d:%d]", ErrOverlappingLinks, work[i+1].Link.Start, work[i+1].Link.End, work[i].Link.Start, work[i].Link.End)
+ 		}
+ 	}
+ 
+-	out := make([]byte, len(src))
+-	copy(out, src)
+-
+-	for _, r := range work {
+-		newText := BuildLinkText(r.Link, r.NewTarget)
+-		s := int(r.Link.Start)
+-		e := int(r.Link.End)
++	// Uma passada e um Grow so, contra um buffer inteiro realocado por
++	// substituicao. O laco anterior copiava src inteiro a cada r: numa nota
++	// indice com 200 links reescritos isso eram 200 copias da nota, O(n*m).
++	//
++	// So e possivel porque `work` ja esta ordenada por Start DECRESCENTE e ja
++	// foi provada sem sobreposicao logo acima. Percorrida ao contrario ela sai
++	// crescente, e cada substituicao consome o trecho intacto entre o cursor e
++	// o Start do proximo link.
++	//
++	// O texto novo e construido antes, no mesmo passo em que se soma o
++	// tamanho final: BuildLinkText roda uma vez por link nos dois casos, mas
++	// aqui o resultado e reusado em vez de descartado.
++	textos := make([]string, len(work))
++	tamanho := len(src)
++	for i, r := range work {
++		textos[i] = BuildLinkText(r.Link, r.NewTarget)
++		tamanho += len(textos[i]) - int(r.Link.End-r.Link.Start)
++	}
+ 
+-		prefix := out[:s]
+-		suffix := out[e:]
+-		res := make([]byte, 0, len(prefix)+len(newText)+len(suffix))
+-		res = append(res, prefix...)
+-		res = append(res, []byte(newText)...)
+-		res = append(res, suffix...)
+-		out = res
++	var out bytes.Buffer
++	out.Grow(tamanho)
++	cursor := int64(0)
++	for i := len(work) - 1; i >= 0; i-- {
++		out.Write(src[cursor:work[i].Link.Start])
++		out.WriteString(textos[i])
++		cursor = work[i].Link.End
+ 	}
++	out.Write(src[cursor:])
+ 
+-	return out, nil
++	return out.Bytes(), nil
+ }
+ 
+ // BuildLinkText constroi a string do novo link preservando o tipo (Wiki, Embed, Markdown),
+ // alias e ancora do link original.
+ func BuildLinkText(orig parser.Link, newTarget string) string {
+ 	switch orig.Kind {
+ 	case parser.LinkWiki:
+ 		return formatWikiLink("", newTarget, orig.Anchor, orig.Alias)
+ 	case parser.LinkEmbed:
+ 		if strings.HasPrefix(orig.Raw, "!") && strings.HasPrefix(strings.TrimPrefix(orig.Raw, "!"), "[[") {

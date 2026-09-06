@@ -1,0 +1,102 @@
+diff --git a/internal/search/inverted.go b/internal/search/inverted.go
+index 50810e0..3391615 100644
+--- a/internal/search/inverted.go
++++ b/internal/search/inverted.go
+@@ -740,23 +740,28 @@ func (ix *Inverted) AdotarDe(outro *Inverted) error {
+ 	if outro == nil {
+ 		return nil
+ 	}
+ 	ix.mu.Lock()
+ 	defer ix.mu.Unlock()
+ 
+ 	ix.geracao++
+ 	outro.mu.Lock()
+ 	defer outro.mu.Unlock()
+ 
+-	if len(ix.terms) > 0 || len(ix.docLengths) > 0 || ix.base != nil {
+-		return fmt.Errorf("%w: %d termos e %d documentos no delta, base presente=%t",
+-			ErrIndiceNaoVazio, len(ix.terms), len(ix.docLengths), ix.base != nil)
++	// termosDoDoc entra na guarda mesmo sendo redundante pela invariante — ele
++	// não vazio implica `terms` não vazio, e `terms` já está aqui. A guarda
++	// existe para o mundo em que a invariante quebrou, que é o único mundo em
++	// que ela é consultada, e este é o único ponto onde o mapa reverso é
++	// substituído em bloco.
++	if len(ix.terms) > 0 || len(ix.docLengths) > 0 || len(ix.termosDoDoc) > 0 || ix.base != nil {
++		return fmt.Errorf("%w: %d termos e %d documentos no delta, %d entradas no indice reverso, base presente=%t",
++			ErrIndiceNaoVazio, len(ix.terms), len(ix.docLengths), len(ix.termosDoDoc), ix.base != nil)
+ 	}
+ 
+ 	ix.base = outro.base
+ 	ix.sombra = outro.sombra
+ 	ix.sombraNoBase = outro.sombraNoBase
+ 	ix.postsVivasPorTermo = outro.postsVivasPorTermo
+ 	ix.termosVivosBase = outro.termosVivosBase
+ 	ix.terms = outro.terms
+ 	ix.docLengths = outro.docLengths
+ 	ix.termosDoDoc = outro.termosDoDoc
+diff --git a/internal/writer/linkrewrite_test.go b/internal/writer/linkrewrite_test.go
+index 35b908b..bfa99f1 100644
+--- a/internal/writer/linkrewrite_test.go
++++ b/internal/writer/linkrewrite_test.go
+@@ -81,20 +81,61 @@ func TestRewriteLinks_MultipleOccurrencesInSameNote(t *testing.T) {
+ 	if err != nil {
+ 		t.Fatalf("RewriteLinks: %v", err)
+ 	}
+ 
+ 	want := "Primeiro [[pasta/nota_nova]], segundo [[pasta/nota_nova]] e terceiro [texto](pasta/nota_nova.md)."
+ 	if string(got) != want {
+ 		t.Errorf("obtido %q, quer %q", string(got), want)
+ 	}
+ }
+ 
++// TestRewriteLinks_LinkNoInicioENoFim fixa as duas fronteiras da passada
++// unica: o primeiro link comeca no byte 0, entao a primeira fatia escrita e
++// src[0:0]; o ultimo termina exatamente no EOF, entao a fatia final e
++// src[len(src):]. As duas sao vazias, e uma delas escrita errado por um byte
++// nao aparece em nenhum dos outros casos — todos eles tem texto antes do
++// primeiro link e depois do ultimo.
++func TestRewriteLinks_LinkNoInicioENoFim(t *testing.T) {
++	input := "[[a]] meio [[b]]"
++	src := []byte(input)
++
++	note := parser.Parse(src)
++
++	if len(note.Links) != 2 {
++		t.Fatalf("esperado 2 links, obtido %d", len(note.Links))
++	}
++	// Guarda das fronteiras que o teste existe para cobrir. Sem ela, um parser
++	// que passasse a devolver offsets encolhidos deixaria o teste verde
++	// medindo outra coisa.
++	if note.Links[0].Start != 0 {
++		t.Fatalf("Links[0].Start = %d, quer 0", note.Links[0].Start)
++	}
++	if note.Links[1].End != int64(len(src)) {
++		t.Fatalf("Links[1].End = %d, quer %d (EOF)", note.Links[1].End, len(src))
++	}
++
++	replacements := []writer.LinkReplacement{
++		{Link: note.Links[0], NewTarget: "pasta/um"},
++		{Link: note.Links[1], NewTarget: "pasta/dois"},
++	}
++
++	got, err := writer.RewriteLinks(src, replacements)
++	if err != nil {
++		t.Fatalf("RewriteLinks: %v", err)
++	}
++
++	want := "[[pasta/um]] meio [[pasta/dois]]"
++	if string(got) != want {
++		t.Errorf("obtido %q, quer %q", string(got), want)
++	}
++}
++
+ func TestRewriteLinks_RejectsInvalidOffsets(t *testing.T) {
+ 	src := []byte("Texto com [[link]].")
+ 
+ 	badLink := parser.Link{
+ 		Raw:    "[[link]]",
+ 		Target: "link",
+ 		Kind:   parser.LinkWiki,
+ 		Start:  -1,
+ 		End:    -1,
+ 	}
