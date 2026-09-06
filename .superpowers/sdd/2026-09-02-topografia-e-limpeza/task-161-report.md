@@ -13,7 +13,7 @@
 - 23:41 — consertos escritos (tools_read, limites_enums, bm25, persist[apagado], pool[comentario], console_saida, filter, inverted). `gofmt -l` limpo; os pacotes tocados passam.
 - 23:35 — rodada de mutacao "como esta" concluida para os treze: row7 FAIL(0), row8 FAIL(0), row9 FAIL(0), row11 confirmado removido em `b8ed7f6`, row12a FAIL(0) / row12b PASS(1) / row12c PASS(1), row13 PASS(1), row14 (inverted:118) PASS(1).
 - 23:32 — rodada de mutacao "como esta" (linhas 1..6, 10): row1 PASS(1), row2 PASS(1), row3 FAIL(0), row4 PASS(1), row5 `TestCacheOutsideVault` PASS(1) / `TestLoadCacheDir` FAIL(0), row6 FAIL(0), row10 FAIL(0).
-- 23:33 — treze sitios lidos na integra (tools_read, limites_enums, server, bm25, persist, pool, write x3, slug_persistido, cli_subcommands, console_saida, filter, inverted). Proximo: ler o produto que cada um exercita.
+- (hora real nao registrada; o passo ocorreu antes da rodada das 23:32) — treze sitios lidos na integra (tools_read, limites_enums, server, bm25, persist, pool, write x3, slug_persistido, cli_subcommands, console_saida, filter, inverted). Proximo: ler o produto que cada um exercita. O "23:33" que estava aqui foi DIGITADO, nao lido de `date` — e por isso saia fora de ordem e adiantado. A hora verdadeira daquele momento nao e recuperavel, entao nao invento outra. Correcao feita as 23:59 (`date +%H:%M`).
 - 23:24 — inicio; brief lido, `docs/papeis/testador.md` lido, HEAD = `50fb0bc`.
 
 ---
