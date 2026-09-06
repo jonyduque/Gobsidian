@@ -1,0 +1,79 @@
+diff --git a/CLAUDE.md b/CLAUDE.md
+index f432d5a..3eba55b 100644
+--- a/CLAUDE.md
++++ b/CLAUDE.md
+@@ -85,8 +85,8 @@ internal/
+   service/         fachada das tools em tipos de domínio; erros em errors.go
+   mcpsrv/          ÚNICO pacote onde tipos do SDK de MCP existem
+   console/         marcadores ASCII e cor decidida pelo destino de saída
+-  boot/            monta cofre, índice, busca, watcher e Service; serve, daemon
+-                   e CLI chamam
++  boot/            monta cofre, índice, busca, watcher e Service; serve e
++                   daemon chamam
+   ipc/             transporte local: socket, saudação, handshake
+   daemon/          N conexões sobre um índice; spawn; posse por trava do
+                    kernel (flock / LockFileEx), nunca por arquivo com PID
+diff --git a/docs/ARCHITECTURE.md b/docs/ARCHITECTURE.md
+index 120eda3..50a0bcb 100644
+--- a/docs/ARCHITECTURE.md
++++ b/docs/ARCHITECTURE.md
+@@ -124,9 +124,9 @@ Duas regras moldam o pacote. **Os marcadores continuam em ASCII** (`[OK]`, `[!]`
+ 
+ ### 2.14 `internal/boot`
+ 
+-A **montagem** é camada própria: fica acima de `service` — ela constrói o `*service.Service` — e abaixo de `cmd/gobsidian` e de `mcpsrv`, que recebem o serviço pronto. `boot.Montar` executa o fluxo de §5.1 inteiro: cofre, varredura de temporários órfãos em paralelo, índice de metadados (`AbrirIndice`: cache fresco ou construção), índice de busca (`PrepararBusca`: adoção do cache, retomada de parcial ou construção), watcher e `Service`. Devolve um `Componentes` com tudo isso e um `Esperar()` que bloqueia até as goroutines de fundo terminarem.
++A **montagem** é camada própria: fica acima de `service` — ela constrói o `*service.Service` — e abaixo de `cmd/gobsidian` e de `mcpsrv`, que recebem o serviço pronto. `boot.Montar` executa os passos 3 a 7 de §5.1: cofre, varredura de temporários órfãos em paralelo, índice de metadados (`AbrirIndice`: cache fresco ou construção), índice de busca (`PrepararBusca`: adoção do cache, retomada de parcial ou construção), watcher e `Service`. Devolve um `Componentes` com tudo isso e um `Esperar()` que bloqueia até as goroutines de fundo terminarem.
+ 
+-Existe porque `serve` e `daemon` precisam da **mesma** sequência, na mesma ordem, e ela vivia em `cmd/gobsidian` — onde nenhum teste de pacote a alcançava, e onde uma divergência entre os dois caminhos de boot só apareceria em produção. A ordem não é livre: `watcher.New` registra os watches **antes** da construção do índice de busca, e `w.Run` só consome a fila **depois** dela, porque a adoção do cache substitui o conteúdo do índice invertido (§6).
++Existe porque `serve` e `daemon` precisam da **mesma** sequência, na mesma ordem, e ela vivia em `cmd/gobsidian` — onde nenhum teste de pacote a alcançava, e onde uma divergência entre os dois caminhos de boot só apareceria em produção. A ordem não é livre, e a parte dela que vale depende do modo: `watcher.New` registra os watches **antes** da construção do índice de busca nos dois modos, mas `w.Run` só consome a fila **depois** dela no modo *eager*, porque a adoção do cache substitui o conteúdo do índice invertido (§6). No modo padrão (lazy) não há o que ordenar: `Montar` parte `w.Run` de imediato e a busca só é carregada na primeira `vault_search`, por `opts.CarregarBusca`. Se o watcher tiver escrito no índice invertido até lá, `AdotarDe` **recusa** o cache e `PrepararBusca` cai para a construção, que conta o que o watcher já escreveu via `HasDoc` — mais lento que o caminho de cache, nunca incorreto (achado A6, `docs/SUGESTOES.md`).
+ 
+ Numeração fora de ordem de propósito: a camada é nova (Task 174) e renumerar §2.2–§2.13 quebraria as referências que o resto da documentação já faz a elas.
+ 
+@@ -565,7 +565,7 @@ context cancelado
+ 
+ Cada sessão de host MCP (Claude Desktop, Claude Code, VS Code) abre um processo `gobsidian serve` novo. Antes desta seção existir, duas sessões contra o mesmo cofre pagavam o índice completo duas vezes — medido em ~1 GB agregado num cofre real antes da carga sob demanda da Tarefa 88. A Tarefa 88 já resolve a maioria dos casos (sessão que só lê e escreve nota nunca carrega o índice de busca); o que sobra depois dela é a sessão que **busca de verdade**, contra o **mesmo cofre**, ao **mesmo tempo** — e é isso que o daemon ataca.
+ 
+-**Um processo por cofre, não um processo global.** `EnsureStarted` deriva a chave do cofre pela mesma `config.VaultKey` que `ipc.SocketPath` usa (uma função, não duas contas do mesmo hash — a classe de defeito que `byAlias` já pagou aqui). O daemon monta `index`, `watcher` e o serviço de domínio uma única vez (`construirServico`, compartilhada com o boot em processo para as duas sequências nunca divergirem) e aceita N conexões sobre o socket.
++**Um processo por cofre, não um processo global.** `EnsureStarted` deriva a chave do cofre pela mesma `config.VaultKey` que `ipc.SocketPath` usa (uma função, não duas contas do mesmo hash — a classe de defeito que `byAlias` já pagou aqui). O daemon monta `index`, `watcher` e o serviço de domínio uma única vez (`boot.Montar`, em `internal/boot`, compartilhada com o boot em processo para as duas sequências nunca divergirem) e aceita N conexões sobre o socket.
+ 
+ **A ponte é burra.** `cmd/gobsidian` primeiro tenta discar o socket do cofre; se conectar, vira um proxy de bytes entre o stdio do host e a conexão — não interpreta JSON-RPC. Se a discagem falhar (socket ausente, conexão recusada, versão ou configuração incompatível), tenta `EnsureStarted` e disca de novo; se isso também falhar, cai para o modo em processo de sempre (`serveEmProcesso`). O fallback é obrigatório nos três pontos, não só no primeiro — nenhum caminho deixa a ferramenta inutilizável por um socket quebrado. Medido: a ponte sozinha, conectada, custa ~13,8 MB de Working Set contra ~250 MB de uma instância completa.
+ 
+diff --git a/docs/ESTRUTURA.md b/docs/ESTRUTURA.md
+index 7630832..674cd17 100644
+--- a/docs/ESTRUTURA.md
++++ b/docs/ESTRUTURA.md
+@@ -150,7 +150,7 @@ gobsidian/
+ │   │   ├── vt_windows.go         habilita terminal virtual (build tag windows)
+ │   │   └── vt_other.go           no-op documentado (build tag !windows)
+ │   │
+-│   ├── boot/                     a sequência de boot que serve, daemon e CLI
++│   ├── boot/                     a sequência de boot que serve e daemon
+ │   │   │                         compartilham; não importa mcpsrv nem lifecycle
+ │   │   ├── doc.go                por que o pacote existe e o que ele não decide
+ │   │   ├── indice.go             AbrirIndice: cache fresco ou construção, e grava
+@@ -232,7 +232,7 @@ gobsidian/
+ 
+ ### `cmd/` fino, `internal/` grosso
+ 
+-`cmd/gobsidian` não contém lógica de domínio. Analisa flags, monta configuração, constrói o `Service` e delega. Isso mantém toda a lógica testável sem passar pela CLI.
++`cmd/gobsidian` não contém lógica de domínio. Analisa flags, monta configuração, pede a montagem a `internal/boot` e delega. Isso mantém toda a lógica testável sem passar pela CLI.
+ 
+ ### Tudo em `internal/`
+ 
+diff --git a/internal/boot/doc.go b/internal/boot/doc.go
+index 645a3db..779ca39 100644
+--- a/internal/boot/doc.go
++++ b/internal/boot/doc.go
+@@ -1,8 +1,9 @@
+ // Package boot monta o servidor: cofre, indice de metadados (do cache ou
+ // construido), indice de busca (adotado do cache, retomado ou construido),
+-// watcher e Service. Existe porque serve, daemon e os subcomandos de CLI
+-// precisam da mesma montagem, e ela vivia em cmd/gobsidian, onde nenhum
+-// teste de pacote a alcancava.
++// watcher e Service. Existe porque serve e daemon precisam da mesma
++// montagem, e ela vivia em cmd/gobsidian, onde nenhum teste de pacote a
++// alcancava. Os subcomandos de CLI nao passam por aqui: index, search e
++// inspect montam o indice por conta propria, sem watcher e sem Service.
+ //
+ // Nao importa mcpsrv nem lifecycle: quem monta nao decide como o host
+ // conversa nem quando encerra.

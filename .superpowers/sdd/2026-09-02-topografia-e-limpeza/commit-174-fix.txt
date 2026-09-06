@@ -1,0 +1,16 @@
+docs(boot): say who calls boot today, qualify the eager-only ordering, name Montar in §7.5
+
+N1: only serve and daemon import boot -- index, search and inspect still call
+index.New() themselves. Fixed in the CLAUDE.md tree line, docs/ESTRUTURA.md and
+the package doc of internal/boot.
+N2: ARCHITECTURE.md §7.5 still named construirServico, moved to internal/boot by
+Task 174; it now names boot.Montar.
+N3: ARCHITECTURE.md §2.14 stated the watcher.New / w.Run ordering unconditionally,
+which only holds in eager mode; qualified as montar.go does, with the lazy path
+where AdotarDe refuses the cache (audit finding A6).
+N4: §2.14 said Montar runs all of §5.1; it runs steps 3 to 7.
+N5: ESTRUTURA.md §2 said cmd/gobsidian builds the Service; it asks internal/boot
+for the assembly and delegates.
+
+Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01P5wkw6PAdBFzF3uB1w1jNj

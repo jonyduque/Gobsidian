@@ -1,0 +1,35 @@
+Carregado em 428ms
+Carregamento: 763,4 ms 
+
+[...] 100 ciclos de encerramento abrupto (host com pipe real em stdin)
+[i] logs e PIDs em C:\Users\jonyd\AppData\Local\Temp\gobsidian_orphan_9d72d80fe44443829da022f84abacf00
+[i] 10/100
+[i] 20/100
+[i] 30/100
+[i] 40/100
+[i] 50/100
+[i] 60/100
+[i] 70/100
+[i] 80/100
+[i] 90/100
+[i] 100/100
+[i] motivos observados nos logs de debug:
+    signal: 100x
+[OK] Nenhum orfao em 100 ciclos
+Carregado em 553ms
+Carregamento: 868,1 ms 
+
+[...] 100 ciclos de ociosidade do daemon (sem cliente conectado, sem pai vigiavel)
+[i] logs em C:\Users\jonyd\AppData\Local\Temp\gobsidian_orphan_daemonidle_4129b97ea8b34870a6fb51084dac8a09
+[i] encerrando 1 daemon(s) deixado(s) pelos cenarios anteriores neste cofre
+[i] 10/100
+[i] 20/100
+[i] 30/100
+[i] 40/100
+[i] 50/100
+[i] 60/100
+[i] 70/100
+[i] 80/100
+[i] 90/100
+[i] 100/100
+[OK] Nenhum daemon orfao em 100 ciclos -- todos sairam por ociosidade (reason=idle) apos a unica ponte ser morta

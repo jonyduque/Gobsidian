@@ -1,0 +1,36 @@
+refactor(boot): assemble vault, index, search and service in one testable package
+
+The boot sequence -- vault, stale-temp sweep, metadata index, search index,
+watcher, Service -- lived in cmd/gobsidian, where no package test could reach
+it, and serve and daemon both depended on it staying identical. It moves to
+internal/boot with the bodies unchanged; only names and signatures differ.
+
+Old name -> new name:
+
+  cmd/gobsidian/servico.go:construirServico   -> internal/boot/montar.go:Montar
+  cmd/gobsidian/servico.go:servicoMontado     -> internal/boot/montar.go:Componentes
+    field svc                                 -> Service
+    field w                                   -> Watcher
+    field wg                                  -> espera, reached via Esperar()
+  cmd/gobsidian/serve.go:carregarIndiceDoCache -> internal/boot/indice.go:carregarIndiceDoCache
+    (plus AbrirIndice, which wraps it and owns the cache/build decision and
+     the "cache"/"build" value that index_origin reports)
+  cmd/gobsidian/serve.go:invertedSaveInterval  -> internal/boot/busca.go:intervaloDeGravacao
+  cmd/gobsidian/serve.go:invertedCacheState    -> internal/boot/busca.go:estadoDoCache
+  cmd/gobsidian/serve.go:devolveMemoriaTransitoria -> internal/boot/busca.go:devolveMemoriaTransitoria
+  cmd/gobsidian/serve.go:prepararIndiceDeBusca -> internal/boot/busca.go:PrepararBusca
+  cmd/gobsidian/serve.go:buildInvertedIndex    -> internal/boot/busca.go:construirBusca
+  cmd/gobsidian/serve.go:watcherStats          -> internal/boot/montar.go:watcherStats
+  cmd/gobsidian/inverted_cache_state_test.go   -> internal/boot/estado_do_cache_test.go
+  cmd/gobsidian/boot_indice_busca_windows_test.go -> internal/boot/busca_windows_test.go
+
+boot imports config, index, search, service, vault and watcher -- the six
+edges cmd/gobsidian already had, no new one. It imports neither mcpsrv nor
+lifecycle: assembly does not decide how the host talks or when the process
+dies. No domain package imports boot.
+
+The "servidor pronto" log line keeps every key, including index_ms and
+index_origin, which scripts/measure.ps1 parses.
+
+Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01P5wkw6PAdBFzF3uB1w1jNj
