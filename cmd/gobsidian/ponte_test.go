@@ -329,6 +329,13 @@ func TestServePonteRemotaEncaminhaHostParaDaemon(t *testing.T) {
 
 	// A resposta que estava em voo quando o host fechou o stdin. E ela que
 	// separa o meio-fechamento do fechamento inteiro.
+	//
+	// Se esta escrita falhar, o suspeito nao e so uma regressao do M8: ha
+	// uma corrida do proprio produto em ponte.go:193-202, onde o select
+	// entre hostParaDaemon e ctx.Done() pode resolver para ctx.Done() antes
+	// que o EOF do stdin do host seja lido como hostParaDaemon -- nesse
+	// caso fimDoHost fica false e o shutdown nao faz o meio-fechamento que
+	// este teste espera. Ver tambem o comentario em fimDoHost, acima.
 	const tardia = `{"jsonrpc":"2.0","id":1,"result":{}}` + "\n"
 	if _, err := outroLado.Write([]byte(tardia)); err != nil {
 		t.Fatalf("o daemon nao conseguiu responder depois do EOF: %v -- a ponte fechou a conexao INTEIRA em vez de so a direcao de escrita (achado M8)", err)

@@ -258,12 +258,18 @@ func TestDialAndHandshakeReadOnlyCombinando(t *testing.T) {
 	}
 
 	accepted := make(chan net.Conn, 1)
+	// falhaServidor carrega o erro de Accept ou Greet quando o goroutine do
+	// servidor desiste em silencio -- sem ele, o Fatal abaixo so sabia dizer
+	// que a conexao nao chegou, nunca por que.
+	falhaServidor := make(chan error, 1)
 	go func() {
 		c, err := ln.Accept()
 		if err != nil {
+			falhaServidor <- fmt.Errorf("Accept(): %w", err)
 			return
 		}
 		if err := ipc.Greet(c, saudacao); err != nil {
+			falhaServidor <- fmt.Errorf("Greet(): %w", err)
 			return
 		}
 		accepted <- c
@@ -283,6 +289,8 @@ func TestDialAndHandshakeReadOnlyCombinando(t *testing.T) {
 	select {
 	case serverSide := <-accepted:
 		_ = serverSide.Close()
+	case err := <-falhaServidor:
+		t.Fatalf("o servidor desistiu antes de entregar a conexao: %v", err)
 	case <-time.After(vaulttest.Prazo):
 		t.Fatal("o servidor nao chegou a entregar a conexao apos o handshake")
 	}
