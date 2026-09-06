@@ -7,7 +7,7 @@
 - 01:31 Step 3 (trava do kernel entre processos, TravaEmUso, EscutarComLock) — INICIADO / 01:34 OK, mutacao exit 0
 - 01:34 Step 4 (AliasCollisions) — INICIADO / 01:35 OK, mutacao exit 0
 - 01:35 Step 5 (handshake ReadOnly=true) — INICIADO / 01:36 OK, mutacao exit 0
-- 01:37 Step 6 (cobertura, verify, commit) — INICIADO / 01:44 OK
+- 01:37 Step 6 (cobertura, verify, commit) — INICIADO / 01:46 OK, commit 524e070
 
 ## Status
 
@@ -17,7 +17,7 @@ produto que aparecem nas provas foram mutados por `scripts/mutate.ps1` e
 restaurados byte a byte por ele (SHA-256 conferido em cada uma das saidas
 abaixo).
 
-SHA: `PREENCHER_NO_COMMIT`
+SHA: `524e0704af6a4f4d0d96ca39980ec6d37bb76325`
 
 `test_orphans.ps1` NAO foi rodado aqui: o orquestrador o roda destacado, porque
 ele nao cabe no teto de tempo de chamada desta sessao. Duracao dele: nao medida
