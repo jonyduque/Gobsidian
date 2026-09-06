@@ -400,6 +400,55 @@ desta versão a cada alternância.
 existem: o cache do índice de metadados entrou, e o boot com cache válido caiu de
 1.192–1.396 ms para 371–472 ms num cofre real.
 
+**Codec de metadados (`internal/index/persist_codec.go`): testes de caixa-branca
+em `persist_codec_test.go` (Task 181, 2026-09-06).** Cobertura por função antes →
+depois (`go tool cover -func`, `go test ./internal/index/ -coverprofile=...`):
+
+| função | antes | depois |
+|---|---|---|
+| `escritor.uvarint` | 75,0% | 75,0% |
+| `escritor.varint` | 75,0% | 75,0% |
+| `escritor.fixed64` | 0,0% | 80,0% |
+| `escritor.str` | 75,0% | 75,0% |
+| `escritor.boolean` | 100,0% | 100,0% |
+| `escritor.timeBlob` | 60,0% | 60,0% |
+| `escritor.strSlice` | 100,0% | 100,0% |
+| `escritor.headings` | 100,0% | 100,0% |
+| `escritor.blocks` | 37,5% | 100,0% |
+| `escritor.links` | 100,0% | 100,0% |
+| `escritor.inline` | 27,3% | 100,0% |
+| `escritor.value` | 65,8% | 92,1% |
+| `escritor.note` | 100,0% | 100,0% |
+| `escritor.asset` | 100,0% | 100,0% |
+| `escreveIndexCache` | 85,7% | 85,7% |
+| `leitor.falha` | 0,0% | 100,0% |
+| `leitor.uvarint` | 57,1% | 100,0% |
+| `leitor.uvarintLivre` | 62,5% | 100,0% |
+| `leitor.varint` | 62,5% | 100,0% |
+| `leitor.fixed64` | 0,0% | 62,5% |
+| `leitor.str` | 77,8% | 100,0% |
+| `leitor.boolean` | 100,0% | 100,0% |
+| `leitor.timeBlob` | 61,5% | 84,6% |
+| `leitor.strSlice` | 75,0% | 83,3% |
+| `leitor.headings` | 75,0% | 83,3% |
+| `leitor.blocks` | 33,3% | 83,3% |
+| `leitor.links` | 75,0% | 83,3% |
+| `leitor.inline` | 30,8% | 84,6% |
+| `leitor.value` | 61,1% | 91,7% |
+| `leitor.note` | 90,9% | 95,5% |
+| `leitor.asset` | 83,3% | 83,3% |
+| `leIndexCache` | 80,0% | 80,0% |
+
+Pacote inteiro (`internal/index`, todos os testes): 83,5% → 89,7%. Não é a média
+do arquivo — `go tool cover -func` não dá esse número direto; só a de cada
+função, coladas acima.
+
+Achado durante a tarefa, não corrigido (fora do escopo de teste/doc): o branch
+`default` de `leitor.value` ("tag de valor desconhecida") é código morto para
+qualquer tag além de `valMap` — a leitura da tag já passa por um `uvarint` com
+teto `valMap`, então uma tag inválida é recusada ali, com mensagem "acima do
+limite", antes de alcançar o `switch`. Ver `docs/SUGESTOES.md` B21.
+
 ---
 
 ## Gates

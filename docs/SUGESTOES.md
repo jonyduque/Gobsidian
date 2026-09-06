@@ -532,6 +532,22 @@ não fazer sem ele. Detalhe no plano, Fase 2.4.
   conferência de paridade contra o Obsidian, que é quem decide o que é tag. CONFIRMADO
   (medido na Task 180; não corrigido lá, fora do alcance daquele brief).
 
+- **B21** O branch `default` de `leitor.value` (`internal/index/persist_codec.go:684`,
+  mensagem "tag de valor desconhecida") é código morto para qualquer tag corrompida
+  acima de `valMap`. A leitura da tag (`:638`) é
+  `l.uvarint(uint64(valMap), "tipo de valor")` — o MESMO `uvarint` que já aplica
+  `valMap` como **limite**. Uma tag `valMap+1` nunca alcança o `switch`: ela é
+  recusada dentro de `leitor.uvarint`, com a mensagem "acima do limite", não com
+  "tag de valor desconhecida". O `switch` cobre as doze tags inteiras
+  (`valNil`..`valMap`), então o `default` só seria alcançável por uma tag DENTRO da
+  faixa `[0, valMap]` que o `switch` não cobrisse — o que não existe hoje. Achado
+  durante os testes de caixa-branca do codec (Task 181, 2026-09-06,
+  `TestCodecTagDesconhecidaERecusada` em `internal/index/persist_codec_test.go`); não
+  é bug de comportamento (a corrupção ainda é recusada, com `ErrIndexCacheCorrupted`),
+  é uma mensagem de erro morta e um teto de leitura que faz dupla função sem
+  documentar isso. CONFIRMADO (lido e comprovado por teste; não corrigido, fora do
+  alcance de uma tarefa `test:`).
+
 ---
 
 ## Oportunidades maiores (decisão de arquitetura; da revisão de 2026-08-15, ainda abertas)
