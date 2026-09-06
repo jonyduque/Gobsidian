@@ -4,7 +4,6 @@ import (
 	"context"
 	"testing"
 
-	"github.com/jonyd/gobsidian/internal/index"
 	"github.com/jonyd/gobsidian/internal/vault"
 )
 
@@ -52,10 +51,7 @@ func TestNotaComFrontmatterQuebradoNaoSomeEmSilencio(t *testing.T) {
 	if err != nil {
 		t.Fatalf("vault.New: %v", err)
 	}
-	ix, ok := svc.index.(*index.Index)
-	if !ok {
-		t.Fatal("svc.index nao e *index.Index")
-	}
+	ix := svc.index
 	if err := ix.Replace(context.Background(), v, "quebrada.md"); err != nil {
 		t.Fatalf("Replace: %v", err)
 	}

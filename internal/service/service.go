@@ -7,22 +7,6 @@ import (
 	"github.com/jonyd/gobsidian/internal/writer"
 )
 
-// Index e a dependencia do servico sobre o indice.
-type Index interface {
-	NoteCount() int
-	AssetCount() int
-	TotalSize() int64
-	ResolvePath(input string) (vault.CanonicalPath, error)
-	Get(path vault.CanonicalPath) (*index.Note, bool)
-	List(q index.Query) ([]*index.Note, int)
-	Tags(prefix string, minCount int) []index.TagCount
-	Backlinks(path vault.CanonicalPath) []index.Backlink
-	Paths() []vault.CanonicalPath
-	NotePaths() []vault.CanonicalPath
-	AliasCollisions() int
-	Generation() uint64
-}
-
 // WatchCounters reporta a saude e os contadores do watcher em tempo de execucao.
 type WatchCounters struct {
 	Active            bool             `json:"active"`
@@ -66,10 +50,13 @@ type Options struct {
 	SnippetCacheEntries *int
 }
 
-// Service e a fachada unica sobre os subsistemas: cada tool MCP corresponde a um metodo daqui.
+// Service e a fachada das tools sobre o dominio. Recebe o indice concreto:
+// a interface que existia aqui tinha uma implementacao e nenhum fake, e
+// search.CalculateBM25 e search.GenerateSnippet exigem *index.Index, o que
+// obrigava uma assercao de tipo em cada busca.
 type Service struct {
 	vault    *vault.Vault
-	index    Index
+	index    *index.Index
 	inverted *search.Inverted
 	watcher  WatchStats
 	opts     Options
@@ -81,7 +68,7 @@ type Service struct {
 }
 
 // New monta o servico.
-func New(v *vault.Vault, idx Index, inv *search.Inverted, w WatchStats, opts Options) *Service {
+func New(v *vault.Vault, idx *index.Index, inv *search.Inverted, w WatchStats, opts Options) *Service {
 	entradasTrecho := search.DefaultSnippetCacheEntries
 	if opts.SnippetCacheEntries != nil {
 		entradasTrecho = *opts.SnippetCacheEntries

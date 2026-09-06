@@ -223,13 +223,8 @@ func (s *Service) Search(ctx context.Context, opts SearchOptions) (SearchResult,
 		return resultadoVazio(0, opts), nil
 	}
 
-	var idxImpl *index.Index
-	if realIdx, ok := s.index.(*index.Index); ok {
-		idxImpl = realIdx
-	}
-
 	// Executa pontuação BM25 sobre o índice invertido
-	rawHits := search.CalculateBM25(queryTokens, s.inverted, idxImpl)
+	rawHits := search.CalculateBM25(queryTokens, s.inverted, s.index)
 
 	// Uma vez, fora do laço: o filtro de frontmatter é o único que não se
 	// responde olhando só a nota, e resolvê-lo por hit fazia uma varredura do
@@ -307,7 +302,7 @@ func (s *Service) Search(ctx context.Context, opts SearchOptions) (SearchResult,
 		// mesmo que a nota tenha saído do mapa no instante seguinte. O
 		// resultado é de um instante ligeiramente anterior — que é o que
 		// qualquer busca devolve, com ou sem o segundo Get.
-		snip, errTrecho := search.GenerateSnippet(ctx, s.vault, s.inverted, idxImpl, h.Path, termosDoTrecho, opts.SnippetChars, s.trechos)
+		snip, errTrecho := search.GenerateSnippet(ctx, s.vault, s.inverted, s.index, h.Path, termosDoTrecho, opts.SnippetChars, s.trechos)
 		if errTrecho != nil {
 			// A nota fica na pagina, com trecho vazio: uma nota travada nao
 			// pode apagar as outras 199. Mas a falha e CONTADA (achado B3).
