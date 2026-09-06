@@ -336,14 +336,30 @@ type tempTagNode struct {
 	children map[string]*tempTagNode
 }
 
+// tagListHierarchical monta a arvore de tags, onde cada no conta as notas que
+// caem sob ele INCLUINDO as das descendentes: uma nota marcada so com
+// #proj/alpha conta em "proj". E por isso que este ramo nao pode se servir de
+// index.Tags, que e a fonte do ramo plano — la a contagem e por tag exata, e as
+// duas divergem sempre que ha subtag (no fixture do golden, "docs" vale 3 aqui e
+// 2 la).
 func (s *Service) tagListHierarchical(req TagRequest) TagResult {
-	noteSets := make(map[string]map[vault.CanonicalPath]bool)
+	// A contagem e por nota DISTINTA: uma nota com #proj/alpha e #proj/beta
+	// conta uma vez em "proj", nao duas.
+	//
+	// A deduplicacao era um map[CanonicalPath]bool por tag — um mapa alocado
+	// por tag, com uma entrada por nota dentro dele, para no fim so se
+	// perguntar o tamanho. Como a varredura ja e nota a nota, um conjunto de
+	// rascunho reaproveitado entre notas diz a mesma coisa: dentro de UMA nota,
+	// cada prefixo conta no maximo uma vez.
+	contagem := make(map[string]int)
+	vistas := make(map[string]bool)
 
 	for _, p := range s.index.NotePaths() {
 		n, ok := s.index.Get(p)
 		if !ok {
 			continue
 		}
+		clear(vistas)
 		for _, tag := range n.Tags {
 			tagClean := strings.TrimPrefix(tag, "#")
 			parts := strings.Split(tagClean, "/")
@@ -354,10 +370,10 @@ func (s *Service) tagListHierarchical(req TagRequest) TagResult {
 				} else {
 					curr = curr + "/" + part
 				}
-				if noteSets[curr] == nil {
-					noteSets[curr] = make(map[vault.CanonicalPath]bool)
+				if !vistas[curr] {
+					vistas[curr] = true
+					contagem[curr]++
 				}
-				noteSets[curr][p] = true
 			}
 		}
 	}
@@ -365,8 +381,7 @@ func (s *Service) tagListHierarchical(req TagRequest) TagResult {
 	prefixLower := strings.ToLower(req.Prefix)
 	rootNodes := make(map[string]*tempTagNode)
 
-	for fullTag, paths := range noteSets {
-		count := len(paths)
+	for fullTag, count := range contagem {
 		if count < req.MinCount {
 			continue
 		}
@@ -385,10 +400,14 @@ func (s *Service) tagListHierarchical(req TagRequest) TagResult {
 			}
 			node, exists := currentMap[part]
 			if !exists {
+				// O ANCESTRAL entra com a contagem que ele tem, mesmo quando o
+				// proprio ancestral nao passou no filtro. Com prefix="proj/al",
+				// "proj" nao casa o prefixo e ainda assim aparece como raiz de
+				// "proj/alpha" — e aparece com a contagem cheia, nao com zero.
 				node = &tempTagNode{
 					segment:  part,
 					fullTag:  currPath,
-					count:    len(noteSets[currPath]),
+					count:    contagem[currPath],
 					children: make(map[string]*tempTagNode),
 				}
 				currentMap[part] = node

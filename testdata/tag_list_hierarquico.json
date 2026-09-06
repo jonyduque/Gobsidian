@@ -139,6 +139,39 @@
     }
   },
   {
+    "nome": "hierarquico_prefixo_no_meio",
+    "requisicao": {
+      "prefix": "proj/al",
+      "min_count": 0,
+      "sort": "name",
+      "hierarchical": true
+    },
+    "resultado": {
+      "tags": [
+        {
+          "tag": "proj",
+          "count": 4,
+          "children": [
+            {
+              "tag": "proj/alpha",
+              "count": 3,
+              "children": [
+                {
+                  "tag": "proj/alpha/dois",
+                  "count": 1
+                },
+                {
+                  "tag": "proj/alpha/um",
+                  "count": 2
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  },
+  {
     "nome": "hierarquico_min_count_2",
     "requisicao": {
       "prefix": "",

@@ -54,6 +54,13 @@ var variantesDeTagList = []struct {
 	{"hierarquico_nome", service.TagRequest{Sort: "name", Hierarchical: true}},
 	{"hierarquico_contagem", service.TagRequest{Sort: "count", Hierarchical: true}},
 	{"hierarquico_prefixo_proj", service.TagRequest{Sort: "name", Hierarchical: true, Prefix: "proj"}},
+	// Prefixo que corta NO MEIO de um caminho de tag: "proj" nao casa
+	// "proj/al", e mesmo assim aparece como raiz de "proj/alpha" — com a
+	// contagem cheia, e nao com zero. E a unica variante que fixa isso, e ela
+	// existe porque a alternativa considerada para este item (filtrar ja na
+	// varredura das notas, em vez de depois) apagaria a contagem do ancestral
+	// em silencio.
+	{"hierarquico_prefixo_no_meio", service.TagRequest{Sort: "name", Hierarchical: true, Prefix: "proj/al"}},
 	{"hierarquico_min_count_2", service.TagRequest{Sort: "count", Hierarchical: true, MinCount: 2}},
 	{"plano_contagem", service.TagRequest{Sort: "count"}},
 }
