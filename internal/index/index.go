@@ -191,8 +191,19 @@ func (ix *Index) insert(r parsed) {
 func (ix *Index) publishNoteLocked(n *Note) {
 	ix.notes[n.Path] = n
 	ix.publishNameLocked(n.Path)
+	// A chave de ix.tags e ChaveDeTag, e nao a grafia da nota: e a mesma conta
+	// que Tags, PathsComTags e o filtro de vault_search usam para ler.
+	// n.Tags continua com a grafia original — so a chave do mapa dobra.
+	//
+	// A deduplicacao existe porque uma nota pode trazer duas grafias da MESMA
+	// tag (#Ação e #ação), que dobram para uma chave so: sem ela o caminho
+	// entraria duas vezes na lista e a contagem de tag_list contaria a nota
+	// duas vezes.
 	for _, t := range n.Tags {
-		ix.tags[t] = append(ix.tags[t], n.Path)
+		k := ChaveDeTag(t)
+		if len(ix.tags[k]) == 0 || ix.tags[k][len(ix.tags[k])-1] != n.Path {
+			ix.tags[k] = append(ix.tags[k], n.Path)
+		}
 	}
 	// byAlias entra AQUI desde 2026-08-26, e nao num passe separado.
 	//

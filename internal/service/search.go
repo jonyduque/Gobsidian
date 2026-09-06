@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -229,6 +230,13 @@ func (s *Service) Search(ctx context.Context, opts SearchOptions) (SearchResult,
 	// índice inteiro por resultado.
 	porFrontmatter := s.casamFrontmatter(opts)
 
+	// O filtro de tag tambem sai do laco, e pelo mesmo motivo: ele baixava a
+	// caixa de CADA tag de CADA resultado, por consulta. E, mais que custo,
+	// era uma segunda conta do casamento de tag — note_list ja resolvia
+	// hierarquia e dobra pelo indice, e vault_search comparava string nua.
+	// index.PathsComTags e a conta unica; nil aqui e "sem filtro de tag".
+	porTag := s.index.PathsComTags(opts.Tags, "all")
+
 	// A analise e a expansao dos termos do trecho acontecem UMA vez, e nao por
 	// hit: GenerateSnippet chamava Analyze para cada termo dentro de cada
 	// resultado da pagina — com limit=200 e tres palavras, 600 chamadas por
@@ -254,7 +262,7 @@ func (s *Service) Search(ctx context.Context, opts SearchOptions) (SearchResult,
 			continue
 		}
 
-		if !s.matchesSearchFilters(note, opts, porFrontmatter) {
+		if !s.matchesSearchFilters(note, opts, porFrontmatter, porTag) {
 			continue
 		}
 
@@ -421,7 +429,7 @@ func (s *Service) searchMetadataOnly(opts SearchOptions) (SearchResult, error) {
 	}, nil
 }
 
-func (s *Service) matchesSearchFilters(note *index.Note, opts SearchOptions, porFrontmatter map[vault.CanonicalPath]bool) bool {
+func (s *Service) matchesSearchFilters(note *index.Note, opts SearchOptions, porFrontmatter map[vault.CanonicalPath]bool, porTag []vault.CanonicalPath) bool {
 	if opts.Folder != "" {
 		canonFolder := string(vault.CanonicalPath(opts.Folder))
 		if canonFolder != "" && !strings.HasPrefix(string(note.Path), canonFolder+"/") && string(note.Path) != canonFolder {
@@ -429,16 +437,17 @@ func (s *Service) matchesSearchFilters(note *index.Note, opts SearchOptions, por
 		}
 	}
 
+	// porTag e nil quando nao ha filtro de tag; com filtro, e o conjunto
+	// ordenado que o indice resolveu UMA vez (index.PathsComTags) — a mesma
+	// conta que note_list usa, hierarquia e dobra de caixa incluidas.
+	//
+	// Ate a Task 180 este bloco montava um mapa das tags da nota em minusculo
+	// por resultado e comparava a tag pedida por igualdade exata: "#projeto"
+	// nao casava uma nota marcada so com "#projeto/alpha", enquanto note_list,
+	// com o MESMO parametro, casava. Duas tools, duas respostas.
 	if len(opts.Tags) > 0 {
-		noteTags := make(map[string]bool)
-		for _, t := range note.Tags {
-			noteTags[strings.ToLower(t)] = true
-		}
-		for _, reqTag := range opts.Tags {
-			cleanTag := strings.TrimPrefix(strings.ToLower(reqTag), "#")
-			if !noteTags[cleanTag] {
-				return false
-			}
+		if _, ok := slices.BinarySearch(porTag, note.Path); !ok {
+			return false
 		}
 	}
 

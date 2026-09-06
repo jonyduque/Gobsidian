@@ -170,15 +170,21 @@ func (ix *Index) AliasCollisions() int {
 
 // Tags devolve as tags do cofre com suas contagens, filtradas por prefixo e
 // por contagem minima.
+//
+// A tag devolvida e a CHAVE, ja dobrada por ChaveDeTag — minuscula, NFC e sem
+// '#'. Duas grafias que so diferem em caixa ou em forma Unicode sao uma
+// entrada so, com a soma das contagens. Ate a Task 180 a chave era a grafia
+// crua da nota e o prefixo era comparado com um ToLower de cada lado a cada
+// leitura: a mesma tag aparecia duas vezes na lista.
 func (ix *Index) Tags(prefix string, minCount int) []TagCount {
 	ix.mu.RLock()
 	defer ix.mu.RUnlock()
 
 	var result []TagCount
-	prefix = strings.ToLower(prefix)
+	prefix = ChaveDeTag(prefix)
 
 	for t, paths := range ix.tags {
-		if len(paths) >= minCount && strings.HasPrefix(strings.ToLower(t), prefix) {
+		if len(paths) >= minCount && strings.HasPrefix(t, prefix) {
 			result = append(result, TagCount{Tag: t, Count: len(paths)})
 		}
 	}
@@ -221,6 +227,81 @@ func (ix *Index) List(q Query) ([]*Note, int) {
 	return notes, total
 }
 
+// candidatosPorTagLocked e o passo 1 de coletarLocked e o corpo de
+// PathsComTags. Exige ix.mu ja travado para leitura.
+//
+// A regra e hierarquica: a tag pedida casa a si mesma e qualquer subtag —
+// "projeto" casa "projeto/x". As duas pontas passam por ChaveDeTag, entao
+// caixa, forma Unicode e '#' inicial nao separam o que e a mesma tag.
+//
+// mode vazio vale "all": e o default de note_list, e o `!= "any"` abaixo o
+// cobre sem um segundo lugar que decida isso.
+func (ix *Index) candidatosPorTagLocked(tags []string, mode string) []vault.CanonicalPath {
+	// "any" acumula direto no destino e ordena UMA vez no fim; "all" precisa de
+	// cada conjunto ordenado a parte, porque a intersecao e por busca binaria.
+	//
+	// Por isso o casamento anexa a uma fatia do chamador em vez de devolver uma
+	// pronta: a versao que sempre devolvia ordenada e compactada fazia "any"
+	// pagar um sort e uma copia por tag para depois ordenar tudo de novo.
+	// Medido em BenchmarkListPorTag (3.000 notas, uma tag, tag_mode=any):
+	// +16,08% de tempo (p=0,026, n=7) e +40,31% de B/op (p=0,001) contra o
+	// codigo anterior a esta Task.
+	casam := func(pedida string, dst []vault.CanonicalPath) []vault.CanonicalPath {
+		tk := ChaveDeTag(pedida)
+		for k, v := range ix.tags {
+			if k == tk || strings.HasPrefix(k, tk+"/") {
+				dst = append(dst, v...)
+			}
+		}
+		return dst
+	}
+	ordenado := func(pedida string) []vault.CanonicalPath {
+		m := casam(pedida, nil)
+		slices.Sort(m)
+		return slices.Compact(m)
+	}
+	if strings.ToLower(mode) == "any" {
+		var todos []vault.CanonicalPath
+		for _, t := range tags {
+			todos = casam(t, todos)
+		}
+		slices.Sort(todos)
+		return slices.Compact(todos)
+	}
+	var cand []vault.CanonicalPath
+	for i, t := range tags {
+		m := ordenado(t)
+		if i == 0 {
+			cand = m
+			continue
+		}
+		cand = slices.DeleteFunc(cand, func(c vault.CanonicalPath) bool {
+			_, ok := slices.BinarySearch(m, c)
+			return !ok
+		})
+		if len(cand) == 0 {
+			break
+		}
+	}
+	return cand
+}
+
+// PathsComTags devolve, ordenados, os caminhos das notas que casam as tags em
+// mode ("all" | "any"), com a regra hierarquica. Nil para len(tags) == 0 —
+// "sem filtro de tag", que nao e a mesma resposta que "nenhuma nota casou".
+//
+// Existe para que vault_search resolva o filtro de tag UMA vez por consulta,
+// pela mesma conta que note_list ja usava, em vez de re-derivar a comparacao
+// por resultado.
+func (ix *Index) PathsComTags(tags []string, mode string) []vault.CanonicalPath {
+	if len(tags) == 0 {
+		return nil
+	}
+	ix.mu.RLock()
+	defer ix.mu.RUnlock()
+	return ix.candidatosPorTagLocked(tags, mode)
+}
+
 // coletarLocked reune os candidatos que passam pelos filtros. Toma o RLock e o
 // solta ao devolver: nada aqui ordena nem pagina.
 func (ix *Index) coletarLocked(q Query) []*Note {
@@ -231,57 +312,7 @@ func (ix *Index) coletarLocked(q Query) []*Note {
 
 	// 1. Tags
 	if len(q.Tags) > 0 {
-		tagMode := strings.ToLower(q.TagMode)
-		if tagMode == "" {
-			tagMode = "all"
-		}
-
-		if tagMode == "all" {
-			var first = true
-			for _, t := range q.Tags {
-				tLower := strings.ToLower(t)
-				var matches []vault.CanonicalPath
-				for k, v := range ix.tags {
-					kLower := strings.ToLower(k)
-					if kLower == tLower || strings.HasPrefix(kLower, tLower+"/") {
-						matches = append(matches, v...)
-					}
-				}
-
-				// Deduplicate matches for this tag
-				slices.Sort(matches)
-				matches = slices.Compact(matches)
-
-				if first {
-					candidates = matches
-					first = false
-				} else {
-					var intersection []vault.CanonicalPath
-					for _, c := range candidates {
-						if _, found := slices.BinarySearch(matches, c); found {
-							intersection = append(intersection, c)
-						}
-					}
-					candidates = intersection
-				}
-				if len(candidates) == 0 {
-					break
-				}
-			}
-		} else { // "any"
-			var allMatches []vault.CanonicalPath
-			for _, t := range q.Tags {
-				tLower := strings.ToLower(t)
-				for k, v := range ix.tags {
-					kLower := strings.ToLower(k)
-					if kLower == tLower || strings.HasPrefix(kLower, tLower+"/") {
-						allMatches = append(allMatches, v...)
-					}
-				}
-			}
-			slices.Sort(allMatches)
-			candidates = slices.Compact(allMatches)
-		}
+		candidates = ix.candidatosPorTagLocked(q.Tags, q.TagMode)
 	} else {
 		for p := range ix.notes {
 			candidates = append(candidates, p)

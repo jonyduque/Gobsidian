@@ -49,7 +49,7 @@ Busca full-text com ranking, combinável com filtros de metadados.
   "properties": {
     "query":        { "type": "string", "description": "Termos de busca. Aspas duplas delimitam frase exata." },
     "folder":       { "type": "string", "description": "Restringe a uma pasta e suas subpastas." },
-    "tags":         { "type": "array", "items": { "type": "string" }, "description": "Notas que contenham TODAS as tags." },
+    "tags":         { "type": "array", "items": { "type": "string" }, "description": "Notas que contenham TODAS as tags. A tag pedida casa a si mesma e suas subtags; '#' inicial é opcional; comparação insensível a caixa e a forma Unicode (NFC)." },
     "frontmatter":  { "type": "object", "description": "Pares chave/valor que devem casar no frontmatter." },
     "modified_after":  { "type": "string", "description": "Data mínima de modificação. Aceita RFC3339 ('2006-01-02T15:04:05Z07:00') ou data curta ('2006-01-02')." },
     "modified_before": { "type": "string", "description": "Data máxima de modificação. Aceita RFC3339 ('2006-01-02T15:04:05Z07:00') ou data curta ('2006-01-02')." },
@@ -200,7 +200,7 @@ Lista notas por critérios estruturais. Não toca o índice de texto.
   "properties": {
     "folder":    { "type": "string" },
     "glob":      { "type": "string", "description": "Padrão de caminho, ex.: 'Civil/PONTO *.md'" },
-    "tags":      { "type": "array", "items": { "type": "string" } },
+    "tags":      { "type": "array", "items": { "type": "string" }, "description": "A tag pedida casa a si mesma e suas subtags; '#' inicial é opcional; comparação insensível a caixa e a forma Unicode (NFC)." },
     "tag_mode":  { "type": "string", "enum": ["all", "any"], "default": "all" },
     "frontmatter": { "type": "object" },
     "recursive": { "type": "boolean", "default": true },
@@ -294,7 +294,7 @@ Todas as tags do cofre.
 {
   "type": "object",
   "properties": {
-    "prefix":       { "type": "string", "description": "Restringe a uma subárvore, ex.: 'civil/'" },
+    "prefix":       { "type": "string", "description": "Restringe a uma subárvore, ex.: 'civil/'. O prefixo casa a si mesmo e suas subtags; '#' inicial é opcional; comparação insensível a caixa e a forma Unicode (NFC)." },
     "min_count":    { "type": "integer", "default": 1 },
     "sort":         { "type": "string", "enum": ["name", "count"], "default": "name", "description": "Ordenação: 'name' (crescente por nome) ou 'count' (decrescente por contagem, desempate por nome)." },
     "hierarchical": { "type": "boolean", "default": false, "description": "Retorna árvore em vez de lista plana." }
@@ -303,6 +303,12 @@ Todas as tags do cofre.
 ```
 
 **Retorno.** Objeto contendo a lista ou árvore de nós em `tags`, onde cada nó possui `tag`, `count` e opcionalmente `children` (quando `hierarchical: true`).
+
+**Forma da tag devolvida.** `tag` vem **dobrada**: minúscula, NFC, sem `#`.
+Grafias que diferem só em caixa ou em forma Unicode são uma entrada só, com a
+soma das contagens — `#Ação` e `#ação` viram `ação`. Vale nos dois ramos,
+plano e hierárquico. `note_metadata.tags` continua devolvendo a grafia original
+da nota: a dobra é da chave de agrupamento, não do conteúdo da nota.
 
 ---
 

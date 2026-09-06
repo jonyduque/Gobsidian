@@ -213,7 +213,8 @@ func (ix *Index) removeContributionsLocked(path vault.CanonicalPath) []string {
 		}
 
 		for _, tag := range oldNote.Tags {
-			paths := ix.tags[tag]
+			chave := ChaveDeTag(tag)
+			paths := ix.tags[chave]
 			filtered := make([]vault.CanonicalPath, 0, len(paths))
 			for _, p := range paths {
 				if p != path {
@@ -221,9 +222,9 @@ func (ix *Index) removeContributionsLocked(path vault.CanonicalPath) []string {
 				}
 			}
 			if len(filtered) == 0 {
-				delete(ix.tags, tag)
+				delete(ix.tags, chave)
 			} else {
-				ix.tags[tag] = filtered
+				ix.tags[chave] = filtered
 			}
 		}
 
@@ -553,7 +554,7 @@ func (ix *Index) MoveNote(v *vault.Vault, oldPath, newPath vault.CanonicalPath) 
 
 	// 4. Atualizar tags
 	for _, tag := range n.Tags {
-		paths := ix.tags[tag]
+		paths := ix.tags[ChaveDeTag(tag)]
 		for i, p := range paths {
 			if p == oldPath {
 				paths[i] = newPath

@@ -100,6 +100,19 @@ func TestIndiceDeMetadadosRecarregadoEIdentico(t *testing.T) {
 	// Segunda origem para Origem.md — ver o terceiro item da lista acima.
 	writeFile(t, root, "Penal/Citante.md", "# Citante\n\nTambem cita [[Origem]].\n")
 	writeFile(t, root, "Vazia.md", "")
+	// Tres grafias que dobram para DUAS chaves de tag: "Direito" cai na mesma
+	// chave de "direito" de PONTO 03, e as duas de "Acao" — uma em NFD, outra
+	// em NFC — caem numa so, dentro da MESMA nota, que e o caso que a
+	// deduplicacao de publishNoteLocked existe para tratar.
+	//
+	// Sem esta nota, a comparacao de Tags("", 0) abaixo passava com qualquer
+	// chave: o corpus so tinha "direito", ja minusculo e ja em NFC. O cache
+	// guarda Note.Tags CRU e o reload republica por publishNoteLocked, entao
+	// e aqui que se ve se a dobra mora mesmo no ponto unico de publicacao.
+	writeFile(t, root, "Acentuada.md", "---\n"+
+		"tags: [\"Ação\", \"ação\", Direito]\n"+
+		"---\n"+
+		"# Acentuada\n\nCorpo.\n")
 	writeFile(t, root, "Anexos/diagrama.png", "\x89PNG")
 
 	v, err := vault.New(root)

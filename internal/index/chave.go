@@ -45,6 +45,19 @@ func chaveDeNomeDeArquivo(base string) string {
 	return strings.ToLower(text.ParaNFC(base))
 }
 
+// ChaveDeTag e a chave de ix.tags e a forma que tag_list devolve. Tres pontos
+// escreviam a chave crua (boot, remocao, rename) e tres leitores baixavam a
+// caixa cada um do seu jeito: Tags so ToLower no prefixo, coletarLocked ToLower
+// nos dois lados a cada comparacao, service TrimPrefix('#') + ToLower. Nenhum
+// deles normalizava Unicode, e "#Ação" digitado num Mac (NFD) nao casava o
+// mesmo "#Ação" digitado no Windows (NFC). Uma conta, aqui.
+//
+// Exportada porque service compara tags e nao importa text (o grafo tem
+// service -> index, nao service -> text).
+func ChaveDeTag(tag string) string {
+	return strings.ToLower(text.ParaNFC(strings.TrimPrefix(tag, "#")))
+}
+
 // aliasKey normaliza a chave de byAlias. Toda escrita e toda leitura passam
 // por aqui: o boot indexava minusculo e Replace indexava cru, e a entrada
 // que Remove nao encontrava sobrevivia apontando para uma nota deletada.

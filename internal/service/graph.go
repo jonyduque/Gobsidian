@@ -384,8 +384,12 @@ func (s *Service) tagListHierarchical(req TagRequest) TagResult {
 		}
 		clear(vistas)
 		for _, tag := range n.Tags {
-			tagClean := strings.TrimPrefix(tag, "#")
-			parts := strings.Split(tagClean, "/")
+			// index.ChaveDeTag, e nao um TrimPrefix local: o ramo plano conta
+			// pelas chaves de ix.tags, ja dobradas, e este ramo contava pela
+			// grafia da nota. "#Ação" e "#ação" viravam duas raizes na arvore
+			// e uma entrada so na lista plana — a mesma tool respondendo de
+			// dois jeitos conforme o parametro hierarchical.
+			parts := strings.Split(index.ChaveDeTag(tag), "/")
 			curr := ""
 			for i, part := range parts {
 				if i == 0 {
@@ -401,14 +405,16 @@ func (s *Service) tagListHierarchical(req TagRequest) TagResult {
 		}
 	}
 
-	prefixLower := strings.ToLower(req.Prefix)
+	// O prefixo passa pela mesma conta das chaves; fullTag ja esta dobrado,
+	// entao a comparacao e direta e nao ha um segundo ToLower aqui.
+	prefixo := index.ChaveDeTag(req.Prefix)
 	rootNodes := make(map[string]*tempTagNode)
 
 	for fullTag, count := range contagem {
 		if count < req.MinCount {
 			continue
 		}
-		if prefixLower != "" && !strings.HasPrefix(strings.ToLower(fullTag), prefixLower) {
+		if prefixo != "" && !strings.HasPrefix(fullTag, prefixo) {
 			continue
 		}
 

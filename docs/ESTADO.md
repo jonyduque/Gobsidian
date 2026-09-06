@@ -149,9 +149,48 @@ do benchmark domina o efeito do fsync num arquivo de ~25 MiB. Binários e
 saída bruta: `%LOCALAPPDATA%\gobsidian-bench\2026-09-02\{antes,depois}172_{index,search}.test.exe`
 e `.txt`.
 
+**Task 180 (2026-09-06):** chave de tag única desde 2026-09 — `index.ChaveDeTag`
+(minúscula, NFC, sem `#`) é a conta de `ix.tags` nos três pontos de escrita e em
+todos os pontos de leitura, e o casamento hierárquico passou a ser o mesmo em
+`note_list`, `vault_search` e `tag_list`. **O formato de cache não muda:** o
+cache guarda `Note.Tags` cru e o reload republica por `publishNoteLocked`, que é
+onde a dobra mora. `benchstat` intercalado, 7 rodadas alternadas de uma
+execução cada (o protocolo de `papeis/desempenho.md`, não `-count=7` por braço),
+`-benchmem`; antes = binários do commit `937e54c`:
+
+```
+index (antes180_index × depois180_index)
+TagsSemPrefixo-12   18.11µ ± 3%   15.85µ ± 12%  -12.47% (p=0.001 n=7)
+ListPorTag-12       631.3µ ± 2%   635.2µ ± 10%  ~ (p=1.000 n=7)
+  B/op e allocs/op idênticos nos dois (119.1Ki, 12).
+
+service (antes180_service × depois180_service)
+TagListPlano-12              19.72µ ± 13%  17.63µ ± 7%   -10.62% (p=0.001 n=7)
+TagListHierarquico-12        2.750m ± 21%  3.134m ± 39%  ~ (p=0.097 n=7)
+NoteListPorTag-12            235.9µ ± 52%  235.6µ ± 13%  ~ (p=0.535 n=7)
+SearchFiltroFrontmatter-12   13.04m ± 50%  13.67m ± 3%   ~ (p=0.128 n=7)
+SearchFiltroTags-12          13.36m ± 3%   12.85m ± 8%   ~ (p=0.073 n=7)
+  B/op: só SearchFiltroTags move — 1.926Mi -> 1.935Mi, +0,48% (p=0.001 n=7),
+  com allocs/op igual (10.15k). É o conjunto de caminhos que o filtro de tag
+  agora resolve UMA vez por consulta (index.PathsComTags) no lugar do mapa por
+  resultado; o mapa antigo não escapava e saía da pilha, então o que se paga
+  são ~9,6 KiB de heap por consulta em troca da semântica correta, sem piora
+  de tempo.
+```
+
+Uma regressão real apareceu no meio do caminho e foi corrigida antes do commit:
+a primeira forma de `candidatosPorTagLocked` ordenava e compactava por tag
+também em `tag_mode=any`, que ordena uma vez só no fim — `ListPorTag` deu
+**+16,08 % de tempo (p=0,026) e +40,31 % de B/op (p=0,001)**. Com o casamento
+anexando à fatia do chamador, voltou a `~` com B/op idêntico (a medição acima).
+Binários e saída bruta:
+`%LOCALAPPDATA%\gobsidian-bench\2026-09-02\{antes,depois}180_{index,service}.test.exe`
+e `t180b_{index,service}_{antes,depois}.txt`.
+
 Fatos medidos sem benchmark:
 
 - `vault_5000`: 112 tags distintas, 0 hierárquicas. Cofres reais do dono: **não medido** neste plano.
+- Tag inline em NFD **não chega inteira ao índice** (medido em 2026-09-06, Task 180): `parser.tagNameChar` aceita letra, dígito, `-`, `_` e `/`, e não `unicode.Mn`, então o corpo `#Ação` gravado em NFD (`A c U+0327 a U+0303 o`) indexa como a tag `Ac`. É defeito do parser, anterior à chave única e fora do alcance dela — nenhuma dobra de chave conserta uma tag que já chegou cortada. Pelo frontmatter (`tags: ["Ação"]`) o YAML entrega a string inteira e a dobra funciona: chave `ação`, e um pedido em NFC casa a nota. Sem tarefa aberta.
 - Cobertura por função (`go test -coverprofile`, 2026-09-02): `construirServico` 6,5 %, `carregarIndiceDoCache` 0 %, `prepararIndiceDeBusca` 0 %, `runServe` 0 %, `serveEmProcesso` 20,6 %, `buildInvertedIndex` 60,7 %; `WriteAtomic` 71,1 %, `SweepStaleTempFiles` 62,5 %, `CleanStaleTempFiles` 0 %; `SaveIndexCache` 64,5 %, `SaveInvertedCache` 56,0 %; `Tags` 91,7 %, `coletarLocked` 87,6 %, `tagListHierarchical` 94,1 %, `LinkGraph` 78,1 %; `Search` 96 %; `mcpsrv.Server.Serve` 0 %, `Close` 0 %; `doctor.checkDaemonLog` 44,4 %, `checkLocksDeDaemon` 58,6 %.
 - Tempo de suíte (`go test ./... -count=1 -cover`): service 51,7 s, writer 32,5 s, search 31,1 s, watcher 26,2 s, index 22,3 s, vault 22,0 s, doctor 19,4 s, mcpsrv 17,0 s.
 - Raio de explosão de `service.Index` (gopls references, medido antes da Task 173): `Get` 13, `ResolvePath` 8, `Backlinks` 5, `List` 4, `NotePaths` 2, `TotalSize`/`Tags`/`NoteCount`/`Generation`/`AssetCount`/`AliasCollisions` 1 cada, `Paths` **0**. `service.New` recebe `*index.Index`; a interface foi removida em 2026-09 (Task 173) — tinha uma implementação e nenhum fake.
