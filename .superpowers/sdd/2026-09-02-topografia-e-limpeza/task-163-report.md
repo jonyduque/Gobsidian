@@ -512,7 +512,7 @@ o mesmo para este relatorio.
 - 23:15 injecao removida; `git diff --stat` sem `console_test.go`
 - 23:16 `verify.ps1` completo, foreground
 - 23:20 `verify.ps1` verde, 14/14, `[!] 6 testes pulados`
-- 23:26 fix round 1 commitada: `15c66fb`
+- 23:24 fix round 1 commitada: `15c66fb`
 
 ### O que mudou, por achado
 
