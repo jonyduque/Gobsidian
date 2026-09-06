@@ -68,8 +68,8 @@ func SaveInvertedCache(ctx context.Context, cacheDir string, vaultPath string, i
 
 	// Promove a arena ANTES de exportar e gravar: ReplaceFile faz o rename
 	// por dentro, e o rename falha no Windows enquanto o alvo esta mapeado
-	// (ver promoverArenaSePresente, em mmap.go). Exportar depois de promover
-	// garante que os slices gravados nao apontam para o mapeamento fechado.
+	// (ver promoverArenaSePresente, em mmap.go). ExportForCache ja copia as
+	// posicoes, entao a ordem aqui e sobre o rename, nao sobre aliasing.
 	promoverArenaSePresente(inv)
 	termos, docLengths := inv.ExportForCache()
 

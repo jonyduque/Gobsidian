@@ -95,6 +95,9 @@ cá. Mas o consumo difere no que importa: cache perdido se refaz, nota do usuár
 não. Unificar as três acopla o caminho barato ao caro sem que o caro fique mais
 seguro. Recomendação: só junto com o item 1, e só entre os dois caches.
 
+Extraído nas Tasks 171 e 172: hoje há uma implementação só,
+`vault.ReplaceFile`, e os dois caches passam por ela.
+
 ### 3. Chave derivada — a tag escapa da conta única
 
 `index/chave.go` é explicitamente a conta única e cumpre o que promete para

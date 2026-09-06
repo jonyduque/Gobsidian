@@ -116,9 +116,6 @@ gobsidian/
 │   ├── writer/
 │   │   ├── writer.go             fachada de escrita
 │   │   ├── lock.go               mutex por caminho canônico; serializa escritas
-│   │   ├── atomic.go             encaminhadores transitórios para vault.WriteAtomic
-│   │   │                         e vault.SweepStaleTempFiles; somem quando o
-│   │   │                         último chamador migrar
 │   │   ├── section.go            inserir e substituir sob heading
 │   │   ├── block.go              substituir bloco por ^id
 │   │   ├── linkrewrite.go        reescrita de links em note_move

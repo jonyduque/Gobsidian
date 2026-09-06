@@ -155,8 +155,8 @@ Fatos medidos sem benchmark:
 - Cobertura por função (`go test -coverprofile`, 2026-09-02): `construirServico` 6,5 %, `carregarIndiceDoCache` 0 %, `prepararIndiceDeBusca` 0 %, `runServe` 0 %, `serveEmProcesso` 20,6 %, `buildInvertedIndex` 60,7 %; `WriteAtomic` 71,1 %, `SweepStaleTempFiles` 62,5 %, `CleanStaleTempFiles` 0 %; `SaveIndexCache` 64,5 %, `SaveInvertedCache` 56,0 %; `Tags` 91,7 %, `coletarLocked` 87,6 %, `tagListHierarchical` 94,1 %, `LinkGraph` 78,1 %; `Search` 96 %; `mcpsrv.Server.Serve` 0 %, `Close` 0 %; `doctor.checkDaemonLog` 44,4 %, `checkLocksDeDaemon` 58,6 %.
 - Tempo de suíte (`go test ./... -count=1 -cover`): service 51,7 s, writer 32,5 s, search 31,1 s, watcher 26,2 s, index 22,3 s, vault 22,0 s, doctor 19,4 s, mcpsrv 17,0 s.
 - Raio de explosão de `service.Index` (gopls references): `Get` 13, `ResolvePath` 8, `Backlinks` 5, `List` 4, `NotePaths` 2, `TotalSize`/`Tags`/`NoteCount`/`Generation`/`AssetCount`/`AliasCollisions` 1 cada, `Paths` **0**.
-- Raio de `writer.WriteAtomic`: 6 sítios em `internal/service/write.go` (`:149,:248,:378,:619,:751,:832`) + 3 arquivos de teste; `SweepStaleTempFiles`: 1 sítio (`cmd/gobsidian/servico.go:78`).
-- Prefixo `.gobsidian-tmp-` em 4 literais: `writer/atomic.go:14` (constante), `vault/walk.go:74`, `search/persist.go:87`, `index/persist.go:124`.
+- Raio de `writer.WriteAtomic` (medido em 2026-09-02, antes das Tasks 171-172): 6 sítios em `internal/service/write.go` (`:149,:248,:378,:619,:751,:832`) + 3 arquivos de teste; `SweepStaleTempFiles`: 1 sítio (`cmd/gobsidian/servico.go:78`). Depois das Tasks 171-172, `writer.WriteAtomic` e `writer.SweepStaleTempFiles` não existem mais — os chamadores usam `vault.WriteAtomic`/`vault.SweepStaleTempFiles` diretamente.
+- Prefixo `.gobsidian-tmp-` em 4 literais (medido em 2026-09-02, antes das Tasks 171-172): `writer/atomic.go:14` (constante), `vault/walk.go:74`, `search/persist.go:87`, `index/persist.go:124`. Depois das Tasks 171-172, o literal existe numa só linha: `vault/atomic.go:14`.
 - `hits` × `results`: `search --json --limit 200 --vault vault_5000 "execucao"` (binário de 6c5d1f1): `hits` e `results` são 200 itens e **byte a byte iguais** (`hits == results` → `True` em Python). JSON compacto: 195 481 bytes com `hits`, 97 787 sem — **50,0 % do payload é a cópia**. Arquivo indentado: 216 304 bytes.
 - CLI a frio × `serve` com cache: cofre `vault_5000`, mesmo binário. `search` a frio (Build + `inv.Update` serial por nota): **10 520 / 10 819 / 11 046 ms** de parede em 3 execuções. `inspect` a frio (só Build): **770 / 767 / 739 ms**. `serve` em processo (`GOBSIDIAN_NO_DAEMON=1 --eager-search`) com cache quente, 5 execuções: `index_ms` **101–123**, índice de busca `duracao_ms` **13–20**, parede boot→saída **475–528 ms**. Ou seja: a CLI de busca paga ~10 s que o `serve` não paga; adotar o cache na CLI (Task 175) tem teto de ganho medido, não estimado.
 
@@ -287,6 +287,11 @@ O custo de disco é real e está medido. **O de tempo não é distinguível de r
 nesta amostra**: as duas distribuições se sobrepõem (com contexto: 236–450 ms;
 sem: 258–292 ms), e a rodada *com* contexto produziu as duas amostras mais
 rápidas.
+
+Desde a Task 172, `index_cache.gob` e `inverted_cache.gob` são gravados via
+`vault.ReplaceFile`, e um arquivo novo nasce `0644` — a mesma postura do
+diretório de cache, criado `0755` sob `os.UserCacheDir` (decisão aceita; não é
+regressão a corrigir, ver ruling N4 na revisão da Task 172).
 
 O boot completo foi medido em seguida, no mesmo cofre, contra o teto de 300 ms do
 RNF-02 — `index_ms` do log `servidor pronto`, em processo (`GOBSIDIAN_NO_DAEMON`),

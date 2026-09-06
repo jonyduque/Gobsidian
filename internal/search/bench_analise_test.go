@@ -39,7 +39,7 @@ func invertidoReal(b *testing.B) (*search.Inverted, string) {
 }
 
 // BenchmarkSaveInvertedCacheReal mede a gravacao do cache invertido como ela e
-// hoje: CreateTemp + escreveCache + Close + Rename, SEM fsync.
+// hoje: via vault.ReplaceFile, com fsync do arquivo e do diretorio (Task 172).
 func BenchmarkSaveInvertedCacheReal(b *testing.B) {
 	inv, dir := invertidoReal(b)
 	cacheDir := b.TempDir()
@@ -52,8 +52,9 @@ func BenchmarkSaveInvertedCacheReal(b *testing.B) {
 	}
 }
 
-// BenchmarkSaveInvertedCacheRealComFsync soma o custo que a gravacao PASSARIA a
-// ter se usasse a rotina atomica das notas, que faz Sync antes do rename.
+// BenchmarkSaveInvertedCacheRealComFsync soma um SEGUNDO Sync por fora, depois
+// do que BenchmarkSaveInvertedCacheReal ja faz via vault.ReplaceFile (Task 172).
+// Sobrevive so como referencia historica de antes da Task 172.
 func BenchmarkSaveInvertedCacheRealComFsync(b *testing.B) {
 	inv, dir := invertidoReal(b)
 	cacheDir := b.TempDir()

@@ -25,7 +25,7 @@ func cofreReal(b *testing.B) (*index.Index, string) {
 }
 
 // BenchmarkSaveIndexCacheReal mede a gravacao do cache de indice como ela e
-// hoje: CreateTemp + gob + Close + Rename, SEM fsync.
+// hoje: via vault.ReplaceFile, com fsync do arquivo e do diretorio (Task 172).
 func BenchmarkSaveIndexCacheReal(b *testing.B) {
 	ix, dir := cofreReal(b)
 	cacheDir := b.TempDir()
@@ -38,8 +38,9 @@ func BenchmarkSaveIndexCacheReal(b *testing.B) {
 	}
 }
 
-// BenchmarkSaveIndexCacheRealComFsync soma o custo que a gravacao PASSARIA a
-// ter se usasse a mesma rotina atomica das notas, que faz Sync antes do rename.
+// BenchmarkSaveIndexCacheRealComFsync soma um SEGUNDO Sync por fora, depois do
+// que BenchmarkSaveIndexCacheReal ja faz via vault.ReplaceFile (Task 172).
+// Sobrevive so como referencia historica de antes da Task 172.
 func BenchmarkSaveIndexCacheRealComFsync(b *testing.B) {
 	ix, dir := cofreReal(b)
 	cacheDir := b.TempDir()

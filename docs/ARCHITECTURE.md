@@ -104,7 +104,7 @@ Guarda o resultado do parse de todas as notas, mais os grafos derivados (backlin
 
 Serialização de escritas por caminho canônico e transformações estruturais de conteúdo (inserir sob heading, substituir seção, reescrever links, diff).
 
-A substituição atômica em si passou para `internal/vault` (§2.5). O que resta em `writer/atomic.go` são encaminhadores transitórios, que somem quando o último chamador migrar. Eles não levam o marcador `// Deprecated:` de propósito: com `staticcheck` ligado, o marcador reprovaria o gate em cada chamador ainda não migrado, e um gate vermelho por desenho é um gate que alguém contorna.
+A substituição atômica passou para `internal/vault` (§2.5) na Task 171; os encaminhadores transitórios que ficaram em `writer/atomic.go` foram removidos na Task 172, quando o último chamador migrou.
 
 ### 2.11 `internal/ipc`
 
