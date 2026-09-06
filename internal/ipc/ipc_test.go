@@ -50,6 +50,13 @@ func TestSocketPathDeterministicoEMesmaChaveDoCache(t *testing.T) {
 	}
 }
 
+// tetoDesistencia e teto de latencia, nao prazo de espera: e o quanto uma
+// desistencia pode demorar antes de o teste chamar de defeito. Nao usa
+// vaulttest.Prazo de proposito — Prazo e o orcamento de ESPERA de algo
+// assincrono; um teto de latencia frouxo deixa de pegar a regressao que ele
+// existe para pegar.
+const tetoDesistencia = 2 * time.Second
+
 func TestDialAndHandshakeSocketAusente(t *testing.T) {
 	vault := t.TempDir()
 
@@ -61,8 +68,8 @@ func TestDialAndHandshakeSocketAusente(t *testing.T) {
 		_ = conn.Close()
 		t.Fatal("DialAndHandshake() error = nil, esperado erro (nenhum daemon escutando)")
 	}
-	if elapsed > vaulttest.Prazo {
-		t.Fatalf("DialAndHandshake demorou %s para desistir de um socket ausente, esperado abaixo de %s", elapsed, vaulttest.Prazo)
+	if elapsed > tetoDesistencia {
+		t.Fatalf("DialAndHandshake demorou %s para desistir de um socket ausente, esperado abaixo de %s", elapsed, tetoDesistencia)
 	}
 }
 
@@ -232,8 +239,8 @@ func TestDialAndHandshakeRespeitaContext(t *testing.T) {
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("DialAndHandshake() error = %v, esperado embrulhar context.Canceled", err)
 	}
-	if elapsed > vaulttest.Prazo {
-		t.Fatalf("DialAndHandshake com context ja cancelado demorou %s, esperado retorno imediato", elapsed)
+	if elapsed > tetoDesistencia {
+		t.Fatalf("DialAndHandshake com context ja cancelado demorou %s, esperado retorno imediato (teto %s)", elapsed, tetoDesistencia)
 	}
 }
 

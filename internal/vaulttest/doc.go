@@ -5,7 +5,8 @@
 //
 // Cada helper PROVA a condicao antes de devolver. Um handle exclusivo que nao
 // barra a leitura tornaria vazia toda assercao de "nao abriu" — foi o que
-// aconteceu quando cinco copias divergiram e so uma conferia.
+// aconteceu com metade das copias que este pacote substituiu. A contagem
+// medida esta em docs/papeis/testador.md, secao "Handle exclusivo".
 //
 // Importado apenas por arquivos _test.go. Importa vault e mais nada do
 // dominio, para nunca fechar ciclo com quem o usa.

@@ -139,11 +139,18 @@ confere que a leitura de fato falha; `MarcarSomenteNuvem` confere que
 assim faz o teste passar em silêncio exatamente quando o cenário não se montou,
 que é quando ele mais precisava falhar.
 
-Isso veio de um defeito medido: existiam cinco cópias do "handle exclusivo" e
-**só uma** conferia que a trava travava. Um handle que pede só `GENERIC_READ`
-não barra o `os.ReadFile` — precisa de `GENERIC_READ|GENERIC_WRITE` com
-`dwShareMode = 0` —, e as quatro cópias que não conferiam sustentavam duas
-asserções condicionais em `internal/service`.
+Isso veio de um defeito medido. Na base `86f07e5`,
+`git grep -n 'CreateFile(' -- '*_test.go'` devolvia **oito** sítios: cinco
+helpers nomeados e três blocos inline dentro do próprio teste. Desses oito,
+**quatro** conferiam que a trava travava — três com `t.Fatal`
+(`classify_cloudonly`, `cloudonly_update`, `cloudonly_replace`) e um com
+`t.Skip` (`walk_raiz`, que desistia do cenário em vez de acusar). Entre os
+**cinco helpers nomeados**, só o `travarExclusivo` de `internal/search`
+conferia e falhava; o `travarDiretorioExclusivo` de `internal/vault` conferia e
+pulava, e os outros três não conferiam nada. Um handle que pede só
+`GENERIC_READ` não barra o `os.ReadFile` — precisa de
+`GENERIC_READ|GENERIC_WRITE` com `dwShareMode = 0` —, e os helpers que não
+conferiam sustentavam duas asserções condicionais em `internal/service`.
 
 Cópia local nova de `windows.CreateFile` ou de `SetFileAttributes` em `_test.go`
 é regressão desta tarefa. A única exceção é `internal/vault/cloudonly_info_windows_test.go`,

@@ -78,9 +78,15 @@ func TestMoveNaoReportaSucessoComNotaDuplicada(t *testing.T) {
 	// que torna a assercao seguinte incondicional — enquanto ela era guardada
 	// por `origemExiste && destinoExiste && err == nil`, um cenario que nao se
 	// montasse passava sem afirmar coisa nenhuma sobre o A1.
+	//
+	// err vai na mensagem porque esta guarda substituiu a assercao antiga
+	// `err == nil && origemExiste && destinoExiste`: sem ele, uma montagem que
+	// falhasse esconderia justamente o valor que o teste veio julgar.
 	if !origemExiste || !destinoExiste {
 		t.Fatalf("cenario invalido: com o handle aberto a nota devia ficar nos dois "+
-			"caminhos; origem existe=%v, destino existe=%v", origemExiste, destinoExiste)
+			"caminhos; origem existe=%v, destino existe=%v, MoveNote err=%v; se err "+
+			"tambem foi nil, o defeito e do MoveNote, nao da montagem",
+			origemExiste, destinoExiste, err)
 	}
 	if err == nil {
 		t.Fatalf("SUCESSO reportado com a nota DUPLICADA: origem e destino existem "+

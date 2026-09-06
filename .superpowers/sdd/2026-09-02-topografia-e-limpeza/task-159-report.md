@@ -402,3 +402,118 @@ teste em vez de perdido.
 Arquivos adicionados por caminho explicito; nenhum
 `git add -A`, nenhum `git checkout/restore/stash/clean/reset` foi executado nesta
 tarefa.
+
+---
+
+# Fix round 1
+
+Revisao `review-159.md`: Spec APROVADO, Quality APROVADO, 0 bloqueantes, 9 nao
+bloqueantes. Seis achados despachados para conserto (1, 3, 5, 6, 7, 8); o 4
+ficou como esta por decisao do orquestrador e o 9 foi fechado pela Task 163.
+
+## Progresso
+
+- 03:22 — li `ipc_test.go:53-67` e `:218-238`, `doc.go`, `testador.md:125-155`,
+  `build_descarte_unix_test.go`, `move_atomico_windows_test.go:55-90` e
+  `CLAUDE.md:58-145` (reconferido depois de `d622afd`).
+- 03:22 — contei os sitios de `CreateFile(` no `_test.go` da base `86f07e5`:
+  `git grep -n 'CreateFile(' 86f07e5 -- '*_test.go'` devolve **oito**.
+- 03:23 — medi a diferenca de imports por GOOS que o achado 7 aponta:
+  `GOOS=linux go list -f '{{.Imports}}' ./internal/vaulttest` -> `[testing time]`;
+  `GOOS=windows` -> `[github.com/jonyd/gobsidian/internal/vault golang.org/x/sys/windows os testing time]`.
+- 03:23 — **achado 1**: `internal/ipc/ipc_test.go` ganhou
+  `const tetoDesistencia = 2 * time.Second` logo acima de
+  `TestDialAndHandshakeSocketAusente`, com o comentario dizendo que e teto de
+  latencia e nao prazo de espera. As duas assercoes de latencia (`:71` e `:242`,
+  antes `:64` e `:235`) passaram a compara-lo. `vaulttest.Prazo` continua nos
+  oito pontos onde e orcamento de espera de fato — `context.WithTimeout`,
+  `time.After` e o parametro de timeout de `DialAndHandshake`.
+- 03:23 — **achado 5**: `internal/index/build_descarte_unix_test.go` ganhou a
+  prova simetrica depois do `os.Chmod(path, 0000)`: se `os.ReadFile` voltar sem
+  erro, `t.Fatalf` com "rodando como root?".
+- 03:23 — **achado 6**: `internal/service/move_atomico_windows_test.go:81`
+  passou a imprimir `MoveNote err=%v` na guarda de montagem, com a clausula
+  "se err tambem foi nil, o defeito e do MoveNote, nao da montagem".
+- 03:24 — **achado 3**: `docs/papeis/testador.md` trocou "cinco copias e so uma
+  conferia" pela contagem medida (oito sitios: cinco helpers nomeados e tres
+  blocos inline; quatro conferiam — tres com `t.Fatal`, um com `t.Skip`; entre
+  os cinco nomeados, so `travarExclusivo` conferia E falhava, e
+  `travarDiretorioExclusivo` conferia mas pulava). `internal/vaulttest/doc.go`
+  ficou curto: diz "metade das copias" e aponta para a secao de `testador.md`.
+- 03:24 — **achados 7 e 8**: `CLAUDE.md` ganhou a linha `vaulttest/` na arvore
+  de "Estrutura do projeto" (logo depois de `vault/`, mesma coluna) e o
+  qualificador de GOOS no paragrafo do grafo.
+- 03:24 — encoding conferido:
+  `python -c "open('CLAUDE.md',encoding='utf-8').read()"` e o mesmo para
+  `docs/papeis/testador.md` — sem excecao. `gofmt -l internal cmd` sem saida.
+- 03:24 — `GOOS=linux go vet ./internal/index/` exit 0: o novo `os.ReadFile` do
+  lado POSIX ao menos compila. **Nao consigo executa-lo aqui** — este e um
+  Windows, e o arquivo tem `//go:build !windows`. A prova de mutacao desse
+  guarda fica em aberto para quem rodar em Linux/macOS.
+- 03:29 — `go test -race ./internal/ipc/ ./internal/index/ ./internal/service/ ./internal/vaulttest/`:
+  todos `ok`.
+- 22:53 — retomada depois do corte por limite de uso. Reconferi a data do
+  qualificador do achado 7: a medicao foi as 03:23 de **2026-09-05**, nao
+  2026-09-04; corrigido em `CLAUDE.md`. Remedi
+  `GOOS=linux go list -f '{{.Imports}}' ./internal/vaulttest` -> `[testing time]`
+  e `GOOS=windows` -> `[.../internal/vault golang.org/x/sys/windows os testing time]`.
+- 22:53 — reli `git diff -- internal CLAUDE.md docs` inteiro. Dois ajustes de
+  redacao: `doc.go` dizia "a maioria das copias" quando o medido e metade (4 de
+  8 nao conferiam), e a guarda de `move_atomico` tinha dois blocos de
+  comentario colados sem separador.
+- 22:54–23:00 — `pwsh -File scripts/verify.ps1` verde, 14/14, em primeira
+  tentativa. Nenhum passo precisou de repeticao.
+
+## Prova que nao consegui rodar
+
+O `os.ReadFile` que o achado 5 pediu esta atras de `//go:build !windows`. Nesta
+maquina ele **compila e nao executa**. Nao apaguei a regra para ver o teste
+falhar, porque nao ha como rodar o teste aqui — e escrever a prova no
+condicional seria exatamente o que `ARMADILHAS.md` proibe. Fica registrado como
+**nao provado por mutacao**, so compilado (`GOOS=linux go vet ./internal/index/`,
+exit 0).
+
+## verify.ps1
+
+```
+[...] 1. go build
+[OK] go build
+[...] 2. go test -race
+[OK] go test -race
+[...] 3. contagem de testes pulados
+[!] 6 testes pulados
+     --- SKIP: TestAjudanteSeguraTrava (0.00s)
+     --- SKIP: TestListenRestringePermissaoUnix (0.00s)
+     --- SKIP: TestSignalCancelsContext (0.10s)
+     --- SKIP: TestPerfilDeHeapServindo (0.00s)
+     --- SKIP: TestNew_FailsOnUnwatchablePath (0.01s)
+     --- SKIP: TestWriteAtomicPreservaOModoDoAlvo (0.00s)
+[...] 4. go test (tetos de latencia, sem -race)
+[OK] go test (tetos de latencia, sem -race)
+[...] 5. go vet (windows)
+[OK] go vet (windows)
+[...] 6. go vet (linux)
+[OK] go vet (linux)
+[...] 7. go vet (darwin)
+[OK] go vet (darwin)
+[...] 8. gofmt
+[OK] gofmt
+[...] 9. golangci-lint
+[OK] golangci-lint
+[...] 10. golangci-lint (linux)
+[OK] golangci-lint (linux)
+[...] 11. check_net (RNF-30)
+[OK] check_net (RNF-30)
+[...] 12. check_tool_params
+[OK] check_tool_params
+[...] 13. check_doc_refs
+[OK] check_doc_refs
+[...] 14. check_readme_anchors
+[OK] check_readme_anchors
+
+[OK] Bateria completa. Pode commitar.
+```
+
+Exit code 0. Sao **14 etapas**, e nao as 13 que o relatorio original registrou —
+a Task 163 fechou aquela divergencia; a frase de `CLAUDE.md` estava certa e a
+saida e que estava desatualizada. Nao toquei nela.

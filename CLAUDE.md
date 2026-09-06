@@ -67,6 +67,8 @@ internal/
   lifecycle/       stdin-eof, sinais, vigília do PID pai, shutdown com orçamento
   vault/           raiz, caminho canônico e confinamento, walk com exclusões,
                    EOL, detecção de somente-nuvem
+  vaulttest/       apoio a teste: condicoes de ambiente do Windows; so _test.go
+                   importa
   parser/          goldmark + extensões [[wikilink]], ^blockid, #tag,
                    campo::inline; headings com offsets de byte; candidatos a
                    título (negrito, setext) que NUNCA viram Heading
@@ -125,7 +127,10 @@ daemon  → service, vault      (só em _test)
 
 `internal/vaulttest` é o pacote de apoio a teste: ele importa `vault` — e só
 `vault` —, e essa aresta **é do próprio pacote**, então `go list -f
-'{{.Imports}}' ./internal/vaulttest` a mostra como importaria qualquer outra. O
+'{{.Imports}}' ./internal/vaulttest` a mostra como importaria qualquer outra.
+Isso vale **com `GOOS=windows`**: o corpo real mora nos arquivos `_windows.go`,
+e em `GOOS=linux` o mesmo comando devolve só `[testing time]`, porque os
+`_other.go` apenas fazem `t.Skip` (medido em 2026-09-05). O
 que é exclusivo de teste são os imports **de** `vaulttest`: nenhum arquivo de
 produção o importa, só arquivos `_test.go` de `index`, `search`, `service`,
 `vault`, `daemon`, `ipc` e `cmd/gobsidian`. Por isso ele fica fora do grafo de
