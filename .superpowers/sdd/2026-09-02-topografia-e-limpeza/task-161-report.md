@@ -6,6 +6,9 @@
 
 ## Progresso
 
+- 00:14 — `verify.ps1` verde, catorze etapas, seis pulados de sempre. Escrevendo o commit.
+- 00:08 — fix round 1: `pool_test.go` renomeado, asserção de ordem do bm25 removida com a conta no comentario, frase de alcance da linha 1 no relatorio. Re-mutacao do idf: FAIL (0). Proximo: `verify.ps1`.
+- 00:07 — round de polimento (R=1) recebido; HEAD `44f2700`; tres itens nao-bloqueantes.
 - 23:57 — commit `b3bcba0`, por caminho explicito, com `git commit -F`. Assunto conferido: sem `@ ` solto.
 - 23:54 — `verify.ps1` verde (14/14). Escrevendo relatorio e commit.
 - 23:48 — Step 2 verde: `go test -race` nos seis pacotes tocados, todos `ok`. `git diff --stat` mostra 8 arquivos, todos `_test.go`.
@@ -38,6 +41,8 @@ Codigo de saida de `scripts/mutate.ps1`: **0 = o teste REPROVOU sob mutacao** (a
 | 12 | `cmd/gobsidian/console_saida_test.go:100` | `serve` e `daemon` nao escrevem no writer que o cobra lhes entrega | (a) `serve.go`: `cmd.Println("diagnostico");` antes de `config.Load` — **FAIL (0)**; (b) `os.Stdout.WriteString` dentro de `runServe` — **PASS (1)**; (c) `main.go`: `newServeCmd()` fora do `AddCommand` — **PASS (1)** | **PASS (1)** nos dois eixos de vacuidade | consertar | exige erro nao-nulo E que a mensagem cite `--vault`; com isso (c) passou a dar **FAIL (0)**. O comentario agora declara o que o teste NAO cobre |
 | 13 | `internal/watcher/filter_test.go:117` | Evento fora da raiz do cofre e descartado com `DropOutsideVault` | `path.go`: `rel, err := filepath.Rel(root, abs)` → `filepath.Rel(filepath.Dir(root), abs)` | **PASS (1)** com o fixture antigo; **FAIL (0)** com o consertado | consertar | `root`/`fora` viraram `t.TempDir()` |
 | 14 | `internal/search/inverted_test.go:118` | `Inverted.Remove` de fato tira a nota da contagem | `inverted.go`: corpo de `Remove` → `_ = path` | **PASS (1)** → depois do conserto **FAIL (0)** | consertar | `DocCount() < 0` virou `got != 6 && got != 7`, com a derivacao no comentario |
+
+**Alcance da prova da linha 1.** A saida de mutacao colada para a linha 1 exercita `vault_search` e so ele: a mutacao foi em `bm25.go`, entao os outros cinco casos da tabela de `tools_read_test.go` (`note_read`, `note_list`, `note_metadata`, `link_graph`, `tag_list`) nao passam por ela. Esses cinco ganharam `wantIn` e ficam cobertos pelo guarda `len(tt.wantIn) == 0`, que reprova um caso de sucesso sem trecho exigido — mas nenhum deles tem prova de mutacao colada, e este relatorio nao afirma que tem.
 
 A tabela do brief tem treze linhas porque `write_test.go` aparece como uma so; aqui os tres sitios de `write_test.go` estao separados (linhas 7, 8, 9), o que da catorze linhas para os mesmos treze sitios do brief.
 
@@ -473,3 +478,110 @@ $ git show --stat --oneline b3bcba0
 ```
 
 Oito arquivos de codigo, **todos `_test.go`**; o nono e este relatorio. Nenhuma linha de producao no commit. Staging foi por caminho explicito (nunca `git add -A`), e a mensagem entrou por `git commit -F`.
+
+---
+
+## Fix round 1
+
+Round de polimento pedido apos a revisao (`review-161.md`: Spec APPROVED, Quality
+APPROVED, 0 bloqueantes). Tres itens nao-bloqueantes; base `44f2700`.
+
+### 1. `internal/search/pool_test.go` — o nome dizia "reuse" e o teste nao mede reuso
+
+`TestPoolReuse` virou `TestNormalizeAcentosECaixa`. O corpo nao mudou: ele afirma
+`Normalize` em tres entradas acentuadas, que e exatamente o que o nome novo diz.
+O comentario continua apontando para `TestNormalizeNaoVazaEstadoEntreUsos` em
+`analyzer_test.go`, que e quem exercita o `sync.Pool` sob concorrencia, e agora
+registra tambem o nome antigo, para quem procurar por ele.
+
+As outras ocorrencias de `TestPoolReuse` no repositorio ficaram como estavam: sao
+o relatorio da rodada anterior, o `review-161.md` e o diff da revisao, todos
+registros historicos de um nome que naquela hora era o nome real.
+
+### 2. `internal/search/bm25_test.go` — a asserção de ordem saiu
+
+A revisao mediu que `res[0].Path != "a.md"` passava por ~3%, e a margem vinha da
+disputa entre frequencia e normalizacao de comprimento, nao da regra do idf que o
+teste nomeia. A linha foi **removida**, e o comentario passou a registrar a conta
+que a condenava: com `ParamK1 = 1.2` e `ParamB = 0.75` (`bm25.go:19-20`), a fracao
+tf/comprimento vale 1.507 para `"de de de"` contra 1.457 para `"de de"` — conta
+derivada da formula, nao medida em execucao, e igual a que a revisao fez.
+
+Quem mata a mutacao continua sendo o `Fatalf` de `len(res) != 2`. Re-rodado uma
+vez, com o teste ja sem a linha de ordem:
+
+```
+[...] Mutando internal/search/bm25.go
+      - idfs[i] = math.Log(1.0 + (N-d+0.5)/(d+0.5))
+      + idfs[i] = math.Log((N-d+0.5)/(d+0.5))
+
+[...] go test -race -run TestBM25TermoEmTodasAsNotasAindaPontua ./internal/search/
+----------------------------------------------------------------------
+--- FAIL: TestBM25TermoEmTodasAsNotasAindaPontua (0.00s)
+    bm25_test.go:244: len(res) = 0, quer 2 — termo presente em todas as notas sumiu do resultado
+FAIL
+FAIL	github.com/jonyd/gobsidian/internal/search	0.641s
+FAIL
+----------------------------------------------------------------------
+[OK] internal/search/bm25.go restaurado byte a byte (SHA-256 confere).
+
+[OK] O teste REPROVOU com a regra mutada — a regra esta verificada.
+```
+
+Exit code 0 — o teste reprovou sob a mutacao, que e o resultado bom.
+
+### 3. Relatorio — o alcance da prova da linha 1
+
+Escrito: a saida colada da linha 1 exercita `vault_search` e mais nada, porque a
+mutacao foi em `bm25.go`. A frase esta logo abaixo da tabela.
+
+### `verify.ps1` depois do round
+
+```
+[...] 1. go build
+[OK] go build
+[...] 2. go test -race
+[OK] go test -race
+[...] 3. contagem de testes pulados
+[!] 6 testes pulados
+     --- SKIP: TestAjudanteSeguraTrava (0.00s)
+     --- SKIP: TestListenRestringePermissaoUnix (0.00s)
+     --- SKIP: TestSignalCancelsContext (0.10s)
+     --- SKIP: TestPerfilDeHeapServindo (0.00s)
+     --- SKIP: TestNew_FailsOnUnwatchablePath (0.01s)
+     --- SKIP: TestWriteAtomicPreservaOModoDoAlvo (0.00s)
+[...] 4. go test (tetos de latencia, sem -race)
+[OK] go test (tetos de latencia, sem -race)
+[...] 5. go vet (windows)
+[OK] go vet (windows)
+[...] 6. go vet (linux)
+[OK] go vet (linux)
+[...] 7. go vet (darwin)
+[OK] go vet (darwin)
+[...] 8. gofmt
+[OK] gofmt
+[...] 9. golangci-lint
+[OK] golangci-lint
+[...] 10. golangci-lint (linux)
+[OK] golangci-lint (linux)
+[...] 11. check_net (RNF-30)
+[OK] check_net (RNF-30)
+[...] 12. check_tool_params
+[OK] check_tool_params
+[...] 13. check_doc_refs
+[OK] check_doc_refs
+[...] 14. check_readme_anchors
+[OK] check_readme_anchors
+
+[OK] Bateria completa. Pode commitar.
+```
+
+As catorze etapas verdes. A linha final so e impressa quando nenhuma etapa
+reprova — nao capturei o codigo de saida desta execucao, entao nao escrevo um
+numero para ele. Os seis pulados sao os mesmos da rodada anterior.
+
+### Nao mexido, de proposito
+
+`internal/config/config_test.go:203-208` (return silencioso) e o custo dos 501
+arquivos de `limites_enums_test.go` ficaram como estao — a revisao os marcou fora
+de escopo e aceito, respectivamente.

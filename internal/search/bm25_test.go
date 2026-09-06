@@ -222,6 +222,18 @@ func TestBM25RawVsReduced(t *testing.T) {
 // d == N — termo presente em TODAS as notas — ainda produza idf positivo. Sem
 // ele o idf fica negativo, o `idf <= 0` descarta o termo, e a busca por um
 // termo comum devolve lista vazia em vez de um ranking.
+//
+// Este teste NAO afirma a ordem entre a.md e b.md, e a linha que afirmava foi
+// removida de proposito. Ela passava por uma margem de ~3%, e a margem nao vem
+// da regra que este teste nomeia: com ParamK1 = 1.2 e ParamB = 0.75
+// (bm25.go:19-20), a fracao de tf/comprimento vale 1.507 para "de de de"
+// (tf 3, dl 3) contra 1.457 para "de de" (tf 2, dl 2, avgdl 2.5) — conta
+// derivada da formula, nao medida em execucao, e conferida contra a mesma
+// conta feita na revisao. Tres ocorrencias ganham de duas porque a
+// normalizacao de comprimento quase anula a frequencia maior; mexer no
+// comprimento de qualquer uma das duas notas inverte o resultado sem que a
+// regra do idf tenha mudado. Quem mata a mutacao do `1 +` e o Fatalf de
+// `len(res) != 2`.
 func TestBM25TermoEmTodasAsNotasAindaPontua(t *testing.T) {
 	ix := search.NewInverted()
 	ix.Add("a.md", search.Analyze("de de de"))
@@ -235,9 +247,6 @@ func TestBM25TermoEmTodasAsNotasAindaPontua(t *testing.T) {
 		if math.IsNaN(r.Score) || r.Score <= 0 {
 			t.Errorf("Score de %s = %v, quer finito e positivo", r.Path, r.Score)
 		}
-	}
-	if res[0].Path != "a.md" {
-		t.Errorf("res[0] = %s, quer a.md — tres ocorrencias tem de pontuar acima de duas", res[0].Path)
 	}
 }
 
