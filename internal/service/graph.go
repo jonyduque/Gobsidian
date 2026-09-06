@@ -269,10 +269,16 @@ type TagRequest struct {
 }
 
 // TagNode e um no na arvore de tags ou um item da lista plana.
+//
+// Children e []TagNode, e nao []any: o filho de um no de tag so pode ser outro
+// no de tag. Com []any o tipo tinha de ser recuperado por type-assert a cada
+// ordenacao, e um assert que falhasse gravaria um TagNode zerado no lugar do
+// filho — em silencio, porque `ok` era descartado. O JSON de saida e o mesmo
+// nos dois casos; o golden de testdata/tag_list_hierarquico.json e quem prova.
 type TagNode struct {
-	Tag      string `json:"tag"`
-	Count    int    `json:"count"`
-	Children []any  `json:"children,omitempty"`
+	Tag      string    `json:"tag"`
+	Count    int       `json:"count"`
+	Children []TagNode `json:"children,omitempty"`
 }
 
 // TagResult e o retorno de tag_list, com a contagem por tag.
@@ -294,18 +300,7 @@ func ordenarTags(tags []TagNode, sortMode string) {
 		})
 	}
 	for i := range tags {
-		if len(tags[i].Children) > 0 {
-			childList := make([]TagNode, len(tags[i].Children))
-			for j, ch := range tags[i].Children {
-				if node, ok := ch.(TagNode); ok {
-					childList[j] = node
-				}
-			}
-			ordenarTags(childList, sortMode)
-			for j, node := range childList {
-				tags[i].Children[j] = node
-			}
-		}
+		ordenarTags(tags[i].Children, sortMode)
 	}
 }
 
@@ -406,18 +401,13 @@ func (s *Service) tagListHierarchical(req TagRequest) TagResult {
 	convert = func(m map[string]*tempTagNode) []TagNode {
 		res := make([]TagNode, 0, len(m))
 		for _, tn := range m {
-			childList := convert(tn.children)
-			var anyChildren []any
-			if len(childList) > 0 {
-				anyChildren = make([]any, len(childList))
-				for i, ch := range childList {
-					anyChildren[i] = ch
-				}
-			}
+			// A folha recebe a fatia vazia que convert devolve para um mapa sem
+			// filhos, e nao nil como antes. O `omitempty` do campo omite as
+			// duas, entao o JSON e o mesmo — e o golden e quem afirma isso.
 			res = append(res, TagNode{
 				Tag:      tn.fullTag,
 				Count:    tn.count,
-				Children: anyChildren,
+				Children: convert(tn.children),
 			})
 		}
 		return res
