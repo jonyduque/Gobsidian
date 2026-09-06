@@ -1,7 +1,6 @@
 package index
 
 import (
-	"path/filepath"
 	"strings"
 
 	"github.com/jonyd/gobsidian/internal/text"
@@ -27,7 +26,9 @@ import (
 // chaveDeCaminho e a chave insensivel a caixa de um caminho inteiro — a de
 // lowerPath, escrita por publicarNomeLocked e lida por ResolvePath.
 func chaveDeCaminho(path string) string {
-	return strings.ToLower(text.ParaNFC(filepath.ToSlash(path)))
+	// Delega: a mesma conta serve o writer, que trava por caminho canonico e
+	// nao importa este pacote. Ver text.ChaveDeCaminho.
+	return text.ChaveDeCaminho(path)
 }
 
 // chaveDeNomeDeArquivo e a chave de byName. Ela baixa a caixa desde 2026-08-31.

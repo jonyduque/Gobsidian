@@ -99,14 +99,16 @@ scripts/           gates e utilitários PowerShell — ver Comandos
 .superpowers/sdd/  briefs e ledger
 ```
 
-Grafo de dependências, acíclico e **extraído dos imports de produção em
-2026-09-02** — `go list -f '{{.Imports}}'`, que NÃO enxerga arquivo `_test.go`:
+Grafo de dependências, acíclico e **re-extraído dos imports de produção em
+2026-09-06** — `GOOS=windows go list -f '{{.Imports}}'` pacote a pacote, que NÃO
+enxerga arquivo `_test.go`. A única linha que mudou desde 2026-09-02 é a do
+`writer`, e a justificativa da aresta nova está logo abaixo do bloco:
 
 ```
 text  vault  config  console  lifecycle      folhas
 parser   → text
 ipc      → config
-writer   → parser, vault
+writer   → parser, text, vault
 index    → parser, text, vault
 search   → index, parser, text, vault
 watcher  → index, search, vault
@@ -115,6 +117,14 @@ mcpsrv   → config, index, parser, service, vault
 daemon   → config, ipc, mcpsrv
 doctor   → config, daemon, ipc, vault
 ```
+
+`writer → text` é de 2026-09-06 (Task 169) e a justificativa é **uma conta por
+regra**: a trava por caminho do `writer` e a chave `lowerPath` do `index` são a
+mesma derivação, e eram duas — a do `writer` só baixava caixa, então o índice
+tratava as duas grafias Unicode de um nome como uma nota e o locker as tratava
+como dois arquivos. A conta mudou-se para `text.ChaveDeCaminho` porque `writer`
+não importa `index` e não vai importar. `text` continua folha: ganhou
+`path/filepath`, que é stdlib.
 
 Quatro arestas existem **só em teste**, e ficam fora do grafo acima de
 propósito — teste pode montar o mundo inteiro sem que isso vire acoplamento do

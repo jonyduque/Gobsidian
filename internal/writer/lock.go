@@ -3,15 +3,22 @@
 package writer
 
 import (
-	"strings"
 	"sync"
 
+	"github.com/jonyd/gobsidian/internal/text"
 	"github.com/jonyd/gobsidian/internal/vault"
 )
 
-// normalizeKey converte o caminho para minusculas para garantir sensibilidade a casing uniforme (Windows).
+// normalizeKey e a chave do registro de travas.
+//
+// Delega a text.ChaveDeCaminho, que e a mesma conta que o indice usa para
+// lowerPath. Aqui ela so baixava a caixa: o indice tratava as duas grafias
+// Unicode do mesmo nome como UMA nota e o locker as tratava como dois arquivos,
+// entao duas escritas concorrentes na mesma nota pegavam travas diferentes e
+// nao se excluiam. Uma conta por regra, inclusive nos pontos que ja pareciam
+// certos.
 func normalizeKey(p vault.CanonicalPath) string {
-	return strings.ToLower(string(p))
+	return text.ChaveDeCaminho(string(p))
 }
 
 type lockEntry struct {

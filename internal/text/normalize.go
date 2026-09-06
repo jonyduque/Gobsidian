@@ -2,6 +2,7 @@
 package text
 
 import (
+	"path/filepath"
 	"strings"
 	"sync"
 	"unicode"
@@ -53,6 +54,26 @@ func RemoveAccents(s string) string {
 // NFC e a forma canonica escolhida porque e o que a maioria dos clientes envia
 // e o que o Go emite por padrao.
 func ParaNFC(s string) string { return norm.NFC.String(s) }
+
+// ChaveDeCaminho e a chave insensivel a caixa e a forma Unicode de um caminho
+// inteiro. E a conta unica: o indice a usa para lowerPath (a chave que
+// ResolvePath consulta) e o writer a usa para a trava por caminho.
+//
+// Ela mora aqui, e nao em internal/index, porque internal/writer nao importa o
+// indice e nao vai importar — o grafo de dependencias e aciclico e a aresta
+// writer -> index nao existe. Duas copias da mesma conta foi exatamente o
+// defeito: ate 2026-09-06 a trava do writer so baixava a caixa, entao o indice
+// tratava as duas grafias de "Acao" como UMA nota e o locker as tratava como
+// dois arquivos — duas escritas concorrentes na mesma nota pegavam travas
+// diferentes e nao se excluiam.
+//
+// ToSlash antes de tudo porque "pasta\nota.md" e "pasta/nota.md" sao o mesmo
+// caminho no Windows; ParaNFC porque um cofre sincronizado com macOS grava NFD
+// e um cliente Windows manda NFC; ToLower por ultimo porque o Windows nao
+// distingue caixa em nome de arquivo.
+func ChaveDeCaminho(path string) string {
+	return strings.ToLower(ParaNFC(filepath.ToSlash(path)))
+}
 
 // Normalize remove acentos e converte para caixa baixa.
 // Reutiliza transformer de um pool para evitar alocação a cada chamada.
