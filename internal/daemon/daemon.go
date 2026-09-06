@@ -37,8 +37,7 @@ type Config struct {
 // Daemon aceita conexoes no socket do cofre e as serve contra o MESMO
 // *mcpsrv.Server -- o indice, o watcher e o servico por baixo dele sao
 // compartilhados entre todas as sessoes (ver cmd/gobsidian/daemon.go, que
-// monta esse Server uma unica vez, via construirServico, antes de chamar
-// New).
+// monta esse Server uma unica vez, via boot.Montar, antes de chamar New).
 type Daemon struct {
 	ln  net.Listener
 	srv *mcpsrv.Server

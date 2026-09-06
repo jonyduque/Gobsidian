@@ -85,6 +85,13 @@ func Montar(ctx context.Context, cfg config.Config, log *slog.Logger) (*Componen
 	// lugar sem escrita em voo e o boot". As duas metades do boot continuam
 	// antes de o servidor servir, e o join abaixo acontece antes de watcher.New
 	// — nada que escreva chegou a existir ainda.
+	//
+	// A garantia vale porque o CacheDir padrao fica FORA do cofre, e a
+	// varredura acima so alcanca cfg.VaultPath: o temporario que AbrirIndice
+	// grava por vault.ReplaceFile nao entra no caminho dela. Um --cache-dir
+	// apontado para DENTRO do cofre colocaria o temporario de AbrirIndice ao
+	// alcance da varredura, e a garantia deixaria de valer (achado N5 da
+	// revisao final).
 	type varreduraFeita struct {
 		res vault.SweepResult
 		err error

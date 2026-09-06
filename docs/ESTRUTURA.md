@@ -9,6 +9,9 @@ gobsidian/
 ├── cmd/
 │   └── gobsidian/
 │       ├── main.go               entrypoint; só constrói o context raiz e delega
+│       ├── flags.go              flagsDeCofre/flagsDeCache: flags compartilhadas
+│       │                         entre os subcomandos que abrem cofre e cache
+│       ├── cli_log.go            loggerDeCLI: logger de search, index e inspect
 │       ├── serve.go              subcomando serve (stdio)
 │       ├── doctor.go             subcomando doctor (diagnóstico de ambiente)
 │       ├── index.go              subcomando index (indexar e sair)
@@ -19,8 +22,9 @@ gobsidian/
 │
 ├── internal/
 │   ├── config/
-│   │   ├── config.go             struct de configuração, precedência de fontes
-│   │   ├── flags.go              mapeamento de flags do cobra
+│   │   ├── config.go             struct de configuração, precedência de fontes;
+│   │   │                         struct Flags (o mapeamento de flags do cobra
+│   │   │                         mora em cmd/gobsidian/flags.go)
 │   │   └── defaults.go           valores padrão em um único lugar
 │   │
 │   ├── lifecycle/
@@ -42,7 +46,6 @@ gobsidian/
 │   │   │                         de temporários órfãos no boot
 │   │   ├── syncdir_unix.go       fsync do diretório após o rename (build tag !windows)
 │   │   ├── syncdir_windows.go    no-op documentado: o Windows não expõe o handle
-│   │   ├── ignore.go             .gitignore e .gobsidianignore
 │   │   ├── eol.go                detecção e preservação de CRLF/LF — ÚNICA conta de EOL
 │   │   ├── longpath_windows.go   prefixo de caminho longo p/ syscall direta (build tag windows)
 │   │   ├── longpath_other.go     identidade (build tag !windows)
@@ -82,7 +85,6 @@ gobsidian/
 │   │   ├── resolve.go            resolução de wikilink → caminho canônico
 │   │   ├── alias.go              mapa alias → caminhos, do frontmatter
 │   │   ├── chave.go              as chaves derivadas do índice: NFC e caixa, uma conta cada
-│   │   ├── assets.go             registro de anexos (nome, tamanho, mtime)
 │   │   ├── anchors.go            validação de âncora de heading e de bloco
 │   │   ├── classify.go           classificação de entrada: nota, anexo, excluído
 │   │   ├── contexto_link.go      recorte do contexto do backlink e heading da seção
@@ -113,7 +115,6 @@ gobsidian/
 │   │   └── overflow.go           varredura de reconciliação pós-overflow
 │   │
 │   ├── writer/
-│   │   ├── writer.go             fachada de escrita
 │   │   ├── lock.go               mutex por caminho canônico; serializa escritas
 │   │   ├── section.go            inserir e substituir sob heading
 │   │   ├── block.go              substituir bloco por ^id
@@ -163,6 +164,8 @@ gobsidian/
 │   │
 │   ├── ipc/
 │   │   ├── ipc.go                transporte local: socket, saudação, handshake
+│   │   ├── desconexao.go         EhDesconexaoLimpa: erro de loop de transporte que
+│   │   │                         so significa "o outro lado foi embora"
 │   │   ├── ipc_windows.go        diretório de runtime e permissão (build tag windows)
 │   │   └── ipc_unix.go           diretório de runtime e permissão 0600 (build tag !windows)
 │   │

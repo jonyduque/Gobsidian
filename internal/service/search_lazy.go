@@ -7,8 +7,9 @@ import (
 
 // CarregadorBusca traz o indice invertido de busca para o estado pronto —
 // carrega o cache do disco, e completa por tokenizacao o que faltar. Quem
-// monta o Service fornece a implementacao (ver cmd/gobsidian/serve.go); este
-// pacote so decide QUANDO ela roda.
+// monta o Service fornece a implementacao (boot.Montar, envolvendo
+// boot.PrepararBusca, em internal/boot/montar.go); este pacote so decide
+// QUANDO ela roda.
 type CarregadorBusca func(ctx context.Context) error
 
 // cargaUnica dispara uma funcao no maximo uma vez COM EXITO, e deixa quem

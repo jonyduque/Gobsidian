@@ -8,7 +8,7 @@ source_paths:
   - internal/index/persist.go
   - internal/search/persist.go
   - internal/ipc/ipc.go
-  - internal/writer/atomic.go
+  - internal/vault/atomic.go
 source_commit: c6804e1e
 tags: [cache, dados, disco]
 language: pt-BR
@@ -89,14 +89,14 @@ Ver [Daemon e ponte](../features/daemon-e-ponte.md).
 | O quê | Onde | Quem cria |
 |---|---|---|
 | Lixeira | `.trash/` | `note_delete` com `to_trash` |
-| Temporários de escrita | `.gobsidian-tmp-*` no mesmo diretório do alvo | `writer.WriteAtomic` |
+| Temporários de escrita | `.gobsidian-tmp-*` no mesmo diretório do alvo | `vault.WriteAtomic` |
 
 `.trash` é um dos diretórios **excluídos da varredura** (junto de `.obsidian`,
 `.git` e `.stfolder`), então nota na lixeira não volta ao índice. Isso também
 significa que hoje **não há tool para listar ou restaurar** o que foi para lá.
 
 Temporário órfão só sobra quando o processo é morto sem rodar `defer`.
-`writer.SweepStaleTempFiles` limpa isso **no boot**, que é o único momento sem
+`vault.SweepStaleTempFiles` limpa isso **no boot**, que é o único momento sem
 escrita em voo — varrer durante uma escrita apagaria o temporário de outra.
 
 ## Ver também

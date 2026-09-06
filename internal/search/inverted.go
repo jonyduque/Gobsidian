@@ -83,8 +83,9 @@ type Inverted struct {
 	// `base.termosDoDoc` cumpre no lado imutável, e existe pelo mesmo motivo:
 	// sem ele, apagar um caminho do delta varre TODO termo do delta.
 	//
-	// Na construção do índice do zero — o laço de buildInvertedIndex, uma
-	// chamada de Add por nota — isso é quadrático: a n-ésima nota varre os
+	// Na construção do índice do zero — o laço de construirBusca
+	// (internal/boot/busca.go), uma chamada de Add por nota — isso é
+	// quadrático: a n-ésima nota varre os
 	// termos que as n-1 anteriores acumularam, só para não achar nada, porque
 	// caminho novo não está em termo nenhum.
 	//
@@ -598,9 +599,9 @@ func (ix *Inverted) Update(ctx context.Context, v *vault.Vault, path vault.Canon
 	//
 	// A guarda mora aqui, e nao nos chamadores, porque esta e a funcao que abre
 	// o arquivo — e desde 2026-08-26 ela e o UNICO caminho de indexacao a
-	// partir de arquivo: o laco de boot em buildInvertedIndex passou a chamar
-	// Update em vez de ler com v.ReadAll e chamar Add direto, que era como o
-	// boot escapava desta guarda inteira. Guarda em chamador e a proxima
+	// partir de arquivo: o laco de boot em construirBusca (internal/boot/busca.go)
+	// passou a chamar Update em vez de ler com v.ReadAll e chamar Add direto, que
+	// era como o boot escapava desta guarda inteira. Guarda em chamador e a proxima
 	// divergencia esperando acontecer, que e a mesma licao de aliasKey e de
 	// index.classificar.
 	//
@@ -612,7 +613,7 @@ func (ix *Inverted) Update(ctx context.Context, v *vault.Vault, path vault.Canon
 	//
 	// Add(path, nil) e nao um return seco: a nota TEM de contar como coberta.
 	// Fora de docLengths ela nao entra em DocCount, o cabecalho do cache declara
-	// menos notas do que o indice de metadados enxerga, e invertedCacheState
+	// menos notas do que o indice de metadados enxerga, e boot.estadoDoCache
 	// conclui "cache parcial" em TODO boot, regravando o cache inteiro. E a
 	// mesma armadilha que a nota sem token nenhum ja custou — ver o comentario
 	// de Add — e o motivo de HasDoc existir separada de DocLength.

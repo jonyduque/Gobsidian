@@ -22,7 +22,7 @@ import (
 // testes de cmd/gobsidian.
 //
 // O wrapper chama inv.MarkReady() quando `carregar` tem exito, espelhando o
-// que prepararIndiceDeBusca faz de verdade: sem isso, uma segunda busca bem
+// que boot.PrepararBusca faz de verdade: sem isso, uma segunda busca bem
 // sucedida ainda veria Building() == true e devolveria INDEX_BUILDING, o que
 // não é o que se está testando aqui.
 func servicoComCargaPreguicosa(t *testing.T, carregar func() error) *service.Service {

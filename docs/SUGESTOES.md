@@ -308,13 +308,13 @@ têm reconciliação por overflow (kqueue não emite `ErrEventOverflow`, `overfl
 — conteúdo só entra no próximo boot lá.
 
 **M12 · `WriteAtomic` sem fsync de diretório e perdendo o modo do arquivo**
-Bug/Higiene · CONFIRMADO · `writer/atomic.go:94,113-115,126`
+Bug/Higiene · CONFIRMADO · `writer/atomic.go:94,113-115,126` (hoje `internal/vault/atomic.go`, Tasks 171/172)
 Temporário nasce 0600 e nada restaura o modo original (linux/darwin: toda nota
 reescrita vira 0600); `Sync` cobre só o arquivo — a durabilidade prometida no doc
 comment (:85) não cobre o rename em ext4/xfs.
 
 **M13 · Espera real sem cancelamento efetivo** · Falha-de-contrato · CONFIRMADO
-`writer/atomic.go:88,121-132` (WriteAtomic sem ctx; retries com sleep);
+`writer/atomic.go:88,121-132` (hoje `internal/vault/atomic.go`, Tasks 171/172; WriteAtomic sem ctx; retries com sleep);
 `vault/vault.go:124-127,163-166` (checagem só na entrada — `ReadAll` sobre placeholder
 bloqueia na hidratação mesmo com ctx cancelado); `MoveNote(_ context.Context)` /
 `DeleteNote(_ context.Context)` fazem I/O múltiplo ignorando cancelamento
@@ -410,8 +410,10 @@ todas as candidatas, serializado.
 (`service/search.go:168`). Memoizar uma vez por busca ou aceitar tokens prontos.
 
 **P11 · `SweepStaleTempFiles` varre sem prefixo LongPath e pula diretórios profundos em silêncio** — **PARCIALMENTE FECHADO; a rejeição da outra metade foi corrigida em 2026-08-31.** A metade que era defeito de verdade — descarte silencioso de erro de subárvore — está corrigida: `SweepResult` conta removidos, não-removidos e inacessíveis, e o boot loga os três. A metade do prefixo foi rejeitada em 2026-08-27 com uma sondagem de 318 caracteres sem prefixo; descobriu-se depois que a máquina tem `LongPathsEnabled = 1`, e um caminho RELATIVO de 327 caracteres também passa — o que prova que quem responde ali é o registro, não o `fixLongPath` do Go. A sondagem e a prova de mutação são inconclusivas para essa metade. Ver `docs/OPERACAO.md`.
-CONFIRMADO (alcance depende do cofre) · `writer/atomic.go:57,69`; chamador
-`servico.go:80` passa root cru. Contraste: `vault.Walk` usa `walkRoot` prefixado.
+CONFIRMADO (alcance depende do cofre) · `writer/atomic.go:57,69` (hoje
+`internal/vault/atomic.go`, Tasks 171/172); chamador `servico.go:80` (hoje
+`internal/boot/montar.go`, Task 174) passa root cru. Contraste: `vault.Walk`
+usa `walkRoot` prefixado.
 Além do limiar Win32, o sweep "sucede" sem descer — temporários órfãos sobrevivem lá
 para sempre.
 
@@ -433,8 +435,10 @@ vem preenchido do `FindFirstFile` — os mesmos bits, sem syscall, via
 necessário — não há `FileInfo` em mãos.)
 
 **P15 · Varredura de temporários no caminho crítico do boot, em toda instância**
-Performance · CONFIRMADO · `cmd/gobsidian/servico.go:80-84`
-`SweepStaleTempFiles` percorre o cofre inteiro (`WalkDir`, `writer/atomic.go:55-80`)
+Performance · CONFIRMADO · `cmd/gobsidian/servico.go:80-84` (hoje
+`internal/boot/montar.go`, Task 174)
+`SweepStaleTempFiles` percorre o cofre inteiro (`WalkDir`, `writer/atomic.go:55-80`,
+hoje `internal/vault/atomic.go`, Tasks 171/172)
 ANTES de montar watcher e serviço — recuperação de crash que não é prerequisito para
 responder o initialize. Numa partida simultânea de N instâncias são N varreduras
 seriais competindo por disco antes do primeiro byte; contribui direto para a demora de
@@ -772,8 +776,9 @@ Passos:
 - **Opção estrutural (M/L)**: migrar aberturas para `os.OpenRoot(root)` (Go ≥1.24):
   `Root.Open/Create/Stat/Remove/OpenFile` tornam o escape impossível por construção,
   eliminam TOCTOU e a classe inteira (inclui futuros vetores 8.3/junction). Toca em
-  `vault.Open/ReadRange/ReadAll`, `writer.WriteAtomic` (criar temporário + rename
-  dentro do root — renomear via `Root.Rename`?) e no sweep de temporários. Exige ADR
+  `vault.Open/ReadRange/ReadAll`, `vault.WriteAtomic` (hoje já no mesmo pacote,
+  Tasks 171/172; criar temporário + rename dentro do root — renomear via
+  `Root.Rename`?) e no sweep de temporários. Exige ADR
   novo (AD-10) e revisão dos testes de plataforma.
 - **Recomendação**: Opção mínima AGORA (fecha o buraco com risco pequeno), Opção
   estrutural como tarefa de arquitetura própria com medição de impacto em boot
@@ -925,6 +930,11 @@ Apagar `writer.DetectEOL/NormalizeEOL` (`section.go:35-40`) e consumir
 `vault.DetectEOL/NormalizeEOL` nos pontos de `write.go:227,345-346`. Teste de
 paridade: mesmo arquivo misto decide igual no índice e no patch (golden com 1 CRLF +
 99 LF). Mutação: restaurar a heurística do writer ⇒ reprova.
+
+<!-- `vault.NormalizeEOL` foi apagada na Task 166 (commit e46654d, "delete dead
+code and the error code no path produces"); só `vault.DetectEOL` existe hoje.
+A recomendação acima, como escrita, não é mais executável e precisaria ser
+reescrita contra o que resta em `vault`. -->
 
 ---
 

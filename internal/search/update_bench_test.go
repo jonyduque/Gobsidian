@@ -13,8 +13,8 @@ import (
 
 // BenchmarkInvertedUpdateLote mede a construcao do indice de busca do jeito que
 // o servidor a faz: um Inverted.Update por caminho devolvido por
-// index.NotePaths, que e exatamente o laco de buildInvertedIndex em
-// cmd/gobsidian/serve.go.
+// index.NotePaths, que e exatamente o laco de boot.construirBusca em
+// internal/boot/busca.go.
 //
 // Existe para responder uma pergunta que ficou aberta na Task 97: a guarda de
 // placeholder de nuvem paga um vault.IsCloudOnly — isto e, um GetFileAttributes

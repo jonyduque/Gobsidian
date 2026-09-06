@@ -7,7 +7,7 @@ source_paths:
   - internal/ipc/ipc.go
   - internal/config/config.go
   - internal/search/inverted.go
-  - cmd/gobsidian/servico.go
+  - internal/boot/montar.go
 source_commit: c6804e1e
 tags: [adr, trade-offs]
 language: pt-BR

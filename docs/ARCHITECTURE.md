@@ -406,7 +406,7 @@ service.PatchNote(path, heading, content, expectedHash, dryRun)
        prefixo [0:heading.End_do_titulo] + conteúdo novo + sufixo [heading.End:]
   → normalizar EOL do conteúdo novo para o estilo do arquivo
   → dryRun? devolver diff unificado e parar
-  → writer.AtomicWrite(path, bytes)
+  → vault.WriteAtomic(path, bytes)
   → invalidar entrada de índice (o watcher confirmará)
   → writer.UnlockPath(canonical)
 ```
@@ -415,22 +415,44 @@ A verificação de hash antes de aplicar o patch fecha a janela entre o parse e 
 
 ### 5.5 Escrita atômica
 
+Implementação em `internal/vault/atomic.go` (`ReplaceFile` + `WriteAtomic`), não
+em `internal/writer` — o writer chama a conta, não a possui.
+
 ```go
 // mesmo diretório do alvo → mesmo volume → rename atômico
 tmp := filepath.Join(filepath.Dir(target), ".gobsidian-tmp-"+random())
 
-f, _ := os.OpenFile(tmp, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0644)
+f, _ := os.OpenFile(tmp, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0600)
+f.Chmod(modoDoAlvo)     // preserva o modo do arquivo substituído; falha só logada (achado M12)
 f.Write(data)
-f.Sync()          // durabilidade antes do rename
+f.Sync()                // durabilidade antes do rename
 f.Close()
-os.Rename(tmp, target)   // com retry: OneDrive devolve ERROR_SHARING_VIOLATION transitório
+os.Rename(tmp, target)  // com retry: OneDrive devolve ERROR_SHARING_VIOLATION transitório
+sincronizarDiretorio(filepath.Dir(target))  // sync do diretório após o rename; falha só logada (achado M12)
 ```
 
 O temporário fica no mesmo diretório do alvo, não em `%TEMP%`. Rename entre volumes não é atômico — degrada para cópia mais exclusão, e o ponto todo se perde.
 
+`Chmod` restaura o modo do arquivo alvo no temporário antes da escrita: sem
+isso, um rename por cima de uma nota `0644` a deixa `0600`, porque
+`os.CreateTemp` cria com esse modo — a escrita muda a permissão pelas costas
+(achado M12). Alvo inexistente usa `0644`. A chamada não é fatal se falhar:
+há sistema de arquivos sem suporte a `Chmod`, e recusar a escrita inteira por
+causa da permissão perderia o conteúdo que o usuário pediu para gravar.
+
 `Sync()` antes do rename garante que o conteúdo esteja em disco antes que o nome passe a apontar para ele. Sem isso, um corte de energia entre rename e flush deixa um arquivo de tamanho correto cheio de zeros.
 
-O retry no rename é específico do Windows com sincronizadores de nuvem, que abrem arquivos brevemente e devolvem violação de compartilhamento. Backoff exponencial, três tentativas, 50 ms iniciais.
+O retry no rename é específico do Windows com sincronizadores de nuvem, que
+abrem arquivos brevemente e devolvem violação de compartilhamento: **10
+tentativas, atraso fixo de 10 ms entre elas** — não backoff exponencial —,
+dormido via `select` sobre `time.After`/`ctx.Done()` para que um cancelamento
+durante a espera não fique preso até o fim do atraso. Depois do rename, o
+diretório é sincronizado (`sincronizarDiretorio`): o `Sync()` do arquivo
+garante os dados, mas o rename é uma mudança de diretório, e sem sincronizá-lo
+uma queda de energia logo depois pode deixar o alvo com o conteúdo antigo — ou
+nenhum — apesar de a escrita ter reportado sucesso (achado M12). Essa falha
+também não é fatal: o rename já aconteceu, e o aviso vai para `Debug`, não
+para o erro da escrita.
 
 ### 5.6 `note_move` com reescrita de links
 

@@ -62,7 +62,7 @@ var (
 	ErrIndexCacheCorrupted = errors.New("index cache file corrupted")
 	// ErrIndexCachePartial indica que o cabeçalho promete mais do que o
 	// corpo do arquivo trouxe. É a regra que o cache de busca aprendeu na
-	// marra (ver o comentário de invertedCacheState em cmd/gobsidian/serve.go):
+	// marra (ver o comentário de estadoDoCache em internal/boot/busca.go):
 	// LoadInvertedCache conferia versão e não contagem, e um cache parcial
 	// passava por completo.
 	ErrIndexCachePartial = errors.New("index cache incomplete")

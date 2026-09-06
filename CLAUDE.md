@@ -61,7 +61,10 @@ lugar do seu contexto.
 cmd/gobsidian/     entrypoint fino e subcomandos: serve, doctor, index, search,
                    inspect, daemon (oculto). ponte.go escolhe daemon vs
                    em-processo; a montagem que serve e daemon compartilham
-                   mora em internal/boot
+                   mora em internal/boot. index, inspect e search também
+                   passam por lá para abrir o índice (boot.AbrirIndice; search
+                   também chama boot.PrepararBusca), sem montar watcher nem
+                   Service
 internal/
   config/          struct de configuração, flags cobra, defaults, VaultKey
   lifecycle/       stdin-eof, sinais, vigília do PID pai, shutdown com orçamento

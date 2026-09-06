@@ -307,8 +307,16 @@ Todas as tags do cofre.
 **Forma da tag devolvida.** `tag` vem **dobrada**: minúscula, NFC, sem `#`.
 Grafias que diferem só em caixa ou em forma Unicode são uma entrada só, com a
 soma das contagens — `#Ação` e `#ação` viram `ação`. Vale nos dois ramos,
-plano e hierárquico. `note_metadata.tags` continua devolvendo a grafia original
-da nota: a dobra é da chave de agrupamento, não do conteúdo da nota.
+plano e hierárquico. `note_metadata.tags` e `note_list.tags` continuam
+devolvendo a grafia original da nota (ver `:216` acima para `note_list`): a
+dobra é da chave de agrupamento, não do conteúdo da nota.
+
+A mesma chave dobrada é o que o subcomando `index` da CLI conta:
+`len(idx.Tags("", 1))` (`cmd/gobsidian/index.go:53`) soma entradas de
+`idx.tags`, cujas chaves já passam por `ChaveDeTag` — então grafias que só
+diferem em caixa, forma Unicode ou `#` inicial contam como uma tag só na
+contagem de tags distintas que `index --json` reporta. De quanto isso reduz a
+contagem num cofre com tags gravadas de formas diferentes: **não medido**.
 
 **`prefix` não é o filtro `tags`.** São duas operações diferentes, de propósito.
 O `tags` de `note_list` e de `vault_search` casa por SEGMENTO — a tag pedida e
@@ -335,15 +343,17 @@ Estado do cofre e saúde do servidor.
 }
 ```
 
-**Retorno.**
+**Retorno.** Campos de `service.StatsResult` (`internal/service/graph.go`):
 
-- Contagem de notas, tamanho total, contagem de links, contagem de tags
-- Contagem de anexos e tamanho total deles
-- Notas órfãs (sem backlinks), links quebrados, âncoras quebradas, notas vazias
-- Colisões de alias: aliases declarados por mais de uma nota
-- Notas somente-nuvem não hidratadas
-- Timestamp da última indexação e duração
-- Com `include_runtime`: `runtime` (RSS, goroutines, gc) e objeto `watcher` (ausente se desligado) com os campos: `active`, `events_received`, `events_dropped`, `events_dropped_by_reason`, `events_coalesced`, `events_processed`, `events_skipped`, `reconciliations`, `reconciled_updated`, `reconciled_removed`.
+- `notes`, `assets`, `total_size`: contagem de notas, contagem de anexos, tamanho total do cofre (notas + anexos)
+- `alias_collisions`: aliases declarados por mais de uma nota
+- `generation`: geração corrente do índice
+- Com `include_health` — cada campo é ponteiro: ausente quando não pedido, presente (inclusive `0`) quando pedido — `orphans` (notas sem backlink), `broken_links`, `broken_anchors`, `frontmatter_errors`
+- Com `include_runtime`: `runtime` (`num_goroutine`, `alloc`, `total_alloc`, `sys`, `num_gc` — de `runtime.MemStats`, não RSS do processo) e objeto `watcher` (ausente se desligado) com os campos: `active`, `events_received`, `events_dropped`, `events_dropped_by_reason`, `events_coalesced`, `events_processed`, `events_skipped`, `reconciliations`, `reconciled_updated`, `reconciled_removed`.
+
+Não há contagem de links, contagem de tags, contagem de notas vazias, nem
+contagem de notas somente-nuvem não hidratadas — nenhum desses tem campo em
+`StatsResult` hoje.
 
 **Notas.** Os contadores do watcher são a instrumentação principal para diagnosticar cofres em pastas sincronizadas. `events_received` conta os eventos antes do filtro de relevância (brutos), e `events_dropped` conta os irrelevantes ou ocultos. `events_dropped_by_reason` desdobra o total porque as causas pedem ações diferentes: `chmod` alto é OneDrive em operação normal e pode ser ignorado; `outside_vault` alto indica que a raiz do cofre é um link e o confinamento está recusando eventos; `excluded` alto indica atividade em `.obsidian/` ou `.git/`; `unknown_op` alto indica evento que o filtro não soube classificar e merece `--log-level debug`. `events_coalesced` conta eventos adicionais na mesma nota dentro da janela de debounce. `events_processed` conta o número de absorções de mudanças efetivas, e `events_skipped` as absorções rejeitadas (mesmo mtime e tamanho). `reconciled_updated` e `reconciled_removed` registram os arquivos corrigidos por reconciliação de overflow. Uma razão alta entre `events_received` e `events_processed` é o comportamento esperado e saudável; overflows recorrentes (contabilizados em `reconciliations`) indicam que a janela de debounce precisa ser ampliada via `--debounce-ms`. O menor valor aceito é `1`: zero é recusado na carga da configuração.
 

@@ -2,8 +2,8 @@ package watcher
 
 // Counters e o retrato dos contadores do watcher. Mora aqui, e nao em
 // internal/service: as camadas abaixo do servico nao o conhecem
-// (ARCHITECTURE.md §1). Quem casa os dois lados e o adaptador em
-// cmd/gobsidian/serve.go.
+// (ARCHITECTURE.md §1). Quem casa os dois lados e o adaptador watcherStats
+// em internal/boot/montar.go.
 type Counters struct {
 	Active            bool
 	EventsReceived    int64

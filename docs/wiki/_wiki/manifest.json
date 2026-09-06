@@ -26,7 +26,6 @@
     "cmd/gobsidian/search.go": "b7751e7dc9fafb0941f3c3bcc9620635f19a0e26",
     "cmd/gobsidian/serve.go": "4df2530eaf7b0c8b43cf5bff5f83defe8c5d1011",
     "cmd/gobsidian/serve_test.go": "954d357038b12937e689e139f6357655ea8f9c5f",
-    "cmd/gobsidian/servico.go": "e8f0893524acf840803ff0e81e31b7896102df41",
     "docs/ARCHITECTURE.md": "38d56c0db47602ad19cbaff67b180eb5b77cf9e3",
     "docs/ESTRUTURA.md": "98814a59a96437bf268915734828a2137d9b13c5",
     "docs/OPERACAO.md": "3622aaf7cded9db67e38754aa39d97cd8a8d4592",

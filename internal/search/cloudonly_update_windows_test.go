@@ -85,7 +85,7 @@ func cofreComPlaceholder(t *testing.T) (*vault.Vault, *index.Index) {
 	return v, idx
 }
 
-// construirComoOBoot tokeniza o cofre exatamente como buildInvertedIndex faz:
+// construirComoOBoot tokeniza o cofre exatamente como boot.construirBusca faz:
 // um Update por caminho de idx.NotePaths().
 func construirComoOBoot(t *testing.T, v *vault.Vault, idx *index.Index) *search.Inverted {
 	t.Helper()
@@ -143,7 +143,7 @@ func TestUpdateNaoAbreNotaSomenteNuvem(t *testing.T) {
 // TestPlaceholderNaoFazOBootDeclararCacheParcial afirma sobre o que o BOOT
 // compara, e nao sobre um campo isolado.
 //
-// invertedCacheState confronta hdr.NoteCount — que e inv.DocCount() no momento
+// boot.estadoDoCache confronta hdr.NoteCount — que e inv.DocCount() no momento
 // da gravacao — com idx.NoteCount(). Menor significa "cache parcial": o boot
 // retoma a construcao e regrava o cache inteiro, em toda partida, para sempre.
 // Conferir DocLength == 0 nao pega essa regressao; comparar as duas contagens
@@ -168,11 +168,11 @@ func TestPlaceholderNaoFazOBootDeclararCacheParcial(t *testing.T) {
 	}
 	defer func() { _ = doCache.Close() }()
 
-	// A comparacao literal de invertedCacheState: hdr.NoteCount >= noteCount
+	// A comparacao literal de boot.estadoDoCache: hdr.NoteCount >= noteCount
 	// significa cache pronto; menor significa retomar.
 	if hdr.NoteCount < idx.NoteCount() {
 		t.Fatalf("cabecalho do cache declara %d notas, o indice de metadados enxerga %d; "+
-			"invertedCacheState devolveria retomar=true e o cache seria regravado em todo boot",
+			"boot.estadoDoCache devolveria retomar=true e o cache seria regravado em todo boot",
 			hdr.NoteCount, idx.NoteCount())
 	}
 }

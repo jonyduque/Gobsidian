@@ -5,7 +5,7 @@ status: active
 description: As cinco tools de escrita, gravação atômica, travas por caminho e preservação de EOL/BOM.
 source_paths:
   - internal/service/write.go
-  - internal/writer/atomic.go
+  - internal/vault/atomic.go
   - internal/writer/lock.go
   - internal/writer/diff.go
   - internal/writer/section.go
@@ -23,7 +23,7 @@ Cinco tools: `note_create`, `note_append`, `note_patch`, `note_move`,
 
 ## Gravação atômica
 
-`writer.WriteAtomic` faz temporário no mesmo diretório → `Write` → `Sync` →
+`vault.WriteAtomic` faz temporário no mesmo diretório → `Write` → `Sync` →
 `Close` → `os.Rename` → **fsync do diretório**, com retentativa no rename
 (10 × 10 ms) porque no Windows um antivírus ou o próprio Obsidian pode segurar o
 arquivo por um instante. A retentativa respeita `ctx`: espera cancelável, não
@@ -43,7 +43,7 @@ Dois cuidados que faltavam até 2026-08-28:
 O temporário desta escrita é removido no `defer` em qualquer falha; o de um
 processo morto é removido **no boot** por `SweepStaleTempFiles`.
 
-> `CleanStaleTempFiles` **não pode** ser chamada no início de uma escrita. O glob
+> `SweepStaleTempFiles` **não pode** ser chamada no início de uma escrita. O glob
 > apaga todos os temporários do diretório, inclusive o de outra escrita em voo. A
 > trava é por *caminho*; o recurso compartilhado ali é o *diretório*.
 

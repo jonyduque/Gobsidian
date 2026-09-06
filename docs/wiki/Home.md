@@ -36,8 +36,8 @@ sem que ninguém precise despejar o cofre inteiro no contexto.
 - **Saída esperada:** no stderr, `servidor pronto vault=... notes=N index_ms=…`.
   No stdout, só JSON-RPC — **um byte estranho ali corrompe a sessão**.
 - **Primeiros arquivos para ler:** `cmd/gobsidian/main.go`,
-  `cmd/gobsidian/servico.go` (a sequência de boot), `internal/service/service.go`
-  (a fachada que cada tool chama).
+  `internal/boot/montar.go` (a sequência de boot, `boot.Montar`),
+  `internal/service/service.go` (a fachada que cada tool chama).
 - **Uma primeira mudança segura:** acrescentar um campo a uma resposta de tool
   em `internal/service/` e expô-lo em `internal/mcpsrv/`.
 - **Uma mudança tentadora e perigosa:** `go mod tidy`. Ele remove dependências

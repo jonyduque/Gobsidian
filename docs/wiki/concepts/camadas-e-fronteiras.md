@@ -75,10 +75,13 @@ renomeado por isso.
 
 Uma, e ela é de forma, não de segurança:
 
-- `service.Index` é uma interface de 12 métodos que devolve `*index.Note`,
-  `index.Query` e `index.TagCount`. Ela não isola nada — `service` não compila
-  sem `index`. Fica como está: trocá-la por tipos próprios custaria uma cópia do
-  domínio inteiro para comprar uma fronteira que ninguém precisa atravessar.
+- Até a Task 173 existia uma `service.Index`, interface de 12 métodos que
+  devolvia `*index.Note`, `index.Query` e `index.TagCount` — e que não isolava
+  nada, porque `service` não compilava sem `index` mesmo assim. A Task 173 a
+  removeu: `Service` guarda hoje um `*index.Index` (`internal/service/service.go`)
+  concreto, direto. O ponto do parágrafo original fica de pé, só que mais forte:
+  trocar o tipo concreto por uma interface própria custaria uma cópia do domínio
+  inteiro para comprar uma fronteira que ninguém precisa atravessar.
 
 A que **era** de segurança fechou: a superfície de escrita construía
 `vault.CanonicalPath` por conversão, sem passar por `vault.Resolve`, e no Windows

@@ -51,7 +51,7 @@ func TestSaveAndLoadInvertedCache(t *testing.T) {
 // como o único em que o rename atômico de SaveInvertedCache pode colidir com
 // um mapeamento deste MESMO processo: cache PARCIAL retomado — carregado via
 // arena mapeada — e depois regravado por quem continua a construção
-// (buildInvertedIndex, em cmd/gobsidian/serve.go).
+// (boot.construirBusca, em internal/boot/busca.go).
 //
 // O os.Rename do salvamento atômico falha no Windows
 // (ERROR_SHARING_VIOLATION) se o arquivo de destino ainda está mapeado neste
@@ -96,7 +96,7 @@ func TestSaveOverwritesMappedCache(t *testing.T) {
 		}
 	}
 
-	// Simula o resto de buildInvertedIndex retomando a partir do cache
+	// Simula o resto de boot.construirBusca retomando a partir do cache
 	// parcial: escreve no DELTA do mesmo índice que carregou via arena.
 	loaded.Add("b.md", search.Analyze("recurso extraordinario processo civil"))
 

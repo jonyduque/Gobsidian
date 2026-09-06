@@ -10,6 +10,8 @@ source_paths:
   - internal/lifecycle/parent.go
   - internal/lifecycle/shutdown.go
   - cmd/gobsidian/serve.go
+  - internal/boot/espelho.go
+  - internal/boot/vigia.go
 source_commit: cceb980
 tags: [lifecycle, shutdown, orfaos]
 language: pt-BR
@@ -78,9 +80,13 @@ só o cancelamento.
 O monitor de EOF e o SDK precisam ler o mesmo stdin, e dois leitores no mesmo
 descritor repartem os bytes e corrompem o JSON-RPC.
 
-A saída é `mirrorReader`: o SDK lê do espelho, o lifecycle observa a cópia.
-**`io.TeeReader` não serve** — ele copia bytes, e EOF não é byte. `mirrorReader`
-faz `dst.CloseWithError(err)`, que é o que propaga o fim da leitura.
+A saída é `mirrorReader` (`internal/boot/espelho.go`): o SDK lê do espelho, o
+lifecycle observa a cópia. **`io.TeeReader` não serve** — ele copia bytes, e
+EOF não é byte. `mirrorReader` faz `dst.CloseWithError(err)`, que é o que
+propaga o fim da leitura. `boot.VigiarHost` (`internal/boot/vigia.go`) é quem
+monta o andaime — pipe, `mirrorReader` e `lifecycle.New`, nessa ordem —, e
+serve e a ponte (`serveEmProcesso` e `servePonteRemota`) compartilham essa
+montagem em vez de repeti-la.
 
 O espelho é **auxiliar**: falha de escrita nele não pode virar erro da leitura
 principal — mataria uma sessão saudável por um motivo que o cliente não pode

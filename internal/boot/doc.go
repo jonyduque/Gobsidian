@@ -2,8 +2,9 @@
 // construido), indice de busca (adotado do cache, retomado ou construido),
 // watcher e Service. Existe porque serve e daemon precisam da mesma
 // montagem, e ela vivia em cmd/gobsidian, onde nenhum teste de pacote a
-// alcancava. Os subcomandos de CLI nao passam por aqui: index, search e
-// inspect montam o indice por conta propria, sem watcher e sem Service.
+// alcancava. Os subcomandos de CLI abrem o indice por aqui — index, inspect
+// e search chamam AbrirIndice, e search tambem chama PrepararBusca —, mas
+// nao chegam a Montar: nao constroem watcher nem Service.
 //
 // Monta tambem a VIGILIA do host (VigiarHost) e os passos de encerramento
 // que os tres pontos de saida repetiam — o pipe espelhado mais lifecycle.New

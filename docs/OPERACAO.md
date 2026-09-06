@@ -881,7 +881,7 @@ contra os mesmos alvos do PRD.
 
 ### Task 88 — índice de busca carregado só na primeira `vault_search`
 
-`prepararIndiceDeBusca` deixou de rodar incondicionalmente no boot. A carga só
+`prepararIndiceDeBusca` (hoje `boot.PrepararBusca`, Task 174) deixou de rodar incondicionalmente no boot. A carga só
 dispara na primeira chamada de `vault_search`; até lá a tool devolve
 `INDEX_BUILDING`, nunca lista vazia. `--eager-search` liga o comportamento
 antigo.
@@ -978,8 +978,9 @@ para confirmar — não medido nesta tarefa.
 **Rename atômico sobre arquivo mapeado.** `os.Rename` do salvamento atômico
 falha no Windows se o processo ainda tem o arquivo de destino mapeado — só
 importa no caminho raro de cache PARCIAL retomado e depois regravado
-(`buildInvertedIndex` continuando depois de `AdotarDe` um cache incompleto
-carregado via arena). Confirmado experimentalmente antes de confiar na
+(`buildInvertedIndex`, hoje `boot.construirBusca`, continuando depois de
+`AdotarDe` um cache incompleto carregado via arena). Confirmado
+experimentalmente antes de confiar na
 correção: com o arquivo ainda mapeado, `os.Remove` nele falha de verdade
 (`TestSaveOverwritesMappedCache`, `internal/search/persist_test.go`).
 `promoverArenaSePresente` copia as posições para o heap e desmapeia ANTES do
@@ -1654,8 +1655,9 @@ e ler ali por que "pré-existente" era o enquadramento errado.
 ### O caminho que a correção do pânico tornou alcançável (Task 97, 2026-08-12)
 
 `Inverted.Update` abria o arquivo sem consultar `vault.IsCloudOnly`, e ela é
-chamada para **toda nota do cofre** por `buildInvertedIndex` no boot (via
-`idx.NotePaths()`), pelo watcher em `Apply` e pela reconciliação por overflow.
+chamada para **toda nota do cofre** por `buildInvertedIndex` (hoje
+`boot.construirBusca`) no boot (via `idx.NotePaths()`), pelo watcher em
+`Apply` e pela reconciliação por overflow.
 
 A tentação é registrar isso como defeito antigo, e o registro estaria errado:
 **antes da correção do pânico desta mesma sessão, o caminho era inalcançável.**
@@ -1676,7 +1678,7 @@ da `classificar` da Task 95.
 `docLengths` com zero, sem postings, sem abrir o arquivo. Um `return` seco
 deixaria o caminho fora de `docLengths`, logo fora de `DocCount`, logo o
 cabeçalho do cache declararia menos notas do que o índice de metadados enxerga,
-logo `invertedCacheState` concluiria "cache parcial" em **todo** boot e
+logo `invertedCacheState` (hoje `boot.estadoDoCache`) concluiria "cache parcial" em **todo** boot e
 regravaria o cache inteiro. É a armadilha que a nota sem token nenhum já custou —
 4 notas vazias em 3.152 custavam uma reconstrução e uma regravação por partida —
 e é por isso que `HasDoc` existe separada de `DocLength`: o laço de retomada de
@@ -1693,8 +1695,9 @@ Quatro testes, em `internal/search/cloudonly_update_windows_test.go`:
 - **O boot não declara cache parcial**: compara `DocCount` do índice invertido
   com `NoteCount` do índice de metadados, e depois `hdr.NoteCount` contra
   `idx.NoteCount()` depois de uma ida ao disco — que é literalmente o que
-  `invertedCacheState` confronta. Conferir `DocLength == 0` não pega essa
-  regressão; comparar as duas contagens que o boot compara, pega.
+  `invertedCacheState` (hoje `boot.estadoDoCache`) confronta. Conferir
+  `DocLength == 0` não pega essa regressão; comparar as duas contagens que o
+  boot compara, pega.
 - **Ida e volta pelo cache**: índice recém-construído e índice recarregado
   respondem igual, campo a campo, num cofre com placeholder.
 
@@ -2753,9 +2756,11 @@ tinham.
 `serve`. `inspect` também abre pelo cache mas não expõe a origem — não há
 "resumo da indexação" para anexar o campo, só a nota inspecionada.
 
-As quatro flags que `index`, `inspect`, `search`, `serve`, `daemon` e `doctor`
-registravam repetindo o mesmo texto seis vezes (`--vault`, `--follow-symlinks`
-em todos; `--cache-dir`, `--log-level` em quem lê índice) passaram a vir de
-duas funções únicas em `cmd/gobsidian/flags.go` — `flagsDeCofre` e
-`flagsDeCache` — para que o texto de ajuda pare de divergir quando alguém
-edita um dos seis arquivos e esquece os outros cinco.
+As flags que os seis subcomandos registravam repetindo o mesmo texto passaram
+a vir de duas funções únicas em `cmd/gobsidian/flags.go`: `flagsDeCofre`
+(`--vault`, `--follow-symlinks`) roda nos seis — `index`, `inspect`, `search`,
+`serve`, `daemon` e `doctor` —; `flagsDeCache` (`--cache-dir`, `--log-level`)
+roda só em quem lê o índice do cache — `index`, `inspect`, `search`, `serve`
+e `daemon` — e não em `doctor`, que não abre índice nenhum. Duas funções
+para que o texto de ajuda pare de divergir quando alguém edita um dos
+arquivos e esquece os outros.

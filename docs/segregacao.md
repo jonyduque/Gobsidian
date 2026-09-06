@@ -82,13 +82,13 @@ cabeçalho versionado, arena mmap —, com `index` e `search` guardando apenas o
 próprio esquema. Cria uma folha nova, que é o tipo de aresta que o `CLAUDE.md`
 manda justificar; a justificativa é esta seção.
 
-### 2. Troca atômica — três implementações
+### 2. Troca atômica — três implementações (unificadas em `vault.ReplaceFile`, Task 171/172)
 
-`writer/atomic.go:141`, `index/persist.go:124`, `search/persist.go:87`.
+Havia três: `writer/atomic.go:141`, `index/persist.go:124`, `search/persist.go:87`.
 
-A do `writer` é a cuidadosa: restaura o modo do alvo, porque `os.CreateTemp`
-cria 0600 e um rename por cima trocaria a permissão da nota do usuário; e trata
-a repetição no Windows. As duas de cache são a versão curta.
+A do `writer` era a cuidadosa: restaurava o modo do alvo, porque `os.CreateTemp`
+cria 0600 e um rename por cima trocaria a permissão da nota do usuário; e tratava
+a repetição no Windows. As duas de cache eram a versão curta.
 
 A regra do projeto — *todo caminho derivado passa por UMA função* — aponta para
 cá. Mas o consumo difere no que importa: cache perdido se refaz, nota do usuário
@@ -111,6 +111,13 @@ cofre com `#Ação` gravado em NFD e consultado em NFC tem, aqui, a mesma classe
 de falha silenciosa. **Não medido** em cofre real — antes de mexer, vale contar
 quantas tags do corpus não são ASCII.
 
+**Fechado pela Task 180** (`18d9da4`): a comparação de tag e de chave de campo
+inline passa hoje por `index.ChaveDeTag` (NFC + caixa) em `query.go`, `index.go`,
+`update.go` e `service/graph.go`. Restam três `strings.ToLower` soltos em
+`query.go` (`:263`, `:424`, `:428`) — os três são parâmetro de consulta
+(`mode`, `order`, `sort`), a classe que este documento já classificava como
+certa acima.
+
 ---
 
 ## O que não separar
@@ -129,6 +136,9 @@ quantas tags do corpus não são ASCII.
 ## Se virar tarefa
 
 Só o item 1 tem ganho medível: uma superfície de codec em vez de duas, um
-formato a versionar em vez de dois. Os itens 2 e 3 são registro — o 2 porque a
-recomendação é **não** unificar tudo, e essa decisão precisa estar escrita para
-não ser retomada do zero; o 3 porque falta a medição que diria se vale.
+formato a versionar em vez de dois. O item 2 está fechado (Tasks 171/172) e o
+item 3 também (Task 180); os dois ficam como registro — o 2 porque a
+recomendação foi **não** unificar tudo, e essa decisão precisa estar escrita
+para não ser retomada do zero; o 3 porque o que restou depois do fechamento
+(os três `strings.ToLower` de parâmetro de consulta) já era classificado como
+certo.

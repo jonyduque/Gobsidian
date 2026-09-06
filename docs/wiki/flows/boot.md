@@ -1,12 +1,13 @@
 ---
 title: Fluxo de boot
 type: flow
-status: active
+status: stale
 description: O que roda entre o host lançar o processo e as tools serem anunciadas.
 source_paths:
   - cmd/gobsidian/serve.go
-  - cmd/gobsidian/servico.go
   - cmd/gobsidian/ponte.go
+  - internal/boot/montar.go
+  - internal/boot/vigia.go
 source_commit: f7de8e81
 tags: [boot, inicializacao]
 language: pt-BR
@@ -15,18 +16,25 @@ updated_at: '2026-08-31'
 
 # Fluxo de boot
 
+> **Nota (2026-09-06):** `cmd/gobsidian/servico.go` foi extraído para
+> `internal/boot` (Task 174) e não existe mais; `construirServico` virou
+> `boot.Montar`, `invertedCacheState` virou `boot.estadoDoCache` e
+> `buildInvertedIndex` virou `boot.construirBusca`. Os nomes abaixo foram
+> corrigidos, mas a página não foi re-derivada por completo contra o `boot`
+> atual — daí `status: stale`.
+
 ```
 runServe
  └─ servePonte                          decide ponte ou processo
      ├─ ipc.DialAndHandshake            daemon vivo? → copia bytes e acabou
      ├─ daemon.EnsureStarted            ganhou a corrida? lança um
      └─ serveEmProcesso                 fallback obrigatório
-         ├─ lifecycle.New               os três mecanismos de encerramento
-         ├─ construirServico            ⟵ o miolo
+         ├─ boot.VigiarHost             pipe + espelho + os três mecanismos de encerramento
+         ├─ boot.Montar                 ⟵ o miolo
          └─ mcpsrv.New + srv.Serve
 ```
 
-`construirServico` (`cmd/gobsidian/servico.go`) é compartilhada entre o modo em
+`boot.Montar` (`internal/boot/montar.go`) é compartilhada entre o modo em
 processo e o daemon **de propósito**: as duas precisam da mesma sequência, e
 sequência de boot construída em dois lugares tem o mesmo risco de divergência que
 chave de mapa calculada em dois lugares.
@@ -80,11 +88,11 @@ com retentativa se falhar (`service.cargaUnica`).
 
 ## Cache parcial
 
-`invertedCacheState` decide o que fazer com o que veio do disco:
+`boot.estadoDoCache` decide o que fazer com o que veio do disco:
 
 - **pronta** — `hdr.NoteCount >= idx.NoteCount()`: cobre o cofre inteiro.
 - **retomar** — utilizável mas incompleto; serve de ponto de partida, e
-  `buildInvertedIndex` só lê do disco o que `HasDoc` ainda não cobre.
+  `boot.construirBusca` só lê do disco o que `HasDoc` ainda não cobre.
 
 A comparação é `>=` e não `==` porque notas apagadas deixam entradas velhas no
 cache; as sobras não vazam para o resultado porque a busca só devolve o que o

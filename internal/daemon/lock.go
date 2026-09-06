@@ -116,8 +116,10 @@ const (
 	sufixoTravaDeEscuta = ".listen.lock"
 )
 
-// EhArquivoDeTrava diz se um nome de arquivo no diretorio de runtime e uma
-// das duas travas de daemon. E a unica conta; o doctor a consome.
+// EhArquivoDeTrava diz se um nome de arquivo no diretorio de runtime e
+// qualquer arquivo ".lock" (o diretorio de runtime e so do produto, entao
+// isso cobre as duas travas de daemon sem precisar dos dois sufixos). E a
+// unica conta; o doctor a consome.
 func EhArquivoDeTrava(nome string) bool {
 	return strings.HasSuffix(nome, sufixoTrava) // ".listen.lock" tambem termina em ".lock"
 }

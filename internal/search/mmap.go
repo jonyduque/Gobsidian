@@ -155,8 +155,8 @@ func leRodape(dados []byte) (offset, count uint64, ok bool) {
 // rename falha no Windows (ERROR_SHARING_VIOLATION) se o processo ainda tem o
 // arquivo de destino mapeado. Promover para o heap primeiro custa uma cópia —
 // ~291 MB no cofre de referência — mas só no caminho raro em que isto pode
-// acontecer: cache PARCIAL retomado (ver invertedCacheState em
-// cmd/gobsidian/serve.go) e depois regravado por buildInvertedIndex. No
+// acontecer: cache PARCIAL retomado (ver boot.estadoDoCache em
+// internal/boot/busca.go) e depois regravado por boot.construirBusca. No
 // caminho comum — cache completo, "pronta" — SaveInvertedCache nunca roda de
 // novo neste processo depois da carga, então esta função não faz nada.
 //
