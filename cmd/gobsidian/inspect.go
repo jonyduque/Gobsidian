@@ -6,9 +6,9 @@ import (
 	"strings"
 	"time"
 
+	"github.com/jonyd/gobsidian/internal/boot"
 	"github.com/jonyd/gobsidian/internal/config"
 	"github.com/jonyd/gobsidian/internal/console"
-	"github.com/jonyd/gobsidian/internal/index"
 	"github.com/jonyd/gobsidian/internal/vault"
 	"github.com/spf13/cobra"
 )
@@ -44,8 +44,9 @@ func newInspectCmd() *cobra.Command {
 				return err
 			}
 
-			idx := index.New()
-			if err := idx.Build(cmd.Context(), v); err != nil {
+			log := loggerDeCLI(cmd, cfg)
+			idx, _, err := boot.AbrirIndice(cmd.Context(), v, cfg, log)
+			if err != nil {
 				return err
 			}
 
@@ -124,6 +125,8 @@ func newInspectCmd() *cobra.Command {
 	cmd.Flags().BoolVar(&jsonOutput, "json", false, "saida estruturada em formato JSON")
 	cmd.Flags().BoolVar(&flags.FollowSymlinks, "follow-symlinks", false,
 		"segue symlink dentro do cofre; o padrao recusa, porque o confinamento nao alcanca o alvo")
+	cmd.Flags().StringVar(&flags.CacheDir, "cache-dir", "", "diretorio do cache de indice")
+	cmd.Flags().StringVar(&flags.LogLevel, "log-level", "", "debug, info, warn ou error")
 
 	return cmd
 }

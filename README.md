@@ -202,9 +202,9 @@ A flag declared by a subcommand but never read by it promises a contract the cod
 |---|---|---|
 | `--vault <path>` | Vault root. Required. | all |
 | `--read-only` | Removes the entire write surface. | `serve`, `daemon`, `doctor` |
-| `--cache-dir <path>` | Cache directory. Default: a hash of the vault path, always **outside** it. | `serve`, `search`, `daemon` |
+| `--cache-dir <path>` | Cache directory. Default: a hash of the vault path, always **outside** it. | `serve`, `search`, `daemon`, `index`, `inspect` |
 | `--debounce-ms <n>` | Watcher coalescing window. | `serve`, `daemon`, `doctor` |
-| `--log-level <level>` | `debug`, `info`, `warn` or `error`. | `serve`, `search`, `daemon` |
+| `--log-level <level>` | `debug`, `info`, `warn` or `error`. | `serve`, `search`, `daemon`, `index`, `inspect` |
 | `--eager-search` | Loads the search index at boot. Default: lazy — most sessions read and write without ever searching. | `serve`, `daemon` |
 | `--max-results <n>` | Caps results per query. | `serve`, `search`, `daemon`, `doctor` |
 | `--follow-symlinks` | Follows a symlink inside the vault; the default refuses, because confinement doesn't reach the target. | all |
@@ -265,6 +265,8 @@ gobsidian inspect "Folder/Note.md" --vault "/vault" --json    # how the note was
 
 > [!TIP]
 > 🩺 `gobsidian doctor` is the first command to run when something does not work: unreachable vault, permissions, cloud-only OneDrive files, paths over 260 characters, and casing collisions.
+
+`index` and `inspect` open the metadata index the same way `serve` does: from the cache when it is fresh, built from the vault otherwise. `index --json` reports which one happened in `origin` (`"build"` on the first run against a vault, `"cache"` once a fresh cache exists at `--cache-dir`).
 
 **Output.** Coloured in a terminal, plain text when redirected — `doctor > report.txt` writes a clean file. The decision is per destination, so a redirected `stdout` does not strip colour from `stderr`. `NO_COLOR` turns everything off. The markers `[OK]`, `[!]`, `[i]`, `[*]` and `[...]` are pure ASCII, and colour only reinforces them.
 

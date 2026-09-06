@@ -2735,3 +2735,27 @@ a rodada foi feita em outro estado de disco/máquina, e a primeira chamada
 cofre ainda estava frio nela e já estava quente nas cinco seguintes. O
 detalhamento das 12 linhas e o binário usado estão em `docs/ESTADO.md`
 ("medições publicadas").
+
+---
+
+## `index` e `inspect` de CLI também abrem pelo cache (2026-09-06, Task 176)
+
+Mesma troca que a Task 175 fez em `search`: `index` e `inspect` construíam o
+índice de metadados do zero a cada chamada (`index.New()` + `Build`), mesmo
+que `serve` ou uma chamada anterior de `search`/`index` já tivessem gravado o
+cache do mesmo cofre. Os dois passaram a abrir via `boot.AbrirIndice` — cache
+quando `VerifyFreshness` confirma, construído e gravado quando não — e
+ganharam `--cache-dir`/`--log-level`, que só `serve`, `search` e `daemon`
+tinham.
+
+`index --json` reporta qual dos dois caminhos aconteceu no campo `origin`
+(`"build"` ou `"cache"`), na mesma conta que já sai no log `index_origin` de
+`serve`. `inspect` também abre pelo cache mas não expõe a origem — não há
+"resumo da indexação" para anexar o campo, só a nota inspecionada.
+
+As quatro flags que `index`, `inspect`, `search`, `serve`, `daemon` e `doctor`
+registravam repetindo o mesmo texto seis vezes (`--vault`, `--follow-symlinks`
+em todos; `--cache-dir`, `--log-level` em quem lê índice) passaram a vir de
+duas funções únicas em `cmd/gobsidian/flags.go` — `flagsDeCofre` e
+`flagsDeCache` — para que o texto de ajuda pare de divergir quando alguém
+edita um dos seis arquivos e esquece os outros cinco.

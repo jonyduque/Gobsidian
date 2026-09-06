@@ -5,15 +5,16 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/jonyd/gobsidian/internal/boot"
 	"github.com/jonyd/gobsidian/internal/config"
 	"github.com/jonyd/gobsidian/internal/console"
-	"github.com/jonyd/gobsidian/internal/index"
 	"github.com/jonyd/gobsidian/internal/vault"
 	"github.com/spf13/cobra"
 )
 
 type indexSummaryJSON struct {
 	VaultPath  string `json:"vault_path"`
+	Origin     string `json:"origin"`
 	Notes      int    `json:"notes"`
 	Assets     int    `json:"assets"`
 	Tags       int    `json:"tags"`
@@ -39,9 +40,10 @@ func newIndexCmd() *cobra.Command {
 				return err
 			}
 
-			idx := index.New()
+			log := loggerDeCLI(cmd, cfg)
 			start := time.Now()
-			if err := idx.Build(cmd.Context(), v); err != nil {
+			idx, origem, err := boot.AbrirIndice(cmd.Context(), v, cfg, log)
+			if err != nil {
 				return err
 			}
 			dur := time.Since(start)
@@ -58,6 +60,7 @@ func newIndexCmd() *cobra.Command {
 			if jsonOutput {
 				res := indexSummaryJSON{
 					VaultPath:  cfg.VaultPath,
+					Origin:     origem,
 					Notes:      notes,
 					Assets:     assets,
 					Tags:       tags,
@@ -74,6 +77,7 @@ func newIndexCmd() *cobra.Command {
 
 			con := console.New(out)
 			con.OK("Indexacao concluida em %d ms", dur.Milliseconds())
+			con.Item("Origem: %s", origem)
 			con.Item("Notas: %d", notes)
 			con.Item("Anexos: %d", assets)
 			con.Item("Tags: %d", tags)
@@ -86,6 +90,8 @@ func newIndexCmd() *cobra.Command {
 	cmd.Flags().BoolVar(&jsonOutput, "json", false, "saida estruturada em formato JSON")
 	cmd.Flags().BoolVar(&flags.FollowSymlinks, "follow-symlinks", false,
 		"segue symlink dentro do cofre; o padrao recusa, porque o confinamento nao alcanca o alvo")
+	cmd.Flags().StringVar(&flags.CacheDir, "cache-dir", "", "diretorio do cache de indice")
+	cmd.Flags().StringVar(&flags.LogLevel, "log-level", "", "debug, info, warn ou error")
 
 	return cmd
 }

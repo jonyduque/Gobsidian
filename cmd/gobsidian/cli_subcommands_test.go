@@ -38,7 +38,7 @@ func TestIndexCmd_StdoutAndJSON(t *testing.T) {
 	var stdout, stderr bytes.Buffer
 	cmd.SetOut(&stdout)
 	cmd.SetErr(&stderr)
-	cmd.SetArgs([]string{"--vault", vaultDir})
+	cmd.SetArgs([]string{"--vault", vaultDir, "--cache-dir", t.TempDir()})
 
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("index Execute: %v", err)
@@ -57,7 +57,7 @@ func TestIndexCmd_StdoutAndJSON(t *testing.T) {
 	var stdoutJSON, stderrJSON bytes.Buffer
 	cmdJSON.SetOut(&stdoutJSON)
 	cmdJSON.SetErr(&stderrJSON)
-	cmdJSON.SetArgs([]string{"--vault", vaultDir, "--json"})
+	cmdJSON.SetArgs([]string{"--vault", vaultDir, "--cache-dir", t.TempDir(), "--json"})
 
 	if err := cmdJSON.Execute(); err != nil {
 		t.Fatalf("index --json Execute: %v", err)
@@ -127,7 +127,7 @@ func TestInspectCmd_StdoutAndJSON(t *testing.T) {
 	var stdout, stderr bytes.Buffer
 	cmd.SetOut(&stdout)
 	cmd.SetErr(&stderr)
-	cmd.SetArgs([]string{"--vault", vaultDir, "nota2.md"})
+	cmd.SetArgs([]string{"--vault", vaultDir, "--cache-dir", t.TempDir(), "nota2.md"})
 
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("inspect Execute: %v", err)
@@ -145,7 +145,7 @@ func TestInspectCmd_StdoutAndJSON(t *testing.T) {
 	var stdoutJSON, stderrJSON bytes.Buffer
 	cmdJSON.SetOut(&stdoutJSON)
 	cmdJSON.SetErr(&stderrJSON)
-	cmdJSON.SetArgs([]string{"--vault", vaultDir, "nota2.md", "--json"})
+	cmdJSON.SetArgs([]string{"--vault", vaultDir, "--cache-dir", t.TempDir(), "nota2.md", "--json"})
 
 	if err := cmdJSON.Execute(); err != nil {
 		t.Fatalf("inspect --json Execute: %v", err)
