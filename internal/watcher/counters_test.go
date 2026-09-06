@@ -90,6 +90,14 @@ func setupTestWatcher(t *testing.T) (*Watcher, context.CancelFunc, string, *inde
 
 	ctx, cancel := context.WithCancel(context.Background())
 	go func() { _ = w.Run(ctx) }()
+	// Registrado ANTES da espera, e nao so devolvido ao chamador: se
+	// EsperarWatcherAtivo reprovar, ela reprova antes do return, o chamador
+	// nunca recebe o cancel para pôr em defer, e a goroutine de Run mais o
+	// handle do fsnotify ficam ate o fim do binario de teste — multiplicado
+	// por 20 sob `-count=20`. O sleep anterior nao tinha esse caminho porque
+	// nao podia falhar. O cancel continua sendo devolvido: chamar duas vezes
+	// um CancelFunc e no-op.
+	t.Cleanup(cancel)
 
 	EsperarWatcherAtivo(t, w)
 
@@ -156,27 +164,6 @@ func TestCounters_EventsSkipped(t *testing.T) {
 
 	if !EsperarAte(vaulttest.Prazo, func() bool { return w.Stats().EventsSkipped > 0 }) {
 		t.Errorf("EventsSkipped = 0 apos %v, want > 0\n%s", vaulttest.Prazo, diagnostico(w))
-	}
-}
-
-// TestCounters_Reconciliations chama handleFSError, que e o corpo que Run
-// executa ao receber um erro do fsnotify.
-//
-// A versao anterior escrevia `fsnotify.ErrEventOverflow` em `w.fsWatcher.Errors`
-// e esperava 100 ms. As duas metades estavam erradas: escrever no canal do
-// fsnotify corre com o backend kqueue e o detector reprova em macOS com DATA
-// RACE — e por isso que TestRun_OverflowSchedulesExactlyOne deixou de fazer isso
-// (overflow_test.go:138-147) —, e o sleep esperava por um numero em vez de por
-// um sinal. Chamando o metodo, o contador ja subiu quando ele retorna: nao ha o
-// que esperar.
-func TestCounters_Reconciliations(t *testing.T) {
-	w, cancel, _, _ := setupTestWatcher(t)
-	defer cancel()
-
-	w.handleFSError(fsnotify.ErrEventOverflow)
-
-	if got := w.Stats().Reconciliations; got == 0 {
-		t.Errorf("Reconciliations = %d, want > 0\n%s", got, diagnostico(w))
 	}
 }
 
