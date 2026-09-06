@@ -119,6 +119,37 @@ type SearchResult struct {
 	TrechosIndisponiveis int `json:"unavailable_snippets,omitempty"`
 }
 
+// resultadoVazio e a pagina sem nenhum hit — a resposta dos tres caminhos que
+// terminam cedo: consulta que nao produz token, offset alem do total na busca
+// full-text e offset alem do total na busca so por metadados.
+//
+// Os tres montavam o mesmo literal, e as fatias precisam ser NAO-nil: `results`
+// nao tem omitempty, entao nil sairia como `null` no JSON onde o contrato diz
+// lista vazia. Um dos tres esquecer isso e uma resposta que so quebra no
+// caminho menos usado.
+func resultadoVazio(total int, opts SearchOptions) SearchResult {
+	return SearchResult{
+		Hits:                []SearchHit{},
+		Results:             []SearchHit{},
+		Total:               total,
+		Truncated:           false,
+		SnippetCharsEfetivo: opts.SnippetChars,
+		LimitEfetivo:        opts.Limit,
+	}
+}
+
+// pagina devolve o fim da fatia da pagina e se sobrou resultado de fora.
+//
+// Uma conta so para os dois caminhos que paginam. Exige offset < total, que e o
+// que o chamador ja conferiu para poder devolver resultadoVazio antes.
+func pagina(offset, limit, total int) (fim int, truncou bool) {
+	fim = offset + limit
+	if fim < total {
+		return fim, true
+	}
+	return total, false
+}
+
 // Search executa a busca full-text com ranking BM25 e filtros de metadados.
 func (s *Service) Search(ctx context.Context, opts SearchOptions) (SearchResult, error) {
 	// garanteIndiceDeBusca dispara o carregamento do índice de busca na
@@ -189,14 +220,7 @@ func (s *Service) Search(ctx context.Context, opts SearchOptions) (SearchResult,
 	}
 
 	if len(queryTokens) == 0 {
-		return SearchResult{
-			Hits:                []SearchHit{},
-			Results:             []SearchHit{},
-			Total:               0,
-			Truncated:           false,
-			SnippetCharsEfetivo: opts.SnippetChars,
-			LimitEfetivo:        opts.Limit,
-		}, nil
+		return resultadoVazio(0, opts), nil
 	}
 
 	var idxImpl *index.Index
@@ -228,7 +252,9 @@ func (s *Service) Search(ctx context.Context, opts SearchOptions) (SearchResult,
 		hit  search.Result
 		note *index.Note
 	}
-	var filteredHits []hitComNota
+	// Capacidade de len(rawHits): o filtro so remove, nunca acrescenta, entao
+	// esse e o teto exato e a fatia nunca cresce no meio do laco.
+	filteredHits := make([]hitComNota, 0, len(rawHits))
 	for _, hit := range rawHits {
 		note, ok := s.index.Get(vault.CanonicalPath(hit.Path))
 		if !ok {
@@ -248,24 +274,10 @@ func (s *Service) Search(ctx context.Context, opts SearchOptions) (SearchResult,
 
 	total := len(filteredHits)
 	if opts.Offset >= total {
-		return SearchResult{
-			Hits:                []SearchHit{},
-			Results:             []SearchHit{},
-			Total:               total,
-			Truncated:           false,
-			SnippetCharsEfetivo: opts.SnippetChars,
-			LimitEfetivo:        opts.Limit,
-		}, nil
+		return resultadoVazio(total, opts), nil
 	}
 
-	end := opts.Offset + opts.Limit
-	truncated := false
-	if end < total {
-		truncated = true
-	} else {
-		end = total
-	}
-
+	end, truncated := pagina(opts.Offset, opts.Limit, total)
 	pagedHits := filteredHits[opts.Offset:end]
 
 	// Um slot por hit, preenchido pelo índice: a ordem do resultado é a ordem
@@ -390,24 +402,10 @@ func (s *Service) searchMetadataOnly(opts SearchOptions) (SearchResult, error) {
 
 	notes, total := s.index.List(q)
 	if opts.Offset >= total {
-		return SearchResult{
-			Hits:                []SearchHit{},
-			Results:             []SearchHit{},
-			Total:               total,
-			Truncated:           false,
-			SnippetCharsEfetivo: opts.SnippetChars,
-			LimitEfetivo:        opts.Limit,
-		}, nil
+		return resultadoVazio(total, opts), nil
 	}
 
-	end := opts.Offset + opts.Limit
-	truncated := false
-	if end < total {
-		truncated = true
-	} else {
-		end = total
-	}
-
+	end, truncated := pagina(opts.Offset, opts.Limit, total)
 	paged := notes[opts.Offset:end]
 	results := make([]SearchHit, 0, len(paged))
 

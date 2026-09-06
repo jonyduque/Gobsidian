@@ -560,6 +560,28 @@ func (s *Service) MoveNote(ctx context.Context, req MoveNoteRequest) (MoveNoteRe
 		return affectedKeys[i] < affectedKeys[j]
 	})
 
+	var rewrittenList []string
+	var linksUpdatedCount int
+
+	// moveNoteErro monta o resultado PARCIAL que acompanha uma falha depois que
+	// o move ja comecou. Os cinco sitios montavam o mesmo literal a mao, e tres
+	// deles tinham de lembrar de reportar o que ja fora reescrito — quem
+	// esquecesse devolveria "nenhum link atualizado" sobre um cofre em que
+	// alguns ja estavam.
+	//
+	// Fecha sobre rewrittenList e linksUpdatedCount de proposito: elas crescem
+	// durante o laco, e o que o chamador precisa saber e quanto tinha sido feito
+	// no instante da falha.
+	moveNoteErro := func(err error) (MoveNoteResult, error) {
+		return MoveNoteResult{
+			From:          string(canonicalFrom),
+			To:            string(canonicalTo),
+			Rewritten:     rewrittenList,
+			LinksUpdated:  linksUpdatedCount,
+			BrokenAnchors: brokenAnchors,
+		}, err
+	}
+
 	// O diretorio de destino precisa existir ANTES do move do corpo.
 	//
 	// Ele era criado depois, o que funcionava enquanto o corpo se movia por
@@ -568,11 +590,7 @@ func (s *Service) MoveNote(ctx context.Context, req MoveNoteRequest) (MoveNoteRe
 	// specified" — pego pelos testes de move existentes, nao por leitura.
 	if _, err := os.Stat(dirTo); os.IsNotExist(err) {
 		if err := os.MkdirAll(dirTo, 0755); err != nil {
-			return MoveNoteResult{
-				From:          string(canonicalFrom),
-				To:            string(canonicalTo),
-				BrokenAnchors: brokenAnchors,
-			}, Errorf(CodeInternal, "criando diretorio %q: %v", dirTo, err)
+			return moveNoteErro(Errorf(CodeInternal, "criando diretorio %q: %v", dirTo, err))
 		}
 	}
 
@@ -588,15 +606,8 @@ func (s *Service) MoveNote(ctx context.Context, req MoveNoteRequest) (MoveNoteRe
 	// recuperavel, em vez de nota duplicada, que e silenciosa. Nao e nada de
 	// graca — e menos grave, e esta escrito.
 	if err := s.moverCorpo(ctx, canonicalFrom, canonicalTo, absTo); err != nil {
-		return MoveNoteResult{
-			From:          string(canonicalFrom),
-			To:            string(canonicalTo),
-			BrokenAnchors: brokenAnchors,
-		}, err
+		return moveNoteErro(err)
 	}
-
-	var rewrittenList []string
-	var linksUpdatedCount int
 
 	for _, refPath := range affectedKeys {
 		replacements := affectedNotes[refPath]
@@ -605,36 +616,18 @@ func (s *Service) MoveNote(ctx context.Context, req MoveNoteRequest) (MoveNoteRe
 		raw, err := os.ReadFile(absRef)
 		if err != nil {
 			unlock()
-			return MoveNoteResult{
-				From:          string(canonicalFrom),
-				To:            string(canonicalTo),
-				Rewritten:     rewrittenList,
-				LinksUpdated:  linksUpdatedCount,
-				BrokenAnchors: brokenAnchors,
-			}, Errorf(CodeInternal, "lendo nota %q: %v", refPath, err)
+			return moveNoteErro(Errorf(CodeInternal, "lendo nota %q: %v", refPath, err))
 		}
 
 		rewritten, err := writer.RewriteLinks(raw, replacements)
 		if err != nil {
 			unlock()
-			return MoveNoteResult{
-				From:          string(canonicalFrom),
-				To:            string(canonicalTo),
-				Rewritten:     rewrittenList,
-				LinksUpdated:  linksUpdatedCount,
-				BrokenAnchors: brokenAnchors,
-			}, Errorf(CodeInternal, "reescrevendo links em %q: %v", refPath, err)
+			return moveNoteErro(Errorf(CodeInternal, "reescrevendo links em %q: %v", refPath, err))
 		}
 
 		if err := writer.WriteAtomic(ctx, absRef, rewritten); err != nil {
 			unlock()
-			return MoveNoteResult{
-				From:          string(canonicalFrom),
-				To:            string(canonicalTo),
-				Rewritten:     rewrittenList,
-				LinksUpdated:  linksUpdatedCount,
-				BrokenAnchors: brokenAnchors,
-			}, Errorf(CodeInternal, "escrevendo nota %q: %v", refPath, err)
+			return moveNoteErro(Errorf(CodeInternal, "escrevendo nota %q: %v", refPath, err))
 		}
 
 		unlock()
