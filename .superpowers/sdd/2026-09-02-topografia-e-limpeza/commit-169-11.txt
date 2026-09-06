@@ -1,0 +1,43 @@
+revert(service): TagNode.Children goes back to []any — the SDK rejects the cycle
+
+O commit 06c8640 trocou TagNode.Children de []any por []TagNode com a
+afirmacao de que o JSON de saida nao mudava. O JSON realmente nao mudou — o
+golden de tag_list continuou batendo byte a byte, e o pacote service passou
+inteiro, com -race. O que mudou foi outra coisa: o SDK de MCP gera o schema de
+SAIDA de cada tool por reflexao sobre o tipo, e um tipo que se referencia a si
+mesmo o faz entrar em panico na REGISTRACAO da tool.
+
+    panic: AddTool: tool "tag_list": output schema: ForType(service.TagResult):
+    computing element schema: computing element schema: cycle detected for type
+    service.TagNode
+
+Isso e o servidor nao subir. Quem pegou foi `go test -race ./...` no gate,
+em internal/mcpsrv (TestDefault_NoteCreateCreatesFoldersWhenOmitted) e em
+internal/daemon (TestAcceptLoopSobreviveAErroTransitorio), os dois pelo mesmo
+panico em mcpsrv.New. Nenhum teste de internal/service podia peg -lo, e o
+golden tampouco: o defeito nao esta na resposta, esta no schema que a
+descreve.
+
+Voltam o campo []any, o type-assert de ordenarTags e o encaixotamento de
+convert. O motivo fica escrito no tipo, com o texto do panico, para que a
+proxima limpeza mecanica nao refaca a troca — ela parece uma melhoria obvia
+por todos os sinais locais.
+
+O item 3 (contagem por nota em tagListHierarchical) NAO e revertido: ele nao
+depende do tipo de Children. Com a arvore neste estado, benchstat com 7
+amostras INTERCALADAS por lado, antes_service.test.exe do commit 2307cf3
+contra depois169_service.test.exe:
+
+    TagListHierarquico-12  sec/op     3.715m +/- 3%   ->  2.773m +/- 11%  -25.35% (p=0.001 n=7)
+    TagListHierarquico-12  B/op       1053.9Ki +/- 0% ->  262.2Ki +/- 0%  -75.12% (p=0.001 n=7)
+    TagListHierarquico-12  allocs/op  10.879k +/- 0%  ->  9.998k +/- 0%    -8.10% (p=0.001 n=7)
+    TagListPlano-12        sec/op     20.10u +/- 23%  ->  19.87u +/- 38%   ~ (p=0.805 n=7)
+    TagListPlano-12        B/op       13.35Ki +/- 0%  ->  13.35Ki +/- 0%   ~ (p=1.000 n=7)
+    TagListPlano-12        allocs/op  9.000 +/- 0%    ->  9.000 +/- 0%     ~ (p=1.000 n=7)
+
+O golden de tag_list segue byte a byte (-count=4), e agora ele cobre as duas
+formas do campo: foi gravado com []any, passou com []TagNode e voltou a passar
+com []any.
+
+Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01P5wkw6PAdBFzF3uB1w1jNj

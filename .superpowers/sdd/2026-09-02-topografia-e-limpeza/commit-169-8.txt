@@ -1,0 +1,28 @@
+refactor(index): TotalSize takes the read lock on the memoized hit
+
+O acerto da memorizacao so LE um int64, e tomava o lock de ESCRITA para isso.
+Duas chamadas concorrentes de vault_stats se serializavam, e cada uma delas
+disputava o mesmo mutex que o watcher precisa para aplicar um evento — tudo
+para devolver um numero ja calculado.
+
+Agora o acerto sai sob RLock e so o preenchimento toma o Lock. A armadilha
+desta forma e assumir que o miss continua sendo miss depois de soltar o
+RLock: entre soltar um e tomar o outro, outro leitor pode ter preenchido a
+memorizacao para esta mesma geracao. Por isso a conferencia acontece duas
+vezes, e a segunda e a que decide. Gravar sob RLock, que seria a versao
+"simples", e a corrida de dados que o comentario antigo recusava — e ela
+continua recusada.
+
+benchstat, 7 amostras INTERCALADAS por lado, antes_index.test.exe do commit
+2307cf3 contra depois169_index.test.exe desta arvore:
+
+    TotalSizeRepetido-12  sec/op     40.69n +/- 8% ->  22.05n +/- 9%  -45.81% (p=0.001 n=7)
+    TotalSizeRepetido-12  B/op       0.000 +/- 0%  ->  0.000 +/- 0%   ~ (p=1.000 n=7)
+    TotalSizeRepetido-12  allocs/op  0.000 +/- 0%  ->  0.000 +/- 0%   ~ (p=1.000 n=7)
+
+O benchmark e serial, entao o que ele mede e so o custo do lock por chamada;
+o ganho de contencao, que e o motivo da mudanca, nao tem harness aqui e NAO
+foi medido.
+
+Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01P5wkw6PAdBFzF3uB1w1jNj

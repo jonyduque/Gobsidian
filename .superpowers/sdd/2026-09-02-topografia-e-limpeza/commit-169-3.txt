@@ -1,0 +1,31 @@
+refactor(service): TagNode.Children is []TagNode, JSON unchanged
+
+O filho de um no de tag so pode ser outro no de tag, e o campo dizia []any.
+O preco era um type-assert por filho a cada ordenacao mais um write-back, e
+um assert que falhasse gravaria um TagNode zerado no lugar do filho — em
+silencio, porque o `ok` era descartado. Com []TagNode ordenarTags recursa
+direto e convert nao encaixota.
+
+O JSON de saida e o mesmo: `omitempty` omite tanto o nil de antes quanto a
+fatia vazia que convert agora devolve para uma folha. Nao e afirmacao, e
+golden: testdata/tag_list_hierarquico.json, gravado no commit anterior a
+partir do codigo antigo, continua batendo byte a byte (conferido com
+-count=4). Provado nao-vacuo: com `Children: nil` em convert o teste falha e
+nomeia o campo; restaurado, passa.
+
+benchstat, 7 amostras INTERCALADAS por lado, antes_service.test.exe do
+commit 2307cf3 contra depois169_service.test.exe desta arvore:
+
+    TagListPlano-12        sec/op     19.71u +/- 7%  ->  20.41u +/- 2%  ~ (p=0.155 n=7)
+    TagListHierarquico-12  sec/op     3.632m +/- 4%  ->  3.601m +/- 4%  ~ (p=0.902 n=7)
+    TagListPlano-12        allocs/op  9.000 +/- 0%   ->  9.000 +/- 0%   ~ (p=1.000 n=7)
+    TagListHierarquico-12  allocs/op  10.88k +/- 0%  ->  10.88k +/- 0%  ~ (p=1.000 n=7)
+
+A alocacao nao cai, e o motivo esta medido, nao suposto: o cofre de
+benchmark nao tem tag hierarquica nenhuma — as tags vem do frontmatter e
+nenhuma delas contem "/" (`grep -rhoE '^tags: \[.*\]'` sobre vault_5000 da
+so nomes simples: teste, tarefa, revisao, ...). Sem filho nao havia
+encaixotamento para economizar, e o veredito ~ e o esperado.
+
+Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01P5wkw6PAdBFzF3uB1w1jNj

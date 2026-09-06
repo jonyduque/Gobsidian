@@ -1,0 +1,6 @@
+docs(estrutura): list the tag_list golden in the testdata tree; date the golden proof in the 169 report
+
+Review 169 N1 and N5. Review file and package recorded.
+
+Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01P5wkw6PAdBFzF3uB1w1jNj

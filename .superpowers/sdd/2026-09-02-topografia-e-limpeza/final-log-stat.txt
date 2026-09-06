@@ -1,0 +1,285 @@
+5c613d5 docs(sdd): record the Task 181 review and its fix round
+7d4d684 test(index): the codec round-trip covers the typed-nil slice, truncation asserts the sentinel
+b2561e0 test(index): white-box tests for the metadata cache codec
+833906f docs(sdd): record the Task 180 review, the fix round and the ruling on tag_list.prefix
+aa8ec0b fix(index): tag_list.prefix is documented as the string prefix it is; the prefix folding gets its test
+c08c70c docs(sugestoes): track the parser's NFD tag truncation as B20
+18d9da4 feat(index)!: one tag key - case, NFC, no hash - hierarchical in note_list, vault_search and tag_list
+937e54c test(service): benchmark vault_search with a tags filter [sem-doc]
+4ee5db8 docs(sdd): record the Tasks 178 and 179 review and the fix round
+503b94c test(mcpsrv): the include schema must name exactly the values the service accepts [sem-doc]
+9803b01 feat(service)!: vault_search returns results only
+b6cf8be docs(tools): describe the schema the server actually serves; limits and enums are enforced server-side
+364a3df fix(service): note_metadata rejects unknown include values
+849dbb4 docs(sdd): record the Task 177 review, the fix round and the orphans gate log
+ff8f234 test(boot): the close-pipe step must actually reach the stdin watch [sem-doc]
+b52b441 refactor(boot): host watch and shutdown steps shared by serve, bridge and daemon
+5e89964 docs(sdd): record the Task 176 review and its package
+8a11cec refactor(cli): register shared vault flags once [sem-doc]
+022d2ef feat(cli): index and inspect load from the cache
+6b70721 docs(sdd): record the Task 175 review and its package
+8d3626e feat(cli): search loads the index and the search cache like serve does
+ebf29ad docs(sdd): record the Task 174 review, the fix round and the orphans gate logs
+33cff51 docs(boot): say who calls boot today, qualify the eager-only ordering, name Montar in §7.5
+eac13c9 refactor(boot): assemble vault, index, search and service in one testable package
+7119645 docs(sdd): record the Task 173 review, paste the benchstat the report described
+c1ef235 refactor(service): take *index.Index directly; the interface had one implementation and no fake
+c28bc86 docs(sdd): record the Task 172 review, the fix round and their packages
+68c0bc5 docs: retire the forwarders from the normative docs, name the fsync in the bench comments
+ae619cf refactor: callers use vault atomic write; caches replace through vault.ReplaceFile with fsync
+011042f docs(sdd): record the Task 171 review and its package
+4d7f397 refactor(vault): atomic replace, write and temp sweep move to vault; writer forwards
+8a70044 docs(sdd): record the Task 170 review and its packages
+5a1c320 test(search,writer): name the tests that actually guard removeLocked, pin the rewrite boundaries
+dcae200 docs(sdd): close the Task 170 progress log through the audit and the commit
+314d930 docs(sdd): Task 170 report -- two of five candidates cleared benchstat
+6ec12da perf(writer): rewrite every link in one pass instead of one buffer per link
+8e0670c perf(search): reverse doc->terms map makes delta removal O(terms of doc)
+a6521d1 docs(estrutura): list the tag_list golden in the testdata tree; date the golden proof in the 169 report
+383fd90 revert(service): TagNode.Children goes back to []any — the SDK rejects the cycle
+f91df07 refactor(writer): lock key delegates to the shared key account
+9bc99ba refactor(index): resolve reuses vivosLocked
+62783cc refactor(index): TotalSize takes the read lock on the memoized hit
+1456a5d refactor(service): one account for the hash format
+ba9927c refactor(service): one empty result, one pagination, one move error
+d7a11e8 fix(service): restore the leaf guard ordenarTags lost with []TagNode
+6227757 refactor(service): count tags once per note in tagListHierarchical
+06c8640 refactor(service): TagNode.Children is []TagNode, JSON unchanged
+4f3eb4c test(service): golden for the hierarchical tag_list JSON
+8268507 refactor(service): edge key as a struct, not a formatted string
+2307cf3 docs(sdd): record the batch 166-168 review and its packages
+230250c fix: correct a test comment that claimed a blocked refactor happened, and three nits
+6b45897 refactor(mcpsrv): stop re-applying defaults the service owns
+ca4cd0d refactor: move test-only exports out of the product into export_test.go
+e46654d refactor: delete dead code and the error code no path produces
+8f801f3 test: name the ponte race in the M8 test; surface Accept/Greet errors in the read-only handshake test
+a4a5464 docs(sdd): record the Task 165 commit SHA in the report
+524e070 test: counterweights for the accepted limit, the host-to-daemon bridge, the kernel lock offset, alias collisions and read-only handshake
+a7ee204 docs(task-164): the report stops claiming a version that never existed; CLAUDE.md explains the ninth grep line
+8568b5b test(watcher): cleanup on failed startup wait; drop the reconciliation test its neighbour subsumes; CLAUDE.md lists watcher among vaulttest importers
+4c6da0a test(ranking): the old golden was order-inert, not byte-inert; n0000 stops being the shortest note
+af93306 test(watcher): wait on observable signals instead of fixed sleeps; explicit mtime in delete test
+d12f84f test: ranking corpus that discriminates, backlink context beyond the link, map order and nil-index confounders
+a313f32 docs(task-161): record the fix round 1 commit SHA in the report
+6c1f217 test(search): the pool test is named for what it asserts; bm25 asserts the idf floor, not a 3% ordering
+44f2700 docs(sdd): record the fix round 2 commit SHA in the Task 163 report
+b19316d test: the rnf5000 vault path is a backslash, not a vertical tab; parity compacts only tag sets
+4ffaf50 docs(task-161): a Progresso line whose time was typed is not a record
+ebc0f12 docs(sdd): the Task 161 report carries the commit SHA it produced
+b3bcba0 test: audit thirteen sweep-flagged tests; fix the ones that could not fail, drop the redundant ones
+50fb0bc docs(sdd): the Task 163 ledger line carries the time date reported, not one I typed
+9629584 docs(sdd): record the fix round 1 commit SHA in the Task 163 report
+15c66fb test(rnf5000): comment numbers match the measurements; parity compacts tag sets; verify surfaces race lines and partial skip counts
+b1fc99d docs(claude-md): the vaulttest tree line carries the accents its neighbours do
+facfe32 docs(sdd): record the fix round 1 commit SHA in the Task 159 report
+4c08910 test(vaulttest): latency ceilings are not wait budgets; the POSIX unreadable-file proof; the counted history
+d622afd test: rnf5000 asserts its corpus and ceilings, parity compares both directions, budgets replace Logf
+ef2bbb4 test: remove five tests that could not fail, and make the ctx-cancel one able to
+5377559 docs(sdd): record the Task 159 commit SHA in the report
+c81b2b8 test(vaulttest): one exclusive-handle helper that proves it locks, and one wait budget
+86f07e5 docs(wiki): the search-cache alias landed on 2026-09-04, not 09-02
+574eb21 docs(wiki): the search cache derives magic and codec version from CacheFormatVersion too
+8bb4769 docs(readme): the flag table names every subcommand that declares each flag
+b354dcf docs(wiki): shutdownExitCode delegates to ipc.EhDesconexaoLimpa, os.ErrClosed is a clean disconnect
+b8ed7f6 fix(cli): search honours --max-results; index and inspect stop declaring flags they ignore
+3a1ab3e fix(service): a missing index is VAULT_UNAVAILABLE everywhere, and outline agrees with read
+b1f2cfe fix(search): the cache format version is one constant; magic and codec derive from it [sem-doc]
+7f2ac8d refactor(doctor): drop Status.Marker, the console package owns the markers [sem-doc]
+cceb980 fix(ipc): one account of a clean disconnect, and serve exits 0 on os.ErrClosed like the bridge does [sem-doc]
+5360a3b fix(doctor): list the listen lock too, deriving both lock suffixes and the log path from daemon [sem-doc]
+a637b7f fix(service): note_move dry-run drops the empty origin diff and fails on an unreadable referrer
+9fb5500 fix(service): trash moves the note instead of copying it, and the copy fallback refuses cloud placeholders
+8cfec55 fix(service): note_patch mode goes through ValidarEnum and the error lists the modes that exist
+4a06a24 fix(service): heading plus block_id in note_patch is the client's mistake, not the server's
+1a22508 fix(service): batch note_read carries section_synthetic like the single read does
+a74b766 docs(watcher): the root-failure comment names both forms WalkDir produces
+3dfcf8e fix(vault): a ReadDir failure on the scanned root is a root failure, not an unreadable entry
+40521d8 docs: add the 2026-09-02 topography and cleanup plan
+d5f784b test(bench): add analysis benchmarks and publish the 2026-09-02 baseline
+
+ CLAUDE.md                                          |   82 +-
+ README.md                                          |   28 +-
+ cmd/gobsidian/cli_log.go                           |   22 +
+ cmd/gobsidian/cli_subcommands_test.go              |   94 +-
+ cmd/gobsidian/console_saida_test.go                |   24 +-
+ cmd/gobsidian/daemon.go                            |   27 +-
+ cmd/gobsidian/doctor.go                            |    4 +-
+ cmd/gobsidian/flags.go                             |   22 +
+ cmd/gobsidian/index.go                             |   22 +-
+ cmd/gobsidian/index_origem_test.go                 |   44 +
+ cmd/gobsidian/inspect.go                           |   19 +-
+ cmd/gobsidian/ponte.go                             |   43 +-
+ cmd/gobsidian/ponte_test.go                        |  125 +-
+ cmd/gobsidian/search.go                            |   25 +-
+ cmd/gobsidian/search_cache_test.go                 |   39 +
+ cmd/gobsidian/serve.go                             |  413 +-
+ cmd/gobsidian/serve_test.go                        |  227 +-
+ docs/ARCHITECTURE.md                               |   26 +-
+ docs/ARMADILHAS.md                                 |    3 +-
+ docs/ESTADO.md                                     |  175 +
+ docs/ESTRUTURA.md                                  |   35 +-
+ docs/OPERACAO.md                                   |   63 +-
+ docs/SUGESTOES.md                                  |   49 +-
+ docs/TOOLS.md                                      |   74 +-
+ docs/papeis/testador.md                            |   43 +
+ docs/segregacao.md                                 |    3 +
+ .../plans/2026-09-02-topografia-e-limpeza.md       | 5378 ++++++++++++++++++++
+ docs/wiki/entities/formato-do-cache.md             |   12 +-
+ docs/wiki/flows/encerramento.md                    |   15 +-
+ internal/boot/busca.go                             |  253 +
+ internal/boot/busca_test.go                        |   84 +
+ .../boot/busca_windows_test.go                     |   26 +-
+ internal/boot/doc.go                               |   17 +
+ internal/boot/espelho.go                           |   44 +
+ internal/boot/espelho_test.go                      |  226 +
+ .../boot/estado_do_cache_test.go                   |    6 +-
+ internal/boot/indice.go                            |   63 +
+ internal/boot/indice_test.go                       |  123 +
+ .../servico.go => internal/boot/montar.go          |  129 +-
+ internal/boot/montar_test.go                       |   36 +
+ internal/boot/vigia.go                             |   62 +
+ internal/boot/vigia_test.go                        |   71 +
+ internal/config/config.go                          |    6 +
+ internal/config/config_test.go                     |   26 +
+ internal/console/console.go                        |    4 -
+ internal/daemon/daemon.go                          |    9 +-
+ internal/daemon/daemon_test.go                     |   12 +-
+ internal/daemon/lock.go                            |   19 +-
+ internal/daemon/lock_escuta_test.go                |   46 +
+ internal/daemon/lock_sufixos_test.go               |   35 +
+ internal/daemon/trava_kernel_other_test.go         |   85 +
+ internal/daemon/trava_kernel_windows_test.go       |  116 +
+ internal/doctor/checks.go                          |   37 +-
+ internal/doctor/checks_other.go                    |    8 +
+ internal/doctor/checks_windows.go                  |   40 +-
+ internal/doctor/daemon.go                          |    5 +-
+ internal/doctor/daemon_test.go                     |   42 +
+ internal/doctor/doctor.go                          |   41 +-
+ internal/doctor/doctor_extra_test.go               |   24 -
+ internal/index/alias_test.go                       |   61 +
+ internal/index/backlink_contexto_test.go           |   35 +-
+ internal/index/backlink_heading_test.go            |   16 +-
+ internal/index/bench_analise_test.go               |   76 +
+ internal/index/build_cloudonly_windows_test.go     |   15 +-
+ internal/index/build_descarte_test.go              |    3 +-
+ internal/index/build_descarte_unix_test.go         |   14 +-
+ internal/index/build_descarte_windows_test.go      |   32 +-
+ internal/index/build_test.go                       |   34 +-
+ internal/index/chave.go                            |   18 +-
+ internal/index/classify_cloudonly_windows_test.go  |   53 +-
+ internal/index/classify_test.go                    |   33 +-
+ internal/index/export_test.go                      |   16 +
+ internal/index/index.go                            |   32 +-
+ internal/index/movenote_semvault_test.go           |   17 +-
+ internal/index/normalizacao_equivalente_test.go    |   25 -
+ internal/index/parity_test.go                      |  214 +-
+ internal/index/persist.go                          |   35 +-
+ internal/index/persist_codec.go                    |   25 +-
+ internal/index/persist_codec_test.go               |  250 +
+ internal/index/persist_test.go                     |   49 +-
+ internal/index/query.go                            |  137 +-
+ internal/index/replace_duas_fases_windows_test.go  |   24 +-
+ internal/index/resolve.go                          |   16 +-
+ internal/index/tag_chave_test.go                   |   98 +
+ internal/index/update.go                           |    9 +-
+ internal/ipc/desconexao.go                         |   24 +
+ internal/ipc/desconexao_test.go                    |   26 +
+ internal/ipc/ipc_test.go                           |  111 +-
+ internal/ipc/maxresults_handshake_test.go          |    9 +-
+ internal/mcpsrv/export_test.go                     |   27 +
+ internal/mcpsrv/filtro_data_test.go                |    8 +-
+ internal/mcpsrv/metadata_include_schema_test.go    |   81 +
+ internal/mcpsrv/schema_params_test.go              |   27 +-
+ internal/mcpsrv/search_sem_hits_test.go            |   39 +
+ internal/mcpsrv/server.go                          |   15 -
+ internal/mcpsrv/tools_read.go                      |   96 +-
+ internal/mcpsrv/tools_read_test.go                 |  247 +-
+ internal/mcpsrv/tools_write.go                     |    2 +-
+ internal/parser/bench_analise_test.go              |   43 +
+ internal/search/bench_analise_test.go              |   77 +
+ internal/search/bm25_test.go                       |   87 +-
+ internal/search/cloudonly_update_windows_test.go   |   54 +-
+ internal/search/export_test.go                     |   24 +
+ internal/search/inverted.go                        |   59 +-
+ internal/search/inverted_test.go                   |   19 +-
+ internal/search/persist.go                         |   57 +-
+ internal/search/persist_codec.go                   |    9 +-
+ internal/search/persist_codec_test.go              |    9 +
+ internal/search/persist_test.go                    |   33 +-
+ internal/search/pool_test.go                       |   14 +-
+ internal/search/snippet_cache_windows_test.go      |   14 +-
+ internal/search/soa_test.go                        |    4 -
+ internal/service/bench_analise_test.go             |   71 +
+ internal/service/bench_tags_test.go                |   19 +
+ internal/service/cloudonly_replace_windows_test.go |   27 +-
+ internal/service/delete_test.go                    |   80 +-
+ internal/service/erro_engolido_windows_test.go     |   81 +-
+ internal/service/errors.go                         |    1 -
+ internal/service/errors_test.go                    |   36 +
+ internal/service/frontmatter_err_test.go           |    6 +-
+ internal/service/graph.go                          |  148 +-
+ internal/service/limites_enums_test.go             |   80 +-
+ internal/service/lote_por_item_test.go             |   40 +
+ internal/service/match_offset_test.go              |   14 +-
+ internal/service/max_results_test.go               |   11 +-
+ internal/service/metadata_include_test.go          |   53 +
+ internal/service/move_atomico_windows_test.go      |   43 +-
+ internal/service/move_test.go                      |   86 +
+ internal/service/outline.go                        |    2 +-
+ internal/service/ranking_golden_test.go            |  184 +-
+ internal/service/read.go                           |   67 +-
+ internal/service/read_test.go                      |   11 +-
+ internal/service/rnf5000_test.go                   |  142 +-
+ internal/service/search.go                         |  122 +-
+ internal/service/service.go                        |   30 +-
+ internal/service/tag_list_golden_test.go           |  111 +
+ internal/service/tags_contrato_test.go             |  123 +
+ internal/service/testdata/ranking/com-acento.tsv   |   40 +-
+ internal/service/testdata/ranking/dois-termos.tsv  |   40 +-
+ internal/service/testdata/ranking/frase-exata.tsv  |    2 +-
+ .../service/testdata/ranking/so-em-heading.tsv     |   40 +-
+ internal/service/testdata/ranking/so-no-titulo.tsv |   12 +-
+ internal/service/testdata/ranking/termo-amplo.tsv  |  100 +-
+ internal/service/write.go                          |  238 +-
+ internal/text/normalize.go                         |   21 +
+ internal/{writer => vault}/atomic.go               |   85 +-
+ internal/{writer => vault}/atomic_test.go          |   80 +-
+ internal/{writer => vault}/durabilidade_test.go    |   10 +-
+ internal/vault/eol.go                              |   21 +-
+ internal/vault/longpath_windows.go                 |    2 +-
+ .../sweep_profundo_windows_test.go                 |    8 +-
+ internal/{writer => vault}/syncdir_unix.go         |    2 +-
+ internal/{writer => vault}/syncdir_windows.go      |    2 +-
+ internal/vault/walk.go                             |   32 +-
+ internal/vault/walk_raiz_test.go                   |   36 +
+ internal/vault/walk_raiz_windows_test.go           |   41 +
+ internal/vault/walk_test.go                        |   33 +
+ internal/vaulttest/doc.go                          |   13 +
+ internal/vaulttest/exclusivo_other.go              |   19 +
+ internal/vaulttest/exclusivo_windows.go            |   52 +
+ internal/vaulttest/exclusivo_windows_test.go       |   46 +
+ internal/vaulttest/prazo.go                        |    9 +
+ internal/vaulttest/somentenuvem_other.go           |   13 +
+ internal/vaulttest/somentenuvem_windows.go         |   37 +
+ internal/watcher/atalho_busca_test.go              |   27 +-
+ internal/watcher/burst_test.go                     |   11 +-
+ internal/watcher/counters_test.go                  |  178 +-
+ internal/watcher/debounce_test.go                  |   29 +-
+ internal/watcher/espera_test.go                    |   70 +
+ internal/watcher/filter_test.go                    |   17 +-
+ internal/watcher/overflow_test.go                  |   71 +-
+ internal/watcher/rename_test.go                    |   27 +-
+ internal/watcher/varredura_raiz_ilegivel_test.go   |   48 +
+ internal/watcher/watcher.go                        |   13 +-
+ internal/watcher/watcher_test.go                   |   89 +-
+ internal/writer/bench_analise_test.go              |   36 +
+ internal/writer/block_test.go                      |    5 +-
+ internal/writer/diff_test.go                       |   37 +-
+ internal/writer/linkrewrite.go                     |   43 +-
+ internal/writer/linkrewrite_test.go                |   41 +
+ internal/writer/lock.go                            |   13 +-
+ internal/writer/lock_unicode_test.go               |   76 +
+ internal/writer/section_test.go                    |    8 +-
+ scripts/verify.ps1                                 |   58 +-
+ testdata/tag_list_hierarquico.json                 |  252 +
+ 185 files changed, 12653 insertions(+), 2501 deletions(-)

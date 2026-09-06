@@ -1,0 +1,7 @@
+docs(sdd): record the Task 175 review and its package
+
+Review of 8d3626e: approved without findings. Includes the implementer
+report with the twelve Measure-Command lines on vault_5000 and the brief.
+
+Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01P5wkw6PAdBFzF3uB1w1jNj

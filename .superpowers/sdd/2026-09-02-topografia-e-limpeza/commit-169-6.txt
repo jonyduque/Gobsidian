@@ -1,0 +1,36 @@
+refactor(service): one empty result, one pagination, one move error
+
+Tres literais iguais viram uma funcao cada, sem mudar resposta nenhuma.
+
+resultadoVazio: os tres caminhos que terminam sem hit — consulta sem token,
+offset alem do total na busca full-text, offset alem do total na busca so por
+metadados — montavam o mesmo SearchResult a mao. As fatias tem de ser
+NAO-nil, porque `results` nao tem omitempty e nil sairia como `null` onde o
+contrato diz lista vazia; com tres copias, bastava uma esquecer.
+
+pagina: o par (fim da fatia, truncou) era calculado em dois lugares com o
+mesmo if/else invertido.
+
+moveNoteErro: cinco sitios de erro de MoveNote montavam o mesmo
+MoveNoteResult parcial, e tres deles tinham de lembrar de reportar o que ja
+fora reescrito. E um fecho sobre rewrittenList e linksUpdatedCount, e nao a
+funcao livre `moveNoteErro(req, err)` que o brief desenhou: os campos do
+resultado vem de canonicalFrom, canonicalTo, brokenAnchors e das duas
+variaveis que crescem no laco, e nenhum deles esta em MoveNoteRequest — a
+assinatura do brief nao teria como preencher o que os cinco sitios
+preenchiam. As duas variaveis subiram para antes do primeiro sitio; nos dois
+primeiros elas valem nil e 0, que e exatamente o que aqueles dois retornos
+omitiam.
+
+E filteredHits passa a nascer com capacidade len(rawHits): o filtro so
+remove, nunca acrescenta, entao esse e o teto exato.
+
+benchstat, 7 amostras INTERCALADAS por lado, antes_service.test.exe do
+commit 2307cf3 contra depois169_service.test.exe desta arvore:
+
+    SearchLimit200Cache-12  sec/op     12.09m +/- 2%  ->  11.92m +/- 3%   ~ (p=0.128 n=7)
+    SearchLimit200Cache-12  B/op       2.377Mi +/- 0% ->  1.926Mi +/- 0%  -18.98% (p=0.001 n=7)
+    SearchLimit200Cache-12  allocs/op  10.18k +/- 0%  ->  10.16k +/- 0%   -0.17% (p=0.001 n=7)
+
+Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01P5wkw6PAdBFzF3uB1w1jNj

@@ -1,0 +1,40 @@
+refactor(service): count tags once per note in tagListHierarchical
+
+A deduplicacao por tag era um map[CanonicalPath]bool alocado POR TAG, com uma
+entrada por nota dentro dele, para no fim so se perguntar o tamanho. Como a
+varredura ja e nota a nota, um conjunto de rascunho reaproveitado entre notas
+diz a mesma coisa: dentro de UMA nota, cada prefixo de tag conta no maximo uma
+vez. A contagem passa a ser map[string]int, e o segundo laco percorre a
+contagem em vez do mapa de conjuntos.
+
+O que o brief pedia era "usar ix.tags como o ramo plano", e isso NAO foi
+feito, de proposito: a contagem deste ramo inclui as descendentes e a de
+index.Tags e por tag exata. No fixture do golden as duas divergem — "docs"
+vale 3 aqui e 2 no ramo plano —, entao trocar a fonte mudaria a resposta da
+tool. O escopo que sobrou esta escrito no relatorio, nao encolhido em
+silencio.
+
+Filtrar ja na varredura das notas, a outra leitura possivel de "filtra
+dentro", tambem foi recusada e agora esta travada por teste: com
+prefix="proj/al" o ancestral "proj" nao casa o prefixo, aparece como raiz de
+"proj/alpha" e aparece com a contagem CHEIA (4). Filtrar antes zeraria essa
+contagem em silencio. A variante hierarquico_prefixo_no_meio entra no golden
+por isso; as cinco variantes ja existentes seguem byte a byte (o diff do
+golden e 33 insercoes e nenhuma remocao).
+
+benchstat, 7 amostras INTERCALADAS por lado, antes_service.test.exe do
+commit 2307cf3 contra depois169_service.test.exe desta arvore:
+
+    TagListHierarquico-12  sec/op     3.704m +/- 17% ->  2.601m +/- 19%  -29.79% (p=0.001 n=7)
+    TagListHierarquico-12  B/op       1053.9Ki +/- 0% -> 262.2Ki +/- 0%  -75.12% (p=0.001 n=7)
+    TagListHierarquico-12  allocs/op  10.879k +/- 0% ->  9.998k +/- 0%    -8.10% (p=0.001 n=7)
+    TagListPlano-12        sec/op     19.62u +/- 16% ->  21.04u +/- 22%   +7.24% (p=0.038 n=7)
+
+A linha do ramo plano e uma regressao de verdade e NAO e deste commit: nada
+aqui toca o caminho plano. Ela vem do commit anterior, que trocou o
+`if len(Children) > 0` por uma chamada recursiva incondicional em
+ordenarTags. Reproduzida com n=12 e variancia apertada (+5.22%, p=0.000,
+19.43u +/- 1% -> 20.44u +/- 4%), e desfeita no commit seguinte.
+
+Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01P5wkw6PAdBFzF3uB1w1jNj

@@ -1,0 +1,25 @@
+fix(service): restore the leaf guard ordenarTags lost with []TagNode
+
+Quando Children deixou de ser []any, o `if len(tags[i].Children) > 0` saiu
+junto com o type-assert que ele protegia, e a recursao virou incondicional.
+Para a arvore isso e indiferente; para a LISTA PLANA, onde todo no e folha, e
+uma chamada por tag para ordenar nada — e isso apareceu na medicao do commit
+anterior como +7,24% (p=0,038, n=7) em BenchmarkTagListPlano, reproduzido com
+variancia apertada em +5,22% (p=0,000, n=12).
+
+Com a guarda de volta, o mesmo par de binarios, 12 amostras INTERCALADAS:
+
+    TagListPlano-12  sec/op     19.93u +/- 5%  ->  20.47u +/- 5%   ~ (p=0.198 n=12)
+    TagListPlano-12  B/op       13.35Ki +/- 0% ->  13.35Ki +/- 0%  ~ (p=1.000 n=12)
+    TagListPlano-12  allocs/op  9.000 +/- 0%   ->  9.000 +/- 0%    ~ (p=1.000 n=12)
+
+E o ramo hierarquico nao paga pela guarda, 7 amostras intercaladas:
+
+    TagListHierarquico-12  sec/op     3.675m +/- 5%   ->  2.582m +/- 33%  -29.74% (p=0.001 n=7)
+    TagListHierarquico-12  B/op       1053.9Ki +/- 0% ->  262.2Ki +/- 0%  -75.12% (p=0.001 n=7)
+    TagListHierarquico-12  allocs/op  10.879k +/- 0%  ->  9.998k +/- 0%    -8.10% (p=0.001 n=7)
+
+O golden de tag_list segue byte a byte (-count=4).
+
+Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01P5wkw6PAdBFzF3uB1w1jNj

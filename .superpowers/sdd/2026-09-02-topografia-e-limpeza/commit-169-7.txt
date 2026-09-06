@@ -1,0 +1,24 @@
+refactor(service): one account for the hash format
+
+Quatro sitios emitiam o hash publicado, e cada um trazia o seu
+fmt.Sprintf("%016x", ...): note_read, note_list, note_metadata e
+hashDoConteudo. Sao quatro copias de uma decisao de FORMATO, e formato
+divergente entre tools quebra o cliente que compara o hash que recebeu de uma
+com o que recebeu de outra — e quebra em silencio, porque as duas strings
+continuam parecendo hashes.
+
+formatarHash(uint64) passa a ser a conta unica, e hashDoConteudo — que recebe
+[]byte — chama-a depois de somar. Os zeros a esquerda ficam documentados onde
+a conta mora: um uint64 com nibble alto zero encurtaria a string e quebraria a
+comparacao textual.
+
+O caminho quente que emite hash por nota e note_list. benchstat, 7 amostras
+INTERCALADAS por lado, antes_service.test.exe do commit 2307cf3 contra
+depois169_service.test.exe desta arvore:
+
+    NoteListPorTag-12  sec/op     237.4u +/- 13% ->  234.7u +/- 49%  ~ (p=1.000 n=7)
+    NoteListPorTag-12  B/op       41.41Ki +/- 0% ->  41.41Ki +/- 0%  ~ (p=1.000 n=7)
+    NoteListPorTag-12  allocs/op  210.0 +/- 0%   ->  210.0 +/- 0%    ~ (p=1.000 n=7)
+
+Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01P5wkw6PAdBFzF3uB1w1jNj

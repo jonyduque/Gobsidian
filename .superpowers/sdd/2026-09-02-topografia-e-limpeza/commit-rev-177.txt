@@ -1,0 +1,7 @@
+docs(sdd): record the Task 177 review, the fix round and the orphans gate log
+
+Review approved on both verdicts; N1 fixed in ff8f234, N2 parked for the doc pass.
+Orphans gate: four scenarios, 100 cycles each, no orphan.
+
+Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01P5wkw6PAdBFzF3uB1w1jNj

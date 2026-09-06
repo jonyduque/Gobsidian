@@ -1,0 +1,6 @@
+docs(sdd): record the Tasks 178 and 179 review and the fix round
+
+Both tasks approved on both verdicts; N1 fixed in 503b94c, N2 parked.
+
+Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01P5wkw6PAdBFzF3uB1w1jNj

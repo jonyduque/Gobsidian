@@ -1,0 +1,20 @@
+test(service): golden for the hierarchical tag_list JSON
+
+O proximo commit troca TagNode.Children de []any por []TagNode. O tipo do
+campo e invisivel para quem consome a tool — o que ele consome e o JSON —, e
+"o JSON nao muda" e exatamente a classe de afirmacao que se faz sem
+conferir. Este golden e a conferencia, byte a byte, e ele entra ANTES da
+mudanca para que o arquivo gravado seja o do comportamento atual.
+
+Cinco variantes, para que o golden cubra o que o item seguinte mexe: os dois
+modos de ordenacao, o filtro por prefixo, o filtro por min_count e o ramo
+plano. As contagens tem um empate deliberado (proj/alpha e docs, ambos em 3
+notas): com sort=count ele e o unico caso que exercita o desempate por nome.
+
+O cofre e escrito pelo proprio teste a partir de literais, e nao lido de
+testdata/: o que precisa ser deterministico e o JSON, e um cofre em disco
+pode divergir do golden por uma edicao que ninguem reparou. Conferido
+estavel com -count=8 (a ordem sai de mapas, e ordenarTags e quem a fixa).
+
+Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01P5wkw6PAdBFzF3uB1w1jNj

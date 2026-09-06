@@ -1,0 +1,5 @@
+ docs/OPERACAO.md                       |  63 ++++++++-
+ docs/wiki/entities/formato-do-cache.md |  12 +-
+ docs/wiki/flows/encerramento.md        |  15 +-
+ testdata/tag_list_hierarquico.json     | 252 +++++++++++++++++++++++++++++++++
+ 4 files changed, 332 insertions(+), 10 deletions(-)

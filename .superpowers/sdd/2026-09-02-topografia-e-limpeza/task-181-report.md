@@ -297,7 +297,8 @@ APPROVED_WITH_NITS, dois nits (N1, N2).
   pacote atualizadas com os números remedidos; UTF-8 validado
 - 15:21–15:26 `pwsh -File scripts/verify.ps1 -SkipCross -SkipNet` — verde
 - 15:26 commit criado
-- 15:2x `pwsh -File scripts/audit_reports.ps1 181` rodado de novo
+- 15:26 `pwsh -File scripts/audit_reports.ps1 181` rodado de novo — 0 achados
+  neste relatório, só os 14 pré-existentes do ledger antigo
 
 ### N1 — teste
 
@@ -392,5 +393,13 @@ registrar.
 
 ### audit_reports (rodada de correção)
 
-Pendente de colar após rodar novamente com este relatório completo — ver seção
-seguinte se atualizada.
+```
+=== Relatorios (1) ===
+
+=== Ledger ===
+  ... (mesmos 14 achados pré-existentes de .superpowers/sdd/2026-07-25-gobsidian-v01/progress.md, sem relação com a Task 181)
+
+[!] 14 achado(s).
+```
+
+Zero achados no `task-181-report.md` — a seção "Relatorios (1)" veio vazia.

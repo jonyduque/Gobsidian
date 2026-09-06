@@ -1,0 +1,6 @@
+docs(sdd): record the Task 176 review and its package
+
+Review approved on both verdicts with two nits, both ruled in the ledger.
+
+Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01P5wkw6PAdBFzF3uB1w1jNj

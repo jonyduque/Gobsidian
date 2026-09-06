@@ -1,0 +1,42 @@
+refactor(writer): lock key delegates to the shared key account
+
+A trava por caminho do writer e a chave lowerPath do indice sao a MESMA
+derivacao, e eram duas contas: a do indice fazia ToSlash + NFC + ToLower, e a
+do writer so ToLower. O efeito nao e cosmetico. O indice trata as duas
+grafias Unicode de um nome — "Acao.md" em NFC e em NFD, que e o que um cofre
+sincronizado com macOS grava — como UMA nota, e o locker as tratava como dois
+arquivos: duas escritas concorrentes na mesma nota pegavam travas diferentes
+e nao se excluiam.
+
+A conta muda-se para text.ChaveDeCaminho porque writer nao importa index e
+nao vai importar. index.chaveDeCaminho passa a delegar, entao continua
+havendo uma conta so.
+
+Aresta nova no grafo de producao: writer -> text. A justificativa e "uma
+conta por regra", e o bloco do grafo em CLAUDE.md foi RE-EXTRAIDO neste
+commit (GOOS=windows go list -f '{{.Imports}}' pacote a pacote, 2026-09-06):
+a linha do writer e a unica que mudou desde 2026-09-02. text continua folha —
+ganhou path/filepath, que e stdlib.
+
+O teste antes da mudanca, contra normalizeKey ainda so-ToLower:
+
+    === RUN   TestChaveDaTravaUneAsDuasGrafias
+        lock_unicode_test.go:36: chaves diferentes para a mesma nota:
+             NFC -> "acao.md"
+             NFD -> "acao.md"
+        lock_unicode_test.go:60: a grafia NFD pegou a trava enquanto a NFC a
+             segurava; sao a mesma nota
+    --- FAIL: TestChaveDaTravaUneAsDuasGrafias (0.00s)
+
+e depois:
+
+    === RUN   TestChaveDaTravaUneAsDuasGrafias
+    --- PASS: TestChaveDaTravaUneAsDuasGrafias (0.20s)
+
+NAO MEDIDO: o custo por aquisicao de trava sobe (ToSlash e NFC onde antes era
+so ToLower) e nenhum benchmark da bateria passa pelo PathLocker — o unico
+benchmark do pacote e RewriteLinksMuitos, que nao trava. Sem harness, nao ha
+numero, e um numero inventado seria pior que a lacuna.
+
+Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01P5wkw6PAdBFzF3uB1w1jNj

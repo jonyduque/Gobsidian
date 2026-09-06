@@ -1,0 +1,17 @@
+docs(task-164): the report stops claiming a version that never existed; CLAUDE.md explains the ninth grep line
+
+The fix-round paragraph answering B1 said the complete report had been on
+disk "since 00:59". It had not: at 01:00 the file was 1132 bytes, mtime
+00:51, and declared itself EM ANDAMENTO; the report's own Progresso records
+no write between 00:59 and 01:13; git log --follow shows one commit. The
+sentence now says what happened -- the sections were written in the fix
+round -- and the Status line names 8568b5b beside af93306, since N3 and N4
+only exist in the former.
+
+CLAUDE.md's vaulttest paragraph pasted a grep that returns nine lines for
+a list of eight; the ninth is internal/vaulttest itself, its external test
+package. Said so, and re-wrapped the line the earlier insertion pushed past
+column 80.
+
+Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01P5wkw6PAdBFzF3uB1w1jNj

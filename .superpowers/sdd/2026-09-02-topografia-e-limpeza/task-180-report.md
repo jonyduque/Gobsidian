@@ -81,6 +81,7 @@ e `check_readme_anchors` verdes sobre ele.
 - 14:51 - as quatro mutações (três de N2 + a de N4) deram EXIT=0.
 - 14:57 - `verify.ps1 -SkipCross -SkipNet` verde, 11 etapas, 6 pulados conhecidos.
 - 14:58 - N3 e N5 corrigidos no texto deste relatório; commit 4 (`aa8ec0b`).
+- 14:59 - `## Fix round 1` escrito com as quatro saídas de mutação; `audit_reports.ps1 180` sem achado neste relatório.
 
 ## Step 2 - RED
 

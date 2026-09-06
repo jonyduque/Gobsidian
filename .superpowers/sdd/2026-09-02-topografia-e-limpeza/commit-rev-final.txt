@@ -1,0 +1,13 @@
+docs(sdd): record the final whole-branch review and the rulings on its findings
+
+The reviewer (Opus) read the production and test diffs of 6c5d1f1..5c613d5
+in full and the normative docs selectively: no critical finding, three
+important ones (a dead --debounce-ms on doctor, tag jsonschema descriptions
+that never received the Task 180 semantics, segregacao.md still listing
+candidate 3 as open), five nits and a table of stale references the
+per-task reviews could not see. The rulings and the brief for the single
+fix round are in the ledger and task-final-brief.md; the three big diff
+files stay out of git, the log/stat and the excluded-stat do not.
+
+Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01P5wkw6PAdBFzF3uB1w1jNj

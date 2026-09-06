@@ -1,0 +1,20 @@
+test(index): the codec round-trip covers the typed-nil slice, truncation asserts the sentinel
+
+Review of b2561e0 (N1, N2 in review-181.md):
+
+N1: TestCodecValorRoundTripPorTipo's casos was missing a typed-nil []any
+(the valSliceNil/valSlice pair, persist_codec.go:294-299 write side,
+:659-660 read side), which sat at 0% coverage. Added []any(nil) to the
+cases; escritor.value coverage 92.1% -> 97.4%, leitor.value 91.7% -> 94.4%,
+package total 89.7% -> 89.8%. Mutation proof: forcing the write branch to
+emit valSlice+length-0 instead of valSliceNil makes the test fail with
+"[]interface {}(nil) voltou []interface {}{}" (exit 0, restored).
+
+N2: TestCodecNotaTruncadaEmCadaByteERecusada's per-prefix loop now also
+asserts errors.Is(l.err, ErrIndexCacheCorrupted), not just l.err != nil.
+
+docs/ESTADO.md's Task 181 coverage block updated: the two value lines and
+the package total, both re-measured.
+
+Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01P5wkw6PAdBFzF3uB1w1jNj

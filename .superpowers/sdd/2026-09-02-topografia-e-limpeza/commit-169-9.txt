@@ -1,0 +1,18 @@
+refactor(index): resolve reuses vivosLocked
+
+O ramo de alias de ResolvePath filtrava caminho morto com um laco escrito a
+mao, ao lado do ramo de caminho completo que ja chamava vivosLocked para o
+mesmo fim. Uma copia de uma regra e uma copia que pode deixar de ser
+atualizada — e a regra aqui e a que impede ResolvePath de devolver uma nota
+que o watcher acabou de remover.
+
+A copia aceitava so nota e vivosLocked aceita nota OU anexo. Nesta entrada as
+duas dizem o mesmo: byAlias so recebe n.Path de nota, porque alias sai do
+frontmatter e anexo nao tem frontmatter, e a remocao de uma nota apaga as
+entradas de alias dela (update.go) antes de tirar o caminho de notes.
+
+Sem benchmark: ResolvePath por alias nao esta na bateria, e nenhum dos
+benchmarks da baseline passa por este ramo. Nao medido.
+
+Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01P5wkw6PAdBFzF3uB1w1jNj

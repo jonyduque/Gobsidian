@@ -1,0 +1,22 @@
+refactor(service): edge key as a struct, not a formatted string
+
+A identidade de uma aresta do grafo era uma string montada com
+fmt.Sprintf("%q|%q|%q|%q|%q", ...) a cada insercao em edgesMap. As aspas
+estavam la porque qualquer separador literal pode aparecer DENTRO de um
+alias ou de uma ancora — uma suposicao sobre o conteudo que uma chave
+estruturada dispensa: com map[chaveDaAresta]GraphEdge a identidade e exata
+por construcao, sem formatar nem alocar string por aresta visitada.
+
+Comportamento identico: os mesmos cinco campos participam da chave, na
+mesma ordem de importancia (nenhuma, num mapa), e os tres sitios que
+inserem continuam passando pela mesma conta, agora deAresta.
+
+benchstat, 7 amostras INTERCALADAS por lado, antes_service.test.exe do
+commit 2307cf3 contra depois169_service.test.exe desta arvore:
+
+    LinkGraphBothDepth2-12  sec/op     8.746u +/- 3%  ->  3.271u +/- 16%  -62.60% (p=0.001 n=7)
+    LinkGraphBothDepth2-12  B/op       2.055Ki +/- 0% ->  1.180Ki +/- 0%  -42.59% (p=0.001 n=7)
+    LinkGraphBothDepth2-12  allocs/op  41.00 +/- 0%   ->  11.00 +/- 0%    -73.17% (p=0.001 n=7)
+
+Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01P5wkw6PAdBFzF3uB1w1jNj
