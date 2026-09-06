@@ -747,9 +747,14 @@ func (ix *Inverted) AdotarDe(outro *Inverted) error {
 	outro.mu.Lock()
 	defer outro.mu.Unlock()
 
-	if len(ix.terms) > 0 || len(ix.docLengths) > 0 || ix.base != nil {
-		return fmt.Errorf("%w: %d termos e %d documentos no delta, base presente=%t",
-			ErrIndiceNaoVazio, len(ix.terms), len(ix.docLengths), ix.base != nil)
+	// termosDoDoc entra na guarda mesmo sendo redundante pela invariante — ele
+	// não vazio implica `terms` não vazio, e `terms` já está aqui. A guarda
+	// existe para o mundo em que a invariante quebrou, que é o único mundo em
+	// que ela é consultada, e este é o único ponto onde o mapa reverso é
+	// substituído em bloco.
+	if len(ix.terms) > 0 || len(ix.docLengths) > 0 || len(ix.termosDoDoc) > 0 || ix.base != nil {
+		return fmt.Errorf("%w: %d termos e %d documentos no delta, %d entradas no indice reverso, base presente=%t",
+			ErrIndiceNaoVazio, len(ix.terms), len(ix.docLengths), len(ix.termosDoDoc), ix.base != nil)
 	}
 
 	ix.base = outro.base

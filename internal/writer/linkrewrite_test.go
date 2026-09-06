@@ -88,6 +88,47 @@ func TestRewriteLinks_MultipleOccurrencesInSameNote(t *testing.T) {
 	}
 }
 
+// TestRewriteLinks_LinkNoInicioENoFim fixa as duas fronteiras da passada
+// unica: o primeiro link comeca no byte 0, entao a primeira fatia escrita e
+// src[0:0]; o ultimo termina exatamente no EOF, entao a fatia final e
+// src[len(src):]. As duas sao vazias, e uma delas escrita errado por um byte
+// nao aparece em nenhum dos outros casos — todos eles tem texto antes do
+// primeiro link e depois do ultimo.
+func TestRewriteLinks_LinkNoInicioENoFim(t *testing.T) {
+	input := "[[a]] meio [[b]]"
+	src := []byte(input)
+
+	note := parser.Parse(src)
+
+	if len(note.Links) != 2 {
+		t.Fatalf("esperado 2 links, obtido %d", len(note.Links))
+	}
+	// Guarda das fronteiras que o teste existe para cobrir. Sem ela, um parser
+	// que passasse a devolver offsets encolhidos deixaria o teste verde
+	// medindo outra coisa.
+	if note.Links[0].Start != 0 {
+		t.Fatalf("Links[0].Start = %d, quer 0", note.Links[0].Start)
+	}
+	if note.Links[1].End != int64(len(src)) {
+		t.Fatalf("Links[1].End = %d, quer %d (EOF)", note.Links[1].End, len(src))
+	}
+
+	replacements := []writer.LinkReplacement{
+		{Link: note.Links[0], NewTarget: "pasta/um"},
+		{Link: note.Links[1], NewTarget: "pasta/dois"},
+	}
+
+	got, err := writer.RewriteLinks(src, replacements)
+	if err != nil {
+		t.Fatalf("RewriteLinks: %v", err)
+	}
+
+	want := "[[pasta/um]] meio [[pasta/dois]]"
+	if string(got) != want {
+		t.Errorf("obtido %q, quer %q", string(got), want)
+	}
+}
+
 func TestRewriteLinks_RejectsInvalidOffsets(t *testing.T) {
 	src := []byte("Texto com [[link]].")
 
