@@ -99,10 +99,25 @@ func (ix *Index) AssetCount() int {
 // esquece. Aqui ha uma conta so, e ela e invalidada por algo que o proprio
 // indice ja mantem.
 //
-// O lock e o de ESCRITA porque o acerto grava os campos memorizados. Trocar por
-// RLock e gravar assim mesmo seria corrida de dados sob um nome tranquilizador.
+// O ACERTO so le, entao ele toma o RLock: com o lock de escrita, duas chamadas
+// concorrentes de vault_stats — e o watcher, que disputa o mesmo mutex — se
+// serializavam para ler um int64 memorizado. Quem GRAVA continua sob o lock de
+// escrita; gravar sob RLock seria corrida de dados com um nome tranquilizador.
+//
+// O erro sutil desta forma e soltar o RLock, tomar o Lock e assumir que o miss
+// continua sendo miss: entre um e outro, outro leitor pode ter preenchido a
+// memorizacao para esta mesma geracao. Por isso a conferencia acontece DUAS
+// vezes, e a segunda e a que decide.
 func (ix *Index) TotalSize() int64 {
 	geracao := atomic.LoadUint64(&ix.generation)
+
+	ix.mu.RLock()
+	if ix.tamanhoValido && ix.tamanhoGeracao == geracao {
+		memorizado := ix.tamanhoTotal
+		ix.mu.RUnlock()
+		return memorizado
+	}
+	ix.mu.RUnlock()
 
 	ix.mu.Lock()
 	defer ix.mu.Unlock()
