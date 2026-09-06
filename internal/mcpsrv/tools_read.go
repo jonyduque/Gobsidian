@@ -373,7 +373,7 @@ type noteListInput struct {
 
 type noteMetadataInput struct {
 	Path    string   `json:"path"`
-	Include []string `json:"include,omitempty"`
+	Include []string `json:"include,omitempty" jsonschema:"campos a devolver; aceitos: frontmatter, tags, headings, blocks, links, backlinks, inline_fields; omitido devolve frontmatter, tags, headings, links, backlinks"`
 }
 
 type linkGraphInput struct {
