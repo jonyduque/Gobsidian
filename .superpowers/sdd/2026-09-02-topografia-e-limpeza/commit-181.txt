@@ -1,0 +1,21 @@
+test(index): white-box tests for the metadata cache codec
+
+Add persist_codec_test.go covering escritor/leitor: round-trip for every
+frontmatter value type, nil-vs-empty distinction for []string, time zone
+preservation through the binary blob, the unsupported-type error, the
+recursion-depth limit, the string-length limit, and truncation of a note
+at every byte prefix. Both mutation proofs (depth guard, valInt64 case)
+fail as expected under mutation and pass restored.
+
+Coverage of internal/index/persist_codec.go, per function (measured):
+package total 83.5% -> 89.7%; several previously-uncovered reader/writer
+helpers (falha, leitor.uvarint/uvarintLivre/varint/str, escritor.blocks/
+inline) reach 100%. Recorded in docs/ESTADO.md under "Formato de cache".
+
+Found but not fixed (test/doc-only task): the leitor.value default branch
+("tag de valor desconhecida") is dead code for any tag above valMap,
+because the tag read already enforces valMap as an upper bound before the
+switch runs. Documented as docs/SUGESTOES.md B21.
+
+Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01P5wkw6PAdBFzF3uB1w1jNj

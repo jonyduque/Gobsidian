@@ -1,0 +1,7 @@
+docs(sdd): record the Task 181 review and its fix round
+
+Base, brief, report, review package and review-181.md for the codec
+white-box tests, plus the ledger lines that close Phase 5.
+
+Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01P5wkw6PAdBFzF3uB1w1jNj
