@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -239,6 +240,114 @@ func TestServePonteRemotaFazProxyDeBytes(t *testing.T) {
 
 	if got := stdoutHost.String(); got != resposta {
 		t.Errorf("stdout do host = %q, quer %q -- a ponte nao copiou os bytes do daemon", got, resposta)
+	}
+}
+
+// TestServePonteRemotaEncaminhaHostParaDaemon e o contrapeso de
+// TestServePonteRemotaFazProxyDeBytes, que so exercita a direcao
+// daemon->host: la o stdin do host e um pipe cujo escritor e DESCARTADO, e
+// por isso nada nunca sobe do host para o daemon. Com so aquele teste,
+// apagar io.Copy(conn, teed) e o passo half-close inteiro deixa a suite
+// verde.
+//
+// Aqui o escritor do stdin e guardado, e o teste afirma as duas metades que
+// faltavam:
+//
+//  1. o que o host escreve chega ao daemon byte a byte;
+//  2. fechado o stdin do host, o daemon ve EOF e AINDA CONSEGUE responder --
+//     que e o meio-fechamento do achado M8. Afirmar so o EOF nao bastaria:
+//     sem o half-close o passo close-conn fecha a conexao inteira e o daemon
+//     ve EOF do mesmo jeito. O que distingue os dois e a resposta em voo: com
+//     o meio-fechamento ela chega ao stdout do host, sem ele a escrita do
+//     daemon morre em pipe fechado.
+func TestServePonteRemotaEncaminhaHostParaDaemon(t *testing.T) {
+	conn, outroLado := newDuplexPipe()
+	t.Cleanup(func() { _ = conn.Close() })
+
+	stdinHost, hostEscreve := io.Pipe()
+	t.Cleanup(func() { _ = stdinHost.Close() })
+
+	stdoutHost := &escritorSeguro{}
+	log := slog.New(slog.NewTextHandler(io.Discard, nil))
+
+	done := make(chan error, 1)
+	go func() {
+		done <- servePonteRemota(context.Background(), conn, stdinHost, stdoutHost, log)
+	}()
+
+	// O lado do daemon le tudo o que a ponte encaminhar, anuncia o pedido
+	// quando ele chega e anuncia o fim da leitura. Duas notificacoes
+	// separadas porque o teste precisa distinguir "nao copiou" de "copiou e
+	// nao propagou o EOF".
+	const pedido = `{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}` + "\n"
+	pedidoChegou := make(chan string, 1)
+	leituraAcabou := make(chan error, 1)
+	go func() {
+		var recebido []byte
+		buf := make([]byte, 512)
+		anunciado := false
+		for {
+			n, err := outroLado.Read(buf)
+			recebido = append(recebido, buf[:n]...)
+			if !anunciado && strings.Contains(string(recebido), `"method":"initialize"`) {
+				anunciado = true
+				pedidoChegou <- string(recebido)
+			}
+			if err != nil {
+				leituraAcabou <- err
+				return
+			}
+		}
+	}()
+
+	if _, err := hostEscreve.Write([]byte(pedido)); err != nil {
+		t.Fatalf("host escrevendo no proprio stdin: %v", err)
+	}
+
+	select {
+	case got := <-pedidoChegou:
+		if got != pedido {
+			t.Errorf("o daemon recebeu %q, quer %q -- a ponte alterou os bytes no caminho", got, pedido)
+		}
+	case <-time.After(vaulttest.Prazo):
+		t.Fatal("o daemon nao recebeu nada em " + vaulttest.Prazo.String() +
+			" -- a direcao host->daemon nao esta sendo copiada")
+	}
+
+	if err := hostEscreve.Close(); err != nil {
+		t.Fatalf("fechando o stdin do host: %v", err)
+	}
+
+	select {
+	case err := <-leituraAcabou:
+		if !errors.Is(err, io.EOF) {
+			t.Fatalf("o daemon terminou a leitura com %v, quer io.EOF -- o fim do stdin do host tem de chegar como fim de arquivo, nao como conexao quebrada", err)
+		}
+	case <-time.After(vaulttest.Prazo):
+		t.Fatal("o daemon nao viu o fim do stdin do host em " + vaulttest.Prazo.String())
+	}
+
+	// A resposta que estava em voo quando o host fechou o stdin. E ela que
+	// separa o meio-fechamento do fechamento inteiro.
+	const tardia = `{"jsonrpc":"2.0","id":1,"result":{}}` + "\n"
+	if _, err := outroLado.Write([]byte(tardia)); err != nil {
+		t.Fatalf("o daemon nao conseguiu responder depois do EOF: %v -- a ponte fechou a conexao INTEIRA em vez de so a direcao de escrita (achado M8)", err)
+	}
+	if err := outroLado.CloseWrite(); err != nil {
+		t.Fatalf("fechando a escrita do lado do daemon: %v", err)
+	}
+
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("servePonteRemota() error = %v, esperado nil (encerramento normal por EOF do host)", err)
+		}
+	case <-time.After(vaulttest.Prazo):
+		t.Fatal("servePonteRemota nao retornou apos o EOF do host e o fechamento do daemon")
+	}
+
+	if got := stdoutHost.String(); got != tardia {
+		t.Errorf("stdout do host = %q, quer %q -- a resposta em voo apos o EOF do host se perdeu", got, tardia)
 	}
 }
 

@@ -10,6 +10,67 @@ import (
 	"github.com/jonyd/gobsidian/internal/vault"
 )
 
+// TestAliasCollisions cobre Index.AliasCollisions, que estava a 0 %.
+//
+// O campo alias_collisions de vault_stats era um zero literal no codigo antes
+// de existir esta conta — aparecia na resposta e mentia sempre. Um contador a
+// 0 % de cobertura e a mesma mentira com mais passos, entao o teste afirma o
+// NUMERO, e afirma-o num cofre montado para separar as tres coisas que o
+// contador poderia estar contando por engano:
+//
+//   - aliases duplicados (o certo): STJ em duas notas, TRF em tres -> 2;
+//   - NOTAS envolvidas em colisao: seriam 5;
+//   - aliases declarados: seriam 3, porque STF esta em uma nota so.
+//
+// A nota com alias exclusivo e o controle: sem ela, "conta alias" e "conta
+// alias duplicado" dariam o mesmo numero e o teste nao distinguiria os dois.
+func TestAliasCollisions(t *testing.T) {
+	root := t.TempDir()
+	writeFile(t, root, "a.md", "---\naliases: [STJ]\n---\n# Nota A\n")
+	writeFile(t, root, "b.md", "---\naliases: [STJ]\n---\n# Nota B\n")
+	writeFile(t, root, "c.md", "---\naliases: [TRF]\n---\n# Nota C\n")
+	writeFile(t, root, "d.md", "---\naliases: [TRF]\n---\n# Nota D\n")
+	writeFile(t, root, "e.md", "---\naliases: [TRF]\n---\n# Nota E\n")
+	writeFile(t, root, "so-dela.md", "---\naliases: [STF]\n---\n# Nota sozinha\n")
+
+	v, err := vault.New(root)
+	if err != nil {
+		t.Fatalf("vault.New: %v", err)
+	}
+	idx := index.New()
+	if err := idx.Build(context.Background(), v); err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+
+	if got := idx.AliasCollisions(); got != 2 {
+		t.Errorf("AliasCollisions() = %d, quer 2 (STJ em 2 notas, TRF em 3, STF em 1). "+
+			"5 seria contar notas em colisao; 3 seria contar aliases declarados", got)
+	}
+}
+
+// TestAliasCollisionsZeroSemDuplicata e a outra metade: um contador que
+// devolvesse sempre o numero de aliases passaria no teste acima com o cofre
+// certo e mentiria aqui. Zero e uma resposta que precisa ser possivel.
+func TestAliasCollisionsZeroSemDuplicata(t *testing.T) {
+	root := t.TempDir()
+	writeFile(t, root, "a.md", "---\naliases: [STJ, Tribunal]\n---\n# Nota A\n")
+	writeFile(t, root, "b.md", "---\naliases: [STF]\n---\n# Nota B\n")
+	writeFile(t, root, "c.md", "# Nota C sem alias\n")
+
+	v, err := vault.New(root)
+	if err != nil {
+		t.Fatalf("vault.New: %v", err)
+	}
+	idx := index.New()
+	if err := idx.Build(context.Background(), v); err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+
+	if got := idx.AliasCollisions(); got != 0 {
+		t.Errorf("AliasCollisions() = %d, quer 0 — nenhum alias deste cofre e declarado por duas notas", got)
+	}
+}
+
 func TestAliasSurvivesReplaceAndRemove(t *testing.T) {
 	root := t.TempDir()
 	writeFile(t, root, "a.md", "---\naliases: [STJ]\n---\n# Nota A\n")

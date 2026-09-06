@@ -1,6 +1,7 @@
 package ipc_test
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -219,6 +220,71 @@ func TestDialAndHandshakeConfigDivergente(t *testing.T) {
 	}
 	if !errors.Is(err, ipc.ErrConfigMismatch) {
 		t.Fatalf("DialAndHandshake() error = %v, esperado embrulhar ipc.ErrConfigMismatch", err)
+	}
+}
+
+// TestDialAndHandshakeReadOnlyCombinando e o contrapeso de
+// TestDialAndHandshakeConfigDivergente.
+//
+// Toda ponte dos outros testes deste pacote passa ReadOnly=false, entao o
+// unico lado exercitado do campo era a RECUSA -- e recusa nao prende o campo:
+// forcar ReadOnly=false no `want` de DialAndHandshake deixa o teste da
+// divergencia verde, porque um daemon que oferece ro=1 continua divergindo de
+// um want falso. Foi exatamente assim que o handshake de max_results passou
+// por uma revisao com o campo deixando de ser lido (ver papeis/testador.md).
+//
+// Aqui os dois lados dizem somente-leitura e a conexao TEM de ser aceita. A
+// assercao sobre a linha crua existe pelo mesmo motivo: "aceitou" sozinho nao
+// distingue "o campo viajou como 1" de "os dois lados concordaram em ignorar
+// o campo".
+func TestDialAndHandshakeReadOnlyCombinando(t *testing.T) {
+	vault := t.TempDir()
+
+	ln, _, err := ipc.Listen(vault)
+	if err != nil {
+		t.Fatalf("Listen() error = %v", err)
+	}
+	t.Cleanup(func() { _ = ln.Close() })
+
+	saudacao := ipc.HandshakeConfig{ReadOnly: true, VaultKey: config.VaultKey(vault)}
+
+	var linha bytes.Buffer
+	if err := ipc.Greet(&linha, saudacao); err != nil {
+		t.Fatalf("Greet() error = %v", err)
+	}
+	if !strings.Contains(linha.String(), " ro=1 ") {
+		t.Fatalf("Greet(ReadOnly=true) escreveu %q, esperado conter \" ro=1 \" -- "+
+			"sem isso o aceite abaixo provaria so que os dois lados ignoram o campo", strings.TrimSpace(linha.String()))
+	}
+
+	accepted := make(chan net.Conn, 1)
+	go func() {
+		c, err := ln.Accept()
+		if err != nil {
+			return
+		}
+		if err := ipc.Greet(c, saudacao); err != nil {
+			return
+		}
+		accepted <- c
+	}()
+
+	ctx, cancel := context.WithTimeout(context.Background(), vaulttest.Prazo)
+	defer cancel()
+
+	conn, err := ipc.DialAndHandshake(ctx, vault, true, 0, vaulttest.Prazo)
+	if err != nil {
+		t.Fatalf("DialAndHandshake(readOnly=true) contra um daemon ro=1 error = %v, esperado nil -- "+
+			"duas pontas que pedem a MESMA configuracao tem de se falar; se so a recusa funciona, "+
+			"o modo somente-leitura nunca usa daemon nenhum", err)
+	}
+	defer func() { _ = conn.Close() }()
+
+	select {
+	case serverSide := <-accepted:
+		_ = serverSide.Close()
+	case <-time.After(vaulttest.Prazo):
+		t.Fatal("o servidor nao chegou a entregar a conexao apos o handshake")
 	}
 }
 

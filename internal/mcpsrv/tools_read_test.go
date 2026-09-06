@@ -381,6 +381,60 @@ func TestNoteReadRecusaLoteAcimaDoTeto(t *testing.T) {
 	}
 }
 
+// TestNoteReadAceitaLoteNoTeto e o contrapeso de
+// TestNoteReadRecusaLoteAcimaDoTeto: sozinho, o teste da recusa nao distingue
+// "> teto" de ">= teto", porque 51 itens sao recusados dos dois jeitos. So o
+// lado ACEITO prende o valor — com ">=", exatamente maxPathsPorLote itens
+// passam a ser recusados e este teste reprova.
+func TestNoteReadAceitaLoteNoTeto(t *testing.T) {
+	root := t.TempDir()
+	paths := make([]string, mcpsrv.MaxPathsPorLote)
+	for i := range paths {
+		paths[i] = fmt.Sprintf("N%02d.md", i)
+		writeFile(t, root, paths[i], fmt.Sprintf("# Nota %02d\n", i))
+	}
+
+	srv := newTestServerWithIndex(t, root)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	session := connectTestSession(ctx, t, srv)
+
+	res, err := session.CallTool(ctx, &mcp.CallToolParams{
+		Name:      "note_read",
+		Arguments: map[string]any{"paths": paths},
+	})
+	if err != nil {
+		t.Fatalf("CallTool: %v", err)
+	}
+	if res.IsError {
+		t.Fatalf("%d caminhos e o teto, nao acima dele: %s", mcpsrv.MaxPathsPorLote, firstText(t, res))
+	}
+
+	b, err := json.Marshal(res.StructuredContent)
+	if err != nil {
+		t.Fatalf("marshal StructuredContent: %v", err)
+	}
+	var out struct {
+		Items []struct {
+			Path  string `json:"path"`
+			Error *struct {
+				Code string `json:"code"`
+			} `json:"error"`
+		} `json:"items"`
+	}
+	if err := json.Unmarshal(b, &out); err != nil {
+		t.Fatalf("unmarshal StructuredContent: %v", err)
+	}
+	if len(out.Items) != len(paths) {
+		t.Fatalf("len(items) = %d, quer %d", len(out.Items), len(paths))
+	}
+	for i, item := range out.Items {
+		if item.Error != nil {
+			t.Errorf("items[%d] (%s) voltou com erro %s — o lote no teto tem de ser servido inteiro", i, item.Path, item.Error.Code)
+		}
+	}
+}
+
 // TestNoteReadBatchKeepsFailedItemAtPosition e o teste de ponta a ponta que
 // o brief exige: dez caminhos, um deles inexistente — os nove voltam, o
 // decimo volta NA POSICAO CERTA com erro, sem derrubar o lote inteiro.

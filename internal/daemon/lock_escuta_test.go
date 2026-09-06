@@ -1,11 +1,14 @@
 package daemon_test
 
 import (
+	"os"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
 
 	"github.com/jonyd/gobsidian/internal/daemon"
+	"github.com/jonyd/gobsidian/internal/ipc"
 )
 
 // TestLockDeEscutaSerializaSondaEBind fecha o item 4 do brief da Task 126 — a
@@ -77,6 +80,49 @@ func TestLockDeEscutaSerializaSondaEBind(t *testing.T) {
 	}
 	t.Logf("entraram=%d recusados=%d simultaneos_max=%d",
 		entraram.Load(), recusados.Load(), maxSimultaneos.Load())
+}
+
+// TestEscutarComLockAbreOSocketEUmSoOuvinte cobre EscutarComLock, que estava a
+// 0 % — nenhum teste a chamava, só `cmd/gobsidian/daemon.go`.
+//
+// Ela é o par "ipc.Listen sob o lock de escuta", e as duas metades importam:
+// o socket que ela devolve tem de ser o MESMO que ipc.SocketPath calcula (um
+// cofre, um socket — se as duas contas divergirem, a ponte disca num caminho
+// e o daemon escuta noutro, e nenhuma das duas reclama), e uma segunda
+// chamada com o primeiro ouvinte de pé tem de ser RECUSADA por `ipc.Listen`,
+// que prova o socket órfão antes de desvinculá-lo. Sem a segunda metade, o
+// teste passaria com um EscutarComLock que roubasse o socket do daemon vivo —
+// que é exatamente a regressão de 2026-08-26.
+func TestEscutarComLockAbreOSocketEUmSoOuvinte(t *testing.T) {
+	vault := t.TempDir()
+
+	ln, sock, err := daemon.EscutarComLock(vault)
+	if err != nil {
+		t.Fatalf("EscutarComLock: %v", err)
+	}
+	t.Cleanup(func() { _ = ln.Close() })
+
+	esperado, err := ipc.SocketPath(vault)
+	if err != nil {
+		t.Fatalf("ipc.SocketPath: %v", err)
+	}
+	if sock != esperado {
+		t.Errorf("EscutarComLock escutou em %q, e a ponte disca em %q", sock, esperado)
+	}
+	if _, err := os.Stat(sock); err != nil {
+		t.Errorf("o socket devolvido nao existe no disco: %v", err)
+	}
+
+	segundo, _, err := daemon.EscutarComLock(vault)
+	if err == nil {
+		_ = segundo.Close()
+		t.Fatal("a segunda chamada abriu um ouvinte com o primeiro de pe: " +
+			"duas instancias serviriam o mesmo cofre, gravando no mesmo cache de busca")
+	}
+	if !strings.Contains(err.Error(), "ja ha um daemon ativo") {
+		t.Errorf("a recusa veio como %q; esperado a de ipc.Listen (\"ja ha um daemon ativo\"), "+
+			"que e a que prova que o socket tem dono vivo", err)
+	}
 }
 
 // TestLockDeEscutaLiberaDepois fixa que o lock não sobrevive à chamada.
