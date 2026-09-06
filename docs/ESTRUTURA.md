@@ -150,7 +150,7 @@ gobsidian/
 │   │   ├── vt_windows.go         habilita terminal virtual (build tag windows)
 │   │   └── vt_other.go           no-op documentado (build tag !windows)
 │   │
-│   ├── boot/                     a sequência de boot que serve, daemon e CLI
+│   ├── boot/                     a sequência de boot que serve e daemon
 │   │   │                         compartilham; não importa mcpsrv nem lifecycle
 │   │   ├── doc.go                por que o pacote existe e o que ele não decide
 │   │   ├── indice.go             AbrirIndice: cache fresco ou construção, e grava
@@ -232,7 +232,7 @@ gobsidian/
 
 ### `cmd/` fino, `internal/` grosso
 
-`cmd/gobsidian` não contém lógica de domínio. Analisa flags, monta configuração, constrói o `Service` e delega. Isso mantém toda a lógica testável sem passar pela CLI.
+`cmd/gobsidian` não contém lógica de domínio. Analisa flags, monta configuração, pede a montagem a `internal/boot` e delega. Isso mantém toda a lógica testável sem passar pela CLI.
 
 ### Tudo em `internal/`
 

@@ -85,8 +85,8 @@ internal/
   service/         fachada das tools em tipos de domínio; erros em errors.go
   mcpsrv/          ÚNICO pacote onde tipos do SDK de MCP existem
   console/         marcadores ASCII e cor decidida pelo destino de saída
-  boot/            monta cofre, índice, busca, watcher e Service; serve, daemon
-                   e CLI chamam
+  boot/            monta cofre, índice, busca, watcher e Service; serve e
+                   daemon chamam
   ipc/             transporte local: socket, saudação, handshake
   daemon/          N conexões sobre um índice; spawn; posse por trava do
                    kernel (flock / LockFileEx), nunca por arquivo com PID
