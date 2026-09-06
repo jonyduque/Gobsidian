@@ -40,6 +40,14 @@ func TestCodecValorRoundTripPorTipo(t *testing.T) {
 	casos := []any{
 		nil, true, false, int(-7), int64(1 << 40), uint64(1<<63 + 5), float64(2.5),
 		"acao", "", time.Date(2026, 9, 2, 10, 0, 0, 123, zona),
+		// []any(nil) e um []any TIPADO com valor nil — distinto do `nil` solto
+		// acima (que vira valNil) e de []any{} abaixo (que vira valSlice de
+		// tamanho 0). Cobre o par valSliceNil/valSlice (escritor :294-299,
+		// leitor :659-660), que ficava a 0% de cobertura antes desta rodada
+		// (achado N1 da revisao da Task 181). O escritor grava valSliceNil e o
+		// leitor devolve []any(nil): reflect.DeepEqual distingue nil de vazio
+		// para slice, entao o round-trip abaixo prova a distincao real.
+		[]any(nil),
 		[]any{int(1), "dois", nil}, []any{}, map[string]any{"k": "v", "n": int(3)}, map[string]any{},
 		[]any{map[string]any{"a": []any{int(1)}}},
 	}
@@ -229,6 +237,9 @@ func TestCodecNotaTruncadaEmCadaByteERecusada(t *testing.T) {
 		_ = l.note()
 		if l.err == nil {
 			t.Fatalf("prefixo de %d/%d bytes foi aceito como nota completa", i, len(b))
+		}
+		if !errors.Is(l.err, ErrIndexCacheCorrupted) {
+			t.Fatalf("prefixo de %d/%d bytes falhou sem ErrIndexCacheCorrupted: %v", i, len(b), l.err)
 		}
 	}
 	l := &leitor{b: b}

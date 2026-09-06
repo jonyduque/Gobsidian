@@ -417,7 +417,7 @@ depois (`go tool cover -func`, `go test ./internal/index/ -coverprofile=...`):
 | `escritor.blocks` | 37,5% | 100,0% |
 | `escritor.links` | 100,0% | 100,0% |
 | `escritor.inline` | 27,3% | 100,0% |
-| `escritor.value` | 65,8% | 92,1% |
+| `escritor.value` | 65,8% | 97,4% |
 | `escritor.note` | 100,0% | 100,0% |
 | `escritor.asset` | 100,0% | 100,0% |
 | `escreveIndexCache` | 85,7% | 85,7% |
@@ -434,14 +434,16 @@ depois (`go tool cover -func`, `go test ./internal/index/ -coverprofile=...`):
 | `leitor.blocks` | 33,3% | 83,3% |
 | `leitor.links` | 75,0% | 83,3% |
 | `leitor.inline` | 30,8% | 84,6% |
-| `leitor.value` | 61,1% | 91,7% |
+| `leitor.value` | 61,1% | 94,4% |
 | `leitor.note` | 90,9% | 95,5% |
 | `leitor.asset` | 83,3% | 83,3% |
 | `leIndexCache` | 80,0% | 80,0% |
 
-Pacote inteiro (`internal/index`, todos os testes): 83,5% → 89,7%. Não é a média
-do arquivo — `go tool cover -func` não dá esse número direto; só a de cada
-função, coladas acima.
+Pacote inteiro (`internal/index`, todos os testes): 83,5% → 89,8% (rodada de
+correção da revisão, 2026-09-06, acrescentou o caso `[]any(nil)` — ver abaixo;
+89,7% era o número antes dessa rodada). Não é a média do arquivo —
+`go tool cover -func` não dá esse número direto; só a de cada função, coladas
+acima.
 
 Achado durante a tarefa, não corrigido (fora do escopo de teste/doc): o branch
 `default` de `leitor.value` ("tag de valor desconhecida") é código morto para
