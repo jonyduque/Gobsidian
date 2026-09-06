@@ -115,16 +115,3 @@ func (s *Server) Serve(ctx context.Context, stdin io.Reader, stdout io.Writer) e
 		Writer: nopWriteCloser{stdout},
 	})
 }
-
-// RegisterPanicProbeForTest registra uma tool que sempre entra em panic.
-// Existe para provar que RNF-13 vale — nao e registrada em producao.
-func (s *Server) RegisterPanicProbeForTest() {
-	type empty struct{}
-	mcp.AddTool(s.mcp,
-		&mcp.Tool{Name: "panic_probe", Description: "sonda de teste; entra em panic"},
-		guard(s.log, "panic_probe",
-			func(context.Context, *mcp.CallToolRequest, empty) (*mcp.CallToolResult, empty, error) {
-				panic("sonda")
-			}),
-	)
-}

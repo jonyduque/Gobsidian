@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"io"
 	"os"
 	"path/filepath"
 )
@@ -34,23 +33,6 @@ var (
 	// ErrCacheCorrupted indica erro de decodificação ou corrupção no arquivo de cache.
 	ErrCacheCorrupted = errors.New("cache file corrupted")
 )
-
-// WriteCacheForTest escreve um cache no formato corrente, com o cabecalho que
-// o teste mandar.
-//
-// Substituiu NewEncoderForTest, que devolvia um gob.Encoder. Depois da troca de
-// formato, um arquivo gob deixa de ter a assinatura "GBS2" e e recusado logo na
-// primeira leitura — entao o teste de "versao de analisador divergente"
-// passaria sem nunca chegar a comparar versao nenhuma. Teste que passa pelo
-// motivo errado e pior que teste ausente.
-func WriteCacheForTest(
-	w io.Writer,
-	h CacheHeader,
-	termos map[string]map[string][]TokenPosition,
-	docLengths map[string]int,
-) error {
-	return escreveCache(w, h, termos, docLengths)
-}
 
 // CacheHeader guarda as versões e metadados de integridade do cache.
 type CacheHeader struct {
