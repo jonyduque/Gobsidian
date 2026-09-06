@@ -70,8 +70,29 @@ func TestListPorTagCasaSubtagENFD(t *testing.T) {
 	if got := ix.PathsComTags([]string{"projeto/alpha", "outra"}, "all"); len(got) != 0 {
 		t.Fatalf("PathsComTags(all, disjuntas) = %v, quero vazio", got)
 	}
+	// Os dois nomes, cada um conferido por si. A forma anterior era
+	// `len(tags) != 2 || tags[0].Tag != "projeto" && tags[1].Tag != "projeto"`,
+	// e `&&` liga mais forte que `||`: bastava UM dos dois ser "projeto" para
+	// passar, e "projeto/alpha" nunca era conferido.
 	tags := ix.Tags("proj", 0)
-	if len(tags) != 2 || tags[0].Tag != "projeto" && tags[1].Tag != "projeto" {
+	nomes := make([]string, 0, len(tags))
+	for _, tc := range tags {
+		nomes = append(nomes, tc.Tag)
+	}
+	slices.Sort(nomes)
+	if !slices.Equal(nomes, []string{"projeto", "projeto/alpha"}) {
 		t.Fatalf("Tags(proj) = %v, quero projeto e projeto/alpha dobradas", tags)
+	}
+
+	// O PREFIXO passa pela mesma conta da chave: '#' fora, caixa baixa, NFC.
+	// Prefixo ASCII minusculo nao prova isso — em "proj", ChaveDeTag e o
+	// strings.ToLower que ela substituiu devolvem a mesma coisa. Estes dois
+	// separam as duas: um traz o '#' e a maiuscula, o outro o sinal
+	// combinante.
+	for _, prefixo := range []string{"#AÇ", "aç"} {
+		acentuadas := ix.Tags(prefixo, 0)
+		if len(acentuadas) != 1 || acentuadas[0].Tag != "ação" {
+			t.Fatalf("Tags(%q) = %v, quero a entrada ação dobrada", prefixo, acentuadas)
+		}
 	}
 }

@@ -213,7 +213,7 @@ Lista notas por critérios estruturais. Não toca o índice de texto.
 }
 ```
 
-**Retorno.** Lista com `path`, `title`, `hash`, `modified`, `size`, `tags`, e os campos pedidos em `fields`.
+**Retorno.** Lista com `path`, `title`, `hash`, `modified`, `size`, `tags`, e os campos pedidos em `fields`. `tags` vem com a grafia original da nota, como `note_metadata.tags`: a dobra de caixa e de forma Unicode é da chave de agrupamento de `tag_list`, não do que estas duas tools devolvem.
 
 **Notas.** Servida direto do índice em memória. Latência de microssegundos. É a tool correta para "que notas existem na pasta X", "que notas têm a tag Y" — usar `vault_search` para isso é ordens de grandeza mais caro.
 
@@ -294,7 +294,7 @@ Todas as tags do cofre.
 {
   "type": "object",
   "properties": {
-    "prefix":       { "type": "string", "description": "Restringe a uma subárvore, ex.: 'civil/'. O prefixo casa a si mesmo e suas subtags; '#' inicial é opcional; comparação insensível a caixa e a forma Unicode (NFC)." },
+    "prefix":       { "type": "string", "description": "Restringe por PREFIXO DE STRING sobre a chave dobrada, e não por segmento: 'civil' devolve 'civil' e 'civil/contratos'; 'civil/' devolve 'civil/contratos' e NÃO devolve 'civil'; 'proj/al' devolve 'proj/alpha'. '#' inicial é opcional; comparação insensível a caixa e a forma Unicode (NFC)." },
     "min_count":    { "type": "integer", "default": 1 },
     "sort":         { "type": "string", "enum": ["name", "count"], "default": "name", "description": "Ordenação: 'name' (crescente por nome) ou 'count' (decrescente por contagem, desempate por nome)." },
     "hierarchical": { "type": "boolean", "default": false, "description": "Retorna árvore em vez de lista plana." }
@@ -309,6 +309,15 @@ Grafias que diferem só em caixa ou em forma Unicode são uma entrada só, com a
 soma das contagens — `#Ação` e `#ação` viram `ação`. Vale nos dois ramos,
 plano e hierárquico. `note_metadata.tags` continua devolvendo a grafia original
 da nota: a dobra é da chave de agrupamento, não do conteúdo da nota.
+
+**`prefix` não é o filtro `tags`.** São duas operações diferentes, de propósito.
+O `tags` de `note_list` e de `vault_search` casa por SEGMENTO — a tag pedida e
+suas subtags, e nada mais (`projeto` casa `projeto` e `projeto/alpha`, e não
+casa `projetos`). O `prefix` daqui é autocompletar: prefixo de string sobre a
+chave dobrada, que corta no meio de um segmento (`proj/al` lista
+`proj/alpha`) e que, terminando em `/`, exclui a própria tag (`civil/` lista as
+subtags de `civil` e não `civil`). O comportamento está fixado no golden
+`testdata/tag_list_hierarquico.json` desde a Task 169, nos dois ramos.
 
 ---
 

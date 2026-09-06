@@ -2,6 +2,7 @@ package service_test
 
 import (
 	"context"
+	"fmt"
 	"testing"
 
 	"github.com/jonyd/gobsidian/internal/service"
@@ -87,5 +88,36 @@ func TestTagListHierarquicoDobraGrafias(t *testing.T) {
 	}
 	if len(res.Tags) != 1 || res.Tags[0].Tag != "ação" || res.Tags[0].Count != 2 {
 		t.Fatalf("tag_list(a\u00e7, hierarquico) = %+v, quero UMA entrada ação com count 2", res.Tags)
+	}
+}
+
+// A dobra do PREFIXO de tag_list — '#' fora, caixa baixa, NFC — nos DOIS ramos.
+//
+// Nenhum prefixo ASCII minusculo consegue prova-la: em "proj" ou "aç" a
+// ChaveDeTag e o strings.ToLower que ela substituiu sao a mesma funcao, e as
+// tres mutacoes da revisao (query.go e graph.go, prefixo por ToLower)
+// sobreviveram a suite inteira. "#AÇ" carrega o '#' e a caixa; a forma NFD
+// carrega o sinal combinante. Cada um mata uma metade da conta.
+func TestTagListDobraOPrefixoNosDoisRamos(t *testing.T) {
+	svc := cofreComTags(t)
+	prefixos := map[string]string{
+		"com hash e caixa": "#AÇ", // maiuscula e o '#'
+		"em NFD":           "aç", // "ac" + cedilha combinante
+	}
+	for nome, prefixo := range prefixos {
+		for _, hierarquico := range []bool{false, true} {
+			t.Run(fmt.Sprintf("%s/hierarchical=%v", nome, hierarquico), func(t *testing.T) {
+				res, err := svc.TagList(context.Background(), service.TagRequest{
+					Prefix: prefixo, Hierarchical: hierarquico,
+				})
+				if err != nil {
+					t.Fatal(err)
+				}
+				if len(res.Tags) != 1 || res.Tags[0].Tag != "ação" || res.Tags[0].Count != 2 {
+					t.Fatalf("tag_list(%q, hierarchical=%v) = %+v, quero UMA entrada ação com count 2",
+						prefixo, hierarquico, res.Tags)
+				}
+			})
+		}
 	}
 }

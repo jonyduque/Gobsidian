@@ -386,7 +386,7 @@ type linkGraphInput struct {
 }
 
 type tagListInput struct {
-	Prefix       string `json:"prefix,omitempty" jsonschema:"Restringe a uma subárvore, ex.: 'civil/'"`
+	Prefix       string `json:"prefix,omitempty" jsonschema:"Restringe por prefixo de string sobre a chave dobrada da tag, não por segmento: 'civil/' devolve as subtags de civil e não a própria civil; 'proj/al' devolve proj/alpha."`
 	MinCount     *int   `json:"min_count,omitempty"`
 	Sort         string `json:"sort,omitempty" jsonschema:"Ordenação: 'name' (crescente por nome) ou 'count' (decrescente por contagem, desempate por nome). Padrão: 'name'."`
 	Hierarchical bool   `json:"hierarchical,omitempty" jsonschema:"Retorna árvore em vez de lista plana."`
