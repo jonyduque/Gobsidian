@@ -517,6 +517,21 @@ não fazer sem ele. Detalhe no plano, Fase 2.4.
   `docs/TOOLS.md` nas três tools. CONFIRMADO (mecanismo e código lidos; não corrigido
   nesta tarefa, que é `docs:`).
 
+- **B20** Tag inline em NFD é cortada pelo parser ANTES de chegar ao índice:
+  `parser.tagNameChar` (`internal/parser/ext_tag.go:36`) aceita `unicode.IsLetter`,
+  `unicode.IsDigit`, `-`, `_` e `/`, e **não** `unicode.Mn`, então o varredor para no
+  primeiro sinal combinante. Medido na Task 180 (2026-09-06), com `ChaveDeTag` já em pé: o
+  corpo `"# D\n\n#Ação\n"` escrito em NFD (`A c U+0327 a U+0303 o`) produz
+  `n.Tags = ["Ac"]`, e a chave derivada é `"ac"` — a nota indexa em silêncio sob uma tag
+  que ninguém digitou. Não é defeito de dobra de chave: nenhuma normalização conserta uma
+  tag que já chegou truncada, e foi por isso que a Task 180 moveu a sua fixture de NFD
+  para o frontmatter, onde o YAML preserva a forma. Por essa porta — que é onde a forma
+  Unicode de fato varia entre um cofre escrito no macOS e um escrito no Windows — o
+  caminho inteiro funciona. A correção (acrescentar `unicode.Mn` a `tagNameChar`) pede
+  tarefa própria: mexe no alfabeto do parser, logo passe de golden em `testdata/` e
+  conferência de paridade contra o Obsidian, que é quem decide o que é tag. CONFIRMADO
+  (medido na Task 180; não corrigido lá, fora do alcance daquele brief).
+
 ---
 
 ## Oportunidades maiores (decisão de arquitetura; da revisão de 2026-08-15, ainda abertas)
