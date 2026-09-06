@@ -103,6 +103,11 @@ func SweepStaleTempFiles(ctx context.Context, root string) (SweepResult, error) 
 // 4. Fecha o temporario.
 // 5. Executa rename atomico sobre o arquivo de destino, com retry em caso de bloqueio temporario (Windows).
 //
+// Contrato do callback: escrever NAO pode fechar nem renomear o *os.File
+// recebido — ReplaceFile e dono do ciclo de vida do temporario — e qualquer
+// conteudo passado por um buffer precisa ser esvaziado (Flush) antes de
+// escrever retornar, porque o Sync() do passo 3 acontece logo em seguida.
+//
 // O conteudo chega por callback, e nao como []byte, porque os dois caches
 // codificam em STREAMING para o temporario — index/persist.go e
 // search/persist.go escrevem num io.Writer. Exigir []byte obrigaria a

@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+
+	"github.com/jonyd/gobsidian/internal/vault"
 )
 
 // Constantes de versionamento de cache (Task 49).
@@ -64,38 +66,19 @@ func SaveInvertedCache(ctx context.Context, cacheDir string, vaultPath string, i
 		NoteCount:       inv.DocCount(),
 	}
 
+	// Promove a arena ANTES de exportar e gravar: ReplaceFile faz o rename
+	// por dentro, e o rename falha no Windows enquanto o alvo esta mapeado
+	// (ver promoverArenaSePresente, em mmap.go). Exportar depois de promover
+	// garante que os slices gravados nao apontam para o mapeamento fechado.
+	promoverArenaSePresente(inv)
 	termos, docLengths := inv.ExportForCache()
 
-	tmpFile, err := os.CreateTemp(cacheDir, ".gobsidian-tmp-cache-*.gob")
-	if err != nil {
-		return fmt.Errorf("criando arquivo temporário de cache: %w", err)
-	}
-	tmpPath := tmpFile.Name()
-
-	if err := escreveCache(tmpFile, header, termos, docLengths); err != nil {
-		_ = tmpFile.Close()
-		_ = os.Remove(tmpPath)
-		return fmt.Errorf("codificando cache: %w", err)
-	}
-
-	if err := tmpFile.Close(); err != nil {
-		_ = os.Remove(tmpPath)
-		return fmt.Errorf("fechando arquivo temporário de cache: %w", err)
-	}
-
 	finalPath := filepath.Join(cacheDir, "inverted_cache.gob")
-
-	// Promove o array de posições de `inv` para o heap ANTES do rename, se
-	// ele vier de uma arena mapeada deste mesmo arquivo. Sem isto, o rename
-	// abaixo falharia no Windows sempre que um cache PARCIAL retomado fosse
-	// regravado (ver o comentário em promoverArenaSePresente, em mmap.go).
-	promoverArenaSePresente(inv)
-
-	if err := os.Rename(tmpPath, finalPath); err != nil {
-		_ = os.Remove(tmpPath)
-		return fmt.Errorf("renomeando cache temporário para %q: %w", finalPath, err)
+	if err := vault.ReplaceFile(ctx, finalPath, func(f *os.File) error {
+		return escreveCache(f, header, termos, docLengths)
+	}); err != nil {
+		return fmt.Errorf("gravando cache de busca em %q: %w", finalPath, err)
 	}
-
 	return nil
 }
 

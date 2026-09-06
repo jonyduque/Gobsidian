@@ -22,7 +22,6 @@ import (
 	"github.com/jonyd/gobsidian/internal/service"
 	"github.com/jonyd/gobsidian/internal/vault"
 	"github.com/jonyd/gobsidian/internal/watcher"
-	"github.com/jonyd/gobsidian/internal/writer"
 )
 
 // servicoMontado agrupa o que construirServico produz: o servico de
@@ -65,17 +64,17 @@ func construirServico(ctx context.Context, cfg config.Config, log *slog.Logger) 
 	// responder o initialize. Numa partida simultanea de varias instancias eram
 	// N varreduras seriais disputando disco antes do primeiro byte.
 	//
-	// A garantia documentada em writer/atomic.go continua valendo: "o unico
+	// A garantia documentada em vault/atomic.go continua valendo: "o unico
 	// lugar sem escrita em voo e o boot". As duas metades do boot continuam
 	// antes de o servidor servir, e o join abaixo acontece antes de watcher.New
 	// — nada que escreva chegou a existir ainda.
 	type varreduraFeita struct {
-		res writer.SweepResult
+		res vault.SweepResult
 		err error
 	}
 	varredura := make(chan varreduraFeita, 1)
 	go func() {
-		r, err := writer.SweepStaleTempFiles(ctx, cfg.VaultPath)
+		r, err := vault.SweepStaleTempFiles(ctx, cfg.VaultPath)
 		varredura <- varreduraFeita{res: r, err: err}
 	}()
 
@@ -100,7 +99,7 @@ func construirServico(ctx context.Context, cfg config.Config, log *slog.Logger) 
 	// defer, e deixa o temporario no cofre. O boot e o unico momento sem
 	// escrita em voo, e por isso o unico em que varrer o diretorio nao corre
 	// risco de apagar o temporario de outra escrita. Ver
-	// writer.SweepStaleTempFiles.
+	// vault.SweepStaleTempFiles.
 	feita := <-varredura
 	if varr, err := feita.res, feita.err; err != nil {
 		log.Warn("varredura de temporarios interrompida", "err", err)

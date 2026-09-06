@@ -10,6 +10,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/jonyd/gobsidian/internal/vault"
 	"github.com/jonyd/gobsidian/internal/writer"
 )
 
@@ -34,7 +35,7 @@ func TestReplaceBlock_ParagraphListAndQuote(t *testing.T) {
 		t.Fatalf("FindBlock p1: %v", err)
 	}
 	patchedP1 := writer.ReplaceBlockContent(rawDisk, *bP1, "Paragrafo substituido")
-	_ = writer.WriteAtomic(context.Background(), alvo, patchedP1)
+	_ = vault.WriteAtomic(context.Background(), alvo, patchedP1)
 
 	sP1 := string(patchedP1)
 	if !strings.Contains(sP1, "Paragrafo substituido ^p1") {
@@ -117,7 +118,7 @@ func TestReplaceBlock_UnderBOMAndCRLF(t *testing.T) {
 	}
 
 	patched := writer.ReplaceBlockContent(rawDisk, *b, "Paragrafo novo")
-	_ = writer.WriteAtomic(context.Background(), alvo, patched)
+	_ = vault.WriteAtomic(context.Background(), alvo, patched)
 
 	depois, _ := os.ReadFile(alvo)
 	s := string(depois)

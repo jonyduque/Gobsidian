@@ -112,12 +112,12 @@ rodada que decide). Mediana das 5, via `benchstat antes_all.txt`:
 | `IndexBuild` (service) | 352,4 ms | 95,6 MiB | 918 400 |
 | `InvertedLoad` (service) | 17,50 ms | 3,51 MiB | 46 380 |
 | `SearchTermoAmplo` / `DoisTermos` / `FraseExata` / `Limit200` (service) | 8,705 / 3,658 / 23,27 / 15,41 ms | — | — |
-| `SaveIndexCacheReal` / `ComFsync` (index) | 21,76 / 41,87 ms | 1,17 MiB | 6 088 |
+| `SaveIndexCacheReal` (index, com fsync — Task 172) | 22,23 ms ± 15% | 1,17 MiB | 6 103 |
 | `TagsSemPrefixo` (index) | 20,02 µs | 7,35 KiB | 8 |
 | `ListPorTag` (index) | 856,1 µs | 119 KiB | 12 |
 | `BuildComHub` (index) | 115,4 ms | 12,95 MiB | 128 400 |
 | `TotalSizeRepetido` (index) | 5,610 µs | 0 | 0 |
-| `SaveInvertedCacheReal` / `ComFsync` (search) | 227,3 / 259,1 ms | 24,95 MiB | 255 000 |
+| `SaveInvertedCacheReal` (search, com fsync — Task 172) | 163,5 ms ± 30% | 24,95 MiB | 255 000 |
 | `EscreveCache` (search) | 24,56 ms | 1,04 MiB | 822 |
 | `InvertedUpdateLote` (search) | 6,549 s | 105 MiB | 565 200 |
 | `RewriteLinksMuitos` (writer) | 1,496 ms | 3,98 MiB | 795 |
@@ -127,6 +127,27 @@ rodada que decide). Mediana das 5, via `benchstat antes_all.txt`:
 Saída completa do `benchstat`: `%LOCALAPPDATA%\gobsidian-bench\2026-09-02\antes_all.txt`
 (concatenação dos cinco `antes_<pkg>_run*.txt` válidos; `antes_service_run1.txt`
 NÃO entra — rodou contra o cofre velho e tem dois FAIL).
+
+**Task 172 (2026-09-06):** `SaveIndexCache` e `SaveInvertedCache` passaram a
+gravar via `vault.ReplaceFile`, que inclui `fsync` do arquivo e do diretório
+(ver `internal/vault/atomic.go`). As duas linhas acima são a medição NOVA,
+depois da mudança — as colunas `ComFsync` da linha anterior mediam um `Sync`
+extra aplicado por fora, num caminho de escrita diferente do de produção, e
+não são mais comparáveis. `benchstat` intercalado (antes = binário do commit
+`011042f`, sem fsync; depois = pós-Task-172), `-test.count=7`:
+
+```
+SaveIndexCacheReal-12          17.58m ± 7%   22.23m ± 15%  +26.43% (p=0.001 n=7)
+SaveInvertedCacheReal-12       154.1m ± 30%  163.5m ± 30%  ~ (p=0.097 n=7)
+```
+
+O índice sobe de forma estatisticamente significativa (+26,43 %), mas fica
+abaixo do que a antiga coluna `ComFsync` insinuava (41,87 ms) — a rotina
+antiga não é o mesmo caminho de código. O invertido não mostra diferença
+estatisticamente significativa nesta rodada (p=0,097): a variância de ±30 %
+do benchmark domina o efeito do fsync num arquivo de ~25 MiB. Binários e
+saída bruta: `%LOCALAPPDATA%\gobsidian-bench\2026-09-02\{antes,depois}172_{index,search}.test.exe`
+e `.txt`.
 
 Fatos medidos sem benchmark:
 

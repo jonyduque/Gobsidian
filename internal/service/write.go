@@ -158,7 +158,7 @@ func (s *Service) CreateNote(ctx context.Context, req CreateNoteRequest) (Create
 		return CreateNoteResult{Path: req.Path, Diff: diff, Created: false, Hash: hashDoConteudo([]byte(fullContent))}, nil
 	}
 
-	if err := writer.WriteAtomic(ctx, absPath, []byte(fullContent)); err != nil {
+	if err := vault.WriteAtomic(ctx, absPath, []byte(fullContent)); err != nil {
 		return CreateNoteResult{}, Errorf(CodeInternal, "escrevendo nota %q: %v", req.Path, err)
 	}
 
@@ -257,7 +257,7 @@ func (s *Service) AppendNote(ctx context.Context, req AppendNoteRequest) (Append
 		return AppendNoteResult{Path: req.Path, Diff: diff, Appended: false, Hash: hashDoConteudo(proposed)}, nil
 	}
 
-	if err := writer.WriteAtomic(ctx, absPath, proposed); err != nil {
+	if err := vault.WriteAtomic(ctx, absPath, proposed); err != nil {
 		return AppendNoteResult{}, Errorf(CodeInternal, "escrevendo nota %q: %v", req.Path, err)
 	}
 
@@ -386,7 +386,7 @@ func (s *Service) PatchNote(ctx context.Context, req PatchNoteRequest) (PatchNot
 		return PatchNoteResult{Path: req.Path, Diff: diff, Patched: false, Hash: hashDoConteudo(proposed)}, nil
 	}
 
-	if err := writer.WriteAtomic(ctx, absPath, proposed); err != nil {
+	if err := vault.WriteAtomic(ctx, absPath, proposed); err != nil {
 		return PatchNoteResult{}, Errorf(CodeInternal, "escrevendo nota %q: %v", req.Path, err)
 	}
 
@@ -637,7 +637,7 @@ func (s *Service) MoveNote(ctx context.Context, req MoveNoteRequest) (MoveNoteRe
 			return moveNoteErro(Errorf(CodeInternal, "reescrevendo links em %q: %v", refPath, err))
 		}
 
-		if err := writer.WriteAtomic(ctx, absRef, rewritten); err != nil {
+		if err := vault.WriteAtomic(ctx, absRef, rewritten); err != nil {
 			unlock()
 			return moveNoteErro(Errorf(CodeInternal, "escrevendo nota %q: %v", refPath, err))
 		}
@@ -843,7 +843,7 @@ func (s *Service) moverCorpo(ctx context.Context, de, para vault.CanonicalPath, 
 	if err != nil {
 		return Errorf(CodeInternal, "lendo nota de origem %q: %v", de, err)
 	}
-	if err := writer.WriteAtomic(ctx, absTo, fromRaw); err != nil {
+	if err := vault.WriteAtomic(ctx, absTo, fromRaw); err != nil {
 		return Errorf(CodeInternal, "escrevendo destino %q: %v", absTo, err)
 	}
 	if err := os.Remove(absFrom); err != nil {

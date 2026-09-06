@@ -111,29 +111,12 @@ func SaveIndexCache(ctx context.Context, cacheDir, vaultPath string, ix *Index) 
 		AssetCount:    len(assets),
 	}
 
-	tmpFile, err := os.CreateTemp(cacheDir, ".gobsidian-tmp-index-cache-*.gob")
-	if err != nil {
-		return fmt.Errorf("criando arquivo temporario de cache de indice: %w", err)
-	}
-	tmpPath := tmpFile.Name()
-
-	if err := escreveIndexCache(tmpFile, header, notes, assets); err != nil {
-		_ = tmpFile.Close()
-		_ = os.Remove(tmpPath)
-		return fmt.Errorf("codificando cache de indice: %w", err)
-	}
-
-	if err := tmpFile.Close(); err != nil {
-		_ = os.Remove(tmpPath)
-		return fmt.Errorf("fechando arquivo temporario de cache de indice: %w", err)
-	}
-
 	finalPath := filepath.Join(cacheDir, indexCacheFileName)
-	if err := os.Rename(tmpPath, finalPath); err != nil {
-		_ = os.Remove(tmpPath)
-		return fmt.Errorf("renomeando cache de indice temporario para %q: %w", finalPath, err)
+	if err := vault.ReplaceFile(ctx, finalPath, func(f *os.File) error {
+		return escreveIndexCache(f, header, notes, assets)
+	}); err != nil {
+		return fmt.Errorf("gravando cache de indice em %q: %w", finalPath, err)
 	}
-
 	return nil
 }
 
