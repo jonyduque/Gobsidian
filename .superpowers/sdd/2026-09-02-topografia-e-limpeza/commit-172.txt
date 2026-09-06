@@ -1,0 +1,35 @@
+refactor: callers use vault atomic write; caches replace through vault.ReplaceFile with fsync
+
+Task 171 (commit 4d7f397) moved atomic writes into internal/vault and left
+forwarders in internal/writer/atomic.go so callers could migrate in a
+separate PR. This is that PR: internal/service/write.go, cmd/gobsidian/servico.go,
+and the writer package tests now call vault.WriteAtomic / vault.SweepStaleTempFiles
+/ vault.SweepResult directly, and internal/writer/atomic.go is deleted.
+
+internal/index/persist.go's SaveIndexCache and internal/search/persist.go's
+SaveInvertedCache used to hand-roll CreateTemp + write + Close + Rename with
+no fsync at all. Both now go through vault.ReplaceFile, which syncs the file
+and the destination directory before/around the rename. SaveInvertedCache
+keeps promoting the mmap arena before exporting and writing (not after),
+because the rename inside ReplaceFile fails on Windows while the target is
+still mapped -- proven by moving the promotion after ReplaceFile and watching
+TestSaveOverwritesMappedCache fail with "Access is denied", then restoring.
+
+Interleaved benchstat (7 runs each, binary built from commit 011042f vs. the
+edited tree) against vault_5000:
+
+    SaveIndexCacheReal-12          17.58m ± 7%   22.23m ± 15%  +26.43% (p=0.001 n=7)
+    SaveInvertedCacheReal-12       154.1m ± 30%  163.5m ± 30%  ~ (p=0.097 n=7)
+
+The index cache write cost rises significantly (+26.43%) but stays well
+below what the old ComFsync reference benchmark suggested (41.87 ms) -- that
+benchmark measured a manual Sync bolted onto a different write path, not the
+production one. The inverted cache write shows no statistically significant
+change at n=7: the benchmark's own ±30% variance on a ~25 MiB write swamps
+the fsync cost. docs/ESTADO.md records both numbers with a note.
+
+No new import edges: internal/index and internal/search already imported
+internal/vault before this change.
+
+Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01P5wkw6PAdBFzF3uB1w1jNj

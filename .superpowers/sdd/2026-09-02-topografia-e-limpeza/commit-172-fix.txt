@@ -1,0 +1,35 @@
+docs: retire the forwarders from the normative docs, name the fsync in the bench comments
+
+Fix round 1 for the Task 172 review (review-172.md), findings N1-N5:
+
+- N1 (blocking): docs/ESTRUTURA.md and docs/ARCHITECTURE.md still described
+  internal/writer/atomic.go and its transitional forwarders, a file Task 172
+  deleted. Removed the three tree lines from ESTRUTURA.md and replaced the
+  present-tense paragraph in ARCHITECTURE.md with one past-tense sentence.
+- N2: docs/ESTADO.md's "6 sites of writer.WriteAtomic" / "4 literals of
+  .gobsidian-tmp-" facts were measured before Tasks 171-172 and are false
+  today (0 sites, 1 literal). Date-stamped them and added the current facts.
+  docs/segregacao.md's "three implementations" section for atomic replace
+  now gets a closing line: extracted in Tasks 171/172, one implementation
+  today (vault.ReplaceFile).
+- N3: BenchmarkSaveIndexCacheReal/BenchmarkSaveInvertedCacheReal comments
+  said "SEM fsync" -- false since Task 172 routes both through
+  vault.ReplaceFile, which fsyncs the file and the directory. Fixed the
+  comments to name that. The ...ComFsync variants now add a second, redundant
+  Sync on top; comments say they survive only as historical reference.
+- N4 (orchestrator ruling, no code change): cache files born 0644 instead of
+  the old 0600 is accepted -- same posture as the 0755 cache directory.
+  Recorded as one sentence in docs/ESTADO.md's cache-format section.
+- N5: internal/search/persist.go's promotion comment implied exported slices
+  would alias the mmap arena if promoted late. ExportForCache already copies
+  every posting, so that's not the real hazard -- the rename inside
+  ReplaceFile failing on a still-mapped file is. Reworded the second
+  sentence to say so.
+
+Verification: gofmt -l ./internal clean, go vet ./... clean, go test -race
+-count=1 ./internal/index/ ./internal/search/ both ok, all four touched .md
+files validate as UTF-8, verify.ps1 -SkipCross -SkipNet ends "[OK] Bateria
+completa. Pode commitar."
+
+Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01P5wkw6PAdBFzF3uB1w1jNj

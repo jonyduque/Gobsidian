@@ -1,0 +1,266 @@
+68c0bc5 docs: retire the forwarders from the normative docs, name the fsync in the bench comments
+
+ docs/ARCHITECTURE.md                  | 2 +-
+ docs/ESTADO.md                        | 9 +++++++--
+ docs/ESTRUTURA.md                     | 3 ---
+ docs/segregacao.md                    | 3 +++
+ internal/index/bench_analise_test.go  | 7 ++++---
+ internal/search/bench_analise_test.go | 7 ++++---
+ internal/search/persist.go            | 4 ++--
+ 7 files changed, 21 insertions(+), 14 deletions(-)
+
+diff --git a/docs/ARCHITECTURE.md b/docs/ARCHITECTURE.md
+index a89a8a0..d77409b 100644
+--- a/docs/ARCHITECTURE.md
++++ b/docs/ARCHITECTURE.md
+@@ -97,21 +97,21 @@ Guarda o resultado do parse de todas as notas, mais os grafos derivados (backlin
+ Índice invertido para busca full-text. Ver §6.
+ 
+ ### 2.9 `internal/watcher`
+ 
+ `fsnotify` mais debounce, coalescência e recuperação de overflow. Ver §5.3.
+ 
+ ### 2.10 `internal/writer`
+ 
+ Serialização de escritas por caminho canônico e transformações estruturais de conteúdo (inserir sob heading, substituir seção, reescrever links, diff).
+ 
+-A substituição atômica em si passou para `internal/vault` (§2.5). O que resta em `writer/atomic.go` são encaminhadores transitórios, que somem quando o último chamador migrar. Eles não levam o marcador `// Deprecated:` de propósito: com `staticcheck` ligado, o marcador reprovaria o gate em cada chamador ainda não migrado, e um gate vermelho por desenho é um gate que alguém contorna.
++A substituição atômica passou para `internal/vault` (§2.5) na Task 171; os encaminhadores transitórios que ficaram em `writer/atomic.go` foram removidos na Task 172, quando o último chamador migrou.
+ 
+ ### 2.11 `internal/ipc`
+ 
+ Transporte local entre a ponte (`cmd/gobsidian`) e o daemon (`internal/daemon`): chave do socket, handshake de versão e de configuração, `Dial`/`Listen`, proxy de bytes. `runtimeDir` e `restrictPermission` vivem atrás de build tag em `ipc_unix.go`/`ipc_windows.go`; o resto é compartilhado. Ver §7.5.
+ 
+ ### 2.12 `internal/daemon`
+ 
+ Um `*mcpsrv.Server` compartilhado por N conexões sobre o socket de `internal/ipc`, para o mesmo cofre. Resolve a corrida de inicialização por arquivo de lock e sai por ociosidade reusando `internal/lifecycle`. Ver §7.5.
+ 
+ ### 2.13 `internal/console`
+diff --git a/docs/ESTADO.md b/docs/ESTADO.md
+index 3c17003..54ae38e 100644
+--- a/docs/ESTADO.md
++++ b/docs/ESTADO.md
+@@ -148,22 +148,22 @@ estatisticamente significativa nesta rodada (p=0,097): a variância de ±30 %
+ do benchmark domina o efeito do fsync num arquivo de ~25 MiB. Binários e
+ saída bruta: `%LOCALAPPDATA%\gobsidian-bench\2026-09-02\{antes,depois}172_{index,search}.test.exe`
+ e `.txt`.
+ 
+ Fatos medidos sem benchmark:
+ 
+ - `vault_5000`: 112 tags distintas, 0 hierárquicas. Cofres reais do dono: **não medido** neste plano.
+ - Cobertura por função (`go test -coverprofile`, 2026-09-02): `construirServico` 6,5 %, `carregarIndiceDoCache` 0 %, `prepararIndiceDeBusca` 0 %, `runServe` 0 %, `serveEmProcesso` 20,6 %, `buildInvertedIndex` 60,7 %; `WriteAtomic` 71,1 %, `SweepStaleTempFiles` 62,5 %, `CleanStaleTempFiles` 0 %; `SaveIndexCache` 64,5 %, `SaveInvertedCache` 56,0 %; `Tags` 91,7 %, `coletarLocked` 87,6 %, `tagListHierarchical` 94,1 %, `LinkGraph` 78,1 %; `Search` 96 %; `mcpsrv.Server.Serve` 0 %, `Close` 0 %; `doctor.checkDaemonLog` 44,4 %, `checkLocksDeDaemon` 58,6 %.
+ - Tempo de suíte (`go test ./... -count=1 -cover`): service 51,7 s, writer 32,5 s, search 31,1 s, watcher 26,2 s, index 22,3 s, vault 22,0 s, doctor 19,4 s, mcpsrv 17,0 s.
+ - Raio de explosão de `service.Index` (gopls references): `Get` 13, `ResolvePath` 8, `Backlinks` 5, `List` 4, `NotePaths` 2, `TotalSize`/`Tags`/`NoteCount`/`Generation`/`AssetCount`/`AliasCollisions` 1 cada, `Paths` **0**.
+-- Raio de `writer.WriteAtomic`: 6 sítios em `internal/service/write.go` (`:149,:248,:378,:619,:751,:832`) + 3 arquivos de teste; `SweepStaleTempFiles`: 1 sítio (`cmd/gobsidian/servico.go:78`).
+-- Prefixo `.gobsidian-tmp-` em 4 literais: `writer/atomic.go:14` (constante), `vault/walk.go:74`, `search/persist.go:87`, `index/persist.go:124`.
++- Raio de `writer.WriteAtomic` (medido em 2026-09-02, antes das Tasks 171-172): 6 sítios em `internal/service/write.go` (`:149,:248,:378,:619,:751,:832`) + 3 arquivos de teste; `SweepStaleTempFiles`: 1 sítio (`cmd/gobsidian/servico.go:78`). Depois das Tasks 171-172, `writer.WriteAtomic` e `writer.SweepStaleTempFiles` não existem mais — os chamadores usam `vault.WriteAtomic`/`vault.SweepStaleTempFiles` diretamente.
++- Prefixo `.gobsidian-tmp-` em 4 literais (medido em 2026-09-02, antes das Tasks 171-172): `writer/atomic.go:14` (constante), `vault/walk.go:74`, `search/persist.go:87`, `index/persist.go:124`. Depois das Tasks 171-172, o literal existe numa só linha: `vault/atomic.go:14`.
+ - `hits` × `results`: `search --json --limit 200 --vault vault_5000 "execucao"` (binário de 6c5d1f1): `hits` e `results` são 200 itens e **byte a byte iguais** (`hits == results` → `True` em Python). JSON compacto: 195 481 bytes com `hits`, 97 787 sem — **50,0 % do payload é a cópia**. Arquivo indentado: 216 304 bytes.
+ - CLI a frio × `serve` com cache: cofre `vault_5000`, mesmo binário. `search` a frio (Build + `inv.Update` serial por nota): **10 520 / 10 819 / 11 046 ms** de parede em 3 execuções. `inspect` a frio (só Build): **770 / 767 / 739 ms**. `serve` em processo (`GOBSIDIAN_NO_DAEMON=1 --eager-search`) com cache quente, 5 execuções: `index_ms` **101–123**, índice de busca `duracao_ms` **13–20**, parede boot→saída **475–528 ms**. Ou seja: a CLI de busca paga ~10 s que o `serve` não paga; adotar o cache na CLI (Task 175) tem teto de ganho medido, não estimado.
+ 
+ ---
+ 
+ ## Decisões fechadas que não se re-litigam sem dado novo
+ 
+ **O RNF-30 mudou de redação, não de intenção** (Task 90, autorizado pelo dono em
+ 2026-08-05). Era "nenhum socket"; é "nenhum socket que saia da máquina".
+ `tools/netcheck` aceita `net.Dial`/`net.Listen` **apenas com a rede na constante
+@@ -281,20 +281,25 @@ Medido em 2026-08-26 no cofre real de 5.686 notas e 42.329 links (109 MB):
+ | | formato 2 | formato 3 |
+ |---|---|---|
+ | arquivo | 19,53 MB | **32,62 MB** (+67%, +13,09 MB) |
+ | `LoadIndexCache`, mediana de 5 | 275,5 ms | 282,2 ms |
+ 
+ O custo de disco é real e está medido. **O de tempo não é distinguível de ruído
+ nesta amostra**: as duas distribuições se sobrepõem (com contexto: 236–450 ms;
+ sem: 258–292 ms), e a rodada *com* contexto produziu as duas amostras mais
+ rápidas.
+ 
++Desde a Task 172, `index_cache.gob` e `inverted_cache.gob` são gravados via
++`vault.ReplaceFile`, e um arquivo novo nasce `0644` — a mesma postura do
++diretório de cache, criado `0755` sob `os.UserCacheDir` (decisão aceita; não é
++regressão a corrigir, ver ruling N4 na revisão da Task 172).
++
+ O boot completo foi medido em seguida, no mesmo cofre, contra o teto de 300 ms do
+ RNF-02 — `index_ms` do log `servidor pronto`, em processo (`GOBSIDIAN_NO_DAEMON`),
+ somente-leitura e com `--cache-dir` próprio, para não gravar formato 3 no cache
+ que as sessões vivas do dono leem:
+ 
+ | | formato 2 | formato 3 |
+ |---|---|---|
+ | boot quente, mediana de 5 | **891 ms** | **921 ms** |
+ | amostras | 810–1079 ms | 872–1034 ms |
+ | boot frio, n=1 | 1741 ms | 2326 ms |
+diff --git a/docs/ESTRUTURA.md b/docs/ESTRUTURA.md
+index 80c0fff..980101a 100644
+--- a/docs/ESTRUTURA.md
++++ b/docs/ESTRUTURA.md
+@@ -109,23 +109,20 @@ gobsidian/
+ │   │   ├── debounce.go           janela de debounce e coalescência
+ │   │   ├── filter.go             filtro de relevância de evento
+ │   │   ├── apply.go              aplica lotes e reconciliação nos dois índices
+ │   │   ├── rename.go             correlação de rename por hash de conteúdo
+ │   │   ├── counters.go           contadores publicados em vault_stats
+ │   │   └── overflow.go           varredura de reconciliação pós-overflow
+ │   │
+ │   ├── writer/
+ │   │   ├── writer.go             fachada de escrita
+ │   │   ├── lock.go               mutex por caminho canônico; serializa escritas
+-│   │   ├── atomic.go             encaminhadores transitórios para vault.WriteAtomic
+-│   │   │                         e vault.SweepStaleTempFiles; somem quando o
+-│   │   │                         último chamador migrar
+ │   │   ├── section.go            inserir e substituir sob heading
+ │   │   ├── block.go              substituir bloco por ^id
+ │   │   ├── linkrewrite.go        reescrita de links em note_move
+ │   │   └── diff.go               diff unificado para dry-run
+ │   │
+ │   ├── service/
+ │   │   ├── service.go            struct Service; injeção dos subsistemas
+ │   │   ├── read.go               métodos de leitura
+ │   │   ├── outline.go            note_outline: headings do índice + candidatos do parser
+ │   │   ├── write.go              métodos de escrita
+diff --git a/docs/segregacao.md b/docs/segregacao.md
+index effeaa2..63dd975 100644
+--- a/docs/segregacao.md
++++ b/docs/segregacao.md
+@@ -88,20 +88,23 @@ manda justificar; a justificativa é esta seção.
+ 
+ A do `writer` é a cuidadosa: restaura o modo do alvo, porque `os.CreateTemp`
+ cria 0600 e um rename por cima trocaria a permissão da nota do usuário; e trata
+ a repetição no Windows. As duas de cache são a versão curta.
+ 
+ A regra do projeto — *todo caminho derivado passa por UMA função* — aponta para
+ cá. Mas o consumo difere no que importa: cache perdido se refaz, nota do usuário
+ não. Unificar as três acopla o caminho barato ao caro sem que o caro fique mais
+ seguro. Recomendação: só junto com o item 1, e só entre os dois caches.
+ 
++Extraído nas Tasks 171 e 172: hoje há uma implementação só,
++`vault.ReplaceFile`, e os dois caches passam por ela.
++
+ ### 3. Chave derivada — a tag escapa da conta única
+ 
+ `index/chave.go` é explicitamente a conta única e cumpre o que promete para
+ caminho, nome de arquivo e alias. Mas `index/query.go` tem 10 `strings.ToLower`
+ soltos: parte é parâmetro de consulta (`Sort`, `Order`, `TagMode`), o que está
+ certo, e parte é comparação de tag e de chave de campo inline — que baixa caixa
+ sem normalizar Unicode.
+ 
+ Não é o defeito que `chave.go` fechou; é o mesmo mecanismo um nível acima. Um
+ cofre com `#Ação` gravado em NFD e consultado em NFC tem, aqui, a mesma classe
+diff --git a/internal/index/bench_analise_test.go b/internal/index/bench_analise_test.go
+index 4d474e2..8300a92 100644
+--- a/internal/index/bench_analise_test.go
++++ b/internal/index/bench_analise_test.go
+@@ -18,35 +18,36 @@ func cofreReal(b *testing.B) (*index.Index, string) {
+ 		b.Fatalf("vault.New: %v", err)
+ 	}
+ 	ix := index.New()
+ 	if err := ix.Build(context.Background(), v); err != nil {
+ 		b.Fatalf("Build: %v", err)
+ 	}
+ 	return ix, dir
+ }
+ 
+ // BenchmarkSaveIndexCacheReal mede a gravacao do cache de indice como ela e
+-// hoje: CreateTemp + gob + Close + Rename, SEM fsync.
++// hoje: via vault.ReplaceFile, com fsync do arquivo e do diretorio (Task 172).
+ func BenchmarkSaveIndexCacheReal(b *testing.B) {
+ 	ix, dir := cofreReal(b)
+ 	cacheDir := b.TempDir()
+ 	b.ReportAllocs()
+ 	b.ResetTimer()
+ 	for b.Loop() {
+ 		if err := index.SaveIndexCache(context.Background(), cacheDir, dir, ix); err != nil {
+ 			b.Fatal(err)
+ 		}
+ 	}
+ }
+ 
+-// BenchmarkSaveIndexCacheRealComFsync soma o custo que a gravacao PASSARIA a
+-// ter se usasse a mesma rotina atomica das notas, que faz Sync antes do rename.
++// BenchmarkSaveIndexCacheRealComFsync soma um SEGUNDO Sync por fora, depois do
++// que BenchmarkSaveIndexCacheReal ja faz via vault.ReplaceFile (Task 172).
++// Sobrevive so como referencia historica de antes da Task 172.
+ func BenchmarkSaveIndexCacheRealComFsync(b *testing.B) {
+ 	ix, dir := cofreReal(b)
+ 	cacheDir := b.TempDir()
+ 	final := filepath.Join(cacheDir, "index_cache.gob")
+ 	b.ReportAllocs()
+ 	b.ResetTimer()
+ 	for b.Loop() {
+ 		if err := index.SaveIndexCache(context.Background(), cacheDir, dir, ix); err != nil {
+ 			b.Fatal(err)
+ 		}
+diff --git a/internal/search/bench_analise_test.go b/internal/search/bench_analise_test.go
+index a5e8b52..2340182 100644
+--- a/internal/search/bench_analise_test.go
++++ b/internal/search/bench_analise_test.go
+@@ -32,35 +32,36 @@ func invertidoReal(b *testing.B) (*search.Inverted, string) {
+ 	inv := search.NewInverted()
+ 	for _, p := range idx.NotePaths() {
+ 		if err := inv.Update(ctx, v, p); err != nil {
+ 			b.Fatalf("inv.Update %s: %v", p, err)
+ 		}
+ 	}
+ 	return inv, dir
+ }
+ 
+ // BenchmarkSaveInvertedCacheReal mede a gravacao do cache invertido como ela e
+-// hoje: CreateTemp + escreveCache + Close + Rename, SEM fsync.
++// hoje: via vault.ReplaceFile, com fsync do arquivo e do diretorio (Task 172).
+ func BenchmarkSaveInvertedCacheReal(b *testing.B) {
+ 	inv, dir := invertidoReal(b)
+ 	cacheDir := b.TempDir()
+ 	b.ReportAllocs()
+ 	b.ResetTimer()
+ 	for b.Loop() {
+ 		if err := search.SaveInvertedCache(context.Background(), cacheDir, dir, inv); err != nil {
+ 			b.Fatal(err)
+ 		}
+ 	}
+ }
+ 
+-// BenchmarkSaveInvertedCacheRealComFsync soma o custo que a gravacao PASSARIA a
+-// ter se usasse a rotina atomica das notas, que faz Sync antes do rename.
++// BenchmarkSaveInvertedCacheRealComFsync soma um SEGUNDO Sync por fora, depois
++// do que BenchmarkSaveInvertedCacheReal ja faz via vault.ReplaceFile (Task 172).
++// Sobrevive so como referencia historica de antes da Task 172.
+ func BenchmarkSaveInvertedCacheRealComFsync(b *testing.B) {
+ 	inv, dir := invertidoReal(b)
+ 	cacheDir := b.TempDir()
+ 	final := filepath.Join(cacheDir, "inverted_cache.gob")
+ 	b.ReportAllocs()
+ 	b.ResetTimer()
+ 	for b.Loop() {
+ 		if err := search.SaveInvertedCache(context.Background(), cacheDir, dir, inv); err != nil {
+ 			b.Fatal(err)
+ 		}
+diff --git a/internal/search/persist.go b/internal/search/persist.go
+index 1a7abc9..3b1eee0 100644
+--- a/internal/search/persist.go
++++ b/internal/search/persist.go
+@@ -61,22 +61,22 @@ func SaveInvertedCache(ctx context.Context, cacheDir string, vaultPath string, i
+ 	header := CacheHeader{
+ 		FormatVersion:   CacheFormatVersion,
+ 		ParserVersion:   CacheParserVersion,
+ 		AnalyzerVersion: CacheAnalyzerVersion,
+ 		VaultPath:       vaultPath,
+ 		NoteCount:       inv.DocCount(),
+ 	}
+ 
+ 	// Promove a arena ANTES de exportar e gravar: ReplaceFile faz o rename
+ 	// por dentro, e o rename falha no Windows enquanto o alvo esta mapeado
+-	// (ver promoverArenaSePresente, em mmap.go). Exportar depois de promover
+-	// garante que os slices gravados nao apontam para o mapeamento fechado.
++	// (ver promoverArenaSePresente, em mmap.go). ExportForCache ja copia as
++	// posicoes, entao a ordem aqui e sobre o rename, nao sobre aliasing.
+ 	promoverArenaSePresente(inv)
+ 	termos, docLengths := inv.ExportForCache()
+ 
+ 	finalPath := filepath.Join(cacheDir, "inverted_cache.gob")
+ 	if err := vault.ReplaceFile(ctx, finalPath, func(f *os.File) error {
+ 		return escreveCache(f, header, termos, docLengths)
+ 	}); err != nil {
+ 		return fmt.Errorf("gravando cache de busca em %q: %w", finalPath, err)
+ 	}
+ 	return nil
