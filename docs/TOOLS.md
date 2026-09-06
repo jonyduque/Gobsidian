@@ -10,7 +10,7 @@ Contrato de cada *tool*. Schemas em JSON Schema, como declarados ao host.
 
 **Casing.** A resolução tenta correspondência exata primeiro, depois insensível a maiúsculas. Se a busca insensível encontrar mais de um candidato, a chamada falha com erro de ambiguidade listando os candidatos — nunca escolhe por conta própria.
 
-**Limites.** Toda tool que devolve lista aceita `limit` e `offset`. Padrão e teto de `limit` variam por tool (`vault_search`: padrão 20, teto 200; `note_list` e `link_graph`: padrão 100, teto 500 — ver o schema de cada uma). Respostas truncadas trazem `truncated: true` e `total`.
+**Limites.** Toda tool que devolve lista aceita `limit` e `offset`. Padrão e teto de `limit` variam por tool (`vault_search`: padrão 20, teto embutido 200, mais o teto administrativo de `max_results`; `note_list` e `link_graph`: padrão 100, teto 500). O clamp é aplicado pelo servidor, não pelo schema — ver "Schemas servidos" abaixo. Respostas truncadas trazem `truncated: true` e `total`.
 
 **Dry-run.** Toda tool de escrita aceita `dry_run`. Quando verdadeiro, devolve o diff unificado do que seria feito e não toca o disco.
 
@@ -33,6 +33,8 @@ Contrato de cada *tool*. Schemas em JSON Schema, como declarados ao host.
 
 Datas do frontmatter são comparadas como datas quando ambos os lados são parseáveis como tal, e como string caso contrário. Não há operadores de intervalo aqui — para isso existem `modified_after` e `modified_before`, que operam sobre o mtime do arquivo, não sobre campos do frontmatter.
 
+**Schemas servidos.** Os blocos JSON Schema abaixo documentam o que cada tool aceita, mas o schema que o host efetivamente recebe traz só `type` e `description` — limitação de `jsonschema-go v0.4.2` (`jsonschema.For[T]`), que lê a tag `jsonschema:"…"` apenas como `description`. Nenhum `enum`, `minimum`, `maximum` ou `default` chega ao host; a única exceção é `note_read`, cujo schema é remendado à mão (`schemaDoNoteRead`, `alvo_note_read.go:71`). Limites e enumerações são aplicados pelo servidor, não pelo host: um valor fora de um conjunto fechado (`tag_mode`, `sort`, `order`, `direction`, `mode`, `include`) volta como `INVALID_ARGUMENT`; um `limit`, `depth`, `max_candidates` ou `snippet_chars` acima do teto volta clampado, e o valor efetivo aparece em `effective_*` quando o campo existe. Por isso os blocos abaixo não mostram mais `minimum`/`maximum` como chave de schema — a faixa é descrita em prosa, junto do que o servidor faz quando ela é violada.
+
 ---
 
 # Leitura
@@ -51,8 +53,8 @@ Busca full-text com ranking, combinável com filtros de metadados.
     "frontmatter":  { "type": "object", "description": "Pares chave/valor que devem casar no frontmatter." },
     "modified_after":  { "type": "string", "description": "Data mínima de modificação. Aceita RFC3339 ('2006-01-02T15:04:05Z07:00') ou data curta ('2006-01-02')." },
     "modified_before": { "type": "string", "description": "Data máxima de modificação. Aceita RFC3339 ('2006-01-02T15:04:05Z07:00') ou data curta ('2006-01-02')." },
-    "snippet_chars":   { "type": "integer", "default": 240, "maximum": 1000, "description": "Tamanho máximo do trecho em caracteres. Teto máximo: 1000." },
-    "limit":  { "type": "integer", "default": 20, "maximum": 200 },
+    "snippet_chars":   { "type": "integer", "default": 240, "description": "Tamanho do trecho em caracteres. Acima de 1000, o servidor clampa a 1000." },
+    "limit":  { "type": "integer", "default": 20, "description": "Acima de 200, o servidor clampa a 200; o teto administrativo max_results pode reduzir ainda mais o valor efetivo." },
     "offset": { "type": "integer", "default": 0 }
   },
   "required": ["query"]
@@ -91,9 +93,9 @@ Lê uma nota inteira, uma seção, ou um bloco — ou várias notas numa só cha
     "path":     { "type": "string", "description": "Caminho de uma nota. Mutuamente exclusivo com paths." },
     "paths":    { "type": "array", "items": { "oneOf": [ { "type": "string" }, { "type": "object", "properties": { "path": {"type":"string"}, "heading": {"type":"string"}, "heading_level": {"type":"integer"}, "block_id": {"type":"string"}, "offset": {"type":"integer"}, "max_bytes": {"type":"integer"}, "include_frontmatter": {"type":"boolean"} }, "required": ["path"] } ] }, "description": "Vários caminhos numa só chamada, até 50. Cada item é um caminho ou um objeto que sobrepõe os campos de topo só para ele. Mutuamente exclusivo com path; falha de um item não derruba os demais." },
     "heading":  { "type": "string", "description": "Texto do heading. Lê a seção até o próximo heading de nível igual ou superior." },
-    "heading_level": { "type": "integer", "minimum": 1, "maximum": 6, "description": "Desambigua quando o mesmo texto aparece em níveis diferentes." },
+    "heading_level": { "type": "integer", "description": "Desambigua quando o mesmo texto aparece em níveis diferentes (headings reais vão de 1 a 6). O servidor NÃO valida nem clampa este valor: fora da faixa real do arquivo, ele simplesmente não casa nenhum heading e a chamada cai em HEADING_NOT_FOUND." },
     "block_id": { "type": "string", "description": "Identificador de bloco, sem o circunflexo." },
-    "offset":   { "type": "integer", "minimum": 0, "description": "Offset de byte a partir do início da nota (byte 0). Mutuamente exclusivo com heading e block_id. Ignora include_frontmatter." },
+    "offset":   { "type": "integer", "description": "Offset de byte a partir do início da nota (byte 0), 0 ou maior. Mutuamente exclusivo com heading e block_id. Ignora include_frontmatter. Negativo ou maior que o tamanho da nota é INVALID_ARGUMENT." },
     "include_frontmatter": { "type": "boolean", "default": true },
     "max_bytes": { "type": "integer", "default": 100000, "description": "Aplica-se por nota, não ao lote inteiro." }
   }
@@ -161,7 +163,7 @@ O mapa de uma nota: os headings Markdown reais **e** os candidatos a título que
   "type": "object",
   "properties": {
     "path": { "type": "string", "description": "Caminho da nota." },
-    "max_candidates": { "type": "integer", "default": 200, "maximum": 1000, "description": "Máximo de candidatos devolvidos. O retorno traz 'truncated' quando corta." }
+    "max_candidates": { "type": "integer", "default": 200, "description": "Máximo de candidatos devolvidos. Acima de 1000, o servidor clampa a 1000. O retorno traz 'truncated' quando corta." }
   },
   "required": ["path"]
 }
@@ -205,7 +207,7 @@ Lista notas por critérios estruturais. Não toca o índice de texto.
     "sort":      { "type": "string", "enum": ["path", "modified", "size", "title"], "default": "path" },
     "order":     { "type": "string", "enum": ["asc", "desc"], "default": "asc" },
     "fields":    { "type": "array", "items": { "type": "string" }, "description": "Campos de frontmatter a incluir no retorno." },
-    "limit":     { "type": "integer", "default": 100, "maximum": 500 },
+    "limit":     { "type": "integer", "default": 100, "description": "Acima de 500, o servidor clampa a 500." },
     "offset":    { "type": "integer", "default": 0 }
   }
 }
@@ -228,11 +230,7 @@ Metadados estruturais completos de uma nota, sem o corpo.
   "type": "object",
   "properties": {
     "path": { "type": "string" },
-    "include": {
-      "type": "array",
-      "items": { "type": "string", "enum": ["frontmatter", "tags", "headings", "blocks", "links", "backlinks", "inline_fields"] },
-      "default": ["frontmatter", "tags", "headings", "links", "backlinks"]
-    }
+    "include": { "type": "array", "items": { "type": "string" }, "description": "Campos a devolver. Aceitos: frontmatter, tags, headings, blocks, links, backlinks, inline_fields. Valor fora da lista devolve INVALID_ARGUMENT. Omitido devolve frontmatter, tags, headings, links, backlinks." }
   },
   "required": ["path"]
 }
@@ -271,10 +269,10 @@ Vizinhança de links de uma nota.
   "properties": {
     "path":      { "type": "string" },
     "direction": { "type": "string", "enum": ["outgoing", "incoming", "both"], "default": "both" },
-    "depth":     { "type": "integer", "default": 1, "minimum": 1, "maximum": 3 },
+    "depth":     { "type": "integer", "default": 1, "description": "Menor que 1 vira 1; acima de 3, o servidor clampa a 3." },
     "include_broken":  { "type": "boolean", "default": true },
     "include_embeds":  { "type": "boolean", "default": true },
-    "limit":     { "type": "integer", "default": 100, "maximum": 500 }
+    "limit":     { "type": "integer", "default": 100, "description": "Acima de 500, o servidor clampa a 500." }
   },
   "required": ["path"]
 }
@@ -371,7 +369,7 @@ O retorno traz `hash`, o xxhash do conteúdo **gravado** — é o valor a passar
     "path":    { "type": "string" },
     "content": { "type": "string" },
     "heading": { "type": "string", "description": "Anexa ao fim desta seção. Ausente, anexa ao fim do arquivo." },
-    "heading_level":    { "type": "integer", "minimum": 1, "maximum": 6 },
+    "heading_level":    { "type": "integer", "description": "Nível do heading a criar (Markdown vai de 1 a 6) quando create_if_missing cria um heading novo. O servidor NÃO valida a faixa: um valor fora dela produz um heading com esse número de '#', que pode não ser reconhecido como heading." },
     "create_if_missing": { "type": "boolean", "default": false, "description": "Cria o heading ao fim do arquivo se não existir." },
     "ensure_blank_line": { "type": "boolean", "default": true },
     "expected_hash": { "type": "string", "description": "Hash da nota obtido em leitura anterior. Se divergir, a chamada falha com HASH_MISMATCH." },
@@ -398,7 +396,7 @@ O retorno traz `hash`, o xxhash do conteúdo **gravado** — é o valor a passar
     "path":     { "type": "string" },
     "content":  { "type": "string" },
     "heading":  { "type": "string" },
-    "heading_level": { "type": "integer", "minimum": 1, "maximum": 6 },
+    "heading_level": { "type": "integer", "description": "Aceito pelo schema, mas sem efeito: note_patch localiza o heading só pelo texto de heading, e o código nunca lê este campo (achado docs/SUGESTOES.md B19)." },
     "block_id": { "type": "string" },
     "mode":     { "type": "string", "enum": ["replace_section", "replace_heading_and_section", "replace_block"], "default": "replace_section (replace_block quando block_id vem)" },
     "expected_hash": { "type": "string", "description": "Hash da nota obtido em leitura anterior. Se divergir, a chamada falha." },
@@ -482,7 +480,7 @@ A terceira barra declara autoridade vazia e faz o caminho começar onde deve. Os
 
 Na leitura o servidor também aceita a forma antiga de duas barras, para não transformar documentação desatualizada em nota inalcançável.
 
-A listagem de resources é paginada e serve o índice em memória. Em cofres grandes, listar todas as notas como resources é caro para o host; a listagem respeita um limite configurável (padrão: 200, ordenadas por data de modificação decrescente).
+A listagem de resources é paginada e serve o índice em memória. Em cofres grandes, listar todas as notas como resources é caro para o host; a listagem respeita um limite fixo de 200 (`resources.go:66`), ordenadas por data de modificação decrescente — não há flag nem parâmetro que o mude.
 
 ---
 

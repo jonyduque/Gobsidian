@@ -500,6 +500,22 @@ não fazer sem ele. Detalhe no plano, Fase 2.4.
   `tools/netcheck` com `"unix"` literal cumprido), mas destoante da redação antiga da
   regra que proíbe `net` sob `internal/`. Alinhar o texto para a próxima revisão não
   apontar falsa violação. CONFIRMADO (fato; prevalência é decisão do dono).
+- **B19** `heading_level` (schema `minimum: 1, maximum: 6`) não tem a faixa aplicada em
+  três tools, em graus diferentes: `note_read` (`read.go:276,308,332`) usa o valor como
+  filtro de igualdade sem validar a faixa — fora dela simplesmente não casa nenhum
+  heading e a chamada cai em `HEADING_NOT_FOUND`; `note_append` (`write.go:244-246`) usa
+  o valor sem teto para construir a linha do heading criado (`strings.Repeat("#",
+  level)`), então um valor acima de 6 produz um heading que o Markdown não reconhece
+  como tal; `note_patch` (`PatchNoteRequest.HeadingLevel`, `write.go:80`) é o pior caso —
+  o campo é aceito pelo schema e **nunca lido** em `PatchNote` (`write.go:268-385`), que
+  resolve o heading só por `req.Heading` via `writer.FindHeading`. `scripts/check_tool_params.ps1`
+  não pega o terceiro caso: é exatamente a limitação de nível 2 que o próprio script
+  documenta no cabeçalho — `AppendNoteRequest.HeadingLevel` (lido) e
+  `PatchNoteRequest.HeadingLevel` (não lido) têm o mesmo nome de campo, e a checagem por
+  `.HeadingLevel` em qualquer lugar de `internal/` conta a leitura de um pelo outro.
+  Achado durante a auditoria de schema da Task 178 (2026-09-06); documentado em
+  `docs/TOOLS.md` nas três tools. CONFIRMADO (mecanismo e código lidos; não corrigido
+  nesta tarefa, que é `docs:`).
 
 ---
 
