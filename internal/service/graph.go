@@ -3,7 +3,6 @@ package service
 import (
 	"cmp"
 	"context"
-	"fmt"
 	"runtime"
 	"slices"
 	"strings"
@@ -508,7 +507,7 @@ func (s *Service) ListNotes(_ context.Context, req ListRequest) (ListResult, err
 		items = append(items, ListItem{
 			Path:     string(n.Path),
 			Title:    n.Title,
-			Hash:     fmt.Sprintf("%016x", n.Hash),
+			Hash:     formatarHash(n.Hash),
 			Modified: n.ModTime,
 			Size:     n.Size,
 			Tags:     n.Tags,
@@ -610,7 +609,7 @@ func (s *Service) NoteMetadata(_ context.Context, req MetadataRequest) (Metadata
 	res := MetadataResult{
 		Path:  string(n.Path),
 		Title: n.Title,
-		Hash:  fmt.Sprintf("%016x", n.Hash),
+		Hash:  formatarHash(n.Hash),
 	}
 
 	if includeSet["frontmatter"] {

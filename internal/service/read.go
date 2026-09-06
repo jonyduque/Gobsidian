@@ -3,7 +3,6 @@ package service
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"strings"
 
 	"github.com/jonyd/gobsidian/internal/index"
@@ -405,7 +404,7 @@ func (s *Service) ReadNote(ctx context.Context, req ReadRequest) (ReadResult, er
 
 	res := ReadResult{
 		Content:   string(data),
-		Hash:      fmt.Sprintf("%016x", note.Hash),
+		Hash:      formatarHash(note.Hash),
 		Section:   matchedHeading,
 		Truncated: truncou,
 		TotalSize: note.Size,

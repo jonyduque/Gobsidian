@@ -19,8 +19,20 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+// formatarHash e a UNICA conta do formato do hash publicado. Os quatro sitios
+// que o emitem — note_read, note_list, note_metadata e o hash do conteudo
+// recem-escrito — precisam concordar em largura e em base, senao um cliente que
+// compara o hash que recebeu de uma tool com o que recebeu de outra le
+// diferenca onde nao ha. Zero a esquerda ate 16 digitos porque um uint64 com
+// nibble alto zero encurtaria a string e quebraria a comparacao textual.
+func formatarHash(h uint64) string {
+	return fmt.Sprintf("%016x", h)
+}
+
+// hashDoConteudo e o hash de um corpo ainda nao indexado, na mesma grafia que o
+// indice publica.
 func hashDoConteudo(data []byte) string {
-	return fmt.Sprintf("%016x", xxhash.Sum64(data))
+	return formatarHash(xxhash.Sum64(data))
 }
 
 // CreateNoteRequest carrega os parametros para note_create.
