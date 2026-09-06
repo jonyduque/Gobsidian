@@ -1,0 +1,1591 @@
+6b45897 refactor(mcpsrv): stop re-applying defaults the service owns
+ca4cd0d refactor: move test-only exports out of the product into export_test.go
+e46654d refactor: delete dead code and the error code no path produces
+8f801f3 test: name the ponte race in the M8 test; surface Accept/Greet errors in the read-only handshake test
+
+ cmd/gobsidian/ponte_test.go        |   7 ++
+ cmd/gobsidian/servico.go           |   2 +-
+ docs/TOOLS.md                      |   1 -
+ internal/console/console.go        |   4 --
+ internal/doctor/checks.go          |  37 +++++-----
+ internal/doctor/checks_other.go    |   8 +++
+ internal/doctor/checks_windows.go  |  40 +++++++++--
+ internal/doctor/doctor.go          |  26 +++----
+ internal/index/export_test.go      |  16 +++++
+ internal/index/persist.go          |  10 ---
+ internal/index/persist_codec.go    |  22 +++++-
+ internal/ipc/ipc_test.go           |   8 +++
+ internal/mcpsrv/export_test.go     |  19 ++++++
+ internal/mcpsrv/server.go          |  15 -----
+ internal/mcpsrv/tools_read.go      |  91 ++++++++++++-------------
+ internal/mcpsrv/tools_read_test.go | 134 +++++++++++++++++++++++++++++++++++++
+ internal/search/export_test.go     |  24 +++++++
+ internal/search/inverted.go        |   3 -
+ internal/search/inverted_test.go   |   4 +-
+ internal/search/persist.go         |  18 -----
+ internal/search/soa_test.go        |   4 --
+ internal/service/errors.go         |   1 -
+ internal/service/move_test.go      |  31 +++++++++
+ internal/service/service.go        |   5 --
+ internal/service/write.go          |  10 +++
+ internal/vault/eol.go              |  21 +-----
+ internal/writer/atomic.go          |  45 ++++---------
+ 27 files changed, 402 insertions(+), 204 deletions(-)
+
+diff --git a/cmd/gobsidian/ponte_test.go b/cmd/gobsidian/ponte_test.go
+index 7cf93c6..3e42619 100644
+--- a/cmd/gobsidian/ponte_test.go
++++ b/cmd/gobsidian/ponte_test.go
+@@ -322,20 +322,27 @@ func TestServePonteRemotaEncaminhaHostParaDaemon(t *testing.T) {
+ 	case err := <-leituraAcabou:
+ 		if !errors.Is(err, io.EOF) {
+ 			t.Fatalf("o daemon terminou a leitura com %v, quer io.EOF -- o fim do stdin do host tem de chegar como fim de arquivo, nao como conexao quebrada", err)
+ 		}
+ 	case <-time.After(vaulttest.Prazo):
+ 		t.Fatal("o daemon nao viu o fim do stdin do host em " + vaulttest.Prazo.String())
+ 	}
+ 
+ 	// A resposta que estava em voo quando o host fechou o stdin. E ela que
+ 	// separa o meio-fechamento do fechamento inteiro.
++	//
++	// Se esta escrita falhar, o suspeito nao e so uma regressao do M8: ha
++	// uma corrida do proprio produto em ponte.go:193-202, onde o select
++	// entre hostParaDaemon e ctx.Done() pode resolver para ctx.Done() antes
++	// que o EOF do stdin do host seja lido como hostParaDaemon -- nesse
++	// caso fimDoHost fica false e o shutdown nao faz o meio-fechamento que
++	// este teste espera. Ver tambem o comentario em fimDoHost, acima.
+ 	const tardia = `{"jsonrpc":"2.0","id":1,"result":{}}` + "\n"
+ 	if _, err := outroLado.Write([]byte(tardia)); err != nil {
+ 		t.Fatalf("o daemon nao conseguiu responder depois do EOF: %v -- a ponte fechou a conexao INTEIRA em vez de so a direcao de escrita (achado M8)", err)
+ 	}
+ 	if err := outroLado.CloseWrite(); err != nil {
+ 		t.Fatalf("fechando a escrita do lado do daemon: %v", err)
+ 	}
+ 
+ 	select {
+ 	case err := <-done:
+diff --git a/cmd/gobsidian/servico.go b/cmd/gobsidian/servico.go
+index 272aace..4d02cb5 100644
+--- a/cmd/gobsidian/servico.go
++++ b/cmd/gobsidian/servico.go
+@@ -93,21 +93,21 @@ func construirServico(ctx context.Context, cfg config.Config, log *slog.Logger)
+ 		}
+ 	}
+ 	indexMS := time.Since(buildStart).Milliseconds()
+ 
+ 	// JOIN da varredura, antes de qualquer coisa que escreva.
+ 	//
+ 	// Recuperacao de crash: um processo morto no meio de uma escrita nao roda
+ 	// defer, e deixa o temporario no cofre. O boot e o unico momento sem
+ 	// escrita em voo, e por isso o unico em que varrer o diretorio nao corre
+ 	// risco de apagar o temporario de outra escrita. Ver
+-	// writer.CleanStaleTempFiles.
++	// writer.SweepStaleTempFiles.
+ 	feita := <-varredura
+ 	if varr, err := feita.res, feita.err; err != nil {
+ 		log.Warn("varredura de temporarios interrompida", "err", err)
+ 	} else if varr.Removidos > 0 || varr.NaoRemovidos > 0 || varr.Inacessiveis > 0 {
+ 		// Os tres numeros, e nao so os removidos: "varri e nao achei nada" e
+ 		// "varri e nao consegui entrar em trinta diretorios" davam a mesma
+ 		// linha de log — nenhuma (achado P11).
+ 		log.Warn("varredura de temporarios de escritas interrompidas",
+ 			"removidos", varr.Removidos,
+ 			"nao_removidos", varr.NaoRemovidos,
+diff --git a/docs/TOOLS.md b/docs/TOOLS.md
+index 2c95cda..6ccd7f6 100644
+--- a/docs/TOOLS.md
++++ b/docs/TOOLS.md
+@@ -497,14 +497,13 @@ A listagem de resources é paginada e serve o índice em memória. Em cofres gra
+ | `AMBIGUOUS_PATH` | Mais de uma nota casa insensível a maiúsculas | Usar o caminho exato listado na mensagem |
+ | `HEADING_NOT_FOUND` | Heading inexistente | A mensagem lista os headings disponíveis |
+ | `AMBIGUOUS_HEADING` | Mesmo texto em mais de um lugar | Passar `heading_level` |
+ | `BLOCK_NOT_FOUND` | Identificador de bloco inexistente | Verificar com `note_metadata` |
+ | `AMBIGUOUS_BLOCK` | Mesmo identificador de bloco em mais de um lugar | Usar o caminho exato listado na mensagem |
+ | `FOLDER_NOT_FOUND` | Diretório de destino inexistente | Só ocorre com `create_folders: false` em `note_create` e `note_move`; o padrão é `true` e cria os intermediários |
+ | `INDEX_BUILDING` | O índice de busca ainda não cobre o cofre inteiro | Repetir em alguns segundos. **Só `vault_search` devolve isto**; as outras doze tools funcionam desde o primeiro segundo |
+ | `HASH_MISMATCH` | Nota mudou desde a leitura | Reler e repetir |
+ | `FILE_LOCKED` | Arquivo bloqueado após esgotar retries | Fechar a nota no Obsidian e repetir |
+ | `CLOUD_ONLY_FILE` | Arquivo não hidratado pelo OneDrive | Abrir uma vez no Explorer, ou desmarcar "somente online" |
+-| `PATH_TOO_LONG` | Caminho excede o limite do sistema | Encurtar o caminho ou habilitar caminhos longos |
+ | `READ_ONLY_MODE` | Servidor iniciado com `--read-only` | Reiniciar sem a flag |
+ | `VAULT_UNAVAILABLE` | Raiz do cofre inacessível, **ou** índice em memória indisponível (`link_graph`, `tag_list`, `note_list`, `note_metadata` antes do índice carregar), **ou** falha de leitura ao abrir o arquivo (`note_outline` sobre nota ilegível) | Verificar com `gobsidian doctor`; se for índice, repetir em alguns segundos |
+ | `INTERNAL` | Falha inesperada, já registrada em stderr | Reportar |
+diff --git a/internal/console/console.go b/internal/console/console.go
+index b7ad6b7..c510b3e 100644
+--- a/internal/console/console.go
++++ b/internal/console/console.go
+@@ -79,24 +79,20 @@ func New(w io.Writer) *Stream {
+ 
+ // NewPlain devolve um Stream que nunca colore, qualquer que seja o destino.
+ // Serve para teste e para saida destinada a ser consumida por outro programa.
+ func NewPlain(w io.Writer) *Stream {
+ 	return &Stream{w: w, color: false}
+ }
+ 
+ // Colored informa se este Stream esta emitindo sequencias ANSI.
+ func (s *Stream) Colored() bool { return s.color }
+ 
+-// Writer devolve o destino, para quem precisa escrever algo que este pacote
+-// nao formata (um bloco JSON, por exemplo).
+-func (s *Stream) Writer() io.Writer { return s.w }
+-
+ func (s *Stream) style(text string, codes ...string) string {
+ 	if !s.color || len(codes) == 0 {
+ 		return text
+ 	}
+ 	return sgr(codes...) + text + reset
+ }
+ 
+ // Bold realca um trecho DENTRO de uma linha.
+ func (s *Stream) Bold(text string) string { return s.style(text, codeBold) }
+ 
+diff --git a/internal/doctor/checks.go b/internal/doctor/checks.go
+index 52788b4..3ec3ef8 100644
+--- a/internal/doctor/checks.go
++++ b/internal/doctor/checks.go
+@@ -264,26 +264,31 @@ func checkFreeSpace(ctx context.Context, cfg config.Config) Result {
+ // longo, arquivos somente-nuvem, colisoes de casing). Sem isso, cada um desses
+ // checks abriria o cofre e chamaria vault.Walk por conta propria — no cofre de
+ // 20 mil notas que o produto tem como alvo, cinco varreduras completas (quatro
+ // aqui mais o registro de caminhos longos do Windows) em vez de uma.
+ //
+ // err e nao-nulo quando a varredura foi interrompida (contexto cancelado,
+ // cofre que sumiu entre checkReadable e aqui, etc.) — os checks que consomem
+ // o scan reportam isso como aviso de "varredura interrompida", nunca como
+ // "zero encontrado", que seria uma resposta enganosa.
+ type vaultScan struct {
+-	noteCount        int
+-	longestPathLen   int
+-	longestPath      string
+-	cloudOnlyCount   int
+-	casingCollisions []string
+-	err              error
++	noteCount      int
++	longestPathLen int
++	longestPath    string
++	// platform carrega os contadores que so o Windows le (arquivos
++	// somente-nuvem, colisoes de casing). Fica num campo proprio, e nao
++	// solto aqui, porque golangci-lint (linux) marca campo nunca lido nem
++	// escrito em build linux como "unused" — e cloudOnlyCount/
++	// casingCollisions soltos aqui SAO isso fora do Windows. Ver
++	// platformScanState em checks_windows.go / checks_other.go.
++	platform platformScanState
++	err      error
+ }
+ 
+ // scanStatus traduz o erro de uma varredura interrompida em Result, e e o
+ // unico ponto onde essa traducao acontece — os seis checks que consomem
+ // vaultScan chamam este helper em vez de montar o Result cada um.
+ //
+ // A distincao e o ponto todo. Cancelamento veio de quem chamou: o usuario deu
+ // Ctrl-C, ou o comando de cima desistiu. Nao e problema do ambiente e nao
+ // deve virar codigo de saida nao-zero. Qualquer outro erro veio do cofre —
+ // vault.Walk so o produz quando falha na propria raiz, que significa unidade
+@@ -311,49 +316,43 @@ func scanStatus(scan vaultScan, name string) (Result, bool) {
+ 		Detail: fmt.Sprintf("cofre inacessivel durante a varredura: %v", scan.err),
+ 	}, true
+ }
+ 
+ // scanVault varre o cofre uma unica vez e coleta tudo que os checks acima
+ // precisam. So e chamada depois que os checks bloqueantes (raiz existe, raiz
+ // legivel) passam: varrer um cofre cuja raiz nao pode ser lida so produziria
+ // mais um erro derivado do mesmo problema ja sinalizado.
+ func scanVault(ctx context.Context, cfg config.Config) vaultScan {
+ 	var scan vaultScan
+-	seen := make(map[string]string)
+ 
+ 	scan.err = walkVault(ctx, cfg, func(e vault.Entry) {
+ 		if e.IsNote {
+ 			scan.noteCount++
+ 		}
+ 
+ 		abs := filepath.Join(cfg.VaultPath, filepath.FromSlash(string(e.Path)))
+ 		if n := len(abs); n > scan.longestPathLen {
+ 			scan.longestPathLen = n
+ 			scan.longestPath = abs
+ 		}
+ 
+ 		if !e.IsNote {
+ 			return
+ 		}
+ 
+-		if e.CloudOnly {
+-			scan.cloudOnlyCount++
+-		}
+-
+-		key := strings.ToLower(string(e.Path))
+-		if prev, ok := seen[key]; ok {
+-			if prev != string(e.Path) {
+-				scan.casingCollisions = append(scan.casingCollisions, fmt.Sprintf("%s <-> %s", prev, e.Path))
+-			}
+-			return
+-		}
+-		seen[key] = string(e.Path)
++		// scan.platform so acumula algo no Windows (checks_windows.go): o
++		// outro sistema de arquivos nao tem atributo somente-nuvem, e nao e
++		// insensivel a maiusculas. Chamar isto incondicionalmente cobraria
++		// de todo cofre, em toda plataforma, o trabalho (o ToLower e o mapa
++		// de colisao por nome) de uma verificacao que so o Windows le — por
++		// isso o custo fica atras do build tag, em platformScanState.observe.
++		scan.platform.observe(e)
+ 	})
+ 
+ 	return scan
+ }
+ 
+ // walkVault varre o cofre chamando fn para cada entrada (nota ou anexo). E o
+ // unico ponto que abre um vault.Vault a partir de cfg — scanVault e a unica
+ // chamadora, e nao abre arquivos: vault.Walk ja evita tocar em placeholders
+ // de nuvem.
+ func walkVault(ctx context.Context, cfg config.Config, fn func(vault.Entry)) error {
+diff --git a/internal/doctor/checks_other.go b/internal/doctor/checks_other.go
+index 9ab4916..fe6e333 100644
+--- a/internal/doctor/checks_other.go
++++ b/internal/doctor/checks_other.go
+@@ -1,20 +1,28 @@
+ //go:build !windows
+ 
+ package doctor
+ 
+ import (
+ 	"fmt"
+ 
++	"github.com/jonyd/gobsidian/internal/vault"
+ 	"golang.org/x/sys/unix"
+ )
+ 
++// platformScanState nao acumula nada fora do Windows: notas somente-nuvem e
++// colisoes de casing so importam la (ver platformChecks e o observe de
++// checks_windows.go).
++type platformScanState struct{}
++
++func (*platformScanState) observe(vault.Entry) {}
++
+ // platformChecks devolve vazio fora do Windows: caminhos longos exigem um
+ // opt-in de registro que so existe la, arquivos somente-nuvem sao detectados
+ // por atributo NTFS especifico do OneDrive, e colisao de casing so importa
+ // em sistema de arquivos insensivel a maiusculas.
+ func platformChecks(vaultScan) []Result {
+ 	return nil
+ }
+ 
+ // diskFreeBytes usa statfs(2). Bavail (espaco disponivel a um usuario sem
+ // privilegio) e o numero relevante para saber se uma escrita do produto vai
+diff --git a/internal/doctor/checks_windows.go b/internal/doctor/checks_windows.go
+index 7af9272..dc8b77d 100644
+--- a/internal/doctor/checks_windows.go
++++ b/internal/doctor/checks_windows.go
+@@ -5,20 +5,52 @@ package doctor
+ import (
+ 	"fmt"
+ 	"path/filepath"
+ 	"strings"
+ 
+ 	"github.com/jonyd/gobsidian/internal/vault"
+ 	"golang.org/x/sys/windows"
+ 	"golang.org/x/sys/windows/registry"
+ )
+ 
++// platformScanState acumula, durante a varredura de scanVault, os dois
++// contadores que so os checks deste arquivo leem: notas somente-nuvem e
++// colisoes de casing. Vive atras do build tag porque o custo (ToLower e um
++// mapa por caminho, para cada nota do cofre) so vale a pena onde alguem le o
++// resultado — e porque os proprios campos, fora do Windows, nunca seriam
++// lidos nem escritos (golangci-lint os marca "unused" nesse build).
++type platformScanState struct {
++	cloudOnlyCount   int
++	casingCollisions []string
++	seen             map[string]string
++}
++
++// observe atualiza o estado com os contadores desta entrada. scanVault so
++// chama isto para notas (ja filtrou anexos antes).
++func (p *platformScanState) observe(e vault.Entry) {
++	if e.CloudOnly {
++		p.cloudOnlyCount++
++	}
++
++	if p.seen == nil {
++		p.seen = make(map[string]string)
++	}
++	key := strings.ToLower(string(e.Path))
++	if prev, ok := p.seen[key]; ok {
++		if prev != string(e.Path) {
++			p.casingCollisions = append(p.casingCollisions, fmt.Sprintf("%s <-> %s", prev, e.Path))
++		}
++		return
++	}
++	p.seen[key] = string(e.Path)
++}
++
+ // platformChecks adiciona as verificacoes que so fazem sentido no Windows:
+ // caminhos longos exigem opt-in do sistema operacional, arquivos
+ // somente-nuvem sao um mecanismo de OneDrive/atributo NTFS, e colisao de
+ // casing so importa porque o sistema de arquivos e insensivel a maiusculas.
+ // Todas leem de scan em vez de varrer o cofre de novo.
+ func platformChecks(scan vaultScan) []Result {
+ 	return []Result{
+ 		checkLongPathsEnabled(scan),
+ 		checkCloudOnlyFiles(scan),
+ 		checkCasingCollisions(scan),
+@@ -70,45 +102,45 @@ func longPathsEnabled() bool {
+ // sincronizador de nuvem (OneDrive Files On-Demand e equivalentes). A
+ // deteccao e por atributo de arquivo (vault.IsCloudOnly, coletado por
+ // scanVault via vault.Walk) — nunca abre o arquivo, que e exatamente o que
+ // dispararia a hidratacao que esta verificacao existe para evitar.
+ func checkCloudOnlyFiles(scan vaultScan) Result {
+ 	const name = "arquivos somente-nuvem"
+ 
+ 	if res, failed := scanStatus(scan, name); failed {
+ 		return res
+ 	}
+-	if scan.cloudOnlyCount > 0 {
++	if scan.platform.cloudOnlyCount > 0 {
+ 		return Result{
+ 			Name:   name,
+ 			Status: StatusWarn,
+-			Detail: fmt.Sprintf("%d nota(s) ainda nao baixada(s) pelo sincronizador de nuvem", scan.cloudOnlyCount),
++			Detail: fmt.Sprintf("%d nota(s) ainda nao baixada(s) pelo sincronizador de nuvem", scan.platform.cloudOnlyCount),
+ 		}
+ 	}
+ 	return Result{Name: name, Status: StatusOK}
+ }
+ 
+ // checkCasingCollisions avisa quando duas notas distintas no disco tem o
+ // mesmo caminho ao comparar em minusculas. NTFS e insensivel a maiusculas por
+ // padrao, mas preserva a grafia — duas notas assim colidem de formas sutis em
+ // qualquer ferramenta que normalize o caminho antes de usar como chave.
+ func checkCasingCollisions(scan vaultScan) Result {
+ 	const name = "colisoes de casing"
+ 
+ 	if res, failed := scanStatus(scan, name); failed {
+ 		return res
+ 	}
+-	if len(scan.casingCollisions) > 0 {
++	if len(scan.platform.casingCollisions) > 0 {
+ 		return Result{
+ 			Name:   name,
+ 			Status: StatusWarn,
+-			Detail: fmt.Sprintf("%d colisao(oes): %s", len(scan.casingCollisions), strings.Join(scan.casingCollisions, "; ")),
++			Detail: fmt.Sprintf("%d colisao(oes): %s", len(scan.platform.casingCollisions), strings.Join(scan.platform.casingCollisions, "; ")),
+ 		}
+ 	}
+ 	return Result{Name: name, Status: StatusOK}
+ }
+ 
+ // diskFreeBytes consulta o espaco livre do volume que contem path, sem exigir
+ // que path seja a raiz do volume — GetDiskFreeSpaceEx aceita qualquer
+ // diretorio e resolve o volume sozinho.
+ func diskFreeBytes(path string) (uint64, error) {
+ 	abs, err := filepath.Abs(path)
+diff --git a/internal/doctor/doctor.go b/internal/doctor/doctor.go
+index 9ba4761..7822876 100644
+--- a/internal/doctor/doctor.go
++++ b/internal/doctor/doctor.go
+@@ -29,40 +29,32 @@ type Result struct {
+ 	Name   string
+ 	Status Status
+ 	Detail string
+ }
+ 
+ type check func(context.Context, config.Config) Result
+ 
+ // Run executa todas as verificacoes na ordem em que importam: as que
+ // invalidam as seguintes vem primeiro.
+ func Run(ctx context.Context, cfg config.Config) []Result {
+-	// halting marca as verificacoes cuja falha invalida tudo o que vem depois.
+-	// Sem raiz acessivel ou legivel, as seguintes reportariam falhas derivadas
+-	// e o relatorio viraria ruido — que e o oposto do que se quer de um
+-	// diagnostico. Comparar pelo nome de uma unica verificacao nao basta: uma
+-	// raiz que existe mas nao pode ser lida produz exatamente a mesma cascata.
+-	type entry struct {
+-		fn      check
+-		halting bool
+-	}
+-
+-	checks := []entry{
+-		{checkRootExists, true},
+-		{checkReadable, true},
+-	}
++	// As duas verificacoes abaixo sao HALTING: sua falha invalida tudo o que
++	// vem depois. Sem raiz acessivel ou legivel, as seguintes reportariam
++	// falhas derivadas e o relatorio viraria ruido — que e o oposto do que se
++	// quer de um diagnostico. Por isso o loop devolve assim que uma delas
++	// falha, em vez de rodar as duas sempre.
++	checks := []check{checkRootExists, checkReadable}
+ 
+ 	out := make([]Result, 0, 16)
+-	for _, c := range checks {
+-		res := c.fn(ctx, cfg)
++	for _, fn := range checks {
++		res := fn(ctx, cfg)
+ 		out = append(out, res)
+-		if res.Status == StatusFail && c.halting {
++		if res.Status == StatusFail {
+ 			return out
+ 		}
+ 	}
+ 
+ 	// A esta altura a raiz existe e pode ser listada: seguro varrer o cofre.
+ 	// A varredura roda uma unica vez aqui, e os checks que precisam de dados
+ 	// por arquivo leem do resultado em vez de abrir o cofre de novo cada um —
+ 	// sem isso, contagem de notas, comprimento de caminho, arquivos
+ 	// somente-nuvem e colisoes de casing fariam quatro (cinco, com o registro
+ 	// de caminhos longos do Windows) varreduras completas do mesmo cofre.
+diff --git a/internal/index/export_test.go b/internal/index/export_test.go
+new file mode 100644
+index 0000000..3542fb7
+--- /dev/null
++++ b/internal/index/export_test.go
+@@ -0,0 +1,16 @@
++package index
++
++import "io"
++
++// WriteIndexCacheForTest escreve um cache no formato corrente com o
++// cabeçalho que o teste mandar — inclusive um cabeçalho que MENTE sobre a
++// cobertura, para exercitar a checagem de LoadIndexCache sem depender de
++// conseguir produzir um cache parcial de verdade (SaveIndexCache sempre
++// grava um cabeçalho fiel ao que exportou).
++//
++// Vive aqui, e nao em persist.go, porque um simbolo que so teste chama nao
++// pertence ao binario do produto. Arquivo _test.go: nada disso existe no
++// binario final.
++func WriteIndexCacheForTest(w io.Writer, h CacheHeader, notes []*Note, assets []*Asset) error {
++	return escreveIndexCache(w, h, notes, assets)
++}
+diff --git a/internal/index/persist.go b/internal/index/persist.go
+index fc90ba1..de59f82 100644
+--- a/internal/index/persist.go
++++ b/internal/index/persist.go
+@@ -1,17 +1,16 @@
+ package index
+ 
+ import (
+ 	"context"
+ 	"errors"
+ 	"fmt"
+-	"io"
+ 	"os"
+ 	"path/filepath"
+ 
+ 	"github.com/jonyd/gobsidian/internal/vault"
+ )
+ 
+ // Constantes de versionamento do cache do índice de metadados.
+ //
+ // docs/PRD.md Q3 (fechada em 2026-07-29) decidiu persistir OS DOIS caches —
+ // index_cache.gob (aqui) e inverted_cache.gob (internal/search) — e só o
+@@ -71,29 +70,20 @@ var (
+ 
+ // CacheHeader guarda as versões e a cobertura declarada do cache.
+ type CacheHeader struct {
+ 	FormatVersion int
+ 	ParserVersion int
+ 	VaultPath     string
+ 	NoteCount     int
+ 	AssetCount    int
+ }
+ 
+-// WriteIndexCacheForTest escreve um cache no formato corrente com o
+-// cabeçalho que o teste mandar — inclusive um cabeçalho que MENTE sobre a
+-// cobertura, para exercitar a checagem de LoadIndexCache sem depender de
+-// conseguir produzir um cache parcial de verdade (SaveIndexCache sempre
+-// grava um cabeçalho fiel ao que exportou).
+-func WriteIndexCacheForTest(w io.Writer, h CacheHeader, notes []*Note, assets []*Asset) error {
+-	return escreveIndexCache(w, h, notes, assets)
+-}
+-
+ // SaveIndexCache salva o índice de metadados em disco atomicamente:
+ // temporário no mesmo diretório, depois rename — o mesmo padrão de
+ // SaveInvertedCache.
+ func SaveIndexCache(ctx context.Context, cacheDir, vaultPath string, ix *Index) error {
+ 	if err := ctx.Err(); err != nil {
+ 		return err
+ 	}
+ 	if cacheDir == "" || ix == nil {
+ 		return nil
+ 	}
+diff --git a/internal/index/persist_codec.go b/internal/index/persist_codec.go
+index 12500d0..045986d 100644
+--- a/internal/index/persist_codec.go
++++ b/internal/index/persist_codec.go
+@@ -423,20 +423,38 @@ func (l *leitor) uvarint(limite uint64, oque string) uint64 {
+ 		return 0
+ 	}
+ 	l.i += n
+ 	if v > limite {
+ 		l.falha("%w: %s = %d, acima do limite de %d", ErrIndexCacheCorrupted, oque, v, limite)
+ 		return 0
+ 	}
+ 	return v
+ }
+ 
++// uvarintLivre le um uvarint sem teto. Existe porque dois chamadores
++// (o valor solto de frontmatter e o hash da nota) nao tem limite real: o
++// dado ocupa o uint64 inteiro, e chamar uvarint com limite=math.MaxUint64
++// era uma guarda que nunca disparava, porque nenhum uint64 decodificado por
++// binary.Uvarint pode superar o proprio tipo.
++func (l *leitor) uvarintLivre(oque string) uint64 {
++	if l.err != nil {
++		return 0
++	}
++	v, n := binary.Uvarint(l.b[l.i:])
++	if n <= 0 {
++		l.falha("%w: lendo %s: varint invalido em %d", ErrIndexCacheCorrupted, oque, l.i)
++		return 0
++	}
++	l.i += n
++	return v
++}
++
+ func (l *leitor) varint() int64 {
+ 	if l.err != nil {
+ 		return 0
+ 	}
+ 	v, n := binary.Varint(l.b[l.i:])
+ 	if n <= 0 {
+ 		l.falha("%w: lendo varint em %d", ErrIndexCacheCorrupted, l.i)
+ 		return 0
+ 	}
+ 	l.i += n
+@@ -629,21 +647,21 @@ func (l *leitor) value(profundidade int) any {
+ 	switch byte(tag) {
+ 	case valNil:
+ 		return nil
+ 	case valBool:
+ 		return l.boolean("valor bool")
+ 	case valInt:
+ 		return int(l.varint())
+ 	case valInt64:
+ 		return l.varint()
+ 	case valUint64:
+-		return l.uvarint(math.MaxUint64, "valor uint64")
++		return l.uvarintLivre("valor uint64")
+ 	case valFloat64:
+ 		return math.Float64frombits(l.fixed64())
+ 	case valString:
+ 		return l.str("valor string")
+ 	case valTime:
+ 		return l.timeBlob("valor time")
+ 	case valSliceNil:
+ 		return []any(nil)
+ 	case valSlice:
+ 		n := l.uvarint(limiteSliceLen, "tamanho de lista")
+@@ -672,21 +690,21 @@ func (l *leitor) value(profundidade int) any {
+ 		l.falha("%w: tag de valor desconhecida %d", ErrIndexCacheCorrupted, tag)
+ 		return nil
+ 	}
+ }
+ 
+ func (l *leitor) note() *Note {
+ 	path := l.str("note path")
+ 	title := l.str("note title")
+ 	size := int64(l.uvarint(math.MaxInt64, "note size"))
+ 	modTime := l.timeBlob("note modTime")
+-	hash := l.uvarint(math.MaxUint64, "note hash")
++	hash := l.uvarintLivre("note hash")
+ 	eol := vault.EOLStyle(l.uvarint(1, "note eol"))
+ 	bom := l.boolean("note bom")
+ 	cloudOnly := l.boolean("note cloudOnly")
+ 
+ 	fmVal := l.value(0)
+ 	fm, ok := fmVal.(map[string]any)
+ 	if l.err == nil && !ok {
+ 		l.falha("%w: frontmatter da nota %q nao decodificou como mapa (tipo %T)",
+ 			ErrIndexCacheCorrupted, path, fmVal)
+ 	}
+diff --git a/internal/ipc/ipc_test.go b/internal/ipc/ipc_test.go
+index 4ffc1a4..f6eba9a 100644
+--- a/internal/ipc/ipc_test.go
++++ b/internal/ipc/ipc_test.go
+@@ -251,45 +251,53 @@ func TestDialAndHandshakeReadOnlyCombinando(t *testing.T) {
+ 	var linha bytes.Buffer
+ 	if err := ipc.Greet(&linha, saudacao); err != nil {
+ 		t.Fatalf("Greet() error = %v", err)
+ 	}
+ 	if !strings.Contains(linha.String(), " ro=1 ") {
+ 		t.Fatalf("Greet(ReadOnly=true) escreveu %q, esperado conter \" ro=1 \" -- "+
+ 			"sem isso o aceite abaixo provaria so que os dois lados ignoram o campo", strings.TrimSpace(linha.String()))
+ 	}
+ 
+ 	accepted := make(chan net.Conn, 1)
++	// falhaServidor carrega o erro de Accept ou Greet quando o goroutine do
++	// servidor desiste em silencio -- sem ele, o Fatal abaixo so sabia dizer
++	// que a conexao nao chegou, nunca por que.
++	falhaServidor := make(chan error, 1)
+ 	go func() {
+ 		c, err := ln.Accept()
+ 		if err != nil {
++			falhaServidor <- fmt.Errorf("Accept(): %w", err)
+ 			return
+ 		}
+ 		if err := ipc.Greet(c, saudacao); err != nil {
++			falhaServidor <- fmt.Errorf("Greet(): %w", err)
+ 			return
+ 		}
+ 		accepted <- c
+ 	}()
+ 
+ 	ctx, cancel := context.WithTimeout(context.Background(), vaulttest.Prazo)
+ 	defer cancel()
+ 
+ 	conn, err := ipc.DialAndHandshake(ctx, vault, true, 0, vaulttest.Prazo)
+ 	if err != nil {
+ 		t.Fatalf("DialAndHandshake(readOnly=true) contra um daemon ro=1 error = %v, esperado nil -- "+
+ 			"duas pontas que pedem a MESMA configuracao tem de se falar; se so a recusa funciona, "+
+ 			"o modo somente-leitura nunca usa daemon nenhum", err)
+ 	}
+ 	defer func() { _ = conn.Close() }()
+ 
+ 	select {
+ 	case serverSide := <-accepted:
+ 		_ = serverSide.Close()
++	case err := <-falhaServidor:
++		t.Fatalf("o servidor desistiu antes de entregar a conexao: %v", err)
+ 	case <-time.After(vaulttest.Prazo):
+ 		t.Fatal("o servidor nao chegou a entregar a conexao apos o handshake")
+ 	}
+ }
+ 
+ func TestDialAndHandshakeRespeitaContext(t *testing.T) {
+ 	vault := t.TempDir()
+ 
+ 	ctx, cancel := context.WithCancel(context.Background())
+ 	cancel() // ja cancelado antes de discar
+diff --git a/internal/mcpsrv/export_test.go b/internal/mcpsrv/export_test.go
+index dec6fe8..8790ba8 100644
+--- a/internal/mcpsrv/export_test.go
++++ b/internal/mcpsrv/export_test.go
+@@ -1,8 +1,27 @@
+ package mcpsrv
+ 
++import (
++	"context"
++
++	"github.com/modelcontextprotocol/go-sdk/mcp"
++)
++
+ // MaxPathsPorLote expoe o teto de note_read para os testes de fora do pacote.
+ // O par de testes do teto (50 aceito, 51 recusado) tem de ser escrito a partir
+ // da MESMA constante que o produto compara: um literal 50 no teste continua
+ // verde se alguem mudar o valor do produto, e o par deixa de prender o limite.
+ // Arquivo _test.go: nada disso existe no binario.
+ const MaxPathsPorLote = maxPathsPorLote
++
++// RegisterPanicProbeForTest registra uma tool que sempre entra em panic.
++// Existe para provar que RNF-13 vale — nao e registrada em producao.
++func (s *Server) RegisterPanicProbeForTest() {
++	type empty struct{}
++	mcp.AddTool(s.mcp,
++		&mcp.Tool{Name: "panic_probe", Description: "sonda de teste; entra em panic"},
++		guard(s.log, "panic_probe",
++			func(context.Context, *mcp.CallToolRequest, empty) (*mcp.CallToolResult, empty, error) {
++				panic("sonda")
++			}),
++	)
++}
+diff --git a/internal/mcpsrv/server.go b/internal/mcpsrv/server.go
+index b103a65..b8d5975 100644
+--- a/internal/mcpsrv/server.go
++++ b/internal/mcpsrv/server.go
+@@ -19,33 +19,31 @@ import (
+ // Version e injetada pelo linker no build; o valor aqui e o fallback de
+ // desenvolvimento.
+ var Version = "dev"
+ 
+ // Server e o adaptador entre o SDK de MCP e o servico de dominio. Ele detem
+ // o unico *mcp.Server do processo e e o unico ponto onde tipos do SDK
+ // aparecem.
+ type Server struct {
+ 	mcp *mcp.Server
+ 	svc *service.Service
+-	cfg config.Config
+ 	log *slog.Logger
+ }
+ 
+ // New monta o servidor e registra as tools. Com cfg.ReadOnly ligado, as
+ // tools de escrita nao sao registradas — e nao apenas recusadas na chamada:
+ // um host que ve a tool anunciada vai tentar usa-la, e a recusa vira uma
+ // rodada desperdicada (PRD RF-55).
+ func New(ctx context.Context, svc *service.Service, cfg config.Config, log *slog.Logger) *Server {
+ 	s := &Server{
+ 		mcp: mcp.NewServer(&mcp.Implementation{Name: "gobsidian", Version: Version}, nil),
+ 		svc: svc,
+-		cfg: cfg,
+ 		log: log,
+ 	}
+ 	s.registerReadTools()
+ 	s.registerReadToolsInternal()
+ 	s.registerResources(ctx)
+ 	if !cfg.ReadOnly {
+ 		s.registerWriteTools()
+ 	}
+ 	return s
+ }
+@@ -110,23 +108,10 @@ func (nopWriteCloser) Close() error { return nil }
+ // io.Reader/io.Writer como o desenho original presumia. stdin e envolvido em
+ // io.NopCloser; stdout, em nopWriteCloser — nenhum dos dois adiciona
+ // comportamento de fechamento alem do nulo, e a assinatura publica de Serve
+ // continua em io.Reader/io.Writer para nao vazar esse detalhe do SDK.
+ func (s *Server) Serve(ctx context.Context, stdin io.Reader, stdout io.Writer) error {
+ 	return s.mcp.Run(ctx, &mcp.IOTransport{
+ 		Reader: io.NopCloser(stdin),
+ 		Writer: nopWriteCloser{stdout},
+ 	})
+ }
+-
+-// RegisterPanicProbeForTest registra uma tool que sempre entra em panic.
+-// Existe para provar que RNF-13 vale — nao e registrada em producao.
+-func (s *Server) RegisterPanicProbeForTest() {
+-	type empty struct{}
+-	mcp.AddTool(s.mcp,
+-		&mcp.Tool{Name: "panic_probe", Description: "sonda de teste; entra em panic"},
+-		guard(s.log, "panic_probe",
+-			func(context.Context, *mcp.CallToolRequest, empty) (*mcp.CallToolResult, empty, error) {
+-				panic("sonda")
+-			}),
+-	)
+-}
+diff --git a/internal/mcpsrv/tools_read.go b/internal/mcpsrv/tools_read.go
+index 40c61af..1379b1b 100644
+--- a/internal/mcpsrv/tools_read.go
++++ b/internal/mcpsrv/tools_read.go
+@@ -9,40 +9,47 @@ import (
+ 	"github.com/jonyd/gobsidian/internal/service"
+ 	"github.com/modelcontextprotocol/go-sdk/mcp"
+ )
+ 
+ // maxPathsPorLote e o teto de itens que note_read aceita em req.Paths numa
+ // unica chamada. Sem ele, um lote pede o cofre inteiro e o servidor
+ // materializa centenas de MB em memoria para uma resposta que o cliente MCP
+ // nao consegue ler de uma vez.
+ const maxPathsPorLote = 50
+ 
++// valorOuZero desembrulha um parametro numerico opcional. Zero e "nao
++// informado" para o service, que aplica o padrao -- a UNICA conta de cada
++// padrao (Task 168). Duplicar o numero aqui, so para desembrulhar o ponteiro,
++// era um segundo lugar para o padrao divergir do que o service aplica.
++func valorOuZero(p *int) int {
++	if p == nil {
++		return 0
++	}
++	return *p
++}
++
+ func (s *Server) registerReadToolsInternal() {
+ 	mcp.AddTool(s.mcp,
+ 		&mcp.Tool{
+ 			Name:        "vault_search",
+ 			Description: "Busca full-text com ranking, combinável com filtros de metadados.",
+ 		},
+ 		guard(s.log, "vault_search",
+ 			func(ctx context.Context, _ *mcp.CallToolRequest, in vaultSearchInput) (*mcp.CallToolResult, service.SearchResult, error) {
+-				snippetChars := 240
+-				if in.SnippetChars != nil {
+-					snippetChars = *in.SnippetChars
+-				}
+-				limit := 20
+-				if in.Limit != nil {
+-					limit = *in.Limit
+-				}
+-				offset := 0
+-				if in.Offset != nil {
+-					offset = *in.Offset
+-				}
++				// snippet_chars, limit e offset viajam CRUS (0 quando
++				// omitidos): quem aplica o padrao de cada um e
++				// service.Search (search.go), que e tambem o caminho da
++				// CLI. Reaplicar os mesmos numeros aqui era uma segunda
++				// conta do mesmo padrao (Task 168).
++				snippetChars := valorOuZero(in.SnippetChars)
++				limit := valorOuZero(in.Limit)
++				offset := valorOuZero(in.Offset)
+ 
+ 				var modAfter, modBefore *time.Time
+ 				if in.ModifiedAfter != "" {
+ 					t, err := parseDateFilter(in.ModifiedAfter)
+ 					if err != nil {
+ 						return nil, service.SearchResult{}, toolErr(service.Errorf(service.CodeInvalidArgument, "modified_after invalido: %v", err))
+ 					}
+ 					modAfter = &t
+ 				}
+ 				if in.ModifiedBefore != "" {
+@@ -175,54 +182,46 @@ func (s *Server) registerReadToolsInternal() {
+ 			}),
+ 	)
+ 
+ 	mcp.AddTool(s.mcp,
+ 		&mcp.Tool{
+ 			Name:        "note_list",
+ 			Description: "Lista notas por critérios estruturais. Não toca o índice de texto.",
+ 		},
+ 		guard(s.log, "note_list",
+ 			func(ctx context.Context, _ *mcp.CallToolRequest, in noteListInput) (*mcp.CallToolResult, any, error) {
+-				limit := 100
+-				if in.Limit != nil {
+-					limit = *in.Limit
+-				}
+-				offset := 0
+-				if in.Offset != nil {
+-					offset = *in.Offset
+-				}
+-				tagMode := "all"
+-				if in.TagMode != "" {
+-					tagMode = in.TagMode
+-				}
++				// limit, offset, tag_mode, sort e order viajam CRUS: quem
++				// aplica o padrao de cada um e service.ListNotes (graph.go),
++				// pelo mesmo motivo de vault_search (Task 168). tag_mode,
++				// sort e order vazios chegam la como "" e ValidarEnum troca
++				// pelo padrao.
++				//
++				// recursive e SO deste boundary: e bool, e o service nao tem
++				// como distinguir "nao informado" de "informado false" sem
++				// um ponteiro no dominio -- diferente de limit/offset/tag_mode,
++				// onde zero/vazio ja e a marca inequivoca de "nao informado".
++				limit := valorOuZero(in.Limit)
++				offset := valorOuZero(in.Offset)
+ 				recursive := true
+ 				if in.Recursive != nil {
+ 					recursive = *in.Recursive
+ 				}
+-				sort := "path"
+-				if in.Sort != "" {
+-					sort = in.Sort
+-				}
+-				order := "asc"
+-				if in.Order != "" {
+-					order = in.Order
+-				}
+ 
+ 				q := index.Query{
+ 					Folder:      in.Folder,
+ 					Glob:        in.Glob,
+ 					Tags:        in.Tags,
+-					TagMode:     tagMode,
++					TagMode:     in.TagMode,
+ 					Frontmatter: in.Frontmatter,
+ 					Recursive:   recursive,
+-					Sort:        sort,
+-					Order:       order,
++					Sort:        in.Sort,
++					Order:       in.Order,
+ 					Limit:       limit,
+ 					Offset:      offset,
+ 				}
+ 
+ 				out, err := s.svc.ListNotes(ctx, service.ListRequest{Query: q, Fields: in.Fields})
+ 				if err != nil {
+ 					return nil, service.ListResult{}, toolErr(err)
+ 				}
+ 
+ 				return nil, out, nil
+@@ -247,32 +246,30 @@ func (s *Server) registerReadToolsInternal() {
+ 			}),
+ 	)
+ 
+ 	mcp.AddTool(s.mcp,
+ 		&mcp.Tool{
+ 			Name:        "link_graph",
+ 			Description: "Vizinhança de links de uma nota.",
+ 		},
+ 		guard(s.log, "link_graph",
+ 			func(ctx context.Context, _ *mcp.CallToolRequest, in linkGraphInput) (*mcp.CallToolResult, service.GraphResult, error) {
+-				depth := 1
+-				if in.Depth != nil {
+-					depth = *in.Depth
+-				}
+-				limit := 100
+-				if in.Limit != nil {
+-					limit = *in.Limit
+-				}
+-				direction := "both"
+-				if in.Direction != "" {
+-					direction = in.Direction
+-				}
++				// depth, limit e direction viajam CRUS: service.LinkGraph
++				// (graph.go) ja aplica depth<=0->1 (clamp em 3), o mesmo
++				// ComTeto de note_list para limit, e ValidarEnum para
++				// direction. include_broken e include_embeds continuam
++				// desembrulhados aqui: sao bool, e o service nao distingue
++				// "nao informado" de "informado false" sem um ponteiro no
++				// dominio.
++				depth := valorOuZero(in.Depth)
++				limit := valorOuZero(in.Limit)
++				direction := in.Direction
+ 				includeBroken := true
+ 				if in.IncludeBroken != nil {
+ 					includeBroken = *in.IncludeBroken
+ 				}
+ 				includeEmbeds := true
+ 				if in.IncludeEmbeds != nil {
+ 					includeEmbeds = *in.IncludeEmbeds
+ 				}
+ 
+ 				out, err := s.svc.LinkGraph(ctx, service.GraphRequest{
+diff --git a/internal/mcpsrv/tools_read_test.go b/internal/mcpsrv/tools_read_test.go
+index 4ae0644..179acb2 100644
+--- a/internal/mcpsrv/tools_read_test.go
++++ b/internal/mcpsrv/tools_read_test.go
+@@ -686,10 +686,144 @@ func TestVaultStatsReflectsWatcherUpdate(t *testing.T) {
+ 		if getNoteCount() == 0 {
+ 			foundRemove = true
+ 			break
+ 		}
+ 		time.Sleep(20 * time.Millisecond)
+ 	}
+ 	if !foundRemove {
+ 		t.Fatalf("vault_stats notes count did not return to 0 after removing note (took %v)", time.Since(startRemove))
+ 	}
+ }
++
++// TestVaultSearchDefaultVemDoServico, TestNoteListDefaultVemDoServico e
++// TestLinkGraphDefaultVemDoServico sao a Task 168: tools_read.go parou de
++// reaplicar os defaults que o service ja aplica (limit/snippet_chars/offset
++// em vault_search; limit/offset/tag_mode/sort/order em note_list;
++// depth/limit/direction em link_graph). Antes desta task, um numero duplicado
++// ERRADO em tools_read.go nunca reprovaria sozinho -- os dois lugares
++// concordariam com a mesma mentira. Estes tres testes chamam a tool SEM o
++// parametro, pelo transporte MCP de verdade (nao a funcao Go direto), porque
++// e so nesse caminho que um "reaplica aqui tambem" a mais voltaria a existir
++// em silencio.
++func TestVaultSearchDefaultVemDoServico(t *testing.T) {
++	root := t.TempDir()
++	writeFile(t, root, "n1.md", "texto de busca um\n")
++	writeFile(t, root, "n2.md", "texto de busca dois\n")
++	srv := newTestServerWithIndex(t, root)
++	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
++	defer cancel()
++	session := connectTestSession(ctx, t, srv)
++
++	res, err := session.CallTool(ctx, &mcp.CallToolParams{
++		Name:      "vault_search",
++		Arguments: map[string]any{"query": "busca"},
++	})
++	if err != nil {
++		t.Fatalf("CallTool: %v", err)
++	}
++	if res.IsError {
++		t.Fatalf("IsError=true: %v", res.Content)
++	}
++
++	bruto, err := json.Marshal(res.StructuredContent)
++	if err != nil {
++		t.Fatalf("marshal StructuredContent: %v", err)
++	}
++	var out service.SearchResult
++	if err := json.Unmarshal(bruto, &out); err != nil {
++		t.Fatalf("unmarshal SearchResult: %v", err)
++	}
++
++	if out.LimitEfetivo != 20 {
++		t.Errorf("effective_limit = %d, queria 20 (padrao do service.Search, sem limit no pedido)", out.LimitEfetivo)
++	}
++	if out.SnippetCharsEfetivo != 240 {
++		t.Errorf("effective_snippet_chars = %d, queria 240 (padrao do service.Search, sem snippet_chars no pedido)", out.SnippetCharsEfetivo)
++	}
++}
++
++func TestNoteListDefaultVemDoServico(t *testing.T) {
++	root := t.TempDir()
++	writeFile(t, root, "z.md", "---\ntitle: Z\n---\ntexto\n")
++	writeFile(t, root, "a.md", "---\ntitle: A\n---\ntexto\n")
++	writeFile(t, root, "m.md", "---\ntitle: M\n---\ntexto\n")
++	srv := newTestServerWithIndex(t, root)
++	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
++	defer cancel()
++	session := connectTestSession(ctx, t, srv)
++
++	res, err := session.CallTool(ctx, &mcp.CallToolParams{
++		Name:      "note_list",
++		Arguments: map[string]any{},
++	})
++	if err != nil {
++		t.Fatalf("CallTool: %v", err)
++	}
++	if res.IsError {
++		t.Fatalf("IsError=true: %v", res.Content)
++	}
++
++	bruto, err := json.Marshal(res.StructuredContent)
++	if err != nil {
++		t.Fatalf("marshal StructuredContent: %v", err)
++	}
++	var out service.ListResult
++	if err := json.Unmarshal(bruto, &out); err != nil {
++		t.Fatalf("unmarshal ListResult: %v", err)
++	}
++
++	if len(out.Notes) != 3 {
++		t.Fatalf("len(Notes) = %d, queria 3", len(out.Notes))
++	}
++	got := []string{out.Notes[0].Path, out.Notes[1].Path, out.Notes[2].Path}
++	want := []string{"a.md", "m.md", "z.md"}
++	for i := range want {
++		if got[i] != want[i] {
++			t.Errorf("ordem = %v, queria %v (path ascendente, padrao do service.ListNotes sem sort/order no pedido)", got, want)
++			break
++		}
++	}
++}
++
++func TestLinkGraphDefaultVemDoServico(t *testing.T) {
++	root := t.TempDir()
++	writeFile(t, root, "A.md", "# A\n[[B]]\n")
++	writeFile(t, root, "B.md", "# B\ntexto\n")
++	srv := newTestServerWithIndex(t, root)
++	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
++	defer cancel()
++	session := connectTestSession(ctx, t, srv)
++
++	// B.md so tem aresta de ENTRADA (A.md -> B.md). Se o default de direction
++	// nao caisse em "both" -- por exemplo, se a string vazia que chega quando
++	// o cliente omite o campo fosse usada crua em vez de passar por
++	// ValidarEnum -- a travessia a partir de B.md nao encontraria A.md.
++	res, err := session.CallTool(ctx, &mcp.CallToolParams{
++		Name:      "link_graph",
++		Arguments: map[string]any{"path": "B.md"},
++	})
++	if err != nil {
++		t.Fatalf("CallTool: %v", err)
++	}
++	if res.IsError {
++		t.Fatalf("IsError=true: %v", res.Content)
++	}
++
++	bruto, err := json.Marshal(res.StructuredContent)
++	if err != nil {
++		t.Fatalf("marshal StructuredContent: %v", err)
++	}
++	var out service.GraphResult
++	if err := json.Unmarshal(bruto, &out); err != nil {
++		t.Fatalf("unmarshal GraphResult: %v", err)
++	}
++
++	achouA := false
++	for _, n := range out.Nodes {
++		if n.Path == "A.md" {
++			achouA = true
++		}
++	}
++	if !achouA {
++		t.Errorf("nodes = %+v, esperava achar A.md (so alcancavel pela aresta de entrada) com direction omitido -- o padrao do service e \"both\"", out.Nodes)
++	}
++}
+diff --git a/internal/search/export_test.go b/internal/search/export_test.go
+new file mode 100644
+index 0000000..18fc453
+--- /dev/null
++++ b/internal/search/export_test.go
+@@ -0,0 +1,24 @@
++package search
++
++import "io"
++
++// WriteCacheForTest escreve um cache no formato corrente, com o cabecalho que
++// o teste mandar.
++//
++// Substituiu NewEncoderForTest, que devolvia um gob.Encoder. Depois da troca
++// de formato, um arquivo gob deixa de ter a assinatura "GBS2" e e recusado
++// logo na primeira leitura — entao o teste de "versao de analisador
++// divergente" passaria sem nunca chegar a comparar versao nenhuma. Teste que
++// passa pelo motivo errado e pior que teste ausente.
++//
++// Vive aqui, e nao em persist.go, porque um simbolo que so teste chama nao
++// pertence ao binario do produto. Arquivo _test.go: nada disso existe no
++// binario final.
++func WriteCacheForTest(
++	w io.Writer,
++	h CacheHeader,
++	termos map[string]map[string][]TokenPosition,
++	docLengths map[string]int,
++) error {
++	return escreveCache(w, h, termos, docLengths)
++}
+diff --git a/internal/search/inverted.go b/internal/search/inverted.go
+index cb57f34..907997e 100644
+--- a/internal/search/inverted.go
++++ b/internal/search/inverted.go
+@@ -15,21 +15,20 @@ import (
+ // TokenPosition representa o offset em bytes (início e fim) onde o termo ocorreu no arquivo.
+ type TokenPosition struct {
+ 	Start int64
+ 	End   int64
+ }
+ 
+ // Posting representa as ocorrências de um termo em uma nota específica.
+ type Posting struct {
+ 	Path      string          // Caminho relativo da nota (ex: "b.md")
+ 	Positions []TokenPosition // Posições (offsets em bytes) das ocorrências
+-	Frequency int             // Frequência do termo na nota
+ }
+ 
+ // Inverted é um índice invertido thread-safe com suporte a atualizações
+ // incrementais, em duas camadas.
+ //
+ // # Por que duas camadas
+ //
+ // O que vem do cache é grande e não muda: 126.342 termos e 3 milhões de
+ // postings no cofre de referência. O que muda é minúsculo: as notas que o
+ // usuário editou desde a partida. Guardar as duas coisas na mesma estrutura
+@@ -265,21 +264,20 @@ func (ix *Inverted) Postings(term string) []Posting {
+ 				// mapeado — o ramo sem arena continua devolvendo a janela.
+ 				pos := ix.base.posicoesDaPosting(j)
+ 				if ix.base.arenaFechar != nil {
+ 					copia := make([]TokenPosition, len(pos))
+ 					copy(copia, pos)
+ 					pos = copia
+ 				}
+ 				doBase = append(doBase, Posting{
+ 					Path:      path,
+ 					Positions: pos,
+-					Frequency: len(pos),
+ 				})
+ 			}
+ 		}
+ 	}
+ 
+ 	if len(doDelta) == 0 {
+ 		// As postings do base já saem ordenadas por caminho, porque o pathID é
+ 		// a posição no vetor ordenado de caminhos e o arquivo grava as postings
+ 		// de cada termo por pathID crescente (conferido em validaOrdem). Sem o
+ 		// delta não há o que reordenar, e este é o caso comum: consulta num
+@@ -288,21 +286,20 @@ func (ix *Inverted) Postings(term string) []Posting {
+ 	}
+ 
+ 	result := doBase
+ 	if result == nil {
+ 		result = make([]Posting, 0, len(doDelta))
+ 	}
+ 	for path, posList := range doDelta {
+ 		result = append(result, Posting{
+ 			Path:      path,
+ 			Positions: posList,
+-			Frequency: len(posList),
+ 		})
+ 	}
+ 
+ 	sort.Slice(result, func(i, j int) bool {
+ 		return result[i].Path < result[j].Path
+ 	})
+ 
+ 	return result
+ }
+ 
+diff --git a/internal/search/inverted_test.go b/internal/search/inverted_test.go
+index c30b342..f6b83d1 100644
+--- a/internal/search/inverted_test.go
++++ b/internal/search/inverted_test.go
+@@ -55,22 +55,22 @@ func TestInvertedReindexSameNoteNoDuplicates(t *testing.T) {
+ 	ix := search.NewInverted()
+ 	tokens := search.Analyze("teste de reindexacao")
+ 
+ 	ix.Add("doc.md", tokens)
+ 	ix.Add("doc.md", tokens) // Reindexa a mesma nota
+ 
+ 	p := ix.Postings("teste")
+ 	if len(p) != 1 {
+ 		t.Fatalf("len(Postings) = %d, quer 1", len(p))
+ 	}
+-	if p[0].Frequency != 1 {
+-		t.Errorf("Frequency = %d, quer 1 (reindexacao duplica posicoes se nao limpar)", p[0].Frequency)
++	if got := len(p[0].Positions); got != 1 {
++		t.Errorf("len(Positions) = %d, quer 1 (reindexacao duplica posicoes se nao limpar)", got)
+ 	}
+ }
+ 
+ func TestInvertedConcurrencyRace(t *testing.T) {
+ 	ix := search.NewInverted()
+ 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+ 	defer cancel()
+ 
+ 	var wg sync.WaitGroup
+ 
+diff --git a/internal/search/persist.go b/internal/search/persist.go
+index a416514..66e3150 100644
+--- a/internal/search/persist.go
++++ b/internal/search/persist.go
+@@ -1,17 +1,16 @@
+ package search
+ 
+ import (
+ 	"context"
+ 	"errors"
+ 	"fmt"
+-	"io"
+ 	"os"
+ 	"path/filepath"
+ )
+ 
+ // Constantes de versionamento de cache (Task 49).
+ const (
+ 	// Formato 6: tudo do formato 5 (codec binario proprio, tabela de
+ 	// caminhos, posicoes em varint com delta, totais adiantados, docLengths
+ 	// gravado em vez de derivado, tudo em ordem crescente) MAIS uma segunda
+ 	// secao com as posicoes em formato fixo de 16 bytes, alinhada em 8, e um
+@@ -28,37 +27,20 @@ const (
+ // Erros exportados para operações de persistência de cache.
+ var (
+ 	// ErrCacheNotFound indica que o arquivo de cache não existe.
+ 	ErrCacheNotFound = errors.New("cache file not found")
+ 	// ErrCacheVersionMismatch indica incompatibilidade de versão de formato, parser ou analisador.
+ 	ErrCacheVersionMismatch = errors.New("cache version mismatch")
+ 	// ErrCacheCorrupted indica erro de decodificação ou corrupção no arquivo de cache.
+ 	ErrCacheCorrupted = errors.New("cache file corrupted")
+ )
+ 
+-// WriteCacheForTest escreve um cache no formato corrente, com o cabecalho que
+-// o teste mandar.
+-//
+-// Substituiu NewEncoderForTest, que devolvia um gob.Encoder. Depois da troca de
+-// formato, um arquivo gob deixa de ter a assinatura "GBS2" e e recusado logo na
+-// primeira leitura — entao o teste de "versao de analisador divergente"
+-// passaria sem nunca chegar a comparar versao nenhuma. Teste que passa pelo
+-// motivo errado e pior que teste ausente.
+-func WriteCacheForTest(
+-	w io.Writer,
+-	h CacheHeader,
+-	termos map[string]map[string][]TokenPosition,
+-	docLengths map[string]int,
+-) error {
+-	return escreveCache(w, h, termos, docLengths)
+-}
+-
+ // CacheHeader guarda as versões e metadados de integridade do cache.
+ type CacheHeader struct {
+ 	FormatVersion   int
+ 	ParserVersion   int
+ 	AnalyzerVersion int
+ 	VaultPath       string
+ 	NoteCount       int
+ }
+ 
+ // SaveInvertedCache salva o índice invertido em disco atomicamente.
+diff --git a/internal/search/soa_test.go b/internal/search/soa_test.go
+index afcfbce..b8614c7 100644
+--- a/internal/search/soa_test.go
++++ b/internal/search/soa_test.go
+@@ -94,24 +94,20 @@ func exigeEquivalentes(t *testing.T, quer, tem *Inverted, caminhos []string) {
+ 			continue
+ 		}
+ 		if !sort.SliceIsSorted(pb, func(i, j int) bool { return pb[i].Path < pb[j].Path }) {
+ 			t.Errorf("Postings(%q) fora de ordem", termo)
+ 		}
+ 		for i := range pa {
+ 			if pa[i].Path != pb[i].Path {
+ 				t.Errorf("Postings(%q)[%d].Path = %q, quer %q", termo, i, pb[i].Path, pa[i].Path)
+ 				continue
+ 			}
+-			if pa[i].Frequency != pb[i].Frequency {
+-				t.Errorf("Postings(%q)[%d].Frequency = %d, quer %d",
+-					termo, i, pb[i].Frequency, pa[i].Frequency)
+-			}
+ 			if len(pa[i].Positions) != len(pb[i].Positions) {
+ 				t.Errorf("Postings(%q)/%q: %d posições, quer %d",
+ 					termo, pa[i].Path, len(pb[i].Positions), len(pa[i].Positions))
+ 				continue
+ 			}
+ 			for k := range pa[i].Positions {
+ 				if pa[i].Positions[k] != pb[i].Positions[k] {
+ 					t.Errorf("Postings(%q)/%q[%d] = %+v, quer %+v",
+ 						termo, pa[i].Path, k, pb[i].Positions[k], pa[i].Positions[k])
+ 				}
+diff --git a/internal/service/errors.go b/internal/service/errors.go
+index 175de5f..7d51111 100644
+--- a/internal/service/errors.go
++++ b/internal/service/errors.go
+@@ -26,21 +26,20 @@ const (
+ 	CodeNoteExists       Code = "NOTE_ALREADY_EXISTS"
+ 	CodeAmbiguousPath    Code = "AMBIGUOUS_PATH"
+ 	CodeHeadingNotFound  Code = "HEADING_NOT_FOUND"
+ 	CodeAmbiguousHeading Code = "AMBIGUOUS_HEADING"
+ 	CodeBlockNotFound    Code = "BLOCK_NOT_FOUND"
+ 	CodeAmbiguousBlock   Code = "AMBIGUOUS_BLOCK"
+ 	CodeFolderNotFound   Code = "FOLDER_NOT_FOUND"
+ 	CodeHashMismatch     Code = "HASH_MISMATCH"
+ 	CodeFileLocked       Code = "FILE_LOCKED"
+ 	CodeCloudOnlyFile    Code = "CLOUD_ONLY_FILE"
+-	CodePathTooLong      Code = "PATH_TOO_LONG"
+ 	CodeReadOnlyMode     Code = "READ_ONLY_MODE"
+ 	// CodeInvalidArgument: a combinacao de parametros recebida nao tem
+ 	// interpretacao unica (dois campos mutuamente exclusivos preenchidos) ou
+ 	// viola um teto declarado no schema (lote maior que o limite). Nao e
+ 	// PATH_OUTSIDE_VAULT nem NOTE_NOT_FOUND porque a falha esta na chamada em
+ 	// si, antes de qualquer nome de arquivo ser resolvido.
+ 	CodeInvalidArgument Code = "INVALID_ARGUMENT"
+ 	// CodeIndexBuilding: o indice invertido ainda nao cobre o cofre inteiro.
+ 	// E um erro, e nao uma lista vazia, porque "ainda nao sei" e "nao achei
+ 	// nada" pedem acoes diferentes de quem chama: uma manda tentar de novo,
+diff --git a/internal/service/move_test.go b/internal/service/move_test.go
+index cad0f5a..67cd71f 100644
+--- a/internal/service/move_test.go
++++ b/internal/service/move_test.go
+@@ -177,20 +177,51 @@ func TestMoveNote_UpdateLinksFalse(t *testing.T) {
+ 	if res.LinksUpdated != 0 || len(res.Rewritten) != 0 {
+ 		t.Errorf("esperava 0 links atualizados, obtido %d", res.LinksUpdated)
+ 	}
+ 
+ 	refRaw, _ := os.ReadFile(refPath)
+ 	if string(refRaw) != "Ref para [[alvo]]" {
+ 		t.Errorf("ref.md foi alterado apesar de update_links=false: %s", refRaw)
+ 	}
+ }
+ 
++// TestMoveNoteSemDestinoEInvalidArgument cobre o guard de "to" vazio (Task
++// 166, Step 3): a chamada a vault.Resolve que so descartava os tres retornos
++// virou um if direto sobre req.To, e este teste e a prova de que ele ainda
++// rejeita -- inclusive o "to" so-espaco, que a resolucao de baixo (com ".md"
++// ja concatenado) nao pegaria sozinha.
++func TestMoveNoteSemDestinoEInvalidArgument(t *testing.T) {
++	files := map[string]string{
++		"a.md": "Nota A",
++	}
++
++	svc, _, _, _ := createMoveService(t, files)
++
++	for _, to := range []string{"", "   "} {
++		_, err := svc.MoveNote(context.Background(), service.MoveNoteRequest{
++			From: "a.md",
++			To:   to,
++		})
++		if err == nil {
++			t.Fatalf("MoveNote(to=%q) error = nil, esperado INVALID_ARGUMENT", to)
++		}
++
++		var codeErr *service.Error
++		if !errors.As(err, &codeErr) {
++			t.Fatalf("MoveNote(to=%q) error = %T (%v), quer *service.Error", to, err, err)
++		}
++		if codeErr.Code != service.CodeInvalidArgument {
++			t.Errorf("MoveNote(to=%q) Code = %v, quer CodeInvalidArgument", to, codeErr.Code)
++		}
++	}
++}
++
+ func TestMoveNote_CreateFoldersFalseMissingDir(t *testing.T) {
+ 	files := map[string]string{
+ 		"alvo.md": "Alvo",
+ 	}
+ 
+ 	svc, _, _, _ := createMoveService(t, files)
+ 
+ 	_, err := svc.MoveNote(context.Background(), service.MoveNoteRequest{
+ 		From:          "alvo.md",
+ 		To:            "PastaInexistente/alvo.md",
+diff --git a/internal/service/service.go b/internal/service/service.go
+index 65f6ccf..e1b1f2d 100644
+--- a/internal/service/service.go
++++ b/internal/service/service.go
+@@ -90,15 +90,10 @@ func New(v *vault.Vault, idx Index, inv *search.Inverted, w WatchStats, opts Opt
+ 		vault:         v,
+ 		index:         idx,
+ 		inverted:      inv,
+ 		watcher:       w,
+ 		opts:          opts,
+ 		locker:        writer.NewPathLocker(),
+ 		trechos:       search.NewSnippetCache(entradasTrecho),
+ 		carregarBusca: opts.CarregarBusca,
+ 	}
+ }
+-
+-// Inverted devolve a instância do índice invertido.
+-func (s *Service) Inverted() *search.Inverted {
+-	return s.inverted
+-}
+diff --git a/internal/service/write.go b/internal/service/write.go
+index 91f8731..b477ea8 100644
+--- a/internal/service/write.go
++++ b/internal/service/write.go
+@@ -412,20 +412,30 @@ type MoveNoteResult struct {
+ func (s *Service) MoveNote(ctx context.Context, req MoveNoteRequest) (MoveNoteResult, error) {
+ 	if err := s.checkWritable(); err != nil {
+ 		return MoveNoteResult{}, err
+ 	}
+ 
+ 	canonicalFrom, err := s.index.ResolvePath(req.From)
+ 	if err != nil {
+ 		return MoveNoteResult{}, ErroDeResolucao(req.From, err)
+ 	}
+ 
++	// NAO e so para rejeitar "to" vazio (Task 166 propunha trocar isto por um
++	// `if req.To == ""`, e BLOQUEOU aqui): esta chamada resolve o req.To CRU,
++	// antes do ".md" que toInput acrescenta abaixo, e e ela que pega nome de
++	// dispositivo reservado do Windows sem extensao ("COM1"). Desde o Windows
++	// 11 a checagem de nome reservado do Go (filepath.IsLocal, via
++	// RtlIsDosDeviceName_U) para de recusar a forma COM EXTENSAO --
++	// "COM1.md" resolve normalmente -- entao a resolucao de baixo, sobre
++	// toInput, nao pega mais esse caso sozinha. Medido: removendo esta
++	// chamada, TestEscritaRecusaTravessiaComSeparadorDoWindows/windows/COM1
++	// falhou com "MoveNote(to=\"COM1\") devolveu sucesso".
+ 	_, _, err = vault.Resolve(s.vault.Root(), req.To)
+ 	if err != nil {
+ 		return MoveNoteResult{}, mapVaultErr(err)
+ 	}
+ 
+ 	toInput := req.To
+ 	if !strings.HasSuffix(toInput, ".md") {
+ 		toInput += ".md"
+ 	}
+ 	absTo, canonicalTo, err := vault.Resolve(s.vault.Root(), toInput)
+diff --git a/internal/vault/eol.go b/internal/vault/eol.go
+index 9d65ea5..5a078d2 100644
+--- a/internal/vault/eol.go
++++ b/internal/vault/eol.go
+@@ -40,46 +40,29 @@ const BOMLen = len(bomPrefix)
+ var bom = []byte(bomPrefix)
+ 
+ // DetectEOL devolve o estilo predominante do arquivo. Arquivos com mistura
+ // existem, e converter o arquivo inteiro para um estilo so seria reescrever
+ // o que o usuario nao pediu — a escrita normaliza apenas o conteudo novo.
+ //
+ // CR solto (Mac classico, pre-OS X) nao tem representacao em EOLStyle: como
+ // o tipo so modela LF e CRLF, um arquivo sem nenhum "\r\n" nem "\n" conta
+ // zero quebras dos dois tipos e cai no default, EOLLF. Isso e consequencia
+ // direta do desenho de dois valores, nao um bug — e o conteudo antigo em CR
+-// solto nunca e reescrito, porque NormalizeEOL so processa o texto novo.
++// solto nunca e reescrito, porque writer.NormalizeEOL so processa o texto
++// novo.
+ func DetectEOL(data []byte) EOLStyle {
+ 	crlf := bytes.Count(data, []byte("\r\n"))
+ 	lf := bytes.Count(data, []byte("\n")) - crlf
+ 
+ 	if crlf > lf {
+ 		return EOLCRLF
+ 	}
+ 	return EOLLF
+ }
+ 
+ // StripBOM remove o marcador UTF-8 do inicio, reportando se ele estava la.
+ func StripBOM(data []byte) ([]byte, bool) {
+ 	if bytes.HasPrefix(data, bom) {
+ 		return data[len(bom):], true
+ 	}
+ 	return data, false
+ }
+-
+-// AddBOM reintroduz o marcador. Usado na escrita, quando o arquivo original
+-// o tinha.
+-func AddBOM(data []byte) []byte {
+-	if bytes.HasPrefix(data, bom) {
+-		return data
+-	}
+-	return append(append([]byte{}, bom...), data...)
+-}
+-
+-// NormalizeEOL converte o conteudo novo para o estilo do arquivo alvo.
+-func NormalizeEOL(data []byte, style EOLStyle) []byte {
+-	flat := bytes.ReplaceAll(data, []byte("\r\n"), []byte("\n"))
+-	if style == EOLLF {
+-		return flat
+-	}
+-	return bytes.ReplaceAll(flat, []byte("\n"), []byte("\r\n"))
+-}
+diff --git a/internal/writer/atomic.go b/internal/writer/atomic.go
+index 80a4bae..e0f75b2 100644
+--- a/internal/writer/atomic.go
++++ b/internal/writer/atomic.go
+@@ -6,66 +6,46 @@ import (
+ 	"log/slog"
+ 	"os"
+ 	"path/filepath"
+ 	"strings"
+ 	"time"
+ )
+ 
+ // TempFilePrefix e o prefixo usado para todos os arquivos temporarios de escrita atomica.
+ const TempFilePrefix = ".gobsidian-tmp-"
+ 
+-// CleanStaleTempFiles remove os temporarios de escritas interrompidas em UM
+-// diretorio. Recuperacao de crash, e so isso: uma escrita que falha por
+-// qualquer motivo normal ja remove o proprio temporario no defer de
+-// WriteAtomic. O unico caso que sobra e o processo morto, que nao roda defer.
+-//
+-// NAO CHAME ISTO NO INICIO DE UMA ESCRITA. Ate 2026-07-30 WriteAtomic a chamava
+-// ali, e o glob apaga TODOS os temporarios do diretorio — inclusive um que
+-// outra escrita em voo esta usando. A trava do writer e por CAMINHO, de
+-// proposito: duas notas na mesma pasta escrevem em paralelo. O recurso
+-// compartilhado aqui e o DIRETORIO, e a trava por caminho nao o cobre.
+-//
+-// No Windows a corrida ficava mascarada: os.Remove sobre arquivo com handle
+-// aberto falha com sharing violation, e o erro era engolido. Em Linux e macOS o
+-// unlink sucede por semantica POSIX — a outra escrita segue gravando num inode
+-// desvinculado, Sync e Close passam, e o rename falha com ENOENT. Escrita
+-// perdida, com erro cuja causa nao tem relacao com o que o chamador pediu.
+-//
+-// O lugar certo e o boot, onde nao ha escrita em voo: SweepStaleTempFiles.
+-func CleanStaleTempFiles(dir string) {
+-	matches, err := filepath.Glob(filepath.Join(dir, TempFilePrefix+"*"))
+-	if err == nil {
+-		for _, m := range matches {
+-			_ = os.Remove(m)
+-		}
+-	}
+-}
+-
+ // SweepResult e o que a varredura de temporarios encontrou.
+ //
+ // Era um int so — a contagem de removidos — e todo o resto era descartado
+ // (achado P11). Uma varredura que nao conseguiu entrar em nenhum diretorio
+ // devolvia "0 removidos", indistinguivel de um cofre limpo. Quem chama loga
+ // os tres numeros.
+ type SweepResult struct {
+ 	Removidos int
+ 	// NaoRemovidos conta temporarios encontrados que os.Remove recusou —
+ 	// tipicamente arquivo travado por outro processo.
+ 	NaoRemovidos int
+ 	// Inacessiveis conta subarvores em que a varredura nao conseguiu entrar.
+ 	Inacessiveis int
+ }
+ 
+ // SweepStaleTempFiles remove, do cofre inteiro, os temporarios que escritas
+ // interrompidas deixaram, e devolve quantos removeu. Roda no boot, quando
+-// nenhuma escrita esta em voo — e por isso nao tem a corrida que CleanStaleTempFiles
+-// tem quando chamada durante uma escrita.
++// nenhuma escrita esta em voo — por isso pode varrer o diretorio inteiro
++// sem risco: ate 2026-07-30 WriteAtomic varria assim no INICIO de cada
++// escrita, e o glob apagava TODOS os temporarios do diretorio, inclusive o
++// de outra escrita em voo na mesma pasta (a trava do writer e por CAMINHO,
++// nao por diretorio). No Windows a corrida ficava mascarada — os.Remove
++// sobre arquivo com handle aberto falha com sharing violation, e o erro era
++// engolido; em Linux e macOS o unlink sucede por semantica POSIX, a outra
++// escrita segue gravando num inode desvinculado, e o rename final falhava
++// com ENOENT.
+ //
+ // Existe tambem porque a varredura preguicosa nao bastava: um temporario orfao
+ // numa pasta que nunca mais fosse escrita ficava no cofre do usuario para
+ // sempre. O filtro de ruido do vault o esconde do indice, entao o usuario o via
+ // so no Explorer, sem saber de onde veio.
+ //
+ // Recebe ctx porque percorrer um cofre grande bloqueia. Erro em subdiretorio
+ // nao aborta a varredura: um temporario que nao pudemos remover e lixo, nao
+ // motivo para o servidor nao subir.
+ func SweepStaleTempFiles(ctx context.Context, root string) (SweepResult, error) {
+@@ -128,23 +108,24 @@ func SweepStaleTempFiles(ctx context.Context, root string) (SweepResult, error)
+ //
+ // Cancelar NAO desfaz um rename ja aplicado — a escrita e atomica, nao
+ // transacional. O ctx e conferido nos pontos em que ainda nao houve efeito
+ // visivel, e entre as tentativas.
+ func WriteAtomic(ctx context.Context, targetPath string, data []byte) error {
+ 	if err := ctx.Err(); err != nil {
+ 		return err
+ 	}
+ 	dir := filepath.Dir(targetPath)
+ 
+-	// Nenhuma varredura aqui: ver o comentario de CleanStaleTempFiles. O
+-	// temporario desta escrita e removido pelo defer abaixo em qualquer falha;
+-	// o de um processo morto e removido no boot por SweepStaleTempFiles.
++	// Nenhuma varredura de diretorio aqui -- so no boot, por
++	// SweepStaleTempFiles, e pelo motivo no comentario dela. O temporario
++	// desta escrita e removido pelo defer abaixo em qualquer falha; o de um
++	// processo morto (que nao roda defer) fica ate o proximo boot.
+ 	tmpFile, err := os.CreateTemp(dir, TempFilePrefix+"*")
+ 	if err != nil {
+ 		return fmt.Errorf("criando temporario em %q: %w", dir, err)
+ 	}
+ 	tmpName := tmpFile.Name()
+ 
+ 	// os.CreateTemp cria com 0600. Sem restaurar o modo do ALVO, um rename por
+ 	// cima de uma nota 0644 a deixa 0600 — a escrita "preserva o conteudo" e
+ 	// muda a permissao pelas costas (achado M12). Em cofre compartilhado por
+ 	// grupo, a nota some para os outros.

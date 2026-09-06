@@ -1,0 +1,198 @@
+diff --git a/docs/TOOLS.md b/docs/TOOLS.md
+index 6ccd7f6..dbbe75a 100644
+--- a/docs/TOOLS.md
++++ b/docs/TOOLS.md
+@@ -3,21 +3,21 @@
+ Contrato de cada *tool*. Schemas em JSON Schema, como declarados ao host.
+ 
+ ---
+ 
+ ## Convenções gerais
+ 
+ **Caminhos.** Todo parâmetro `path` é relativo à raiz do cofre, com separador `/`, incluindo a extensão `.md`. Exemplo: `Civil/PONTO 03.md`. Caminhos absolutos são rejeitados. Travessia para fora do cofre é rejeitada.
+ 
+ **Casing.** A resolução tenta correspondência exata primeiro, depois insensível a maiúsculas. Se a busca insensível encontrar mais de um candidato, a chamada falha com erro de ambiguidade listando os candidatos — nunca escolhe por conta própria.
+ 
+-**Limites.** Toda tool que devolve lista aceita `limit` e `offset`. O padrão de `limit` é 50; o teto é 500. Respostas truncadas trazem `truncated: true` e `total`.
++**Limites.** Toda tool que devolve lista aceita `limit` e `offset`. Padrão e teto de `limit` variam por tool (`vault_search`: padrão 20, teto 200; `note_list` e `link_graph`: padrão 100, teto 500 — ver o schema de cada uma). Respostas truncadas trazem `truncated: true` e `total`.
+ 
+ **Dry-run.** Toda tool de escrita aceita `dry_run`. Quando verdadeiro, devolve o diff unificado do que seria feito e não toca o disco.
+ 
+ **Erros.** Devolvidos como resultado MCP de erro, com `code` legível por máquina e `message` acionável por humano ou modelo. O servidor jamais cai por erro de tool.
+ 
+ **Título.** O campo `title`, presente em vários retornos, é resolvido nesta ordem: campo `title` do frontmatter, primeiro heading de nível 1 do corpo, nome do arquivo sem a extensão. Sempre tem valor.
+ 
+ **Hash.** `note_read`, `note_list` e `note_metadata` devolvem `hash`, um xxhash do conteúdo bruto do arquivo — frontmatter e BOM incluídos. É o valor aceito em `expected_hash` nas tools de escrita, e a única forma de detectar que o Obsidian alterou a nota entre a leitura e a escrita.
+ 
+ **Filtro `frontmatter`.** Presente em `vault_search` e `note_list`. Um objeto de pares chave/valor, todos os quais precisam casar. As regras:
+diff --git a/internal/index/persist_codec.go b/internal/index/persist_codec.go
+index 045986d..bb51b0b 100644
+--- a/internal/index/persist_codec.go
++++ b/internal/index/persist_codec.go
+@@ -407,29 +407,24 @@ type leitor struct {
+ 	err error
+ }
+ 
+ func (l *leitor) falha(formato string, args ...any) {
+ 	if l.err == nil {
+ 		l.err = fmt.Errorf(formato, args...)
+ 	}
+ }
+ 
+ func (l *leitor) uvarint(limite uint64, oque string) uint64 {
++	v := l.uvarintLivre(oque)
+ 	if l.err != nil {
+ 		return 0
+ 	}
+-	v, n := binary.Uvarint(l.b[l.i:])
+-	if n <= 0 {
+-		l.falha("%w: lendo %s: varint invalido em %d", ErrIndexCacheCorrupted, oque, l.i)
+-		return 0
+-	}
+-	l.i += n
+ 	if v > limite {
+ 		l.falha("%w: %s = %d, acima do limite de %d", ErrIndexCacheCorrupted, oque, v, limite)
+ 		return 0
+ 	}
+ 	return v
+ }
+ 
+ // uvarintLivre le um uvarint sem teto. Existe porque dois chamadores
+ // (o valor solto de frontmatter e o hash da nota) nao tem limite real: o
+ // dado ocupa o uint64 inteiro, e chamar uvarint com limite=math.MaxUint64
+diff --git a/internal/mcpsrv/tools_read.go b/internal/mcpsrv/tools_read.go
+index 1379b1b..65fec9b 100644
+--- a/internal/mcpsrv/tools_read.go
++++ b/internal/mcpsrv/tools_read.go
+@@ -255,33 +255,32 @@ func (s *Server) registerReadToolsInternal() {
+ 			func(ctx context.Context, _ *mcp.CallToolRequest, in linkGraphInput) (*mcp.CallToolResult, service.GraphResult, error) {
+ 				// depth, limit e direction viajam CRUS: service.LinkGraph
+ 				// (graph.go) ja aplica depth<=0->1 (clamp em 3), o mesmo
+ 				// ComTeto de note_list para limit, e ValidarEnum para
+ 				// direction. include_broken e include_embeds continuam
+ 				// desembrulhados aqui: sao bool, e o service nao distingue
+ 				// "nao informado" de "informado false" sem um ponteiro no
+ 				// dominio.
+ 				depth := valorOuZero(in.Depth)
+ 				limit := valorOuZero(in.Limit)
+-				direction := in.Direction
+ 				includeBroken := true
+ 				if in.IncludeBroken != nil {
+ 					includeBroken = *in.IncludeBroken
+ 				}
+ 				includeEmbeds := true
+ 				if in.IncludeEmbeds != nil {
+ 					includeEmbeds = *in.IncludeEmbeds
+ 				}
+ 
+ 				out, err := s.svc.LinkGraph(ctx, service.GraphRequest{
+ 					Path:          in.Path,
+-					Direction:     direction,
++					Direction:     in.Direction,
+ 					Depth:         depth,
+ 					IncludeBroken: includeBroken,
+ 					IncludeEmbeds: includeEmbeds,
+ 					Limit:         limit,
+ 				})
+ 				if err != nil {
+ 					return nil, service.GraphResult{}, toolErr(err)
+ 				}
+ 				return nil, out, nil
+ 			}),
+diff --git a/internal/service/move_test.go b/internal/service/move_test.go
+index 67cd71f..aca7474 100644
+--- a/internal/service/move_test.go
++++ b/internal/service/move_test.go
+@@ -178,24 +178,28 @@ func TestMoveNote_UpdateLinksFalse(t *testing.T) {
+ 		t.Errorf("esperava 0 links atualizados, obtido %d", res.LinksUpdated)
+ 	}
+ 
+ 	refRaw, _ := os.ReadFile(refPath)
+ 	if string(refRaw) != "Ref para [[alvo]]" {
+ 		t.Errorf("ref.md foi alterado apesar de update_links=false: %s", refRaw)
+ 	}
+ }
+ 
+ // TestMoveNoteSemDestinoEInvalidArgument cobre o guard de "to" vazio (Task
+-// 166, Step 3): a chamada a vault.Resolve que so descartava os tres retornos
+-// virou um if direto sobre req.To, e este teste e a prova de que ele ainda
+-// rejeita -- inclusive o "to" so-espaco, que a resolucao de baixo (com ".md"
+-// ja concatenado) nao pegaria sozinha.
++// 166, Step 3 -- BLOQUEADO, nao um refactor concluido). A chamada a
++// vault.Resolve sobre o req.To CRU em write.go:432 continua exatamente como
++// estava: nao virou if. Ela permanece porque e a UNICA recusa de nome de
++// dispositivo do Windows (to: "COM1" so falha porque IsLocal("COM1") = false,
++// enquanto IsLocal("COM1.md") = true -- ver o comentario em write.go:422-431
++// para o porque ela nao pode sumir). Este teste prova a metade que essa
++// chamada tambem cobre de gratis: "to" vazio e "to" so-espaco, que a
++// resolucao de baixo (com ".md" ja concatenado) nao pegaria sozinha.
+ func TestMoveNoteSemDestinoEInvalidArgument(t *testing.T) {
+ 	files := map[string]string{
+ 		"a.md": "Nota A",
+ 	}
+ 
+ 	svc, _, _, _ := createMoveService(t, files)
+ 
+ 	for _, to := range []string{"", "   "} {
+ 		_, err := svc.MoveNote(context.Background(), service.MoveNoteRequest{
+ 			From: "a.md",
+diff --git a/internal/writer/atomic_test.go b/internal/writer/atomic_test.go
+index 6957ddf..d7c84af 100644
+--- a/internal/writer/atomic_test.go
++++ b/internal/writer/atomic_test.go
+@@ -154,23 +154,24 @@ func TestRNF11NoCorruptionUnder1000Crashes(t *testing.T) {
+ 			corrompidas++
+ 			mu.Unlock()
+ 			t.Errorf("iteracao %d: estado intermediario (%d bytes): %q",
+ 				i, len(lido), string(lido[:min(80, len(lido))]))
+ 		}
+ 
+ 		// Um processo morto NAO roda defer, entao deixar temporario aqui e o
+ 		// comportamento esperado — nao defeito. O que se afirma e que a
+ 		// recuperacao os remove.
+ 		//
+-		// A versao anterior deste bloco chamava CleanStaleTempFiles e DEPOIS
+-		// afirmava que nao havia sobras: a linha de cima garantia a de baixo, e
+-		// a assercao nao podia falhar. Medido: com a limpeza neutralizada, este
++		// A versao anterior deste bloco chamava CleanStaleTempFiles (hoje
++		// apagada; era o glob por diretorio, Task 166) e DEPOIS afirmava que
++		// nao havia sobras: a linha de cima garantia a de baixo, e a
++		// assercao nao podia falhar. Medido: com a limpeza neutralizada, este
+ 		// teste reprova — havia temporarios reais sendo mascarados.
+ 		antesDaVarredura, _ := filepath.Glob(filepath.Join(dir, writer.TempFilePrefix+"*"))
+ 		mu.Lock()
+ 		orfaos += len(antesDaVarredura)
+ 		mu.Unlock()
+ 
+ 		// t.Fatalf so pode ser chamado da goroutine do teste; aqui e Errorf.
+ 		varr, err := writer.SweepStaleTempFiles(context.Background(), dir)
+ 		if err != nil {
+ 			t.Errorf("iteracao %d: SweepStaleTempFiles: %v", i, err)
+@@ -326,23 +327,24 @@ func TestWriteAtomic_RenameRetryOnLock(t *testing.T) {
+ 		t.Fatal("timeout aguardando WriteAtomic")
+ 	}
+ 
+ 	lido, _ := os.ReadFile(alvo)
+ 	if string(lido) != "substituido" {
+ 		t.Errorf("conteudo lido = %q, quer 'substituido'", string(lido))
+ 	}
+ }
+ 
+ // TestWriteAtomicConcurrentSameDirectory e o teste de regressao do defeito que
+-// a revisao do M4 achou: WriteAtomic chamava CleanStaleTempFiles(dir) no
+-// inicio, e o glob apaga TODOS os temporarios do diretorio — inclusive o de
+-// outra escrita em voo. A trava do writer e por CAMINHO de proposito, entao
++// a revisao do M4 achou: WriteAtomic chamava CleanStaleTempFiles(dir) (hoje
++// apagada; era o glob por diretorio, Task 166) no inicio, e o glob apaga
++// TODOS os temporarios do diretorio — inclusive o de outra escrita em voo.
++// A trava do writer e por CAMINHO de proposito, entao
+ // duas notas na mesma pasta escrevem em paralelo, e o recurso compartilhado
+ // (o diretorio) nao esta coberto por ela.
+ //
+ // ATENCAO AO LER UM VERDE AQUI NO WINDOWS: os.Remove sobre arquivo com handle
+ // aberto falha com sharing violation, e o erro era engolido — a corrida ficava
+ // mascarada. Em Linux e macOS o unlink sucede por semantica POSIX, a outra
+ // escrita segue gravando num inode desvinculado, e o rename falha com ENOENT.
+ // Este teste so reprova de verdade nos dois ultimos; no Windows ele documenta a
+ // intencao e guarda contra alguem devolver a varredura para dentro da escrita.
+ func TestWriteAtomicConcurrentSameDirectory(t *testing.T) {
