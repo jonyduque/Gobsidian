@@ -138,33 +138,49 @@ func contagemOf(m map[string]int) []string {
 	return out
 }
 
-// conjuntosIguais compara os DOIS sentidos.
+// conjuntosIguais compara os DOIS sentidos, preservando MULTIPLICIDADE.
 //
 // Ate 2026-09-04 cada comparacao daqui iterava so `want`, isto e, perguntava
 // "todo item da referencia existe no nosso indice?" — e uma referencia com
 // listas vazias corria zero comparacoes e reportava paridade. O sentido que
 // faltava e o que pega o excesso: um heading que inventamos, uma tag que o
 // Obsidian nao registra, um link a mais. Ordenar antes de comparar e o que
-// torna a igualdade uma pergunta sobre CONJUNTO, e nao sobre a ordem em que o
-// parser ou o dumper listaram.
+// torna a igualdade uma pergunta sobre o CONTEUDO, e nao sobre a ordem em que
+// o parser ou o dumper listaram.
 //
-// Compact nos DOIS lados porque conjunto nao tem repetido: "tags" chega aqui
-// como a uniao de `tags` (corpo) e `frontmatterTags`, que o Obsidian popula de
-// fontes independentes, e uma nota com `#civil` no corpo e `tags: [civil]` no
-// frontmatter entregaria [civil civil] do lado da referencia. Nenhuma nota do
-// corpus de hoje tem as duas listas preenchidas, entao isso nunca disparou —
-// mas quem acrescentasse essa nota veria um indice CORRETO reprovar.
+// Ordenar e comparar, e nao deduplicar: duas notas com o mesmo heading, ou
+// dois links para o mesmo alvo, sao dois. Uma versao anterior desta funcao
+// aplicava slices.Compact aqui, para resolver um problema que so a categoria
+// "tags" tem (ver semRepetidos), e com isso cegou as outras quatro — um indice
+// que perdesse UM de dois links identicos passaria, porque os dois lados
+// colapsavam para um. A deduplicacao das tags mora no ponto de chamada, que e
+// o unico que sabe que aquele conjunto vem de duas fontes.
 func conjuntosIguais(t *testing.T, path, campo string, got, want []string) {
 	t.Helper()
 	g := slices.Clone(got)
 	w := slices.Clone(want)
 	slices.Sort(g)
 	slices.Sort(w)
-	g = slices.Compact(g)
-	w = slices.Compact(w)
 	if !slices.Equal(g, w) {
 		t.Errorf("%s: %s divergem\n  nosso indice: %v\n  referencia:   %v", path, campo, g, w)
 	}
+}
+
+// semRepetidos ordena e deduplica. Existe SO para a categoria "tags".
+//
+// O Obsidian popula `tags` (corpo) e `frontmatterTags` de fontes
+// independentes, entao uma nota com `#civil` no corpo e `tags: [civil]` no
+// frontmatter entrega [civil civil] quando as duas listas sao unidas. Nos
+// guardamos uma lista so, e um indice que deduplica — que e o comportamento
+// correto — reprovaria contra essa uniao. Nenhuma nota do corpus de hoje tem
+// as duas listas preenchidas, entao isso nunca disparou; o que esta feito aqui
+// e desarmar a armadilha antes de alguem acrescentar a nota que a dispara.
+//
+// Nao generalize para as outras categorias: la a multiplicidade e informacao.
+func semRepetidos(xs []string) []string {
+	out := slices.Clone(xs)
+	slices.Sort(out)
+	return slices.Compact(out)
 }
 
 func headingsComparaveis(got []parser.Heading) []string {
@@ -333,7 +349,8 @@ func TestParityWithObsidian(t *testing.T) {
 		// que faz os dois lados falarem do mesmo conjunto — sem ela,
 		// Apelidada.md (tags [], frontmatterTags [civil, civil/obrigacoes])
 		// divergiria de um indice correto.
-		conjuntosIguais(t, path, "tags", note.Tags, append(slices.Clone(want.Tags), want.FrontmatterTags...))
+		conjuntosIguais(t, path, "tags", semRepetidos(note.Tags),
+			semRepetidos(append(slices.Clone(want.Tags), want.FrontmatterTags...)))
 		conjuntosIguais(t, path, "blocks", blocosComparaveis(note.Blocks), want.Blocks)
 		assertLinksMatch(t, path, note.Links, want.Links, want.Embeds)
 	}

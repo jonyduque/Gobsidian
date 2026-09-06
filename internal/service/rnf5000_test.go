@@ -220,7 +220,7 @@ func TestScale5000_RNF01_RNF02_RNF07_RNF04(t *testing.T) {
 	// quebrou nada porque nada era afirmado.
 	//
 	// Trocadas, e cada troca conferida DUAS vezes no cofre em
-	// %TEMP%ault_5000 (5.000 notas .md; a semente que o gerou NAO foi
+	// %TEMP%\vault_5000 (5.000 notas .md; a semente que o gerou NAO foi
 	// verificada — o diretorio foi reaproveitado, nao regenerado, entao nao da
 	// para afirmar que veio de `-Seed 42`), nesta maquina, em 2026-09-04: por
 	// `grep -ril` (arquivos que contem o termo, de 5.000) e pelo `Total` que a

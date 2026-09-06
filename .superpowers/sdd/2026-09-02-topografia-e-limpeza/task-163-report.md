@@ -672,3 +672,187 @@ Rodado em foreground, completo (sem `-SkipCross`, sem `-SkipNet`), 23:16 a 23:20
   afirma-la, nao conferi-la. Conferir exigiria regenerar, e regenerar trocaria o
   corpus que o resto da suite usa.
 - **Nao rodei `scripts/test_orphans.ps1`.**
+
+## Fix round 2
+
+### Progresso
+
+- 23:58 rereview lida; HEAD e `ebc0f12`; O1 confirmado pelo grep
+- 23:59 O1 consertado; grep de VT devolve zero; varredura de bytes de controle
+  nos cinco arquivos da round 1 devolve zero
+- 23:59 O2 aplicado: `conjuntosIguais` volta a comparar multiconjunto, e a
+  deduplicacao vai para `semRepetidos`, so nas tags
+- 00:00 prova do O2 colhida nas duas direcoes; scratch removido
+- 00:00 `verify.ps1` completo, foreground
+- 00:05 `verify.ps1` verde, 14/14, `[!] 6 testes pulados`
+
+### O1 — o caminho era um tab vertical, nao uma barra invertida
+
+Confirmado antes de mexer:
+
+```
+$ grep -nP '\x0b' internal/service/rnf5000_test.go
+223:	// %TEMP%ault_5000 (5.000 notas .md; a semente que o gerou NAO foi
+```
+
+A causa: o texto da B2 passou por uma string Python nao-raw, onde `\v` virou
+0x0B. Foi a unica ocorrencia. Depois do conserto:
+
+```
+$ grep -nP '\x0b' internal/service/rnf5000_test.go
+$ echo $?
+1
+```
+
+E a linha agora le, com barra invertida de verdade:
+
+```go
+	// %TEMP%\vault_5000 (5.000 notas .md; a semente que o gerou NAO foi
+```
+
+Varredura do resto do que escrevi na round 1 — todos os bytes de controle menos
+TAB e LF, nos cinco arquivos daquele commit:
+
+```
+$ grep -nP '[\x00-\x08\x0b\x0c\x0e-\x1f]' internal/service/rnf5000_test.go \
+    internal/index/parity_test.go internal/service/read_test.go \
+    scripts/verify.ps1 .superpowers/.../task-163-report.md
+$ echo $?
+1
+```
+
+E, porque TAB fica de fora dessa classe e um `\t` solto no meio de prosa nao
+seria visivel, uma segunda varredura so por TAB dentro de linha de comentario:
+
+```
+$ grep -nP '^\s*//.*\t' internal/service/rnf5000_test.go \
+    internal/index/parity_test.go internal/service/read_test.go
+$ echo $?
+1
+```
+
+O relatorio escreve o caminho com barra invertida de verdade nos dois lugares
+onde ele aparece (`%TEMP%\gobsidian-verify-testes.txt` e `%TEMP%\vault_5000`);
+`\g` e `\v` seguiram caminhos diferentes porque `\g` nao e escape de nada.
+
+### O2 — `Compact` so nas tags
+
+O `slices.Compact` que a round 1 pos dentro de `conjuntosIguais` valia para as
+cinco categorias. `conjuntosIguais` volta a comparar MULTICONJUNTO, e a
+deduplicacao virou `semRepetidos`, chamada so no ponto onde as tags sao unidas:
+
+```go
+conjuntosIguais(t, path, "tags", semRepetidos(note.Tags),
+    semRepetidos(append(slices.Clone(want.Tags), want.FrontmatterTags...)))
+```
+
+O comentario de `conjuntosIguais` registra por que a deduplicacao nao mora
+nela, e o de `semRepetidos` diz para nao generalizar.
+
+**O corpus de paridade nao tem repetido em categoria nenhuma.** Varri
+`testdata/parity/metadata.json` contando ocorrencias por nota em headings,
+links, embeds, tags, frontmatterTags e blocks: nenhuma duplicata. Entao o
+corpus nao consegue exercitar multiplicidade, e a prova foi feita contra a
+funcao, num teste de rascunho temporario em `internal/index`:
+
+```go
+perdeuUmDeDoisLinks := t.Run("links", func(t *testing.T) {
+    conjuntosIguais(t, "n.md", "links", []string{"Alvo"}, []string{"Alvo", "Alvo"})
+})
+```
+
+**Com o conserto** (`Compact` so nas tags) — o link perdido e PEGO:
+
+```
+=== RUN   TestScratchMultiplicidade/links
+    scratch_multiplicidade_test.go:8: n.md: links divergem
+          nosso indice: [Alvo]
+          referencia:   [Alvo Alvo]
+    scratch_multiplicidade_test.go:13: PEGOU: a comparacao de links preserva multiplicidade
+=== RUN   TestScratchMultiplicidade/tags
+    scratch_multiplicidade_test.go:22: PASSOU: a uniao tags+frontmatterTags nao reprova um indice que deduplica
+    --- FAIL: TestScratchMultiplicidade/links (0.00s)
+    --- PASS: TestScratchMultiplicidade/tags (0.00s)
+```
+
+**Com o codigo da round 1 devolvido** (`Compact` dentro de `conjuntosIguais`) —
+o link perdido PASSA, que e exatamente o achado:
+
+```
+=== RUN   TestScratchMultiplicidade/links
+    scratch_multiplicidade_test.go:11: PASSOU: um indice que perdeu UM de dois links identicos nao foi pego
+=== RUN   TestScratchMultiplicidade/tags
+    scratch_multiplicidade_test.go:22: PASSOU: a uniao tags+frontmatterTags nao reprova um indice que deduplica
+    --- PASS: TestScratchMultiplicidade/links (0.00s)
+    --- PASS: TestScratchMultiplicidade/tags (0.00s)
+```
+
+O subteste de tags passa nas duas rodadas: o conserto do O2 nao desfez o do N4.
+O `--- FAIL` do teste-pai nas duas saidas e do proprio rascunho — um subteste
+que reprova reprova o pai, e na primeira rodada a reprovacao do subteste E o
+resultado desejado. Mutacao revertida e rascunho apagado em seguida; nao ha
+`internal/index/scratch*`, e `git status` lista so os dois arquivos desta
+rodada.
+
+Teste de paridade de verdade, com `-race`:
+
+```
+$ go test -race -run TestParityWithObsidian -v ./internal/index/
+=== RUN   TestParityWithObsidian
+--- PASS: TestParityWithObsidian (0.04s)
+PASS
+ok  	github.com/jonyd/gobsidian/internal/index	2.215s
+```
+
+### `verify.ps1` da fix round 2
+
+Foreground, completo, 00:00 a 00:05, `exit=0`:
+
+```
+[...] 1. go build
+[OK] go build
+[...] 2. go test -race
+[OK] go test -race
+[...] 3. contagem de testes pulados
+[!] 6 testes pulados
+     --- SKIP: TestAjudanteSeguraTrava (0.00s)
+     --- SKIP: TestListenRestringePermissaoUnix (0.00s)
+     --- SKIP: TestSignalCancelsContext (0.10s)
+     --- SKIP: TestPerfilDeHeapServindo (0.00s)
+     --- SKIP: TestNew_FailsOnUnwatchablePath (0.01s)
+     --- SKIP: TestWriteAtomicPreservaOModoDoAlvo (0.00s)
+[...] 4. go test (tetos de latencia, sem -race)
+[OK] go test (tetos de latencia, sem -race)
+[...] 5. go vet (windows)
+[OK] go vet (windows)
+[...] 6. go vet (linux)
+[OK] go vet (linux)
+[...] 7. go vet (darwin)
+[OK] go vet (darwin)
+[...] 8. gofmt
+[OK] gofmt
+[...] 9. golangci-lint
+[OK] golangci-lint
+[...] 10. golangci-lint (linux)
+[OK] golangci-lint (linux)
+[...] 11. check_net (RNF-30)
+[OK] check_net (RNF-30)
+[...] 12. check_tool_params
+[OK] check_tool_params
+[...] 13. check_doc_refs
+[OK] check_doc_refs
+[...] 14. check_readme_anchors
+[OK] check_readme_anchors
+
+[OK] Bateria completa. Pode commitar.
+```
+
+### Fora do escopo da fix round 2
+
+- **A multiplicidade continua sem cobertura no corpus.** A prova acima e contra
+  a funcao, nao contra `testdata/parity`: nenhuma nota de la tem heading, link,
+  embed, tag ou bloco repetido. Acrescentar uma nota com dois links iguais
+  faria o corpus exercitar isso de verdade, mas exigiria regerar
+  `metadata.json` com o `parity-dumper` no Obsidian, o que esta fora do que a
+  round 2 pediu.
+- **Nao rodei `scripts/test_orphans.ps1`.**
