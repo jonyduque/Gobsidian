@@ -26,8 +26,9 @@ import (
 // RESSALVA QUE ESTE TESTE NAO PODE DEIXAR DE FAZER: o cofre que gen_vault.ps1
 // produz tem as 5.000 notas do cofre de referencia do PRD, mas nao os 50 MB —
 // medido em 2026-09-04, 5.050 arquivos e 1,4 MB. Medido no mesmo dia nesta
-// maquina, a indexacao sai em ~100 ms de mediana contra o limite de 6 s, e o
-// heap vivo em ~12,5 MB contra o limite de 328,5 MB. Os tetos aqui sao
+// maquina, a indexacao sai em ~370 ms de mediana (medido em 2026-09-04:
+// mediana de 371,5 ms) contra o limite de 6 s, e o heap vivo em ~12,5 MB
+// contra o limite de 328,5 MB. Os tetos aqui sao
 // anteparo contra regressao CATASTROFICA e nada mais; verde neste teste NAO
 // autoriza escrever que o RNF-01 ou o RNF-07 estao atingidos. Quem responde
 // isso e `scripts/measure.ps1` contra um cofre real, e o resultado mora em
@@ -201,8 +202,8 @@ func TestScale5000_RNF01_RNF02_RNF07_RNF04(t *testing.T) {
 		t.Fatal("o indice nao veio do cache; o RNF-04 mediria o ramo do delta")
 	}
 	if doCache.DocCount() < rnf5000Notas {
-		t.Fatalf("o indice vindo do cache tem %d documentos, quer >= 5000; "+
-			"o cache foi recusado e o RNF-04 mediria o ramo do delta", doCache.DocCount())
+		t.Fatalf("o indice vindo do cache tem %d documentos, quer >= %d; "+
+			"o cache foi recusado e o RNF-04 mediria o ramo do delta", doCache.DocCount(), rnf5000Notas)
 	}
 
 	// Cache de trecho DESLIGADO: o laço abaixo repete cada consulta 30 vezes, e
@@ -218,15 +219,17 @@ func TestScale5000_RNF01_RNF02_RNF07_RNF04(t *testing.T) {
 	// a mesma troca de corpus quebrou o benchmark em 2026-09-01; aqui nao
 	// quebrou nada porque nada era afirmado.
 	//
-	// Trocadas, e cada troca conferida DUAS vezes no cofre gerado por
-	// `gen_vault.ps1 -Notes 5000 -Seed 42`, nesta maquina, em 2026-09-04:
-	// por `grep -ril` (arquivos que contem o termo, de 5.000) e pelo `Total`
-	// que a propria busca devolve — os dois numeros abaixo, nessa ordem:
+	// Trocadas, e cada troca conferida DUAS vezes no cofre em
+	// %TEMP%ault_5000 (5.000 notas .md; a semente que o gerou NAO foi
+	// verificada — o diretorio foi reaproveitado, nao regenerado, entao nao da
+	// para afirmar que veio de `-Seed 42`), nesta maquina, em 2026-09-04: por
+	// `grep -ril` (arquivos que contem o termo, de 5.000) e pelo `Total` que a
+	// propria busca devolve — os dois numeros abaixo, nessa ordem:
 	//
 	//   nota ................................. grep 5000  / busca 5000
 	//   decisao reconheceu ................... grep 1224 e 1224 / busca 1224
 	//   Acentuada ............................ grep 1214  / busca 1214
-	//   nota + pasta Projetos ................ pasta existe / busca 1165
+	//   nota + pasta Projetos ................ 1165 .md sob Projetos/ / busca 1165
 	//   nota + tag golang .................... grep 608   / busca 608
 	//   "contra a decisao que reconheceu" .... grep 1224  / busca 1224
 	//   acordao firmou ....................... grep 1234 e 1234 / busca 1234

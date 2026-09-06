@@ -147,12 +147,21 @@ func contagemOf(m map[string]int) []string {
 // Obsidian nao registra, um link a mais. Ordenar antes de comparar e o que
 // torna a igualdade uma pergunta sobre CONJUNTO, e nao sobre a ordem em que o
 // parser ou o dumper listaram.
+//
+// Compact nos DOIS lados porque conjunto nao tem repetido: "tags" chega aqui
+// como a uniao de `tags` (corpo) e `frontmatterTags`, que o Obsidian popula de
+// fontes independentes, e uma nota com `#civil` no corpo e `tags: [civil]` no
+// frontmatter entregaria [civil civil] do lado da referencia. Nenhuma nota do
+// corpus de hoje tem as duas listas preenchidas, entao isso nunca disparou —
+// mas quem acrescentasse essa nota veria um indice CORRETO reprovar.
 func conjuntosIguais(t *testing.T, path, campo string, got, want []string) {
 	t.Helper()
 	g := slices.Clone(got)
 	w := slices.Clone(want)
 	slices.Sort(g)
 	slices.Sort(w)
+	g = slices.Compact(g)
+	w = slices.Compact(w)
 	if !slices.Equal(g, w) {
 		t.Errorf("%s: %s divergem\n  nosso indice: %v\n  referencia:   %v", path, campo, g, w)
 	}
@@ -249,7 +258,13 @@ func TestParityWithObsidian(t *testing.T) {
 	// incompleto — diretorio vazio, referencia sem notas — pulava, e o
 	// `verify.ps1` ficava verde sem paridade nenhuma. Corpus ausente e um fato
 	// do ambiente; corpus presente e quebrado e um defeito.
-	if _, err := os.Stat(root); errors.Is(err, fs.ErrNotExist) {
+	// So a ausencia pula. Um Stat que falha por permissao seguia adiante, os
+	// dois Glob devolviam vazio, e o teste morria dizendo que o corpus existe e
+	// esta sem notas — que e falso, e manda procurar o defeito no lugar errado.
+	if _, err := os.Stat(root); err != nil {
+		if !errors.Is(err, fs.ErrNotExist) {
+			t.Fatalf("nao deu para inspecionar o corpus de paridade em %s: %v", root, err)
+		}
 		t.Skipf("corpus de paridade ausente em %s; gere com tools/parity-dumper (ver o README de la)", root)
 	}
 

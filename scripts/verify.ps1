@@ -99,7 +99,20 @@ $LogTestes = Join-Path ([System.IO.Path]::GetTempPath()) "gobsidian-verify-teste
 
 Invoke-Step "go test -race" {
     go test -race -v @Alvos 2>&1 | Set-Content -LiteralPath $LogTestes -Encoding utf8
-    if ($LASTEXITCODE -ne 0) { Get-Content -LiteralPath $LogTestes -Tail 80 }
+    if ($LASTEXITCODE -ne 0) {
+        # As linhas que interessam nem sempre estao no rabo. Um WARNING: DATA
+        # RACE sai no MEIO da execucao, e numa suite que roda por minutos
+        # depois dele o relatorio da corrida sai do -Tail 80 e a tela mostra 80
+        # linhas de --- PASS. O -race e a razao declarada de existir desta
+        # etapa, entao o que ele imprime nao pode depender de onde parou.
+        $Marcas = @(Select-String -LiteralPath $LogTestes -Pattern '^(--- FAIL|WARNING: DATA RACE|FAIL\s)')
+        if ($Marcas) {
+            Write-Output "     --- falhas e corridas no log inteiro ---"
+            foreach ($m in $Marcas) { Write-Output ("     {0}:{1}" -f $m.LineNumber, $m.Line.Trim()) }
+            Write-Output "     --- ultimas 80 linhas ---"
+        }
+        Get-Content -LiteralPath $LogTestes -Tail 80
+    }
 }
 
 # Etapa que INFORMA, nao reprova.
@@ -119,7 +132,15 @@ if (Test-Path -LiteralPath $LogTestes) {
     # `^\s*--- SKIP:` pega tambem o subteste, que vem indentado. Um subteste
     # pulado tambem nao cobre nada, entao ele conta.
     $Pulados = @(Select-String -LiteralPath $LogTestes -Pattern '^\s*--- SKIP: ')
-    Write-Output "[!] $($Pulados.Count) testes pulados"
+    # Se a suite reprovou, o log para no ponto da falha e a contagem e parcial.
+    # Um "[!] 6 testes pulados" de suite abortada e um numero que parece
+    # completo e nao e.
+    if ($Failed -contains "go test -race") {
+        Write-Output "[!] $($Pulados.Count) testes pulados (suite reprovou; contagem parcial)"
+    }
+    else {
+        Write-Output "[!] $($Pulados.Count) testes pulados"
+    }
     foreach ($p in $Pulados) {
         Write-Output ("     {0}" -f $p.Line.Trim())
     }

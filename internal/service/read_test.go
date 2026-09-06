@@ -114,9 +114,12 @@ func TestReadNoteRejectsTraversal(t *testing.T) {
 
 // TestReadNoteCloudOnlyFails foi apagado aqui: era um t.Skip incondicional na
 // primeira linha, isto e, cobertura zero reportada como teste. A cobertura
-// pretendida — nota somente-nuvem nunca e aberta — existe de verdade em
-// cloudonly_replace_windows_test.go, que monta o placeholder com
-// vaulttest.MarcarSomenteNuvem e confere que a condicao se montou.
+// pretendida — nota somente-nuvem nunca e aberta — existe de verdade, NO
+// WINDOWS, em cloudonly_replace_windows_test.go, que monta o placeholder com
+// vaulttest.MarcarSomenteNuvem e confere que a condicao se montou. Aquele
+// arquivo e //go:build windows, entao fora do Windows a cobertura substituta e
+// zero — o que nao e perda, ja que o t.Skip incondicional tambem cobria zero,
+// e em todo lugar.
 
 // TestReadNoteBOMOffsetParity prova a costura entre index.Build (que soma
 // vault.BOMLen aos offsets de uma nota com BOM) e service.ReadNote (que usa
