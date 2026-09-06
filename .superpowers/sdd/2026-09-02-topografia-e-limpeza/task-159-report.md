@@ -517,3 +517,18 @@ exit 0).
 Exit code 0. Sao **14 etapas**, e nao as 13 que o relatorio original registrou —
 a Task 163 fechou aquela divergencia; a frase de `CLAUDE.md` estava certa e a
 saida e que estava desatualizada. Nao toquei nela.
+
+## Commit da fix round 1
+
+`4c08910` — `test(vaulttest): latency ceilings are not wait budgets; the POSIX unreadable-file proof; the counted history`.
+Sete arquivos, +160/-12, todos por caminho explicito. `.superpowers/sdd/2026-07-25-gobsidian-v01/progress.md`
+e `test-vault/` continuam fora do commit; nenhum `git add -A`, nenhum
+`git checkout/restore/stash/clean/reset`.
+
+**Um `git commit --amend` foi executado, e ele merece registro.** O primeiro
+commit (`a8156d1`) saiu com o assunto corrompido — usei a sintaxe de here-string
+do PowerShell (`-m @'...'@`) dentro da ferramenta Bash, que a trata como texto
+literal, entao o `@` entrou como primeira linha da mensagem e o assunto virou
+`@ test(vaulttest): ...`, com outro `@` solto depois dos trailers. O amend
+reescreveu **so a mensagem**, com `-F` a partir de arquivo; a arvore e a lista de
+arquivos sao identicas. `a8156d1` nao existe mais.
