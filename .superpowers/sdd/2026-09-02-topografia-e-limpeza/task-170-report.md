@@ -12,7 +12,9 @@
 - 06:17 — início do gate: `go test -race` nos quatro pacotes, depois `verify.ps1` completo.
 - 06:22 — `go test -race -count=1` verde nos quatro pacotes.
 - 06:27 — `verify.ps1` completo verde: `[OK] Bateria completa. Pode commitar.`
-- 06:29 — relatório escrito.
+- 06:29 — relatório escrito; encoding UTF-8 validado.
+- 06:30 — `audit_reports.ps1 170` rodado, os dois achados contra este relatório respondidos na seção Verificações. Relatório commitado em `314d930`.
+- 06:31 — fim. Árvore de `internal/`, `cmd/` e `docs/` limpa; nenhum arquivo do dono tocado.
 
 ---
 
