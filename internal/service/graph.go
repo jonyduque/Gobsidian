@@ -600,10 +600,13 @@ type MetadataResult struct {
 	InlineFields map[string][]string `json:"inline_fields,omitempty"`
 }
 
-// camposDeMetadata sao os valores aceitos em MetadataRequest.Include. A lista
+// CamposDeMetadata sao os valores aceitos em MetadataRequest.Include. A lista
 // mora aqui, no service, porque a validacao e o schema (mcpsrv) precisam
-// concordar e so um dos dois pode ser a fonte.
-var camposDeMetadata = []string{"frontmatter", "tags", "headings", "blocks", "links", "backlinks", "inline_fields"}
+// concordar e so um dos dois pode ser a fonte. Exportada porque
+// internal/mcpsrv tem um teste que le a tag `jsonschema` de Include e compara
+// contra esta lista — sem isso, a tag (texto livre) e esta lista (Go) podiam
+// divergir sem que nenhum teste percebesse (achado N1).
+var CamposDeMetadata = []string{"frontmatter", "tags", "headings", "blocks", "links", "backlinks", "inline_fields"}
 
 // incluidosPorPadrao e o que note_metadata devolve quando include e omitido:
 // blocks e inline_fields ficam de fora porque sao os dois campos que crescem
@@ -625,20 +628,20 @@ func (s *Service) NoteMetadata(_ context.Context, req MetadataRequest) (Metadata
 		return MetadataResult{}, Wrap(CodeNoteNotFound, nil, "note not found")
 	}
 
-	includeSet := make(map[string]bool, len(camposDeMetadata))
+	includeSet := make(map[string]bool, len(CamposDeMetadata))
 	if len(req.Include) == 0 {
 		for _, c := range incluidosPorPadrao {
 			includeSet[c] = true
 		}
 	} else {
 		for _, inc := range req.Include {
-			v, err := ValidarEnum("include", inc, "", camposDeMetadata...)
+			v, err := ValidarEnum("include", inc, "", CamposDeMetadata...)
 			if err != nil {
 				return MetadataResult{}, err
 			}
 			if v == "" {
 				return MetadataResult{}, Errorf(CodeInvalidArgument,
-					"include = \"\" invalido; aceitos: %s", strings.Join(camposDeMetadata, ", "))
+					"include = \"\" invalido; aceitos: %s", strings.Join(CamposDeMetadata, ", "))
 			}
 			includeSet[v] = true
 		}
