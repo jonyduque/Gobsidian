@@ -84,21 +84,36 @@ func enchimento(n int) string {
 // 300; o que sobrava para ordenar era o desempate determinístico por caminho, e
 // `n0150` — a única cuja frase final tinha três tokens a menos — vencia por ser
 // a mais curta, inclusive em `so-em-heading`, cujo heading `## Execução fiscal`
-// era igual nas 300. Os goldens congelavam o desempate, não o ranking: apagar o
-// peso de heading não mudava um byte de nenhum `.tsv`.
+// era igual nas 300. Os goldens congelavam o desempate, não o ranking — mas
+// congelar o desempate não é o mesmo que ser inerte ao peso de campo, e a
+// primeira versão desta docstring dizia que era: "apagar o peso de heading não
+// mudava um byte de nenhum `.tsv`". É falso, e não tinha sido medido.
+//
+// O que se mede, reproduzindo o corpus antigo com `go test -overlay` contra um
+// `bm25.go` com `return WeightHeadings` trocado por `return WeightBody`: apagar
+// o peso de heading não movia UMA LINHA de lugar em `.tsv` nenhum, e mudava a
+// coluna de score de `so-em-heading` e de `dois-termos` — 40 linhas ao todo. O
+// segundo entrava porque o heading antigo era `## Execução fiscal` e "execucao"
+// é um dos dois termos daquela consulta. A sequência das 20 linhas saía
+// idêntica nas duas execuções, e é só essa parte que o golden congelava.
 //
 // Agora cada nota difere das outras em comprimento e em quais termos carrega,
 // por fórmulas determinísticas — nada de `rand`, que tornaria o golden função
 // da semente:
 //
-//   - enchimento de 20 + (i*7)%60 + i/60 tokens: o comprimento varia, e o BM25
-//     normaliza por comprimento. O `+ i/60` não é enfeite: `(i*7)%60` tem
-//     período 60 e o corpus tem 300 notas, então cada comprimento sairia
+//   - enchimento de 20 + ((i*7+29)%60) + i/60 tokens: o comprimento varia, e o
+//     BM25 normaliza por comprimento. O `+ i/60` não é enfeite: `(i*7+29)%60`
+//     tem período 60 e o corpus tem 300 notas, então cada comprimento sairia
 //     repetido cinco vezes — e como 3, 4 e 5 dividem 60, essas cinco notas
 //     também concordariam em tf de "nota", em "prescricao" e em "execucao".
 //     Elas ficavam byte a byte equivalentes para a consulta `termo-amplo`, os
 //     dois primeiros resultados empatavam, e a verificação abaixo reprovava.
-//     Medido: com `+ i/60`, os cinco deixam de empatar;
+//     Medido: com `+ i/60`, os cinco deixam de empatar. O `+29` desloca a fase
+//     por outro motivo: sem ele o mínimo caía em `i == 0`, e `n0000` era ao
+//     mesmo tempo a nota unicamente mais curta e membro de TODAS as classes de
+//     congruência (0 % 3 == 0 % 5 == 0 % 7 == 0 % 11 == 0), de modo que vencia
+//     três dos seis goldens por acumular tudo — a forma "a nota mais curta
+//     ganha" que esta tarefa saiu justamente para eliminar;
 //   - "nota" (consulta `termo-amplo`) aparece 1 + i%4 vezes: a frequência varia;
 //   - "prescricao" (consulta `dois-termos`) só em i%3 == 0 e "execucao" só em
 //     i%5 == 0: quem tem os dois pontua acima de quem tem um;
@@ -107,7 +122,11 @@ func enchimento(n int) string {
 //   - o heading "Rito fiscal" (consulta `so-em-heading`) só em i%11 == 0, e
 //     "fiscal" não aparece no corpo de nota alguma. É o único golden que depende
 //     do peso de heading, e só depende dele porque o termo não tem outro lugar
-//     de onde vir.
+//     de onde vir. O que a ORDEM deste golden mede, porém, é o comprimento:
+//     "fiscal" ocorre exatamente uma vez, sempre num heading, em todas as notas
+//     que casam, então `WeightHeadings` é fator comum a elas e aparece na coluna
+//     de score, não na sequência. Mutar aquele peso muda a segunda coluna deste
+//     `.tsv` inteiro e não move nenhuma linha — é assim que ele reprova;
 //
 // As duas notas de contraste continuam, e respondem as perguntas que a Task 78
 // mandava conferir: `tituloComTermo` contra `notaTermoSoNoCorpo` responde "a
@@ -137,8 +156,8 @@ func corpusGolden(t *testing.T) (*service.Service, string) {
 		titulo := fmt.Sprintf("Registro %04d", i)
 		if i%7 == 0 {
 			// Acento no título de propósito: é o caminho de Normalize, e é a
-			// forma CRUA que `com-acento` procura. As demais notas trazem só a
-			// forma reduzida, no corpo.
+			// forma CRUA que `com-acento` procura. As notas com i%3 == 0 trazem
+			// a forma reduzida no corpo; é o contraste que `com-acento` mede.
 			titulo = fmt.Sprintf("Prescrição %04d", i)
 		}
 		if tituloComTermo[i] {
@@ -168,7 +187,7 @@ func corpusGolden(t *testing.T) (*service.Service, string) {
 		if i == notaTermoSoNoCorpo {
 			corpo.WriteString("intercorrente ")
 		}
-		corpo.WriteString(enchimento(20 + (i*7)%60 + i/60))
+		corpo.WriteString(enchimento(20 + (i*7+29)%60 + i/60))
 
 		fraseFinal := fmt.Sprintf(
 			" O algoritmo de busca usa BM25 e pesos diferentes aqui quando %d.\n", i%13)
@@ -215,9 +234,9 @@ var consultasGolden = []struct {
 //
 // Enquanto as 300 notas foram idênticas, todo `.tsv` era uma lista de scores
 // iguais em que só o desempate determinístico por caminho decidia a ordem:
-// apagar o peso de heading não mudava um byte de arquivo nenhum, e os seis
-// subtestes continuavam verdes. Um golden assim é caro de manter e não cobre
-// ranking. Estas duas afirmações são o que impede a regressão de voltar em
+// apagar o peso de heading não movia UMA LINHA de lugar em arquivo nenhum — só
+// reescrevia a coluna de score de `so-em-heading` e de `dois-termos`. Um golden
+// que congela um desempate por caminho é caro de manter e não cobre ranking. Estas duas afirmações são o que impede a regressão de voltar em
 // silêncio quando alguém mexer no gerador.
 func conferirDiscriminacao(t *testing.T, nome string, got []service.SearchHit) {
 	t.Helper()
