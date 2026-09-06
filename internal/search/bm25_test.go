@@ -125,17 +125,53 @@ func TestBM25WeightHeadings(t *testing.T) {
 	}
 }
 
-func TestBM25WeightBody(t *testing.T) {
-	ix := search.NewInverted()
-	ix.Add("b1.md", search.Analyze("usucapiao"))
-	ix.Add("b2.md", search.Analyze("outra palavra"))
+// TestBM25PesoDeCorpoEOMenorDosTres substitui TestBM25WeightBody, que passava
+// `nil` no lugar do índice.
+//
+// Com `idx == nil`, `pesoDeCampo` devolve `WeightBody` na PRIMEIRA linha, antes
+// de olhar título ou heading: toda ocorrência do cofre vale peso de corpo por
+// definição. O teste antigo afirmava só que "b1.md" casava e que o score era
+// positivo — verdade para qualquer valor de WeightBody maior que zero, e
+// verdade também se os três pesos fossem iguais. Ele nomeava um peso de campo e
+// exercitava o ramo em que campo nenhum é consultado.
+//
+// Aqui o índice é real e as três notas têm o MESMO multiconjunto de tokens —
+// {title, alpha, beta, gama, civil} —, logo o mesmo comprimento e o mesmo idf
+// para "civil". A única coisa que difere é ONDE "civil" está: no título, no
+// heading, ou no corpo. O que a ordem estrita afirma é a escala inteira
+// (3 > 2 > 1), e o piso dela é WeightBody.
+func TestBM25PesoDeCorpoEOMenorDosTres(t *testing.T) {
+	_, idx, ix := createVaultWithNotes(t, map[string]string{
+		"t.md": "---\ntitle: civil\n---\n## alpha\n\nbeta gama\n",
+		"h.md": "---\ntitle: alpha\n---\n## civil\n\nbeta gama\n",
+		"c.md": "---\ntitle: alpha\n---\n## beta\n\ncivil gama\n",
+	})
 
-	res := search.CalculateBM25(search.Analyze("usucapiao"), ix, nil)
-	if len(res) != 1 || res[0].Path != "b1.md" {
-		t.Fatalf("WeightBody falhou: %+v", res)
+	res := search.CalculateBM25(search.Analyze("civil"), ix, idx)
+	if len(res) != 3 {
+		t.Fatalf("len(res) = %d, quer 3 — as tres notas tem o termo: %+v", len(res), res)
 	}
-	if res[0].Score <= 0 {
-		t.Errorf("WeightBody produziu score <= 0: %f", res[0].Score)
+
+	score := map[string]float64{}
+	for _, r := range res {
+		score[r.Path] = r.Score
+	}
+
+	// Comprimentos iguais não são suposição: se um dia deixarem de ser, a
+	// normalização por comprimento explica a ordem sozinha e o teste passa a
+	// medir outra coisa.
+	if a, b, c := ix.DocLength("t.md"), ix.DocLength("h.md"), ix.DocLength("c.md"); a != b || b != c {
+		t.Fatalf("as tres notas precisam ter o mesmo comprimento; t=%d h=%d c=%d — "+
+			"com comprimentos diferentes o BM25 ordena pela normalizacao, nao pelo peso de campo", a, b, c)
+	}
+
+	if !(score["t.md"] > score["h.md"]) {
+		t.Errorf("titulo=%.6f nao ficou acima de heading=%.6f: WeightTitle nao esta separando de WeightHeadings",
+			score["t.md"], score["h.md"])
+	}
+	if !(score["h.md"] > score["c.md"]) {
+		t.Errorf("heading=%.6f nao ficou acima de corpo=%.6f: WeightHeadings nao esta separando de WeightBody",
+			score["h.md"], score["c.md"])
 	}
 }
 

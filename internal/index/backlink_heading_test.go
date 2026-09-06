@@ -1,6 +1,7 @@
 package index_test
 
 import (
+	"strings"
 	"testing"
 )
 
@@ -79,7 +80,12 @@ func TestHeadingVazioAntesDoPrimeiroTitulo(t *testing.T) {
 // mudar o número a mudar este teste também, e a olhar a conta.
 func TestContextoNaoEstouraOOrcamento(t *testing.T) {
 	root := t.TempDir()
-	corpo := "# T\n\n" + longo(300) + " [[Alvo]] " + longo(300) + "\n"
+	// "esquerda" e "direita" ficam colados ao link, dentro dos 80 bytes de cada
+	// lado, e são as ÚNICAS palavras do corpo que não são enchimento. Sem elas
+	// este teste tinha um teto e nenhum piso útil: uma implementação que
+	// devolvesse `link.Raw` produziria 8 bytes, passaria no teto e passaria no
+	// `len == 0` — teste inerte para o que ele diz guardar.
+	corpo := "# T\n\n" + longo(300) + " esquerda [[Alvo]] direita " + longo(300) + "\n"
 	writeFile(t, root, "Origem.md", corpo)
 	writeFile(t, root, "Alvo.md", "# Alvo\n")
 
@@ -95,8 +101,12 @@ func TestContextoNaoEstouraOOrcamento(t *testing.T) {
 		t.Errorf("contexto tem %d bytes, teto %d: contextoBytes voltou a crescer\ncontexto=%q",
 			n, teto, bls[0].Context)
 	}
-	if len(bls[0].Context) == 0 {
-		t.Error("contexto vazio: o corte comeu tudo")
+	for _, palavra := range []string{"esquerda", "direita"} {
+		if !strings.Contains(bls[0].Context, palavra) {
+			t.Errorf("contexto %q nao traz %q, que esta colada ao link e FORA dele: "+
+				"o corte comeu a vizinhanca, ou o contexto virou o proprio link",
+				bls[0].Context, palavra)
+		}
 	}
 }
 

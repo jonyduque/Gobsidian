@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/jonyd/gobsidian/internal/index"
+	"github.com/jonyd/gobsidian/internal/parser"
 	"github.com/jonyd/gobsidian/internal/vault"
 )
 
@@ -67,15 +68,37 @@ func TestBacklinkTrazContexto(t *testing.T) {
 		t.Errorf("os dois backlinks tem o MESMO contexto %q: o recorte ignora a posicao do link", bls[0].Context)
 	}
 
-	var achouPrescricao bool
+	// A VIZINHANÇA dos dois lados, por link, e com palavras que não estão
+	// dentro dos colchetes.
+	//
+	// Sem isto, uma implementação que devolvesse `link.Raw` como contexto
+	// passava neste arquivo inteiro: "[[Alvo]]" não é vazio, contém "Alvo",
+	// não tem quebra de linha, e "[[Alvo]]" difere de "[o alvo](Alvo.md)",
+	// então as quatro afirmações acima ficavam verdes. As palavras abaixo só
+	// existem FORA do link, uma antes e uma depois, e uma delas só na linha
+	// daquele link — é isso que obriga o recorte a ser recorte.
+	vizinhanca := map[parser.LinkKind][2]string{
+		parser.LinkWiki:     {"acordao", "prescricao"},
+		parser.LinkMarkdown: {"resumo", "historico"},
+	}
+	vistos := map[parser.LinkKind]bool{}
 	for _, bl := range bls {
-		if strings.Contains(bl.Context, "prescricao") {
-			achouPrescricao = true
+		quer, ok := vizinhanca[bl.Kind]
+		if !ok {
+			t.Errorf("kind=%v inesperado no fixture", bl.Kind)
+			continue
+		}
+		vistos[bl.Kind] = true
+		for _, palavra := range quer {
+			if !strings.Contains(bl.Context, palavra) {
+				t.Errorf("kind=%v: Context %q nao traz %q, que esta na linha do link e FORA dele — "+
+					"o recorte nao esta trazendo a vizinhanca", bl.Kind, bl.Context, palavra)
+			}
 		}
 	}
-	if !achouPrescricao {
-		t.Errorf("nenhum contexto trouxe a vizinhanca da referencia wikilink; contextos=%q, %q",
-			bls[0].Context, bls[1].Context)
+	if len(vistos) != 2 {
+		t.Errorf("o fixture tem um wikilink e um link markdown, mas so %d grafia(s) chegou: %v",
+			len(vistos), vistos)
 	}
 }
 

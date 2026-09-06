@@ -69,8 +69,17 @@ func TestSaveAndLoadIndexCache(t *testing.T) {
 //     link plano — cobre nota-com-alias e nota-com-ancora-quebrada, e prova
 //     que Resolved/Via/State recalculados apos o load batem com os do
 //     indice fresco mesmo sem serem persistidos (ver escritor.links).
-//   - "Origem.md" recebe os dois links de PONTO 03 — cobre nota-com-backlink,
-//     com DOIS backlinks do mesmo caminho de origem.
+//   - "Origem.md" recebe os dois links de PONTO 03 e mais um de
+//     "Penal/Citante.md" — cobre nota-com-backlink com DOIS backlinks do mesmo
+//     caminho de origem E com DUAS origens distintas. As duas origens não são
+//     decoração: `buildBacklinks` percorre `ix.notes`, que é um mapa, então a
+//     ordem da fatia de backlinks de uma nota é a ordem de iteração do mapa.
+//     Com uma origem só, a fatia tinha um agrupamento possível e o
+//     `reflect.DeepEqual` abaixo passava por não haver ordem para divergir —
+//     ele afirmava conjunto e media sequência, e nunca podia falhar por isso.
+//     Com duas, a comparação por sequência ficaria intermitente; por isso as
+//     duas fatias são ordenadas antes de comparar, e o que se afirma passa a
+//     ser o conjunto, que é o que o codec de fato tem de preservar.
 //   - "Vazia.md" tem zero bytes — cobre a nota vazia que "nunca contava como
 //     coberta" na versao anterior do cache de busca; aqui exercita nil vs
 //     slice/mapa vazio em quase todo campo de Note ao mesmo tempo.
@@ -88,6 +97,8 @@ func TestIndiceDeMetadadosRecarregadoEIdentico(t *testing.T) {
 		"# Ponto 3\n\n"+
 		"Ver [[Origem]] e [[Origem#NaoExiste]].\n")
 	writeFile(t, root, "Origem.md", "# Origem\n\nConteudo qualquer.\n")
+	// Segunda origem para Origem.md — ver o terceiro item da lista acima.
+	writeFile(t, root, "Penal/Citante.md", "# Citante\n\nTambem cita [[Origem]].\n")
 	writeFile(t, root, "Vazia.md", "")
 	writeFile(t, root, "Anexos/diagrama.png", "\x89PNG")
 
@@ -118,8 +129,18 @@ func TestIndiceDeMetadadosRecarregadoEIdentico(t *testing.T) {
 	if !achouAncoraQuebrada {
 		t.Fatal("fixture: nenhum link com ancora quebrada no indice fresco")
 	}
-	if len(fresco.Backlinks("Origem.md")) != 2 {
-		t.Fatalf("fixture: Origem.md deveria ter 2 backlinks, tem %d", len(fresco.Backlinks("Origem.md")))
+	blFixture := fresco.Backlinks("Origem.md")
+	if len(blFixture) != 3 {
+		t.Fatalf("fixture: Origem.md deveria ter 3 backlinks, tem %d", len(blFixture))
+	}
+	origens := map[vault.CanonicalPath]bool{}
+	for _, bl := range blFixture {
+		origens[bl.From] = true
+	}
+	if len(origens) != 2 {
+		t.Fatalf("fixture: Origem.md deveria receber links de 2 origens distintas, veio de %d (%v) — "+
+			"com uma origem so nao ha ordem de mapa para a comparacao abaixo poder divergir",
+			len(origens), origens)
 	}
 
 	cacheDir := t.TempDir()
@@ -166,8 +187,11 @@ func TestIndiceDeMetadadosRecarregadoEIdentico(t *testing.T) {
 			}
 		}
 
-		freBL := fresco.Backlinks(p)
-		loBL := lido.Backlinks(p)
+		// Ordenar antes de comparar: a fatia sai da iteração de um mapa, e
+		// comparar sequência quando o que importa é conjunto dá um teste que
+		// ora passa ora não, e que passava sempre enquanto houve uma origem só.
+		freBL := ordenarBacklinks(fresco.Backlinks(p))
+		loBL := ordenarBacklinks(lido.Backlinks(p))
 		if !reflect.DeepEqual(freBL, loBL) {
 			t.Errorf("Backlinks(%s) divergiu: fresco=%+v, recarregado=%+v", p, freBL, loBL)
 		}

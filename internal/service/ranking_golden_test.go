@@ -48,26 +48,71 @@ func servicoDoCofre(t *testing.T, root string) *service.Service {
 	return service.New(v, idx, inv, nil, service.Options{})
 }
 
+// enchimento devolve n tokens de preenchimento, separados por espaço.
+//
+// O vocabulário é pequeno de propósito — doze palavras que se repetem. O que
+// tem de variar entre as notas é o COMPRIMENTO; um vocabulário distinto por
+// nota daria idf máximo a cada palavra e faria o score depender de quais
+// palavras a nota tem, escondendo a normalização por comprimento que este
+// corpus existe para exercitar.
+func enchimento(n int) string {
+	var b strings.Builder
+	for j := 0; j < n; j++ {
+		if j > 0 {
+			b.WriteByte(' ')
+		}
+		fmt.Fprintf(&b, "verbete%02d", j%12)
+	}
+	return b.String()
+}
+
 // corpusGolden monta um cofre determinístico e AFIRMA o próprio tamanho.
 //
 // A afirmação não é decoração: um corpus que gera menos notas do que o nome diz
 // produz um golden menor, que passa, e some com a cobertura sem nada indicar.
 //
-// DESVIO DELIBERADO do corpo literal do brief da Task 78: o template original
-// dava a TODAS as 300 notas o mesmo título, o mesmo heading e a mesma frase
-// final, palavra por palavra. Isso deixa "algoritmo BM25 com pesos" e
-// "intercorrente" idênticos em toda nota — cada consulta empata nas 300, o
-// resultado é cortado no Limit padrão (confirmado: frase-exata.tsv e
-// so-no-titulo.tsv saíram com exatamente 20 linhas, o teto do limit, não o
-// tamanho real do match) e as duas perguntas que a própria tarefa manda
-// conferir ("a frase exata casa uma só?", "a nota com o termo no título vem
-// antes da que só tem no corpo?") ficam sem como ser respondidas: não há nota
-// alguma cujo corpo sozinho contenha "intercorrente", nem nota alguma sem a
-// frase completa. Um golden que empata em tudo passa e não cobre o peso de
-// título nem o casamento de frase único — exatamente o "golden que passa com
-// o corpus errado" que a linha 3 do brief nomeia como modo de falha. Corrigido
-// aqui introduzindo duas notas de contraste; resto do template idêntico ao
-// literal (mesmas 300 notas, mesmo layout de pasta, mesmo acento no título).
+// # Por que as 300 notas são todas diferentes
+//
+// A versão anterior deste corpus vinha do corpo literal do brief da Task 78:
+// TODAS as 300 notas com o mesmo título, o mesmo heading e a mesma frase final,
+// palavra por palavra, mais duas notas de contraste acrescentadas depois. O
+// sintoma que se via era "frase-exata.tsv e so-no-titulo.tsv saíram com
+// exatamente 20 linhas, o teto do Limit padrão", e ele foi diagnosticado como
+// corte pelo limite — o sintoma certo, a causa errada.
+//
+// A causa era o corpus. Com 299 notas idênticas, toda consulta empatava nas
+// 300; o que sobrava para ordenar era o desempate determinístico por caminho, e
+// `n0150` — a única cuja frase final tinha três tokens a menos — vencia por ser
+// a mais curta, inclusive em `so-em-heading`, cujo heading `## Execução fiscal`
+// era igual nas 300. Os goldens congelavam o desempate, não o ranking: apagar o
+// peso de heading não mudava um byte de nenhum `.tsv`.
+//
+// Agora cada nota difere das outras em comprimento e em quais termos carrega,
+// por fórmulas determinísticas — nada de `rand`, que tornaria o golden função
+// da semente:
+//
+//   - enchimento de 20 + (i*7)%60 + i/60 tokens: o comprimento varia, e o BM25
+//     normaliza por comprimento. O `+ i/60` não é enfeite: `(i*7)%60` tem
+//     período 60 e o corpus tem 300 notas, então cada comprimento sairia
+//     repetido cinco vezes — e como 3, 4 e 5 dividem 60, essas cinco notas
+//     também concordariam em tf de "nota", em "prescricao" e em "execucao".
+//     Elas ficavam byte a byte equivalentes para a consulta `termo-amplo`, os
+//     dois primeiros resultados empatavam, e a verificação abaixo reprovava.
+//     Medido: com `+ i/60`, os cinco deixam de empatar;
+//   - "nota" (consulta `termo-amplo`) aparece 1 + i%4 vezes: a frequência varia;
+//   - "prescricao" (consulta `dois-termos`) só em i%3 == 0 e "execucao" só em
+//     i%5 == 0: quem tem os dois pontua acima de quem tem um;
+//   - o título acentuado "Prescrição" (consulta `com-acento`) só em i%7 == 0:
+//     a forma crua no título contra a forma reduzida no corpo;
+//   - o heading "Rito fiscal" (consulta `so-em-heading`) só em i%11 == 0, e
+//     "fiscal" não aparece no corpo de nota alguma. É o único golden que depende
+//     do peso de heading, e só depende dele porque o termo não tem outro lugar
+//     de onde vir.
+//
+// As duas notas de contraste continuam, e respondem as perguntas que a Task 78
+// mandava conferir: `tituloComTermo` contra `notaTermoSoNoCorpo` responde "a
+// nota com o termo no título vem antes da que só tem no corpo?", e
+// `notaFraseUnica` responde "a frase exata casa uma só?".
 func corpusGolden(t *testing.T) (*service.Service, string) {
 	t.Helper()
 	const querNotas = 300
@@ -89,33 +134,55 @@ func corpusGolden(t *testing.T) (*service.Service, string) {
 
 	root := t.TempDir()
 	for i := 0; i < querNotas; i++ {
-		// Acento no título de propósito: é o caminho de Normalize.
-		titulo := fmt.Sprintf("Prescrição %04d", i)
+		titulo := fmt.Sprintf("Registro %04d", i)
+		if i%7 == 0 {
+			// Acento no título de propósito: é o caminho de Normalize, e é a
+			// forma CRUA que `com-acento` procura. As demais notas trazem só a
+			// forma reduzida, no corpo.
+			titulo = fmt.Sprintf("Prescrição %04d", i)
+		}
 		if tituloComTermo[i] {
-			titulo = fmt.Sprintf("Prescrição intercorrente %04d", i)
+			titulo += " intercorrente"
 		}
 
-		corpoExtra := ""
-		if i == notaTermoSoNoCorpo {
-			corpoExtra = " O termo intercorrente aparece apenas aqui, no corpo."
+		// "fiscal" só existe aqui, e em nota alguma no corpo: é o que faz
+		// `so-em-heading` depender do peso de heading e de mais nada.
+		heading := "Andamento"
+		if i%11 == 0 {
+			heading = "Rito fiscal"
 		}
+
+		var corpo strings.Builder
+		fmt.Fprintf(&corpo, "---\ntags: [t%d]\n---\n\n# %s\n\n## %s\n\n",
+			i%7, titulo, heading)
+		for n := 0; n < 1+i%4; n++ {
+			corpo.WriteString("nota ")
+		}
+		fmt.Fprintf(&corpo, "%04d ", i)
+		if i%3 == 0 {
+			corpo.WriteString("prescricao ")
+		}
+		if i%5 == 0 {
+			corpo.WriteString("execucao ")
+		}
+		if i == notaTermoSoNoCorpo {
+			corpo.WriteString("intercorrente ")
+		}
+		corpo.WriteString(enchimento(20 + (i*7)%60 + i/60))
 
 		fraseFinal := fmt.Sprintf(
-			"O algoritmo de busca usa BM25 e pesos diferentes aqui quando %d.", i%13)
+			" O algoritmo de busca usa BM25 e pesos diferentes aqui quando %d.\n", i%13)
 		if i == notaFraseUnica {
-			fraseFinal = fmt.Sprintf("O algoritmo BM25 com pesos aparece aqui quando %d.", i%13)
+			fraseFinal = fmt.Sprintf(" O algoritmo BM25 com pesos aparece aqui quando %d.\n", i%13)
 		}
+		corpo.WriteString(fraseFinal)
 
-		corpo := fmt.Sprintf(
-			"---\ntags: [t%d]\n---\n\n# %s\n\n"+
-				"## Execução fiscal\n\nnota %04d sobre prescricao e execucao.%s %s\n",
-			i%7, titulo, i, corpoExtra, fraseFinal)
 		dir := filepath.Join(root, fmt.Sprintf("pasta%02d", i%10))
 		if err := os.MkdirAll(dir, 0755); err != nil {
 			t.Fatal(err)
 		}
 		if err := os.WriteFile(filepath.Join(dir, fmt.Sprintf("n%04d.md", i)),
-			[]byte(corpo), 0644); err != nil {
+			[]byte(corpo.String()), 0644); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -143,6 +210,49 @@ var consultasGolden = []struct {
 	{"so-em-heading", service.SearchOptions{Query: "fiscal"}},
 }
 
+// conferirDiscriminacao reprova um corpus que empata antes de o empate virar
+// golden.
+//
+// Enquanto as 300 notas foram idênticas, todo `.tsv` era uma lista de scores
+// iguais em que só o desempate determinístico por caminho decidia a ordem:
+// apagar o peso de heading não mudava um byte de arquivo nenhum, e os seis
+// subtestes continuavam verdes. Um golden assim é caro de manter e não cobre
+// ranking. Estas duas afirmações são o que impede a regressão de voltar em
+// silêncio quando alguém mexer no gerador.
+func conferirDiscriminacao(t *testing.T, nome string, got []service.SearchHit) {
+	t.Helper()
+
+	// `frase-exata` é a exceção declarada: ela casa UMA nota entre 300, e casar
+	// uma só é exatamente a propriedade que aquele golden congela.
+	if nome == "frase-exata" {
+		if len(got) != 1 {
+			t.Fatalf("frase-exata casou %d notas, quer 1: a frase deixou de ser "+
+				"unica no corpus e o golden nao prova mais casamento de frase", len(got))
+		}
+		return
+	}
+
+	if len(got) < 2 {
+		t.Fatalf("%s casou %d resultado(s): um golden de um item nao congela "+
+			"ordem nenhuma", nome, len(got))
+	}
+	if got[0].Score <= got[1].Score {
+		t.Fatalf("%s: os dois primeiros empatam (%.6f); o corpus nao discrimina",
+			nome, got[0].Score)
+	}
+	distintos := make(map[float64]bool, len(got))
+	for _, r := range got {
+		distintos[r.Score] = true
+	}
+	// Metade, e não todos: notas que caem na mesma fórmula de comprimento e de
+	// frequência empatam legitimamente entre si. O que não pode acontecer é a
+	// lista inteira ser um bloco de empates.
+	if len(distintos)*2 < len(got) {
+		t.Fatalf("%s: %d resultados com apenas %d score(s) distinto(s); o golden "+
+			"congela o desempate, nao o ranking", nome, len(got), len(distintos))
+	}
+}
+
 func TestRankingGolden(t *testing.T) {
 	svc, _ := corpusGolden(t)
 	for _, c := range consultasGolden {
@@ -155,6 +265,7 @@ func TestRankingGolden(t *testing.T) {
 				t.Fatal("consulta nao casou nada: golden vazio passa sempre " +
 					"e nao cobre ranking nenhum")
 			}
+			conferirDiscriminacao(t, c.nome, res.Results)
 			var b strings.Builder
 			for _, r := range res.Results {
 				fmt.Fprintf(&b, "%s\t%.6f\n", r.Path, r.Score)

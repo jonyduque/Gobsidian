@@ -1,10 +1,10 @@
 package index_test
 
 import (
+	"cmp"
 	"context"
 	"reflect"
 	"slices"
-	"sort"
 	"testing"
 	"time"
 
@@ -89,16 +89,31 @@ func compararNotasCampoACampo(t *testing.T, caminho vault.CanonicalPath, doBuild
 	}
 }
 
+// ordenarBacklinks devolve uma cópia ordenada por uma chave TOTAL — todos os
+// campos de Backlink, não só os três que identificam a referência.
+//
+// `Index.buildBacklinks` percorre `ix.notes`, que é um mapa: a ordem da fatia
+// que `Backlinks` devolve é a ordem de iteração daquele mapa, e portanto não é
+// ordem nenhuma. Quem compara duas dessas fatias com `reflect.DeepEqual` está
+// afirmando SEQUÊNCIA quando o que interessa é CONJUNTO, e o resultado ora
+// passa ora não.
+//
+// A chave é total porque qualquer empate devolve a decisão para a ordem do
+// mapa, que é justamente o que esta função existe para tirar do caminho. A
+// versão anterior ordenava por (From, Anchor, Alias) e deixava dois backlinks
+// da mesma origem, mesma âncora e mesmo alias — que diferem em Heading, em
+// Context ou em Kind — empatados.
 func ordenarBacklinks(bls []index.Backlink) []index.Backlink {
 	ordenados := append([]index.Backlink(nil), bls...)
-	sort.Slice(ordenados, func(i, j int) bool {
-		if ordenados[i].From != ordenados[j].From {
-			return ordenados[i].From < ordenados[j].From
-		}
-		if ordenados[i].Anchor != ordenados[j].Anchor {
-			return ordenados[i].Anchor < ordenados[j].Anchor
-		}
-		return ordenados[i].Alias < ordenados[j].Alias
+	slices.SortFunc(ordenados, func(a, b index.Backlink) int {
+		return cmp.Or(
+			cmp.Compare(a.From, b.From),
+			cmp.Compare(a.Anchor, b.Anchor),
+			cmp.Compare(a.Alias, b.Alias),
+			cmp.Compare(a.Heading, b.Heading),
+			cmp.Compare(a.Context, b.Context),
+			cmp.Compare(a.Kind, b.Kind),
+		)
 	})
 	return ordenados
 }
