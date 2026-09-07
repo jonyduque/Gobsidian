@@ -1,0 +1,9 @@
+docs(sdd): ledger and brief of the third fix round — nothing parked remains
+
+The owner asked for the three parked findings to be closed rather than
+recorded. Round three removed the --amend exception, taught the segment
+cutter about backslash escapes and re-wrapped one line; the ledger and
+the round-three brief and report record it.
+
+Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01P5wkw6PAdBFzF3uB1w1jNj

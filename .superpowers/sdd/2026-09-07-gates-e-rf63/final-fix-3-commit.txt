@@ -1,0 +1,14 @@
+fix(hook): --amend follows the commit rule, and an escaped quote is a literal
+
+The pre-commit hook allowed any --amend before reading the message or the
+stage. With an empty stage the normal path already allows, so the
+exception only ever acted when something was staged, which made it a
+bypass; it also lived outside the simulated path, where check_gates could
+not see it. The exception is gone: an amend reads its message and checks
+its stage like any commit. The segment cutter now treats a backslash
+outside single quotes as bash does, so an escaped quote no longer flips
+the quote state and lets a shell comment reach the message extractor.
+ESTADO.md re-wraps one 357-column line.
+
+Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01P5wkw6PAdBFzF3uB1w1jNj
