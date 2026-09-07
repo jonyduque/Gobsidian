@@ -346,7 +346,7 @@ pwsh -File scripts/build.ps1         # binary with the version baked in
 
 <br>
 
-In order, stopping at the first error: build, `go test -race`, latency ceilings **without** `-race`, `go vet` on all three targets, `gofmt`, `golangci-lint`, the network check, the schema-parameter check, the check for documentation references to artifacts that do not exist, and the README anchor check.
+In order, stopping at the first error: build, `go test -race`, latency ceilings **without** `-race`, `go vet` on all three targets, `gofmt`, `golangci-lint`, the network check, the schema-parameter check, the check for documentation references to artifacts that do not exist, the README anchor check, and the gate check — the pre-commit hook and the report auditor run against the bypasses they once accepted (a `[sem-doc]` hatch in a shell comment, a section named in prose instead of a heading), and must refuse every one.
 
 It is one command because a loose list invites running three of the five.
 
