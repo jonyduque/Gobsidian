@@ -165,7 +165,7 @@ Um wikilink não é um caminho, e resolvê-lo como se fosse produz um grafo que 
 | RF-60 | Indexação de anexos (`.png`, `.jpg`, `.jpeg`, `.gif`, `.webp`, `.svg`, `.pdf`, `.mp3`, `.mp4`, `.wav`, `.canvas`) por caminho, tamanho e mtime, sem leitura de conteúdo | P0 |
 | RF-61 | Resolução de embed para anexo, de modo que `![[diagrama.png]]` não seja contabilizado como link quebrado | P0 |
 | RF-62 | Resolução de wikilink pelo campo `aliases` do frontmatter da nota alvo — **divergência deliberada do Obsidian**, ver abaixo | P0 |
-| RF-63 | Validação da âncora: `[[nota#heading]]` e `[[nota#^bloco]]` marcados como âncora quebrada quando a nota resolve mas o alvo interno não existe | P1 |
+| RF-63 | Validação da âncora em **todas** as formas que a carregam — `[[nota#heading]]`, `[[nota#^bloco]]`, `[texto](nota.md#heading)`, `![[nota#heading]]`/`![texto](nota.md#heading)` e as auto-referências `[[#heading]]`/`[texto](#heading)`, que resolvem para a própria nota — marcadas como âncora quebrada quando a nota resolve mas o alvo interno não existe. A separação do `#` é uma conta só, antes do percent-decode; `%23` nunca é separador | P1 |
 | RF-64 | Chaves de resolução normalizadas para **NFC**, de modo que uma nota gravada em NFD seja encontrada por um pedido em NFC e vice-versa | P0 |
 | RF-65 | Colisão de chave de resolução — por caixa ou por normalização — devolve ambiguidade nomeada, nunca um dos candidatos escolhido em silêncio | P0 |
 | RF-66 | Resolução por nome de arquivo insensível a maiúsculas, igual à resolução por caminho completo | P1 |
@@ -205,7 +205,7 @@ A consequência precisa ser sabida por quem opera: `note_metadata` e `link_graph
 
 O que **não** muda: alias continua sendo *fallback*, nunca *override*. Se existe `P3.md` e outra nota declara `aliases: [P3]`, `[[P3]]` aponta para o arquivo. A paridade confirmou essa precedência nos dois lados.
 
-RF-63 vai além do que o próprio Obsidian expõe na interface, e é deliberado: uma âncora quebrada é exatamente o tipo de erro que aparece depois de renomear um heading, e é invisível até alguém clicar no link.
+RF-63 vai além do que o próprio Obsidian expõe na interface, e é deliberado: uma âncora quebrada é exatamente o tipo de erro que aparece depois de renomear um heading, e é invisível até alguém clicar no link. Até 2026-09-06 o requisito só nomeava o wikilink, e as formas Markdown e de auto-referência contavam como **alvo ausente** — um cofre real carregava 267 delas, outro 372 (medição em `docs/ESTADO.md`). O requisito nomeia as formas para que a próxima regressão tenha nome.
 
 ### 5.3 Busca
 

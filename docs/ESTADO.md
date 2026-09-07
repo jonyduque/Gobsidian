@@ -628,9 +628,9 @@ o quarto, que é exatamente o defeito que ela existe para impedir.
 - **`[x](b.md#)` — âncora vazia depois do `#` — perde o `#` na reescrita.**
   `splitAnchor` devolve `("b.md", "")` e `anchorMarkdown` devolve `""` para
   âncora vazia, então um `note_move` reescreve `[x](b.md#)` como `[x](c.md)`.
-  Fidelidade mínima perdida numa forma que **não foi medida em cofre real**.
+  Fidelidade mínima perdida numa forma que, **medida em 2026-09-07 em cinco cofres reais** (Estudo, Jurisprudência, Oral, Revisão, _automacao), tem **zero** ocorrências internas: os dois únicos acertos de `\]\([^) ]*#\)` são URLs `http://...#mce_temp_url#` em Jurisprudência — externas, que `note_move` nunca reescreve. `[[b#]]` deu zero nos cinco.
   **Parqueado por decisão**, não esquecido: não vale um ramo a mais no formatador
-  por uma forma cuja frequência é desconhecida. Se aparecer, o conserto é
+  por uma forma cuja frequência medida é zero. Se aparecer, o conserto é
   distinguir "sem âncora" de "âncora vazia" no `parser.Link`, que hoje são a
   mesma coisa.
 
