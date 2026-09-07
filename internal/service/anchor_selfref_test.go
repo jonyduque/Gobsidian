@@ -88,9 +88,15 @@ func TestMoveNote_LinkSoDeAncoraNaoQuebraOMove(t *testing.T) {
 //
 // O move aqui preserva o nome-base (a.md -> sub/a.md), entao o texto de
 // "[[a]]" NAO muda na reescrita — writer.RewriteLinks escreve o mesmo
-// nome-base que ja estava la. Por isso a asserção que discrimina esta correcao
-// nao pode ser textual: e o Resolved do link, lido do INDICE depois de aplicar
-// o rename que o watcher aplicaria em producao via index.MoveNote.
+// nome-base que ja estava la. Quem discrimina esta correcao e err == nil
+// (sem o fix, MoveNote falha em ENOENT logo abaixo, antes de qualquer outra
+// assercao) mais LinksUpdated == 1: um fix errado que pulasse o citante
+// quando ele e a propria nota movida tambem deixaria err == nil, mas com
+// LinksUpdated == 0. A assercao do Resolved, mais abaixo, NAO discrimina
+// esta correcao — "[[a]]" resolve por nome-base com ou sem reescrita, entao
+// o Resolved seria sub/a.md nos dois mundos — e fica como guarda contra a
+// regressao do F2 da revisao 182 (Resolved preso ao caminho ANTIGO depois
+// de index.MoveNote).
 func TestMoveNote_NotaQueCitaASiMesma(t *testing.T) {
 	origem := "# A\n\nVeja [[a]].\n"
 	svc, v, idx, root := createMoveService(t, map[string]string{
@@ -123,10 +129,11 @@ func TestMoveNote_NotaQueCitaASiMesma(t *testing.T) {
 		t.Errorf("o corpo mudou no move (nome-base identico, texto nao deveria mudar):\n got %q\nwant %q", lido, origem)
 	}
 
-	// Confirma pelo INDICE, nao pela grafia: "[[a]]" continua resolvendo por
-	// nome mesmo sem reescrita nenhuma no texto, entao ler o corpo de volta nao
-	// discrimina se o link foi de fato realocado. idx.MoveNote e o que o
-	// watcher chamaria em producao ao ver o rename; sem ele o indice desta
+	// O Resolved abaixo NAO discrimina esta correcao — "[[a]]" resolve por
+	// nome-base com ou sem reescrita, entao seria sub/a.md nos dois mundos.
+	// Ele fica como guarda contra a regressao do F2 (revisao 182): Resolved
+	// preso ao caminho ANTIGO depois de index.MoveNote. idx.MoveNote e o que
+	// o watcher chamaria em producao ao ver o rename; sem ele o indice desta
 	// suite fica parado no estado pre-move (nenhuma tool de escrita atualiza o
 	// indice direto — ver o comentario de TestMoveNote_HappyPathActuallyMovesTheFile).
 	canonicalFrom := vault.CanonicalPath("a.md")
