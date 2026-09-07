@@ -108,9 +108,10 @@ scripts/           gates e utilitários PowerShell — ver Comandos
 
 Grafo de dependências, acíclico e **re-extraído dos imports de produção em
 2026-09-06** — `GOOS=windows go list -f '{{.Imports}}'` pacote a pacote, que NÃO
-enxerga arquivo `_test.go`. Duas linhas mudaram desde 2026-09-02: a do `writer`
-e a do `boot`, que é nova — e a do `boot` ganhou `lifecycle` no mesmo dia
-(Task 177). As justificativas estão logo abaixo do bloco:
+enxerga arquivo `_test.go`. Três linhas mudaram desde 2026-09-02: a do `writer`,
+a do `boot`, que é nova — e a do `boot` ganhou `lifecycle` no mesmo dia
+(Task 177) —, e a do `service`, que ganhou `text` em 2026-09-06 (Task 183).
+As justificativas estão logo abaixo do bloco:
 
 ```
 text  vault  config  console  lifecycle      folhas
@@ -120,7 +121,7 @@ writer   → parser, text, vault
 index    → parser, text, vault
 search   → index, parser, text, vault
 watcher  → index, search, vault
-service  → index, parser, search, vault, writer
+service  → index, parser, search, text, vault, writer
 mcpsrv   → config, index, parser, service, vault
 boot     → config, index, lifecycle, search, service, vault, watcher
 daemon   → config, ipc, mcpsrv
@@ -151,6 +152,12 @@ tratava as duas grafias Unicode de um nome como uma nota e o locker as tratava
 como dois arquivos. A conta mudou-se para `text.ChaveDeCaminho` porque `writer`
 não importa `index` e não vai importar. `text` continua folha: ganhou
 `path/filepath`, que é stdlib.
+
+`service → text` é de 2026-09-06 (Task 183): o filtro `prefix` de
+`vault_broken_links` compara caminho de origem com o prefixo pedido, e
+comparar caminho é `text.ChaveDeCaminho` — a mesma conta do `writer`
+(Task 169) e do `index`. Uma comparação local faria `Sub/` e `sub/` serem
+duas pastas aqui e uma lá. `text` continua folha; o grafo continua acíclico.
 
 Quatro arestas existem **só em teste**, e ficam fora do grafo acima de
 propósito — teste pode montar o mundo inteiro sem que isso vire acoplamento do

@@ -542,11 +542,21 @@ func (s *Service) MoveNote(ctx context.Context, req MoveNoteRequest) (MoveNoteRe
 	}
 
 	if req.DryRun {
-		// A origem nao entra em diffs: mover nao altera o conteudo dela, e
-		// UnifiedDiff de um texto contra ele mesmo e "" — um item vazio que
-		// dizia "esta nota nao muda" sobre a nota que muda de lugar. A
-		// leitura continua para que uma origem ilegivel falhe aqui, e nao so
-		// na execucao real.
+		// A origem tem dois papeis aqui, e sao diferentes:
+		//
+		// Como nota MOVIDA, ela nao ganha entrada propria em diffs: mover
+		// nao reescreve o corpo dela por si so, e um item vazio diria "esta
+		// nota nao muda" sobre a nota que muda de lugar. A leitura abaixo
+		// continua sendo so a checagem "origem ilegivel falha aqui, e nao
+		// so na execucao real" — nao alimenta diffs.
+		//
+		// Como CITANTE de si mesma com alvo escrito (ex.: "[[a]]" ou
+		// "[x](a.md)" dentro de a.md), ela entra em diffs normalmente, sob
+		// o caminho ANTIGO — o que existe em disco durante o dry-run —, e
+		// nao sob o novo, como a execucao real reporta em rewritten. Conta
+		// em links_updated nos dois modos. Auto-referencia so de ancora
+		// ("[[#h]]", "[x](#h)") nao entra em nenhum dos dois: o guarda
+		// Target == "" no topo do loop de citantes barra antes.
 		absFrom := s.vault.Abs(canonicalFrom)
 		if _, err := os.ReadFile(absFrom); err != nil {
 			return MoveNoteResult{}, Errorf(CodeInternal,

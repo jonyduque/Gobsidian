@@ -122,7 +122,10 @@ func (s *Service) BrokenLinks(_ context.Context, req BrokenLinksRequest) (Broken
 
 	// Ordem deterministica: a origem e depois a posicao no corpo. Uma lista
 	// paginada cuja ordem varia entre chamadas repete item numa pagina e some
-	// com outro na seguinte.
+	// com outro na seguinte. A perna Source ja vem ordenada de
+	// index.NotePaths(); o comparador a repete de proposito, para que a
+	// garantia seja local a esta funcao e nao dependa do invariante de outro
+	// pacote.
 	slices.SortFunc(achados, func(a, b achadoQuebrado) int {
 		if c := cmp.Compare(a.link.Source, b.link.Source); c != 0 {
 			return c
