@@ -51,7 +51,9 @@ func newTestServerWithIndex(t *testing.T, root string) *mcpsrv.Server {
 
 func TestReadTools(t *testing.T) {
 	root := t.TempDir()
-	writeFile(t, root, "A.md", "---\ntags: [a]\n---\n# A\nText A\n[[B]]\n")
+	// [[B#Nada]] existe para vault_broken_links ter o que listar: B.md tem
+	// heading "B" e nao tem "Nada", entao o link resolve a nota e nao a ancora.
+	writeFile(t, root, "A.md", "---\ntags: [a]\n---\n# A\nText A\n[[B]]\n[[B#Nada]]\n")
 	writeFile(t, root, "B.md", "---\ntags: [b]\n---\n# B\nText B\n")
 
 	srv := newTestServerWithIndex(t, root)
@@ -74,7 +76,7 @@ func TestReadTools(t *testing.T) {
 		if err != nil {
 			t.Fatalf("ListTools: %v", err)
 		}
-		wantTools := []string{"vault_search", "note_read", "note_list", "note_metadata", "link_graph", "tag_list"}
+		wantTools := []string{"vault_search", "note_read", "note_list", "note_metadata", "link_graph", "vault_broken_links", "tag_list"}
 		found := make(map[string]bool)
 		for _, tool := range tools.Tools {
 			found[tool.Name] = true
@@ -138,6 +140,14 @@ func TestReadTools(t *testing.T) {
 			args: map[string]interface{}{"path": "A.md"},
 			// B.md so aparece se a travessia seguiu o [[B]] de A.md.
 			wantIn: []string{`"nodes"`, "A.md", "B.md"},
+		},
+		{
+			name: "vault_broken_links valid",
+			tool: "vault_broken_links",
+			args: map[string]interface{}{"state": "anchor_missing"},
+			// total confere a contagem antes da pagina; o resto confere que o
+			// filtro devolveu o link certo e nao a lista inteira.
+			wantIn: []string{`"total":1`, "A.md", `"anchor_missing"`, `"anchor":"Nada"`},
 		},
 		{
 			name:   "tag_list valid",

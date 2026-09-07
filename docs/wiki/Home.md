@@ -84,7 +84,7 @@ Ver [Onde ficam os dados](overview/onde-ficam-os-dados.md).
 - [Os dois índices](concepts/os-dois-indices.md) — metadados e busca, e por que são separados.
 - [Busca](features/busca.md) · [Escrita](features/escrita.md) · [Watcher](features/watcher.md)
 - [Daemon e ponte](features/daemon-e-ponte.md) — como N sessões compartilham um índice.
-- [As 13 tools](features/tools-mcp.md)
+- [As 14 tools](features/tools-mcp.md)
 
 ## O que eu não devo quebrar?
 
@@ -124,7 +124,7 @@ Nenhuma página deste wiki está `stale`: todas foram conferidas contra o códig
 
 ### Funcionalidades
 
-- [As 13 tools MCP](features/tools-mcp.md) — Superfície pública do servidor — 8 tools de leitura, 5 de escrita, e os resources.
+- [As 14 tools MCP](features/tools-mcp.md) — Superfície pública do servidor — 9 tools de leitura, 5 de escrita, e os resources.
 - [Busca](features/busca.md) — Tokenização, ranking BM25, recorte de trecho e o cache de duas camadas.
 - [Daemon e ponte](features/daemon-e-ponte.md) — Como N sessões do host compartilham um índice — socket AF_UNIX, handshake e ociosidade.
 - [Escrita](features/escrita.md) — As cinco tools de escrita, gravação atômica, travas por caminho e preservação de EOL/BOM.

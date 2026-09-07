@@ -1,26 +1,26 @@
 ---
-title: As 13 tools MCP
+title: As 14 tools MCP
 type: feature
 status: active
-description: Superfície pública do servidor — 8 tools de leitura, 5 de escrita, e os resources.
+description: Superfície pública do servidor — 9 tools de leitura, 5 de escrita, e os resources.
 source_paths:
   - internal/mcpsrv/server.go
   - internal/mcpsrv/tools_read.go
   - internal/mcpsrv/tools_write.go
   - internal/mcpsrv/resources.go
   - internal/mcpsrv/recover.go
-source_commit: f7de8e81
+source_commit: c987ff1
 tags: [mcp, tools, api]
 language: pt-BR
-updated_at: '2026-08-31'
+updated_at: '2026-09-06'
 ---
 
-# As 13 tools MCP
+# As 14 tools MCP
 
 O contrato de cada uma está em `docs/TOOLS.md`. Esta página explica como elas se
 ligam ao código.
 
-## Leitura (7)
+## Leitura (9)
 
 | Tool | Fachada | Toca o disco? |
 |---|---|---|
@@ -31,9 +31,10 @@ ligam ao código.
 | `note_list` | `service.ListNotes` | não |
 | `note_metadata` | `service.NoteMetadata` | não |
 | `link_graph` | `service.LinkGraph` | não |
+| `vault_broken_links` | `service.BrokenLinks` | não |
 | `tag_list` | `service.TagList` | não |
 
-Cinco das oito respondem **só do índice em memória**. É o que torna `note_list` a
+Seis das nove respondem **só do índice em memória**. É o que torna `note_list` a
 tool barata, e é por isso que ela devolve a projeção `ListItem` em vez da `Note`
 inteira — despejar headings, blocos e links por nota transformaria "que notas
 existem na pasta X" numa resposta de dezenas de milhares de tokens.

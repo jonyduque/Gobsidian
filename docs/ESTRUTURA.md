@@ -127,6 +127,7 @@ gobsidian/
 │   │   ├── outline.go            note_outline: headings do índice + candidatos do parser
 │   │   ├── write.go              métodos de escrita
 │   │   ├── graph.go              link_graph, note_metadata, tag_list, vault_stats
+│   │   ├── broken.go             vault_broken_links: lista o que vault_stats conta
 │   │   ├── search.go             vault_search: filtro, paginação, trechos
 │   │   ├── search_lazy.go        carga única e cancelável do índice de busca
 │   │   └── errors.go             taxonomia de erros de domínio e classificação

@@ -288,6 +288,31 @@ func (s *Server) registerReadToolsInternal() {
 
 	mcp.AddTool(s.mcp,
 		&mcp.Tool{
+			Name:        "vault_broken_links",
+			Description: "Todos os links quebrados do cofre: alvo ausente ou ancora ausente, com origem e contexto.",
+		},
+		guard(s.log, "vault_broken_links",
+			func(ctx context.Context, _ *mcp.CallToolRequest, in vaultBrokenLinksInput) (*mcp.CallToolResult, service.BrokenLinksResult, error) {
+				// state, limit e offset viajam CRUS, como em link_graph:
+				// service.BrokenLinks (broken.go) aplica o mesmo ValidarEnum
+				// das outras tools, o mesmo ComTeto de note_list e o piso de
+				// offset. Validar so aqui deixaria o dominio sem guarda para
+				// quem chega por outra porta.
+				out, err := s.svc.BrokenLinks(ctx, service.BrokenLinksRequest{
+					State:  in.State,
+					Prefix: in.Prefix,
+					Limit:  valorOuZero(in.Limit),
+					Offset: valorOuZero(in.Offset),
+				})
+				if err != nil {
+					return nil, service.BrokenLinksResult{}, toolErr(err)
+				}
+				return nil, out, nil
+			}),
+	)
+
+	mcp.AddTool(s.mcp,
+		&mcp.Tool{
 			Name:        "tag_list",
 			Description: "Todas as tags do cofre.",
 		},
@@ -383,6 +408,13 @@ type linkGraphInput struct {
 	IncludeBroken *bool  `json:"include_broken,omitempty"`
 	IncludeEmbeds *bool  `json:"include_embeds,omitempty"`
 	Limit         *int   `json:"limit,omitempty"`
+}
+
+type vaultBrokenLinksInput struct {
+	State  string `json:"state,omitempty" jsonschema:"Filtra por estado: 'target_missing' (a nota citada não existe) ou 'anchor_missing' (a nota existe, o heading ou bloco citado não). Omitido devolve os dois."`
+	Prefix string `json:"prefix,omitempty" jsonschema:"Restringe a nota de ORIGEM por prefixo de string sobre o caminho relativo ao cofre, não por segmento: 'sub' casa 'sub/c.md' e também 'subtotal.md'. Vazio percorre o cofre inteiro."`
+	Limit  *int   `json:"limit,omitempty" jsonschema:"Máximo de links devolvidos. Padrão 100, teto 500."`
+	Offset *int   `json:"offset,omitempty" jsonschema:"Quantos links pular, para paginar. 'total' na resposta é a contagem antes de offset e limit."`
 }
 
 type tagListInput struct {

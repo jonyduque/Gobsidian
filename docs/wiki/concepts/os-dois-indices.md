@@ -30,7 +30,7 @@ metade das perguntas sobre este código.
 A diferença de custo é o motivo de existirem separados: o host desiste do
 handshake MCP em 30 s, e esperar a tokenização do cofre significava morrer antes
 de anunciar qualquer coisa. Hoje o índice de metadados sozinho já sustenta 11
-das 13 tools; só `vault_search` precisa do outro.
+das 14 tools; só `vault_search` precisa do outro.
 
 ## O índice de metadados
 

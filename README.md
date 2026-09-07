@@ -234,6 +234,7 @@ Full contracts, schemas and error codes in [`docs/TOOLS.md`](docs/TOOLS.md).
 | `note_list` | Lists by glob, folder, tag or frontmatter query |
 | `note_metadata` | Frontmatter, tags, links, backlinks, headings and blocks |
 | `link_graph` | Link neighbourhood, with direction and depth |
+| `vault_broken_links` | Every broken link in the vault — missing target or missing anchor — with source and context, paginated |
 | `tag_list` | Every tag in the vault, with counts |
 | `vault_stats` | Notes, orphans, broken links and watcher counters |
 

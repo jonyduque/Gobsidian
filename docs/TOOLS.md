@@ -284,6 +284,44 @@ Vizinhança de links de uma nota.
 
 **Notas.** `depth` acima de 2 pode devolver uma fração grande do cofre em bases densamente ligadas. O teto de 3 é intencional.
 
+Desde a Task 182, em que `[[#Seção]]` e `[x](#Seção)` passaram a resolver para a própria nota de origem, uma aresta pode sair com `source == target`: é a nota citando um heading dela mesma, e não um defeito da travessia.
+
+---
+
+## `vault_broken_links`
+
+Todos os links quebrados do cofre: alvo ausente ou âncora ausente, com origem e contexto. É a lista do que `vault_stats` apenas conta em `broken_links` e `broken_anchors`.
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "state":  { "type": "string", "enum": ["target_missing", "anchor_missing"], "description": "Omitido devolve os dois estados. Valor fora do enum devolve INVALID_ARGUMENT." },
+    "prefix": { "type": "string", "description": "Restringe a nota de ORIGEM por PREFIXO DE STRING sobre o caminho relativo ao cofre, e não por segmento: 'sub' casa 'sub/c.md' e também 'subtotal.md'. Comparação insensível a caixa e a forma Unicode (NFC). Vazio percorre o cofre inteiro." },
+    "limit":  { "type": "integer", "default": 100, "description": "Acima de 500, o servidor clampa a 500." },
+    "offset": { "type": "integer", "default": 0, "description": "Negativo vira 0." }
+  }
+}
+```
+
+**Retorno.** `links` com `source` (a nota que cita), `target` (a grafia do alvo, sem o `#`), `anchor`, `alias`, `kind` (`wikilink`, `embed` ou `markdown`), `state` e `context` (o texto ao redor da referência, o mesmo campo de `note_metadata.links`); e `total`, a contagem **antes** de `offset` e `limit`, como em `note_list`.
+
+```json
+{
+  "links": [
+    { "source": "a.md", "target": "nada", "kind": "wikilink", "state": "target_missing", "context": "…[[nada]]…" },
+    { "source": "a.md", "target": "b", "anchor": "Nada", "kind": "wikilink", "state": "anchor_missing", "context": "…[[b#Nada]]…" }
+  ],
+  "total": 2
+}
+```
+
+**O que NÃO entra.** Link externo (`state` `external`, um alvo com esquema de URI) fica de fora pelo mesmo motivo que fica de fora das contagens de `vault_stats`: uma URL nunca foi para o cofre, e listá-la como quebrada afoga o sinal em falso positivo. Link resolvido também não entra — inclusive a âncora que aponta para a própria nota (`[[#Seção]]`, `[x](#Seção)`), que desde a Task 182 resolve e só aparece aqui quando o heading citado não existe.
+
+**Ordem.** Determinística: por `source`, e dentro de uma nota pela posição da referência no corpo. Uma lista paginada cuja ordem varia entre chamadas repete item numa página e some com outro na seguinte.
+
+**Erros.** `INVALID_ARGUMENT` para `state` fora do enum. Um `prefix` que não casa nenhuma nota **não** é erro: devolve `total: 0` e `links` vazio.
+
 ---
 
 ## `tag_list`
