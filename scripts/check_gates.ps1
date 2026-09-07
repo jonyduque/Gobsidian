@@ -183,6 +183,11 @@ try {
     # nao "zero achados".
     Caso -Nome 'fixture inexistente -> erro, nao 0' `
         -Esperado 'erro' -Obtido (Secoes-Ausentes '9999')
+
+    # N2 da re-revisao final: cerca aberta e nunca fechada nao pode esconder os
+    # cabecalhos reais que vem depois dela.
+    Caso -Nome 'cerca nao fechada antes das quatro secoes reais -> 0 SECAO-AUSENTE' `
+        -Esperado '0' -Obtido (Secoes-Ausentes '4')
 }
 finally {
     Pop-Location

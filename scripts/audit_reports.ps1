@@ -153,11 +153,31 @@ foreach ($R in $Reports) {
     # bloco cercado (``` ou ~~~) antes de casar SECAO-AUSENTE; os outros
     # achados (HEDGE, NAO-RESPOSTA, MUTACAO-CONDICIONAL) continuam sobre
     # $Body -- um hedge dentro de saida colada ainda vale a pena sinalizar.
+    #
+    # N2 da re-revisao final: uma cerca ABERTA e NUNCA FECHADA (numero IMPAR
+    # de linhas de cerca no arquivo -- engano comum ao colar saida de comando)
+    # nao pode esconder o resto do arquivo. Sem tratamento, tudo da abertura
+    # ate o EOF virava "dentro de cerca" e apagava cabecalhos reais de RED,
+    # GREEN, mutacao e verificacao que vinham depois -- 4 SECAO-AUSENTE num
+    # relatorio genuinamente completo, o modo de falha inverso de F5. A regra:
+    # com contagem impar, a ULTIMA linha de cerca nao fecha nada -- ela sai do
+    # conjunto que alterna $emCerca e vira texto comum, e tudo depois dela
+    # continua visivel. O gate tem de falhar fechado rumo a sinalizar prosa
+    # (uma cerca mal formada pode deixar HEDGE/NAO-RESPOSTA verem texto de
+    # dentro do bloco), nunca rumo a esconder um cabecalho de verdade.
+    $indicesDeCerca = [System.Collections.Generic.HashSet[int]]::new()
+    for ($i = 0; $i -lt $Lines.Count; $i++) {
+        if ($Lines[$i] -match '^\s*(```|~~~)') { [void]$indicesDeCerca.Add($i) }
+    }
+    if ($indicesDeCerca.Count % 2 -ne 0) {
+        $ultimoIndice = ($indicesDeCerca | Sort-Object -Descending | Select-Object -First 1)
+        [void]$indicesDeCerca.Remove($ultimoIndice)
+    }
     $emCerca = $false
     $foraDeCerca = [System.Collections.Generic.List[string]]::new()
-    foreach ($L in $Lines) {
-        if ($L -match '^\s*(```|~~~)') { $emCerca = -not $emCerca; continue }
-        if (-not $emCerca) { $foraDeCerca.Add($L) }
+    for ($i = 0; $i -lt $Lines.Count; $i++) {
+        if ($indicesDeCerca.Contains($i)) { $emCerca = -not $emCerca; continue }
+        if (-not $emCerca) { $foraDeCerca.Add($Lines[$i]) }
     }
     $BodySemCercas = $foraDeCerca -join "`n"
 
