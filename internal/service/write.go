@@ -492,6 +492,23 @@ func (s *Service) MoveNote(ctx context.Context, req MoveNoteRequest) (MoveNoteRe
 			var replacements []writer.LinkReplacement
 			for _, rl := range refNote.Links {
 				if rl.Resolved == canonicalFrom {
+					// Link so de ancora aponta para a PROPRIA nota e nao tem
+					// alvo escrito: mover a nota nao muda para onde ele aponta,
+					// e formatar um alvo aqui inventaria "[[b#Topo]]" onde o
+					// autor escreveu "[[#Topo]]".
+					//
+					// O discriminante e Target == "", e NAO "o citante e a
+					// propria nota": "[[a]]" dentro de a.md e auto-referencia
+					// com alvo escrito, e essa precisa continuar sendo
+					// reescrita. Sem este guarda a origem entrava em
+					// affectedNotes, e como o corpo se move ANTES dos citantes
+					// (ver o comentario de moverCorpo, abaixo), a releitura do
+					// caminho antigo dava ENOENT: note_move devolvia
+					// CodeInternal com o move ja pela metade.
+					if rl.Target == "" {
+						continue
+					}
+
 					if rl.Anchor != "" && rl.State == index.LinkAnchorMissing {
 						brokenAnchors = append(brokenAnchors, BrokenAnchor{
 							From:   string(bl.From),
@@ -693,6 +710,19 @@ func (s *Service) DeleteNote(ctx context.Context, req DeleteNoteRequest) (Delete
 		backlinks := s.index.Backlinks(canonical)
 		seen := make(map[string]bool)
 		for _, bl := range backlinks {
+			// A propria nota apagada nao e vitima da exclusao dela.
+			//
+			// Desde 2026-09-06 um link so de ancora resolve para a nota que o
+			// contem, entao ela e backlink de si mesma e entrava aqui: a
+			// resposta listava "a.md" entre as notas cujos links quebram e
+			// emitia um BrokenAnchor de a.md para a.md. Nenhum link dentro da
+			// nota apagada sobrevive a exclusao, entao nao ha o que reportar —
+			// e por isso aqui o discriminante e bl.From, ao contrario do de
+			// MoveNote, onde a nota continua existindo no caminho novo.
+			if bl.From == canonical {
+				continue
+			}
+
 			pathStr := string(bl.From)
 			if !seen[pathStr] {
 				seen[pathStr] = true

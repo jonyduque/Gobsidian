@@ -98,10 +98,10 @@ func collect(doc gast.Node, body []byte, bodyOffset int64, note *ParsedNote) {
 // um '#' que faz parte do NOME do arquivo. Decodificar primeiro o promoveria a
 // separador de uma ancora que ninguem escreveu.
 func splitAnchor(s string) (target, anchor string) {
-	if i := strings.IndexByte(s, '#'); i >= 0 {
-		return s[:i], s[i+1:]
-	}
-	return s, ""
+	// strings.Cut devolve (s, "", false) quando nao acha o separador, que e
+	// exatamente o resultado desejado para um destino sem '#'.
+	target, anchor, _ = strings.Cut(s, "#")
+	return target, anchor
 }
 
 // tagsFromFrontmatter le as chaves "tags" e "tag" do frontmatter. Cada uma

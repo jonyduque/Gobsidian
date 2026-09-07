@@ -23,12 +23,17 @@ func TestAncoraNaMesmaNota(t *testing.T) {
 		"[x](b.md#Sec)", // 0: outra nota, ancora existente
 		"[x](#Topo)",    // 1: propria nota, ancora existente
 		"[[#Topo]]",     // 2: idem, em wikilink
-		"[x](#Nada)",    // 3: propria nota, ancora inexistente
-		"[[#Nada]]",     // 4: idem, em wikilink
-		"[x]()",         // 5: contrapeso — sem alvo E sem ancora
+		"![[#Topo]]",    // 3: idem, em embed — a terceira forma que o
+		//                     comentario de resolveTarget afirma
+		"[x](#Nada)", // 4: propria nota, ancora inexistente
+		"[[#Nada]]",  // 5: idem, em wikilink
+		"[x]()",      // 6: contrapeso — sem alvo E sem ancora
 	}, "\n\n")+"\n")
 
-	v, _ := vault.New(root)
+	v, err := vault.New(root)
+	if err != nil {
+		t.Fatalf("vault.New: %v", err)
+	}
 	idx := index.New()
 	if err := idx.Build(context.Background(), v); err != nil {
 		t.Fatalf("Build: %v", err)
@@ -38,8 +43,8 @@ func TestAncoraNaMesmaNota(t *testing.T) {
 	if !ok {
 		t.Fatal("a.md ausente")
 	}
-	if len(note.Links) != 6 {
-		t.Fatalf("links = %d, quer 6: %+v", len(note.Links), note.Links)
+	if len(note.Links) != 7 {
+		t.Fatalf("links = %d, quer 7: %+v", len(note.Links), note.Links)
 	}
 
 	want := []struct {
@@ -47,6 +52,7 @@ func TestAncoraNaMesmaNota(t *testing.T) {
 		state    index.LinkState
 	}{
 		{"b.md", index.LinkOK},
+		{"a.md", index.LinkOK},
 		{"a.md", index.LinkOK},
 		{"a.md", index.LinkOK},
 		{"a.md", index.LinkAnchorMissing},

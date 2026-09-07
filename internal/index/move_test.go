@@ -259,6 +259,57 @@ func TestMoveNote_UpdatesOutgoingBacklinks(t *testing.T) {
 	}
 }
 
+// Link so de ancora resolve para a PROPRIA nota, e MoveNote nao tinha por onde
+// alcanca-lo: o passo 6 procura a origem em ix.notes[oldPath], ja apagado no
+// passo 1, e o passo 8 acha o citante por citantesPorNome, onde alvo vazio nao
+// entra (update.go:538-541). O link ficava LinkOK com Resolved apontando para um
+// caminho que nao esta mais no indice, e o balde de backlinks do caminho novo
+// carregava um From de nota inexistente — que e a forma exata do defeito [[STJ]]
+// descrito no comentario de nomeChave.
+//
+// Para "[[a]]" isso se auto-corrigia no passo 8, porque o alvo escrito poe o
+// citante em citantesPorNome. Para alvo vazio nao havia saida.
+func TestMoveNote_LinkSoDeAncoraSegueANota(t *testing.T) {
+	root := t.TempDir()
+	writeFileHelper(t, root, "a.md", "# Topo\n\n[[#Topo]]\n")
+	v, err := vault.New(root)
+	if err != nil {
+		t.Fatalf("vault.New: %v", err)
+	}
+	idx := New()
+	if err := idx.Build(context.Background(), v); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := os.MkdirAll(filepath.Join(root, "b"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Rename(filepath.Join(root, "a.md"), filepath.Join(root, "b", "a.md")); err != nil {
+		t.Fatal(err)
+	}
+	idx.MoveNote(v, "a.md", "b/a.md")
+
+	movida, ok := idx.Get("b/a.md")
+	if !ok {
+		t.Fatal("b/a.md ausente do indice depois do move")
+	}
+	if len(movida.Links) != 1 {
+		t.Fatalf("links = %d, quer 1: %+v", len(movida.Links), movida.Links)
+	}
+	if got := movida.Links[0]; got.Resolved != "b/a.md" || got.State != LinkOK {
+		t.Errorf("Resolved=%q State=%v, quer %q/%v", got.Resolved, got.State, "b/a.md", LinkOK)
+	}
+
+	for _, bl := range idx.Backlinks("b/a.md") {
+		if bl.From == "a.md" {
+			t.Errorf("backlinks de b/a.md ainda tem From=%q, uma nota que nao existe mais", bl.From)
+		}
+	}
+	if bls := idx.Backlinks("a.md"); len(bls) != 0 {
+		t.Errorf("backlinks do caminho antigo = %v, quer vazio", bls)
+	}
+}
+
 func TestMoveNote_ReprocessesBrokenLinks(t *testing.T) {
 	root := t.TempDir()
 	writeFileHelper(t, root, "a.md", "# A\n")

@@ -504,6 +504,22 @@ func (ix *Index) MoveNote(v *vault.Vault, oldPath, newPath vault.CanonicalPath) 
 	movida.Path = newPath
 	n := &movida
 
+	// Link so de ancora resolve para a PROPRIA nota, entao mover a nota move o
+	// alvo dele — e nenhum dos passos abaixo o alcanca. O passo 6 procura a
+	// origem em ix.notes[oldPath], que o passo 1 acabou de apagar; o passo 8 acha
+	// o citante por citantesPorNome, onde alvo vazio nao entra (logo abaixo, no
+	// passo 1b). Sem esta correcao o link ficava LinkOK apontando para um caminho
+	// que nao esta mais em ix.notes — o defeito [[STJ]] que o comentario de
+	// nomeChave descreve —, e o passo 7 tambem falhava, porque procurava o balde
+	// de backlinks pelo Resolved antigo, ja movido.
+	//
+	// movida.Links e copia privada (linha acima), entao escrever nela e seguro.
+	for i := range n.Links {
+		if n.Links[i].Resolved == oldPath {
+			n.Links[i].Resolved = newPath
+		}
+	}
+
 	// Sem cofre nao ha Stat.
 	//
 	// O ramo `v == nil` fazia `os.Stat(string(newPath))` — um caminho
