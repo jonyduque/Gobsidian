@@ -1,0 +1,12 @@
+fix(gates): pre_commit_docs reads the hatch from the commit message, not the command line
+
+The hook looked for [sem-doc] anywhere in the git commit command, so a
+shell comment satisfied it while the message said something else. It now
+extracts the message from -m/--message= and from the file behind
+-F/--file=, and the hatch counts only there.
+
+check_gates.ps1 runs the known bypasses against the hook and fails when
+one is accepted again; verify.ps1 runs it as its fifteenth step.
+
+Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01P5wkw6PAdBFzF3uB1w1jNj

@@ -1,0 +1,12 @@
+fix(audit): an unclosed fence cannot hide the headings that follow it
+
+Round two of the gates review found the fence stripping added for pasted
+`# comment` lines had no unmatched-fence handling: a report with an odd
+number of fence markers lost every real section heading after the stray
+opener and was flagged as missing all four. audit_reports now ignores the
+last fence marker when the count is odd, so an unclosed block is treated
+as text and the gate fails toward flagging prose, never toward hiding a
+heading. check_gates carries the case.
+
+Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01P5wkw6PAdBFzF3uB1w1jNj

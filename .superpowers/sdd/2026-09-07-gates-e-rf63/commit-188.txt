@@ -1,0 +1,11 @@
+fix(gates): audit_reports counts a section only when it is a heading
+
+The four required sections of a task report were matched as bare words
+anywhere in the body, so a sentence denying that RED, GREEN or a mutation
+proof existed satisfied three of them. A section now counts only in a
+Markdown heading, which is how every real report here already writes
+them. check_gates.ps1 carries the denying report as a fixture and fails
+if it passes again.
+
+Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01P5wkw6PAdBFzF3uB1w1jNj

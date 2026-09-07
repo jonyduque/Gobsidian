@@ -1,0 +1,12 @@
+docs(sdd): plan and ledger of the gates follow-up — RF-63, hook hatch, audit headings
+
+Plan, briefs, reports, review packages and the ledger of the follow-up
+that rewrote RF-63 for the four anchor forms, moved the [sem-doc] hatch
+of pre_commit_docs into the commit message, and made audit_reports
+require Markdown headings for the four evidence sections. The final
+review and its two fix rounds are recorded with the rulings on what was
+parked (F7, F9, N1). ESTADO.md carries the re-measured effect of the
+heading rule: 199 SECAO-AUSENTE over 150 reports on 2026-09-07.
+
+Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01P5wkw6PAdBFzF3uB1w1jNj

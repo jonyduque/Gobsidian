@@ -1,0 +1,11 @@
+docs(prd): RF-63 names every anchor form, and the empty anchor is measured
+
+RF-63 named only the wikilink; the Markdown and self-reference forms were
+counted as missing targets until 2026-09-06. The requirement now names
+all of them so the next regression has a name.
+
+The empty-anchor form `[x](b.md#)` stays parked, now with a measurement:
+zero internal occurrences across five real vaults.
+
+Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01P5wkw6PAdBFzF3uB1w1jNj

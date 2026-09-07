@@ -1,0 +1,14 @@
+fix(gates): read only the last git commit segment, and ignore fenced code in reports
+
+Final review of the gates plan found the two checkers still matching text
+they should not see. pre_commit_docs now cuts the command line to the
+last `git commit` segment before the first unquoted `#`, `&&`, `;` or
+`|`, so a shell comment or an earlier chained commit cannot supply the
+hatch; it also reads grouped short flags (`-am`). audit_reports drops
+fenced code blocks before looking for section headings, so a pasted
+`# comment` line no longer counts as a section. check_gates carries a
+case for each, and its audit helper no longer reads an early exit as
+"zero sections missing".
+
+Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01P5wkw6PAdBFzF3uB1w1jNj
