@@ -48,6 +48,11 @@ Palavras que denunciam hedge apresentado como resultado: *tende a*,
 *aproximadamente*, *e.g.*, *ex:*, *deveria*. `scripts/audit_reports.ps1` procura
 por elas.
 
+As quatro seções obrigatórias de um relatório de tarefa — RED, GREEN, mutação,
+verificação — só contam quando aparecem num **cabeçalho** Markdown (`#` a
+`######`); citar a palavra em prosa, inclusive para negar que a seção existe,
+não conta (corrigido na Task 188, 2026-09-07).
+
 **Não afirme estado que você não verificou.** O README declarou "v0.1 publicada"
 sem tag, sem release e sem gate.
 

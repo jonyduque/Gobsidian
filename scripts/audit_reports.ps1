@@ -47,14 +47,17 @@
 param(
     # Audita so um numero de tarefa. Sem isto, audita todos os relatorios.
     [Parameter(Position = 0)]
-    [string]$Task
+    [string]$Task,
+    # Raiz alternativa dos artefatos. Existe para check_gates.ps1 auditar
+    # fixtures em vez do ledger real.
+    [string]$SddRoot
 )
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
 $ProjectRoot = Split-Path -Parent $PSScriptRoot
-$SddRoot = Join-Path $ProjectRoot '.superpowers\sdd'
+if (-not $SddRoot) { $SddRoot = Join-Path $ProjectRoot '.superpowers\sdd' }
 
 if (-not (Test-Path $SddRoot)) {
     Write-Output "[!] Diretorio de artefatos nao encontrado: $SddRoot"
@@ -110,11 +113,24 @@ $NonAnswerPattern = '(?i)(implicitamente|implicitly|coberto por consequ|covered 
 # esta no passado e traz saida colada.
 $ConditionalPattern = '(?i)^\s*(se (n[oó]s )?(remov|alter|mud|apag|desativ|comment|troc)\w*|if we (remove|change|disable|comment)|caso (remov|alter)\w*)'
 
+# A secao tem de estar num CABECALHO, nao em qualquer lugar do corpo. Ate
+# 2026-09-07 bastava a palavra solta, e "nao ha ciclo RED/GREEN nem prova de
+# mutacao" satisfazia tres das quatro — uma negacao explicita passava pelo
+# mesmo portao que uma evidencia real (relatorio da Task 184, 2026-09-06).
+# Os relatorios reais deste projeto ja usam "### RED — ...", "### GREEN — ...",
+# "## Mutation proofs", "## Verification"/"## Gate outputs": o padrao casa o
+# cabecalho, em qualquer nivel, em portugues ou ingles.
+#
+# RED/GREEN usam \b (fronteira de palavra, largura zero) e nao (^|\W)...(\W|$):
+# a forma com \W falha em "### RED — ..." porque o \s obrigatorio depois de
+# #{1,6} ja consome o unico espaco antes de RED, e sobra nenhum caractere
+# \W para o grupo (^|\W) casar — medido nesta tarefa rodando o padrao contra
+# o cabecalho real antes de fechar o Step 4.
 $Required = @(
-    @{ Name = 'TDD/RED';     Pattern = '(?i)(^|\W)red(\W|$)' },
-    @{ Name = 'TDD/GREEN';   Pattern = '(?i)(^|\W)green(\W|$)' },
-    @{ Name = 'Mutacao';     Pattern = '(?i)muta' },
-    @{ Name = 'Verificacao'; Pattern = '(?i)verifica' }
+    @{ Name = 'TDD/RED';     Pattern = '(?im)^#{1,6}\s.*\bred\b' },
+    @{ Name = 'TDD/GREEN';   Pattern = '(?im)^#{1,6}\s.*\bgreen\b' },
+    @{ Name = 'Mutacao';     Pattern = '(?im)^#{1,6}\s.*muta' },
+    @{ Name = 'Verificacao'; Pattern = '(?im)^#{1,6}\s.*(verifica|verification|gate)' }
 )
 
 $Filter = if ($Task) { "task-$Task-report.md" } else { 'task-*-report.md' }

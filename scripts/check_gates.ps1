@@ -73,6 +73,12 @@ function Decisao-Hook {
     }
 }
 
+# Conta quantos SECAO-AUSENTE o auditor emite para um relatorio.
+function Secoes-Ausentes([string]$Task) {
+    $saida = & pwsh -NoProfile -File $Audit -Task $Task -SddRoot $SddFalso 2>&1 | Out-String
+    return ([regex]::Matches($saida, 'SECAO-AUSENTE')).Count.ToString()
+}
+
 Push-Location $ProjectRoot
 try {
     Write-Output "=== pre_commit_docs.ps1 ==="
@@ -109,6 +115,19 @@ try {
 
     Caso -Nome 'sem -m nem -F (editor), .go sem doc -> deny' `
         -Esperado 'deny' -Obtido (Decisao-Hook 'git commit' $go)
+
+    Write-Output ""
+    Write-Output "=== audit_reports.ps1 ==="
+    $Audit = Join-Path $PSScriptRoot 'audit_reports.ps1'
+    $SddFalso = Join-Path $Fixtures 'sdd-falso'
+
+    # O bypass conhecido: prosa que NEGA ter RED/GREEN/mutacao satisfazia
+    # tres das quatro palavras. Com cabecalho exigido, faltam as quatro.
+    Caso -Nome 'prosa que nomeia as secoes sem te-las -> 4 SECAO-AUSENTE' `
+        -Esperado '4' -Obtido (Secoes-Ausentes '1')
+
+    Caso -Nome 'quatro secoes em cabecalho -> 0 SECAO-AUSENTE' `
+        -Esperado '0' -Obtido (Secoes-Ausentes '2')
 }
 finally {
     Pop-Location

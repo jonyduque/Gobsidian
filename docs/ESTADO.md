@@ -604,27 +604,31 @@ o quarto, que é exatamente o defeito que ela existe para impedir.
   mais no boot para um caso que não ocorre, e a resposta já é a certa quando
   ocorre. Registrado em `docs/wiki/entities/note-e-caminho.md`.
 - **O hook `scripts/pre_commit_docs.ps1` não gateia nada** (achado do
-  implementador da Task 182, 2026-09-06; **não corrigido** neste marco). Ele
-  procura `[sem-doc]` no **texto do comando** que o `PreToolUse` recebe, não na
-  mensagem do commit. Um comentário de shell na linha do `git commit` já o
-  satisfaz — foi assim que a Task 182 passou por ele, declaradamente. O hook
-  existe para recusar `.go` de produção sem documentação, e hoje qualquer um o
-  desliga sem intenção nenhuma de burlá-lo, porque a escotilha casa antes de o
-  gate olhar o que está em stage. Conserto: ler a mensagem do commit
-  (`-m`/`-F`/`COMMIT_EDITMSG`) em vez da linha de comando. A escotilha `[sem-doc]`
-  em si é decisão fechada e fica — ver `docs/papeis/documentador.md`.
+  implementador da Task 182, 2026-09-06; **corrigido em 2026-09-07** (Task 187):
+  o hook lê a mensagem de `-m`/`-F`; `scripts/check_gates.ps1` prova que o
+  comentário de shell é recusado). Ele procurava `[sem-doc]` no **texto do
+  comando** que o `PreToolUse` recebe, não na mensagem do commit. Um comentário
+  de shell na linha do `git commit` já o satisfazia — foi assim que a Task 182
+  passou por ele, declaradamente. O hook existe para recusar `.go` de produção
+  sem documentação, e qualquer um o desligava sem intenção nenhuma de burlá-lo,
+  porque a escotilha casava antes de o gate olhar o que está em stage. A
+  escotilha `[sem-doc]` em si é decisão fechada e fica — ver
+  `docs/papeis/documentador.md`.
 - **`scripts/audit_reports.ps1` casa a palavra, não a evidência** (achado do
-  implementador da Task 184, 2026-09-06; **não corrigido**). As quatro seções
-  obrigatórias de um relatório são procuradas por regex de palavra solta sobre o
-  corpo inteiro (`audit_reports.ps1:113-118`: `red`, `green`, `muta`,
-  `verifica`). A frase "**não** há ciclo RED/GREEN nem prova de mutação para
-  colar" satisfaz três delas — uma negação explícita passa pelo mesmo portão que
-  uma evidência real, e o achado `SECAO-AUSENTE` desaparece de um relatório que
-  de fato não tem nenhuma das três. É a **mesma classe** do hook acima: checador
-  que casa a palavra em vez do fato não gateia nada. Conserto: exigir um
-  cabeçalho Markdown com o nome da seção, e não a palavra em qualquer lugar.
-  Os outros achados do script (`HEDGE`, `SHA-FANTASMA`, `MUTACAO-CONDICIONAL`)
-  não têm esse defeito e seguem úteis.
+  implementador da Task 184, 2026-09-06; **corrigido em 2026-09-07** (Task 188):
+  seção só conta em cabeçalho Markdown; `check_gates.ps1` prova que a prosa que
+  nega é sinalizada. Efeito medido nos relatórios reais: `79` → `203`
+  `SECAO-AUSENTE`). As quatro seções obrigatórias de um relatório eram
+  procuradas por regex de palavra solta sobre o corpo inteiro
+  (`audit_reports.ps1:113-118`: `red`, `green`, `muta`, `verifica`). A frase
+  "**não** há ciclo RED/GREEN nem prova de mutação para colar" satisfazia três
+  delas — uma negação explícita passava pelo mesmo portão que uma evidência
+  real, e o achado `SECAO-AUSENTE` desaparecia de um relatório que de fato não
+  tinha nenhuma das três. Era a **mesma classe** do hook acima: checador que
+  casa a palavra em vez do fato não gateia nada. Conserto: exigir um cabeçalho
+  Markdown com o nome da seção, e não a palavra em qualquer lugar. Os outros
+  achados do script (`HEDGE`, `SHA-FANTASMA`, `MUTACAO-CONDICIONAL`) não têm
+  esse defeito e seguem úteis.
 - **`[x](b.md#)` — âncora vazia depois do `#` — perde o `#` na reescrita.**
   `splitAnchor` devolve `("b.md", "")` e `anchorMarkdown` devolve `""` para
   âncora vazia, então um `note_move` reescreve `[x](b.md#)` como `[x](c.md)`.
