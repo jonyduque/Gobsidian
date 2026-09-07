@@ -10,7 +10,7 @@ source_paths:
 source_commit: c6804e1e
 tags: [indice, busca, memoria]
 language: pt-BR
-updated_at: '2026-08-31'
+updated_at: '2026-09-06'
 ---
 
 # Os dois índices
@@ -29,8 +29,15 @@ metade das perguntas sobre este código.
 
 A diferença de custo é o motivo de existirem separados: o host desiste do
 handshake MCP em 30 s, e esperar a tokenização do cofre significava morrer antes
-de anunciar qualquer coisa. Hoje o índice de metadados sozinho já sustenta 11
-das 14 tools; só `vault_search` precisa do outro.
+de anunciar qualquer coisa. Hoje o índice de metadados sozinho já sustenta **13
+das 14 tools**; só `vault_search` precisa do outro.
+
+O número é derivado, não contado de memória: `s.inverted` aparece em um único
+arquivo de `internal/service` — `search.go`, que serve `vault_search` — e em
+nenhum outro. `service.BrokenLinks`, a mais nova, percorre `index.NotePaths()` e
+os `Links` de cada nota: metadados puros. A frase já disse "11 das 14" com a
+mesma cláusula "só `vault_search` precisa do outro", e as duas metades não
+fechavam — 14 menos uma é 13.
 
 ## O índice de metadados
 

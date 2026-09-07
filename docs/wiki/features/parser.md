@@ -12,10 +12,11 @@ source_paths:
   - internal/parser/ext_tag.go
   - internal/parser/ext_inline_field.go
   - internal/parser/slug.go
+  - internal/parser/ast.go
 source_commit: f7de8e81
 tags: [parser, goldmark, markdown]
 language: pt-BR
-updated_at: '2026-08-31'
+updated_at: '2026-09-06'
 ---
 
 # Parser
@@ -89,13 +90,22 @@ reconhecidos — ver [Achados em aberto](../notes/achados-abertos.md).
 | `TagExtension` | `#tag`, `#tag/aninhada` | precisa não casar `#` de heading nem de URL |
 | `InlineFieldExtension` | `campo:: valor` (Dataview) | **não pode consumir o span do valor** |
 
-A última carrega uma lição: o campo inline consumia o span do valor, e
+**A âncora não é privilégio do wikilink.** Quem corta o `#` é `splitAnchor`
+(`internal/parser/ast.go`), e ela é a **única** separação de `#` do pacote:
+`splitWikilink` a chama, e os dois ramos Markdown de `collect` — `[x](b.md#Sec)`
+e `![x](b.png#Sec)` — a chamam antes do `PercentDecode`. A ordem é a regra: um
+`%23` no destino continua sendo um `#` literal do alvo, e não um separador.
+Alvo vazio com âncora (`[[#Sec]]`, `[x](#Sec)`) é referência à própria nota, e
+quem decide isso é o índice, não o parser.
+
+A última extensão carrega uma lição: o campo inline consumia o span do valor, e
 `fonte:: [[STJ]]` deixava de produzir link nenhum — links que o commit anterior já
 coletava. **Feature P1 não tem direito de apagar dado P0.**
 
 ## `Slug`
 
-Normaliza um heading para comparação com a âncora de um wikilink: minúsculas, sem
+Normaliza um heading para comparação com a âncora de um link — de qualquer um
+dos três `LinkKind`, desde 2026-09-06: minúsculas, sem
 acento, sem pontuação, espaços colapsados. Reproduz o casamento permissivo do
 Obsidian, que faz `[[nota#Capitulo 118]]` encontrar `## Capítulo 118`.
 

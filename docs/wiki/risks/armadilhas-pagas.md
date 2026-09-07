@@ -9,10 +9,11 @@ source_paths:
   - internal/search/inverted.go
   - internal/watcher/rename.go
   - cmd/gobsidian/serve.go
+  - internal/service/write.go
 source_commit: f7de8e81
 tags: [defeitos, licoes]
 language: pt-BR
-updated_at: '2026-08-31'
+updated_at: '2026-09-06'
 ---
 
 # Armadilhas já pagas
@@ -37,6 +38,19 @@ divergência impossível sem tocar na função.
 caminho do lote — anexo inclusive, placeholder de nuvem inclusive. `Replace`
 respeita as duas regras; a camada anterior a ele não respeitava, então as regras
 valiam para um caminho que nunca era alcançado.
+
+## Lista montada antes do rename, lida depois
+
+`note_move` monta a lista de citantes por `index.Backlinks(origem)`, chaveada
+pelo caminho **antigo**; move o corpo; e só então lê cada citante por essa chave.
+Quando o citante é a própria nota movida (`[[a]]` dentro de `a.md`), o arquivo
+naquele caminho já não existe: `os.ReadFile` dava ENOENT e o move ficava pela
+metade. Era raro até 2026-09-06, quando `[[#Seção]]` passou a resolver para a
+própria nota e toda nota com âncora interna virou citante de si mesma.
+
+Se a operação renomeia, a lista montada antes não vale depois: cada item precisa
+de **uma** conta de "onde isto está agora", não da chave por onde foi achado.
+Conta completa em `docs/ARMADILHAS.md`.
 
 ## Reparar metade do estado é pior que não reparar
 

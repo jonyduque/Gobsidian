@@ -10,7 +10,7 @@ Contrato de cada *tool*. Schemas em JSON Schema, como declarados ao host.
 
 **Casing.** A resolução tenta correspondência exata primeiro, depois insensível a maiúsculas. Se a busca insensível encontrar mais de um candidato, a chamada falha com erro de ambiguidade listando os candidatos — nunca escolhe por conta própria.
 
-**Limites.** Toda tool que devolve lista aceita `limit` e `offset`. Padrão e teto de `limit` variam por tool (`vault_search`: padrão 20, teto embutido 200, mais o teto administrativo de `max_results`; `note_list` e `link_graph`: padrão 100, teto 500). O clamp é aplicado pelo servidor, não pelo schema — ver "Schemas servidos" abaixo. Respostas truncadas trazem `truncated: true` e `total`.
+**Limites.** Toda tool que devolve lista aceita `limit` e `offset`. Padrão e teto de `limit` variam por tool (`vault_search`: padrão 20, teto embutido 200, mais o teto administrativo de `max_results`; `note_list`, `link_graph` e `vault_broken_links`: padrão 100, teto 500). O clamp é aplicado pelo servidor, não pelo schema — ver "Schemas servidos" abaixo. Respostas truncadas trazem `truncated: true` e `total`.
 
 **Dry-run.** Toda tool de escrita aceita `dry_run`. Quando verdadeiro, devolve o diff unificado do que seria feito e não toca o disco.
 
@@ -306,13 +306,16 @@ Todos os links quebrados do cofre: alvo ausente ou âncora ausente, com origem e
 
 **Retorno.** `links` com `source` (a nota que cita), `target` (a grafia do alvo, sem o `#`), `anchor`, `alias`, `kind` (`wikilink`, `embed` ou `markdown`), `state` e `context` (o texto ao redor da referência, o mesmo campo de `note_metadata.links`); e `total`, a contagem **antes** de `offset` e `limit`, como em `note_list`.
 
+`target` vem **vazio** numa auto-âncora quebrada — `[[#Nada]]` ou `[x](#Nada)` numa nota que não tem esse heading. Não há alvo escrito: o link aponta para a própria `source`, e o que falta é o heading, que vem em `anchor`. Uma linha com `"target": ""` e `"state": "anchor_missing"` se lê como "corrija o `anchor` dentro de `source`", não como alvo perdido.
+
 ```json
 {
   "links": [
     { "source": "a.md", "target": "nada", "kind": "wikilink", "state": "target_missing", "context": "…[[nada]]…" },
-    { "source": "a.md", "target": "b", "anchor": "Nada", "kind": "wikilink", "state": "anchor_missing", "context": "…[[b#Nada]]…" }
+    { "source": "a.md", "target": "b", "anchor": "Nada", "kind": "wikilink", "state": "anchor_missing", "context": "…[[b#Nada]]…" },
+    { "source": "a.md", "target": "", "anchor": "Nada", "kind": "wikilink", "state": "anchor_missing", "context": "…[[#Nada]]…" }
   ],
-  "total": 2
+  "total": 3
 }
 ```
 
@@ -493,7 +496,9 @@ Sem `expected_hash`, o servidor ainda verifica internamente se o conteúdo mudou
 }
 ```
 
-**Retorno.** Caminho novo, lista de notas cujos links foram reescritos, contagem de links atualizados, âncoras quebradas (`broken_anchors`, listando referências para headings ou blocos inexistentes) e, em `dry_run`, `diffs`: mapa caminho → diff unificado, uma entrada por referenciadora que seria reescrita. A origem não entra: mover não altera o conteúdo dela. Uma referenciadora ilegível é erro do dry-run, não omissão.
+**Retorno.** Caminho novo, lista de notas cujos links foram reescritos, contagem de links atualizados, âncoras quebradas (`broken_anchors`, listando referências para headings ou blocos inexistentes) e, em `dry_run`, `diffs`: mapa caminho → diff unificado, uma entrada por referenciadora que seria reescrita. Uma referenciadora ilegível é erro do dry-run, não omissão.
+
+**A origem entra quando ela cita a si mesma com alvo escrito** — `[[a]]` dentro de `a.md`. Esse link precisa ser reescrito como o de qualquer outra referenciadora, então a nota movida aparece em `rewritten` e conta em `links_updated`; o caminho reportado é o **novo** (`sub/a.md`), porque é onde ela está quando a reescrita acontece. Em `dry_run` o mesmo caso produz uma entrada em `diffs`, ali sob o caminho **antigo**, que é o que ainda existe no disco. Uma auto-referência só de âncora (`[[#Seção]]`, `[x](#Seção)`) **não** entra em nenhum dos dois: não há alvo escrito para reescrever, e mover a nota não muda para onde ela aponta. Fora esses casos a origem não entra: mover não altera o conteúdo dela.
 
 **Notas.** A reescrita preserva a forma original de cada link: alias, âncora de heading ou de bloco, e a escolha entre wikilink e link Markdown. Um `[[Civil/PONTO 03|Ponto 3 — Obrigações]]` continua com o mesmo alias após a movimentação.
 

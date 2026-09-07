@@ -224,7 +224,8 @@ gobsidian/
 │
 ├── .github/workflows/
 │   ├── ci.yml                    vet, lint, test, race
-│   └── bench.yml                 benchmark com verificação de regressão
+│   ├── bench.yml                 benchmark com verificação de regressão
+│   └── release.yml               dispara em tag `v*`: build e publicação do release
 │
 ├── go.mod
 ├── go.sum

@@ -138,6 +138,30 @@ remover um `panic`, um `Fatal` ou um `return` de erro que abortava cedo, a
 pergunta é **o que passa a rodar agora que antes não rodava** — e a resposta se
 acha percorrendo os chamadores a jusante, não relendo a função consertada.
 
+**Lista montada antes do rename, lida depois: quem é citante e também o objeto
+movido mora no caminho novo.** (2026-09-06, Tasks 182 e 185.) `note_move` monta
+a lista de referenciadoras com `index.Backlinks(origem)` — chaveada pelo caminho
+**antigo** —, move o corpo com `os.Rename` e só então lê cada referenciadora,
+por essa chave. Quando a referenciadora é a **própria nota movida** — `[[a]]`
+dentro de `a.md` —, o arquivo naquele caminho acabou de deixar de existir:
+`os.ReadFile` devolvia ENOENT, `note_move` devolvia `CodeInternal`, e o cofre
+ficava com o corpo movido e nenhum citante reescrito. A Task 182 transformou o
+caso raro em caso comum: com `[[#Seção]]` e `[x](#Seção)` passando a resolver
+para a própria nota, toda nota com âncora interna virou backlink de si mesma.
+
+Foram dois consertos, e os dois discriminantes são diferentes de propósito.
+Auto-referência **só de âncora** (`Target == ""`) sai da lista antes do laço:
+não há alvo escrito para reescrever, e formatar um inventaria `[[b#Seção]]` onde
+o autor escreveu `[[#Seção]]`. Auto-referência **com alvo escrito** (`[[a]]`)
+fica: ela precisa ser reescrita como qualquer outra. O que muda é onde ela mora
+— e **uma variável decide isso uma vez**, usada para a trava, a leitura e a
+escrita. Dois `if` separados decidindo o mesmo é a forma de divergir depois:
+travar um caminho e gravar outro não falha, grava no lugar errado.
+
+A regra generaliza: **se a operação renomeia, a lista de alvos montada antes do
+rename não vale depois dele.** Cada item precisa de uma conta única de "onde
+isto está agora", e não da chave por onde foi encontrado.
+
 ---
 
 ## Índice, chaves derivadas e consistência

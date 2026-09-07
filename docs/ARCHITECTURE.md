@@ -194,6 +194,10 @@ Um link pode resolver para uma nota existente e ainda assim estar quebrado, se a
 
 O estado do link tem então três valores, não dois: resolvido, alvo inexistente, alvo existente com âncora inexistente. O terceiro é o que aparece depois de renomear um heading, e é invisível até alguém clicar no link.
 
+**A separação do `#` vale para os três `LinkKind`, e é uma função só.** Wikilink, embed e link Markdown passam por `splitAnchor`: `[[nota#Cap]]`, `![[nota#Cap]]` e `[x](nota.md#Cap)` produzem todos `Target` sem âncora e `Anchor` preenchida. No ramo Markdown ela roda **antes** do percent-decode, e a ordem é a regra: separar primeiro faz `%23` permanecer um `#` literal dentro do alvo, e não virar separador — decodificar antes inventaria uma âncora onde o autor escreveu um caractere. Até 2026-09-06 (Task 182) só o wikilink separava, e todo `[x](b.md#Sec)` guardava `Target = "b.md#Sec"`, um caminho que nenhuma nota tem: o link contava como alvo inexistente.
+
+**Alvo vazio com âncora resolve para a nota de origem.** `[[#Seção]]`, `![[#Seção]]` e `[x](#Seção)` são referências internas — o alvo é a própria nota que as contém. Elas saem `ok` quando o heading existe e `anchor_missing` quando não existe, nunca `target_missing`. A consequência visível é que uma nota passa a ser backlink de si mesma e o grafo pode conter aresta com `source == target`; ver `docs/TOOLS.md`, `link_graph`.
+
 ---
 
 ## 4. Índice em memória
@@ -467,6 +471,8 @@ para o erro da escrita.
 6. Escrever cada nota afetada atomicamente
 7. Em caso de falha parcial: registrar o que foi aplicado, retornar erro detalhado
 ```
+
+O passo 6 percorre uma lista montada no passo 2, quando a origem ainda estava no caminho antigo — e o passo 5 já a moveu. Uma nota que cita a si mesma (`[[a]]` dentro de `a.md`) está nessa lista, e precisa ser lida e reescrita **no caminho novo**: quem decide isso é uma variável só, usada para a trava, a leitura e a escrita. Ver `docs/ARMADILHAS.md`.
 
 O passo 7 é honesto sobre um limite real: não há transação entre arquivos no sistema de arquivos. O produto garante que cada arquivo individualmente fica consistente, e reporta com precisão o estado alcançado quando algo falha no meio. Prometer atomicidade multi-arquivo seria mentira.
 

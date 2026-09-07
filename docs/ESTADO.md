@@ -205,6 +205,47 @@ Fatos medidos sem benchmark:
 - CLI a frio × `serve` com cache: cofre `vault_5000`, mesmo binário. `search` a frio (Build + `inv.Update` serial por nota): **10 520 / 10 819 / 11 046 ms** de parede em 3 execuções. `inspect` a frio (só Build): **770 / 767 / 739 ms**. `serve` em processo (`GOBSIDIAN_NO_DAEMON=1 --eager-search`) com cache quente, 5 execuções: `index_ms` **101–123**, índice de busca `duracao_ms` **13–20**, parede boot→saída **475–528 ms**. Ou seja: a CLI de busca paga ~10 s que o `serve` não paga; adotar o cache na CLI (Task 175) tem teto de ganho medido, não estimado.
 - Task 175, `search` reaproveitando `boot.AbrirIndice`/`boot.PrepararBusca` como o `serve`: cofre `vault_5000`, `--json --limit 200 "execucao"`, 3 execuções frias + 3 quentes por binário (`Measure-Command`, `TotalMilliseconds`). **Antes** (commit `ebf29ad`, sem `--cache-dir`, constrói tudo em memória sempre): frias **8338,6 / 1687,0 / 1631,9 ms**, "quentes" (mesmo binário, sem cache — repetição idêntica) **1700,4 / 1631,0 / 1597,7 ms**. **Depois**: frias (`--cache-dir` novo, apagado antes de cada uma) **1905,6 / 1921,2 / 1796,7 ms**; quentes (mesmo diretório de cache) **234,7 / 214,0 / 190,2 ms**. A quente do depois fica bem abaixo de 1/5 da fria do depois (1/5 de ~1800–1920 ms é ~360–384 ms; medi 190–235 ms). Os números não batem com a faixa do M4 acima (10 520–11 046 ms de "antes", 475–528 ms de `serve` quente) — a máquina/estado de disco nesta rodada não é o mesmo; a primeira chamada "antes" (8338,6 ms) sugere cache de disco do SO ainda frio nela e já quente nas cinco seguintes. Binário `antes`: worktree Git separado no commit base, sem tocar a árvore principal (`git worktree add --detach`).
 
+**Tasks 182–185 (2026-09-06) — âncoras que resolvem, e a tool que lista o que
+sobra.** Cinco commits, `d91b2fb..b34814a`.
+
+- **A separação do `#` virou uma conta só, para os três `LinkKind`** (Task 182).
+  `splitAnchor` é a única separação de `#` do parser; o ramo Markdown a chama
+  **antes** do percent-decode, então `%23` continua sendo um caractere e não um
+  separador. Antes disso só o wikilink separava, e `[x](b.md#Sec)` guardava
+  `Target = "b.md#Sec"` — caminho que nenhuma nota tem, logo alvo inexistente.
+  Junto veio a segunda metade: **alvo vazio com âncora resolve para a nota de
+  origem** (`[[#Seção]]`, `![[#Seção]]`, `[x](#Seção)`), `ok` quando o heading
+  existe e `anchor_missing` quando não.
+
+  Medido em 2026-09-06 pelo orquestrador, em **quatro cofres reais**: **zero**
+  alvos quebrados contêm `://`, `www.`, `.com`, `.br` ou `.org` — URL com
+  esquema já saía por `LinkExternal` e nunca entrou em `broken_links`, então o
+  pedido do dono ("retire os links de sites") não tinha o que retirar. Os falsos
+  positivos eram os de âncora: no cofre *Estudo*, **267 alvos começando com `#`
+  e 10 vazios**; no *Oral*, **372 com `#`**. Que a contagem de `broken_links`
+  desses cofres tenha caído depois da correção: **não re-medido**.
+- **`IndexCacheParserVersion` 1 → 2** (Task 182, `internal/index/persist.go:49`).
+  O portão existe para exatamente este caso: o parser passou a produzir
+  estrutura diferente para a mesma entrada, mtime e tamanho dos arquivos não
+  mudaram, e sem o bump `VerifyFreshness` não veria motivo para descartar o
+  cache — o cofre reabriria com `Target = "b.md#Sec"` e o defeito pareceria não
+  corrigido. `IndexCacheFormatVersion` **não** muda: `Anchor` já existia em
+  `parser.Link` e já era codificada; o que mudou foi o valor, não o layout.
+- **`vault_broken_links`** (Task 183, `internal/service/broken.go`): a lista do
+  que `vault_stats` apenas conta. Filtro por `state` e por `prefix` da nota de
+  origem, `limit` padrão 100 com teto 500, `total` antes da paginação, ordem
+  determinística por `source` e depois pela posição da referência no corpo.
+  Externo e resolvido ficam de fora. É a 14ª tool, e **não** toca o índice
+  invertido: percorre `index.NotePaths()` e os `Links` de cada nota.
+- **Dois consertos em `note_move`** (Tasks 182 e 185), o segundo aberto pela
+  revisão do primeiro. Auto-referência **só de âncora** sai da lista de
+  referenciadoras — não há alvo escrito para reescrever. Auto-referência **com
+  alvo escrito** (`[[a]]` dentro de `a.md`) fica na lista, e passou a ser lida e
+  gravada **no caminho novo**: o corpo se move antes do laço, então ler pela
+  chave antiga dava ENOENT e `note_move` devolvia `CodeInternal` com o move pela
+  metade. Consequência visível no contrato: a nota movida aparece em `rewritten`
+  sob o caminho novo e conta em `links_updated` — `docs/TOOLS.md`, `note_move`.
+
 ---
 
 ## Decisões fechadas que não se re-litigam sem dado novo
@@ -313,9 +354,22 @@ Medido no cofre real de 3.152 notas na virada do 4 para o 5:
 | arquivo | 482 MB | **67 MB** |
 | boot quente | ~7 s | **842 ms** |
 
-**O formato do cache de metadados é o 3** (2 até 2026-08-26). O 3 acrescentou o
+**O formato do cache de metadados é o 5**, e este parágrafo dizia "o 3" até
+2026-09-06 — conferido contra `internal/index/persist.go:38`, não contra a
+memória de quem escreveu. O 3 é de 2026-08-26 (2 até ali) e acrescentou o
 `Context` de cada link — o texto ao redor da referência, que `docs/TOOLS.md` já
 prometia em `backlinks` e que o código entregava vazio desde sempre (achado A8).
+O 4 e o 5 vieram no mesmo dia e **sem mudança de layout**: `contextoBytes` caiu
+de 80 para 40 e voltou para 80, quando a medição que motivara o corte foi
+retratada. Bump sem mudança de layout é fácil de julgar desnecessário e não é:
+um cache gravado com outro `contextoBytes` carrega trechos de outro tamanho, e
+aceitá-lo faria a mesma pergunta ser respondida de forma diferente conforme o
+cache fosse velho ou novo.
+
+Ao lado dele há um **segundo portão, independente**:
+`IndexCacheParserVersion`, que muda quando o parser passa a produzir estrutura
+diferente para a mesma entrada. Está em **2** desde 2026-09-06 (Task 182) — ver
+o marco acima.
 
 Ele é persistido, e não recalculado como `Resolved`/`Via`/`State`, porque **não é
 derivável do que o índice guarda**: recortá-lo de novo exigiria reler o corpo de
@@ -549,6 +603,24 @@ o quarto, que é exatamente o defeito que ela existe para impedir.
   Decisão do dono: **não vale detectar e avisar.** O custo seria uma varredura a
   mais no boot para um caso que não ocorre, e a resposta já é a certa quando
   ocorre. Registrado em `docs/wiki/entities/note-e-caminho.md`.
+- **O hook `scripts/pre_commit_docs.ps1` não gateia nada** (achado do
+  implementador da Task 182, 2026-09-06; **não corrigido** neste marco). Ele
+  procura `[sem-doc]` no **texto do comando** que o `PreToolUse` recebe, não na
+  mensagem do commit. Um comentário de shell na linha do `git commit` já o
+  satisfaz — foi assim que a Task 182 passou por ele, declaradamente. O hook
+  existe para recusar `.go` de produção sem documentação, e hoje qualquer um o
+  desliga sem intenção nenhuma de burlá-lo, porque a escotilha casa antes de o
+  gate olhar o que está em stage. Conserto: ler a mensagem do commit
+  (`-m`/`-F`/`COMMIT_EDITMSG`) em vez da linha de comando. A escotilha `[sem-doc]`
+  em si é decisão fechada e fica — ver `docs/papeis/documentador.md`.
+- **`[x](b.md#)` — âncora vazia depois do `#` — perde o `#` na reescrita.**
+  `splitAnchor` devolve `("b.md", "")` e `anchorMarkdown` devolve `""` para
+  âncora vazia, então um `note_move` reescreve `[x](b.md#)` como `[x](c.md)`.
+  Fidelidade mínima perdida numa forma que **não foi medida em cofre real**.
+  **Parqueado por decisão**, não esquecido: não vale um ramo a mais no formatador
+  por uma forma cuja frequência é desconhecida. Se aparecer, o conserto é
+  distinguir "sem âncora" de "âncora vazia" no `parser.Link`, que hoje são a
+  mesma coisa.
 
 ---
 

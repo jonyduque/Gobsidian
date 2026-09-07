@@ -11,7 +11,7 @@ source_paths:
 source_commit: c6804e1e
 tags: [modelo, caminho, seguranca]
 language: pt-BR
-updated_at: '2026-08-31'
+updated_at: '2026-09-06'
 ---
 
 # Nota, anexo e caminho canônico
@@ -141,6 +141,17 @@ cofre inteiro e por isso não pode ser feita no parser.
 quebrado, e a contagem — que o PRD chama de principal sinal de saúde do cofre —
 afogava em falso positivo. Confirmado contra o `metadataCache` real: o Obsidian
 não registra URL externa nem em `resolvedLinks` nem em `unresolvedLinks`.
+
+**Alvo vazio com âncora aponta para a própria nota.** `[[#Seção]]`, `![[#Seção]]`
+e `[x](#Seção)` são referência interna: `resolveTarget` devolve a própria origem
+com `ViaPath`, e a checagem de âncora do chamador decide entre `LinkOK` e
+`LinkAnchorMissing` — nunca `LinkTargetMissing`. Até 2026-09-06 as três formas
+contavam como alvo ausente; a separação do `#` também passou a valer para o link
+Markdown, e não só para o wikilink (`internal/parser/ast.go`, `splitAnchor`).
+
+Duas consequências que se veem de fora: uma nota é **backlink de si mesma**
+quando cita um heading próprio, e `link_graph` pode emitir aresta com
+`source == target`. Nenhuma das duas é defeito da travessia.
 
 `ResolveVia` registra **qual regra** resolveu (`path`, `name`, `asset`, `alias`).
 Duas notas com o mesmo nome em pastas diferentes tornam isso útil para

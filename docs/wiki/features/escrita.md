@@ -13,7 +13,7 @@ source_paths:
 source_commit: f7de8e81
 tags: [escrita, atomicidade]
 language: pt-BR
-updated_at: '2026-08-31'
+updated_at: '2026-09-06'
 ---
 
 # Escrita
@@ -88,6 +88,18 @@ O arquivo em si sai por `os.Rename`, com cópia-e-remove só como recurso quando
 rename falha por atravessar volume. No mesmo volume o rename é atômico, então
 "nota duplicada" deixa de ser um estado alcançável — o que copiar-e-remover
 permitia sempre que o remove falhasse, e o erro do remove era descartado.
+
+**O corpo se move ANTES de os citantes serem reescritos**, e a inversão é
+deliberada: quando a segunda etapa falha, sobra link apontando para o caminho
+antigo — visível e recuperável — em vez de nota duplicada, que é silenciosa.
+
+A ordem cobra um preço no caso em que a nota **cita a si mesma**: ela está na
+lista de citantes sob a chave antiga, e o arquivo já não está lá. Ler por essa
+chave dava ENOENT e derrubava o move pela metade (2026-09-06, Tasks 182 e 185).
+Hoje uma variável só decide onde cada citante mora agora, e serve à trava, à
+leitura e à escrita; a nota movida sai em `rewritten` sob o caminho **novo**.
+Auto-referência só de âncora (`[[#Seção]]`) nem entra na lista: não há alvo
+escrito para reescrever. Ver `docs/ARMADILHAS.md`.
 
 ## `dry_run`
 
