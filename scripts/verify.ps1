@@ -252,6 +252,11 @@ Invoke-Step "check_tool_params" { & (Join-Path $PSScriptRoot "check_tool_params.
 Invoke-Step "check_doc_refs" { & (Join-Path $PSScriptRoot "check_doc_refs.ps1") }
 Invoke-Step "check_readme_anchors" { & (Join-Path $PSScriptRoot "check_readme_anchors.ps1") }
 
+# Os gates que casam a palavra em vez da evidencia foram contornados sem
+# intencao (ESTADO.md, 2026-09-06). check_gates prova, a cada rodada, que o
+# bypass conhecido continua recusado.
+Invoke-Step "check_gates" { & (Join-Path $PSScriptRoot "check_gates.ps1") }
+
 Pop-Location
 
 Write-Output ""

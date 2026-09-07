@@ -30,7 +30,10 @@
     gate sem saida legitima ensina a contornar o gate — e porque ha commits em
     que documentacao de fato nao se aplica (revert, ajuste de formatacao,
     correcao de teste que nao muda contrato). Usar a escotilha e uma decisao
-    consciente e visivel na mensagem, que e exatamente o que se quer.
+    consciente e visivel na mensagem, que e exatamente o que se quer. A
+    escotilha vale na mensagem (-m ou arquivo de -F). Ate 2026-09-07 valia em
+    qualquer lugar da linha de comando, inclusive num comentario de shell, e
+    por isso nao valia nada.
 
 .NOTES
     Saida: JSON de hook em stdout. Falha do proprio script NAO bloqueia o
@@ -38,10 +41,11 @@
 #>
 [CmdletBinding()]
 param(
-    # Para teste manual: pula a leitura de stdin e assume que e um git commit.
+    # Para teste: pula a leitura de stdin. -Comando e a linha que o hook
+    # receberia em tool_input.command; -EmStage substitui `git diff --cached`.
     [switch]$Simular,
-    # Para teste manual: mensagem de commit simulada.
-    [string]$Mensagem = ""
+    [string]$Comando = "",
+    [string[]]$EmStage = @()
 )
 
 $ErrorActionPreference = "Stop"
@@ -59,8 +63,35 @@ function Emitir($decisao, $motivo, $aviso = $null) {
     exit 0
 }
 
+# A escotilha vale na MENSAGEM, nunca na linha de comando. Ate 2026-09-07 o
+# hook procurava [sem-doc] no texto do comando inteiro, e um comentario de
+# shell (`git commit -F msg.txt # [sem-doc]`) o satisfazia com a mensagem
+# dizendo outra coisa — foi assim que os commits de 2026-09-06 passaram, por
+# instrucao do brief, sem que ninguem quisesse burlar nada. Gate que le a
+# escotilha fora do lugar onde ela fica visivel no historico nao gateia.
+#
+# Le -m/--message= (aspas duplas, simples ou sem aspas, repetidos) e o
+# arquivo de -F/--file=. Sem nenhum dos dois — commit que abriria editor — a
+# mensagem e desconhecida e a escotilha nao vale.
+function Extrair-Mensagem([string]$linha) {
+    $partes = [System.Collections.Generic.List[string]]::new()
+    $reM = '(?:-m|--message)(?:=|\s+)(?:"([^"]*)"|''([^'']*)''|(\S+))'
+    foreach ($m in [regex]::Matches($linha, $reM)) {
+        $texto = @($m.Groups[1].Value, $m.Groups[2].Value, $m.Groups[3].Value) | Where-Object { $_ } | Select-Object -First 1
+        if ($texto) { $partes.Add($texto) }
+    }
+    $reF = '(?:-F|--file)(?:=|\s+)(?:"([^"]*)"|''([^'']*)''|(\S+))'
+    foreach ($m in [regex]::Matches($linha, $reF)) {
+        $arquivo = @($m.Groups[1].Value, $m.Groups[2].Value, $m.Groups[3].Value) | Where-Object { $_ } | Select-Object -First 1
+        if ($arquivo -and (Test-Path -LiteralPath $arquivo -PathType Leaf)) {
+            $partes.Add((Get-Content -LiteralPath $arquivo -Raw -Encoding utf8))
+        }
+    }
+    return ($partes -join "`n")
+}
+
 try {
-    $comando = $Mensagem
+    $comando = $Comando
     if (-not $Simular) {
         $bruto = [Console]::In.ReadToEnd()
         if ([string]::IsNullOrWhiteSpace($bruto)) { Emitir "allow" "sem payload" }
@@ -72,11 +103,12 @@ try {
         }
     }
 
-    if ($comando -match '\[sem-doc\]') {
-        Emitir "allow" "escotilha [sem-doc] usada de proposito"
+    $mensagem = Extrair-Mensagem $comando
+    if ($mensagem -match '\[sem-doc\]') {
+        Emitir "allow" "escotilha [sem-doc] na mensagem do commit"
     }
 
-    $emStage = @(git diff --cached --name-only 2>$null | Where-Object { $_ })
+    $emStage = if ($Simular) { @($EmStage) } else { @(git diff --cached --name-only 2>$null | Where-Object { $_ }) }
     if ($emStage.Count -eq 0) { Emitir "allow" "nada em stage" }
 
     $codigo = @($emStage | Where-Object {
@@ -129,7 +161,8 @@ try {
         "  - fechou uma tarefa?           -> o ledger em .superpowers/sdd/<marco>/progress.md",
         "",
         "Se documentacao genuinamente NAO se aplica (revert, formatacao, ajuste de",
-        "teste que nao muda contrato), inclua [sem-doc] na mensagem do commit.",
+        "teste que nao muda contrato), inclua [sem-doc] na MENSAGEM do commit (-m ou",
+        "arquivo de -F). Na linha de comando fora da mensagem ele nao vale.",
         "Isso e uma decisao consciente e fica visivel no historico."
     ) | Where-Object { $null -ne $_ }
 

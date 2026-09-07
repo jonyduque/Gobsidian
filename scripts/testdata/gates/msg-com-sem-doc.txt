@@ -1,0 +1,3 @@
+test(index): tighten an assertion [sem-doc]
+
+The contract did not change; only the test did.
