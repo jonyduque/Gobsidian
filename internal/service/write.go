@@ -640,27 +640,44 @@ func (s *Service) MoveNote(ctx context.Context, req MoveNoteRequest) (MoveNoteRe
 
 	for _, refPath := range affectedKeys {
 		replacements := affectedNotes[refPath]
-		unlock := s.locker.Lock(refPath)
-		absRef := s.vault.Abs(refPath)
+
+		// Uma nota que cita a si mesma por NOME ("[[a]]" dentro de a.md, alvo
+		// escrito — nao so ancora, que ja sai de affectedNotes no laco acima)
+		// entra aqui sob a chave ANTIGA: foi assim que Backlinks() a indexou,
+		// antes do move. Mas o CORPO ja foi renomeado para canonicalTo, duas
+		// linhas acima — o arquivo em refPath == canonicalFrom nao existe
+		// mais. Ler, travar e gravar por refPath dava ENOENT: o laco lia o
+		// caminho que o proprio move tinha acabado de apagar.
+		//
+		// caminhoAtual e a UNICA decisao de "onde este citante mora agora",
+		// usada nos tres pontos — trava, leitura e escrita — e nao em dois
+		// `if` separados que podiam divergir entre si.
+		caminhoAtual := refPath
+		if refPath == canonicalFrom {
+			caminhoAtual = canonicalTo
+		}
+
+		unlock := s.locker.Lock(caminhoAtual)
+		absRef := s.vault.Abs(caminhoAtual)
 		raw, err := os.ReadFile(absRef)
 		if err != nil {
 			unlock()
-			return moveNoteErro(Errorf(CodeInternal, "lendo nota %q: %v", refPath, err))
+			return moveNoteErro(Errorf(CodeInternal, "lendo nota %q: %v", caminhoAtual, err))
 		}
 
 		rewritten, err := writer.RewriteLinks(raw, replacements)
 		if err != nil {
 			unlock()
-			return moveNoteErro(Errorf(CodeInternal, "reescrevendo links em %q: %v", refPath, err))
+			return moveNoteErro(Errorf(CodeInternal, "reescrevendo links em %q: %v", caminhoAtual, err))
 		}
 
 		if err := vault.WriteAtomic(ctx, absRef, rewritten); err != nil {
 			unlock()
-			return moveNoteErro(Errorf(CodeInternal, "escrevendo nota %q: %v", refPath, err))
+			return moveNoteErro(Errorf(CodeInternal, "escrevendo nota %q: %v", caminhoAtual, err))
 		}
 
 		unlock()
-		rewrittenList = append(rewrittenList, string(refPath))
+		rewrittenList = append(rewrittenList, string(caminhoAtual))
 		linksUpdatedCount += len(replacements)
 	}
 

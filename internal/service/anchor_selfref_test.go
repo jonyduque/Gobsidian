@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/jonyd/gobsidian/internal/service"
+	"github.com/jonyd/gobsidian/internal/vault"
 )
 
 // Desde 2026-09-06 um link so de ancora resolve para a PROPRIA nota, e com isso
@@ -16,20 +17,19 @@ import (
 // CodeInternal com o move ja pela metade — corpo movido, citantes intactos.
 //
 // O discriminante e Target == "", e NAO "o citante e a propria nota":
-// auto-referencia com alvo escrito precisa continuar sendo reescrita. Este
-// teste nao consegue fixar essa segunda metade — ver o LIMITE abaixo —, entao
-// ela fica com ref.md, que prova ao menos que o guarda nao desligou a reescrita
-// de citante nenhum.
-//
-// LIMITE MEDIDO em 2026-09-06: uma nota que cita a si mesma com alvo ESCRITO
-// ("[[a]]" dentro de a.md) derruba note_move pelo mesmo ENOENT, e isso e
-// PRE-EXISTENTE — independe da Task 182, porque nada nela toca link com alvo.
-// Sondado neste mesmo tree com uma nota cujo unico conteudo era "Veja [[a]].":
-// `MoveNote: lendo nota "a.md": ... The system cannot find the file specified`.
-// Por isso a nota movida aqui nao contem "[[a]]": o teste falharia por um
-// defeito que nao e desta tarefa. Registrado no relatorio.
+// auto-referencia com alvo escrito precisa continuar sendo reescrita. Ate a
+// Task 185 este teste nao conseguia fixar essa segunda metade, porque
+// "[[a]]" dentro de a.md derrubava note_move pelo MESMO ENOENT — pre-existente,
+// independente da Task 182, e so exposto por ela como forma comum. A Task 185
+// fechou o laco de reescrita para ler e gravar no caminho NOVO quando o
+// citante e a propria nota movida, e agora "[[a]]" entra aqui, ao lado das tres
+// formas so de ancora, provando as duas metades no mesmo teste: o guarda nao
+// desligou a reescrita de citante nenhum (ref.md) E a auto-referencia com alvo
+// escrito continua sendo reescrita depois do move (a propria a.md, ja em
+// sub/b.md).
 func TestMoveNote_LinkSoDeAncoraNaoQuebraOMove(t *testing.T) {
-	origem := "# Topo\n\nVeja [x](#Topo) e [[#Topo]] e ![[#Topo]].\n"
+	origem := "# Topo\n\nVeja [x](#Topo) e [[#Topo]] e ![[#Topo]] e [[a]].\n"
+	quer := "# Topo\n\nVeja [x](#Topo) e [[#Topo]] e ![[#Topo]] e [[b]].\n"
 	svc, _, _, root := createMoveService(t, map[string]string{
 		"a.md":   origem,
 		"ref.md": "Outra nota aponta para [[a]]\n",
@@ -57,11 +57,13 @@ func TestMoveNote_LinkSoDeAncoraNaoQuebraOMove(t *testing.T) {
 		t.Fatalf("a nota nao chegou ao caminho novo: %v", err)
 	}
 
-	// As tres formas de ancora saem intactas: mover a nota nao muda para onde
+	// As tres formas de ancora saem intactas — mover a nota nao muda para onde
 	// elas apontam, e escrever um alvo ali inventaria "[[b#Topo]]" onde o autor
-	// escreveu "[[#Topo]]".
-	if string(lido) != origem {
-		t.Errorf("o corpo mudou no move:\n got %q\nwant %q", lido, origem)
+	// escreveu "[[#Topo]]" — e "[[a]]" sai reescrito para "[[b]]": e
+	// auto-referencia com ALVO escrito, e essa precisa acompanhar o move. A
+	// leitura veio do caminho NOVO (sub/b.md), que e o ponto que ENOENT antes.
+	if string(lido) != quer {
+		t.Errorf("o corpo apos o move:\n got %q\nwant %q", lido, quer)
 	}
 
 	// E o citante de verdade FOI reescrito — o guarda nao pode ter desligado a
@@ -73,8 +75,84 @@ func TestMoveNote_LinkSoDeAncoraNaoQuebraOMove(t *testing.T) {
 	if querRef := "Outra nota aponta para [[b]]\n"; string(refRaw) != querRef {
 		t.Errorf("ref.md = %q, quer %q", refRaw, querRef)
 	}
+	if res.LinksUpdated != 2 {
+		t.Errorf("LinksUpdated = %d, quer 2 (ref.md e a propria a.md; nunca os tres de ancora)", res.LinksUpdated)
+	}
+}
+
+// TestMoveNote_NotaQueCitaASiMesma cobre o Achado F1 da revisao 182 na forma
+// que a revisao chamou de comum: "[[a]]" dentro de a.md, alvo ESCRITO (nao so
+// ancora). A nota entra em affectedNotes como sua propria citante; moverCorpo
+// renomeia o arquivo primeiro; o laco de reescrita lia o caminho ANTIGO —
+// ENOENT, com o corpo ja movido e o link nunca reescrito.
+//
+// O move aqui preserva o nome-base (a.md -> sub/a.md), entao o texto de
+// "[[a]]" NAO muda na reescrita — writer.RewriteLinks escreve o mesmo
+// nome-base que ja estava la. Por isso a asserção que discrimina esta correcao
+// nao pode ser textual: e o Resolved do link, lido do INDICE depois de aplicar
+// o rename que o watcher aplicaria em producao via index.MoveNote.
+func TestMoveNote_NotaQueCitaASiMesma(t *testing.T) {
+	origem := "# A\n\nVeja [[a]].\n"
+	svc, v, idx, root := createMoveService(t, map[string]string{
+		"a.md": origem,
+	})
+
+	res, err := svc.MoveNote(context.Background(), service.MoveNoteRequest{
+		From:          "a.md",
+		To:            "sub/a.md",
+		UpdateLinks:   true,
+		CreateFolders: true,
+	})
+	if err != nil {
+		t.Fatalf("MoveNote: %v", err)
+	}
+	if res.To != "sub/a.md" {
+		t.Errorf("res.To = %q, quer %q", res.To, "sub/a.md")
+	}
+
+	if _, err := os.Stat(filepath.Join(root, "a.md")); !os.IsNotExist(err) {
+		t.Errorf("a nota continua no caminho antigo (err=%v)", err)
+	}
+
+	novoAbs := filepath.Join(root, "sub", "a.md")
+	lido, err := os.ReadFile(novoAbs)
+	if err != nil {
+		t.Fatalf("a nota nao chegou ao caminho novo: %v", err)
+	}
+	if string(lido) != origem {
+		t.Errorf("o corpo mudou no move (nome-base identico, texto nao deveria mudar):\n got %q\nwant %q", lido, origem)
+	}
+
+	// Confirma pelo INDICE, nao pela grafia: "[[a]]" continua resolvendo por
+	// nome mesmo sem reescrita nenhuma no texto, entao ler o corpo de volta nao
+	// discrimina se o link foi de fato realocado. idx.MoveNote e o que o
+	// watcher chamaria em producao ao ver o rename; sem ele o indice desta
+	// suite fica parado no estado pre-move (nenhuma tool de escrita atualiza o
+	// indice direto — ver o comentario de TestMoveNote_HappyPathActuallyMovesTheFile).
+	canonicalFrom := vault.CanonicalPath("a.md")
+	canonicalTo := vault.CanonicalPath("sub/a.md")
+	idx.MoveNote(v, canonicalFrom, canonicalTo)
+
+	nota, ok := idx.Get(canonicalTo)
+	if !ok {
+		t.Fatalf("idx.Get(%q): nota nao encontrada apos index.MoveNote", canonicalTo)
+	}
+	var achou bool
+	for _, l := range nota.Links {
+		if l.Target != "a" {
+			continue
+		}
+		achou = true
+		if l.Resolved != canonicalTo {
+			t.Errorf("link [[a]] com Resolved = %q, quer %q", l.Resolved, canonicalTo)
+		}
+	}
+	if !achou {
+		t.Fatalf("nenhum link com Target=%q em %q", "a", canonicalTo)
+	}
+
 	if res.LinksUpdated != 1 {
-		t.Errorf("LinksUpdated = %d, quer 1 (so o de ref.md, nunca os tres de ancora)", res.LinksUpdated)
+		t.Errorf("LinksUpdated = %d, quer 1 (o proprio [[a]])", res.LinksUpdated)
 	}
 }
 
