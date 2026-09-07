@@ -613,6 +613,18 @@ o quarto, que é exatamente o defeito que ela existe para impedir.
   gate olhar o que está em stage. Conserto: ler a mensagem do commit
   (`-m`/`-F`/`COMMIT_EDITMSG`) em vez da linha de comando. A escotilha `[sem-doc]`
   em si é decisão fechada e fica — ver `docs/papeis/documentador.md`.
+- **`scripts/audit_reports.ps1` casa a palavra, não a evidência** (achado do
+  implementador da Task 184, 2026-09-06; **não corrigido**). As quatro seções
+  obrigatórias de um relatório são procuradas por regex de palavra solta sobre o
+  corpo inteiro (`audit_reports.ps1:113-118`: `red`, `green`, `muta`,
+  `verifica`). A frase "**não** há ciclo RED/GREEN nem prova de mutação para
+  colar" satisfaz três delas — uma negação explícita passa pelo mesmo portão que
+  uma evidência real, e o achado `SECAO-AUSENTE` desaparece de um relatório que
+  de fato não tem nenhuma das três. É a **mesma classe** do hook acima: checador
+  que casa a palavra em vez do fato não gateia nada. Conserto: exigir um
+  cabeçalho Markdown com o nome da seção, e não a palavra em qualquer lugar.
+  Os outros achados do script (`HEDGE`, `SHA-FANTASMA`, `MUTACAO-CONDICIONAL`)
+  não têm esse defeito e seguem úteis.
 - **`[x](b.md#)` — âncora vazia depois do `#` — perde o `#` na reescrita.**
   `splitAnchor` devolve `("b.md", "")` e `anchorMarkdown` devolve `""` para
   âncora vazia, então um `note_move` reescreve `[x](b.md#)` como `[x](c.md)`.
