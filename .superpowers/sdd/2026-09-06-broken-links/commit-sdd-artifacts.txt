@@ -1,0 +1,10 @@
+docs(sdd): plan and ledger of the broken-links release — briefs, reports, reviews
+
+The plan for Tasks 182-185 (anchor links, vault_broken_links, the
+note_move self-citation fix, docs), its ledger with every ruling, the
+four task reviews, the final whole-branch review and the review
+packages they read. Committed by explicit path, as the previous plan's
+artifacts were.
+
+Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01P5wkw6PAdBFzF3uB1w1jNj

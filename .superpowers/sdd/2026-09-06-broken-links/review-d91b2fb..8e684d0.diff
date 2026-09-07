@@ -1,0 +1,582 @@
+# Review package: d91b2fb..8e684d0
+
+## Commits
+8e684d0 fix(links): anchor links resolve to their note instead of counting as missing targets
+
+## Files changed
+ internal/index/persist.go             |  5 ++-
+ internal/index/resolve.go             | 24 +++++++++++--
+ internal/index/resolve_anchor_test.go | 64 +++++++++++++++++++++++++++++++++++
+ internal/index/update.go              |  4 +--
+ internal/parser/ast.go                | 30 ++++++++++++++--
+ internal/parser/ext_wikilink.go       |  9 ++---
+ internal/parser/links_anchor_test.go  | 46 +++++++++++++++++++++++++
+ internal/parser/types.go              | 18 +++++++---
+ internal/writer/linkrewrite.go        | 19 +++++++++--
+ internal/writer/linkrewrite_test.go   | 38 +++++++++++++++++++++
+ 10 files changed, 240 insertions(+), 17 deletions(-)
+
+## Diff
+diff --git a/internal/index/persist.go b/internal/index/persist.go
+index 660e367..0730835 100644
+--- a/internal/index/persist.go
++++ b/internal/index/persist.go
+@@ -36,21 +36,24 @@ const (
+ 	// Resposta que depende do estado do cache e a classe de defeito que este
+ 	// projeto trata como inaceitavel.
+ 	IndexCacheFormatVersion = 5
+ 	// IndexCacheParserVersion muda quando o parser passa a produzir
+ 	// estrutura diferente para a mesma entrada. Sem isto, corrigir um bug de
+ 	// parsing e reiniciar carregaria de volta o índice errado: mtime e
+ 	// tamanho dos arquivos não mudaram, então VerifyFreshness não veria
+ 	// motivo pra descartar o cache, e o bug pareceria não corrigido. Mesmo
+ 	// raciocínio de ARCHITECTURE.md §6.3 para o parser_version do cache de
+ 	// busca.
+-	IndexCacheParserVersion = 1
++	//
++	// 1 -> 2 em 2026-09-06: link Markdown passou a separar ancora; cache antigo
++	// carregaria `Target="b.md#Sec"`.
++	IndexCacheParserVersion = 2
+ )
+ 
+ // indexCacheFileName é o nome fixo dentro de cfg.CacheDir — o mesmo
+ // diretório do inverted_cache.gob, arquivo irmão.
+ const indexCacheFileName = "index_cache.gob"
+ 
+ // Erros exportados para operações de persistência do cache de metadados.
+ var (
+ 	// ErrIndexCacheNotFound indica que o arquivo de cache não existe.
+ 	ErrIndexCacheNotFound = errors.New("index cache file not found")
+diff --git a/internal/index/resolve.go b/internal/index/resolve.go
+index c7613bd..ba86f0f 100644
+--- a/internal/index/resolve.go
++++ b/internal/index/resolve.go
+@@ -87,34 +87,54 @@ func (ix *Index) resolveAllLinks() {
+ 		// Nota sem link nenhum nao precisa de copia: nada seria escrito nela.
+ 		if len(atual.Links) == 0 {
+ 			continue
+ 		}
+ 		// Uma cópia por nota, no máximo: mutarNotaLocked devolve a mesma
+ 		// enquanto o acumulador não for nil.
+ 		var copia *Note
+ 		alvo := ix.mutarNotaLocked(path, &copia)
+ 
+ 		for i := range alvo.Links {
+-			resolved, via, state := ix.resolveTarget(alvo.Links[i].Target, alvo.Path)
++			resolved, via, state := ix.resolveTarget(alvo.Links[i].Target, alvo.Links[i].Anchor, alvo.Path)
+ 			alvo.Links[i].Resolved = resolved
+ 			alvo.Links[i].Via = via
+ 			alvo.Links[i].State = state
+ 
+ 			if state == LinkOK {
+ 				ix.resolveAnchor(&alvo.Links[i])
+ 			}
+ 		}
+ 	}
+ }
+ 
+-func (ix *Index) resolveTarget(target string, origin vault.CanonicalPath) (vault.CanonicalPath, ResolveVia, LinkState) {
++// resolveTarget decide alvo, via e estado de um link. Recebe a ancora porque o
++// alvo vazio significa duas coisas diferentes conforme ela exista ou nao, e
++// distingui-las no chamador exigiria a mesma condicao escrita nos TRES pontos
++// que resolvem link (resolveAllLinks, resolveLinksForNoteLocked e
++// reprocessNoteLinksLocked) — uma conta por regra.
++func (ix *Index) resolveTarget(target, anchor string, origin vault.CanonicalPath) (vault.CanonicalPath, ResolveVia, LinkState) {
+ 	if target == "" {
++		// Link so de ancora — "[x](#Topo)", "[[#Topo]]", "![[#Topo]]" — aponta
++		// para a PROPRIA nota. Ate 2026-09-06 as tres formas caiam em
++		// LinkTargetMissing e entravam na contagem de broken_links; medido no
++		// mesmo dia em cofres reais, 267 alvos comecando com "#" num deles e
++		// 372 em outro, todos falsos positivos.
++		//
++		// ViaPath porque a nota de origem JA e um caminho do cofre: nenhuma
++		// busca por nome nem por alias aconteceu, e inventar uma via nova para
++		// dizer isso nao acrescentaria informacao a quem diagnostica.
++		//
++		// Cai na checagem de ancora normal do chamador, que e o que faz
++		// "[x](#Nada)" virar LinkAnchorMissing em vez de passar por bom.
++		if anchor != "" {
++			return origin, ViaPath, LinkOK
++		}
+ 		return "", ViaNone, LinkTargetMissing
+ 	}
+ 
+ 	// Alvo com esquema de URI nunca foi para o cofre. Precisa sair antes de
+ 	// qualquer tentativa de resolucao, senao vira link quebrado e polui a
+ 	// contagem de saude.
+ 	if hasURIScheme(target) {
+ 		return "", ViaNone, LinkExternal
+ 	}
+ 
+diff --git a/internal/index/resolve_anchor_test.go b/internal/index/resolve_anchor_test.go
+new file mode 100644
+index 0000000..3175b89
+--- /dev/null
++++ b/internal/index/resolve_anchor_test.go
+@@ -0,0 +1,64 @@
++package index_test
++
++import (
++	"context"
++	"strings"
++	"testing"
++
++	"github.com/jonyd/gobsidian/internal/index"
++	"github.com/jonyd/gobsidian/internal/vault"
++)
++
++// Link de ancora aponta para a PROPRIA nota, e nao para lugar nenhum.
++//
++// As tres formas — "[x](b.md#Sec)", "[x](#Topo)" e "[[#Topo]]" — caiam em
++// LinkTargetMissing e entravam na contagem de broken_links, que o PRD chama de
++// principal sinal de saude do cofre. Medido em 2026-09-06 em cofres reais: 267
++// alvos comecando com "#" num deles e 372 em outro, todos falsos positivos.
++func TestAncoraNaMesmaNota(t *testing.T) {
++	root := t.TempDir()
++	writeFile(t, root, "b.md", "# Sec\n")
++	writeFile(t, root, "a.md", strings.Join([]string{
++		"# Topo",
++		"[x](b.md#Sec)", // 0: outra nota, ancora existente
++		"[x](#Topo)",    // 1: propria nota, ancora existente
++		"[[#Topo]]",     // 2: idem, em wikilink
++		"[x](#Nada)",    // 3: propria nota, ancora inexistente
++		"[[#Nada]]",     // 4: idem, em wikilink
++		"[x]()",         // 5: contrapeso — sem alvo E sem ancora
++	}, "\n\n")+"\n")
++
++	v, _ := vault.New(root)
++	idx := index.New()
++	if err := idx.Build(context.Background(), v); err != nil {
++		t.Fatalf("Build: %v", err)
++	}
++
++	note, ok := idx.Get("a.md")
++	if !ok {
++		t.Fatal("a.md ausente")
++	}
++	if len(note.Links) != 6 {
++		t.Fatalf("links = %d, quer 6: %+v", len(note.Links), note.Links)
++	}
++
++	want := []struct {
++		resolved vault.CanonicalPath
++		state    index.LinkState
++	}{
++		{"b.md", index.LinkOK},
++		{"a.md", index.LinkOK},
++		{"a.md", index.LinkOK},
++		{"a.md", index.LinkAnchorMissing},
++		{"a.md", index.LinkAnchorMissing},
++		{"", index.LinkTargetMissing},
++	}
++
++	for i, w := range want {
++		got := note.Links[i]
++		if got.Resolved != w.resolved || got.State != w.state {
++			t.Errorf("link %d (%q#%q): Resolved=%q State=%v, quer %q/%v",
++				i, got.Target, got.Anchor, got.Resolved, got.State, w.resolved, w.state)
++		}
++	}
++}
+diff --git a/internal/index/update.go b/internal/index/update.go
+index b1e5dfe..2542c5f 100644
+--- a/internal/index/update.go
++++ b/internal/index/update.go
+@@ -261,21 +261,21 @@ func (ix *Index) removeContributionsLocked(path vault.CanonicalPath) []string {
+ 		// por no lugar). O proprio nome ainda e uma chave valida — algo pode
+ 		// citar esse nome sem que exista arquivo nenhum com ele.
+ 		chaves = []string{nomeChave(string(path))}
+ 	}
+ 
+ 	return chaves
+ }
+ 
+ func (ix *Index) resolveLinksForNoteLocked(n *Note) {
+ 	for i := range n.Links {
+-		resolved, via, state := ix.resolveTarget(n.Links[i].Target, n.Path)
++		resolved, via, state := ix.resolveTarget(n.Links[i].Target, n.Links[i].Anchor, n.Path)
+ 		n.Links[i].Resolved = resolved
+ 		n.Links[i].Via = via
+ 		n.Links[i].State = state
+ 
+ 		if state == LinkOK {
+ 			ix.resolveAnchor(&n.Links[i])
+ 		}
+ 	}
+ }
+ 
+@@ -421,21 +421,21 @@ func (ix *Index) reprocessLinksDirigidoLocked(chaves []string) {
+ // antigo percurso global fazia por nota, restrito a um caminho so.
+ func (ix *Index) reprocessNoteLinksLocked(path vault.CanonicalPath) {
+ 	n, ok := ix.notes[path]
+ 	if !ok {
+ 		return
+ 	}
+ 
+ 	var copia *Note
+ 
+ 	for i := range n.Links {
+-		resolved, via, state := ix.resolveTarget(n.Links[i].Target, n.Path)
++		resolved, via, state := ix.resolveTarget(n.Links[i].Target, n.Links[i].Anchor, n.Path)
+ 
+ 		oldResolved := n.Links[i].Resolved
+ 
+ 		// Monta o link novo fora do indice e so publica se ele mudou.
+ 		// ResolvedLink e comparavel — parser.Link tem so escalares e
+ 		// strings — entao a comparacao e a propria condicao de copia.
+ 		novo := n.Links[i]
+ 		novo.Resolved = resolved
+ 		novo.Via = via
+ 		novo.State = state
+diff --git a/internal/parser/ast.go b/internal/parser/ast.go
+index 163419d..22a1cf5 100644
+--- a/internal/parser/ast.go
++++ b/internal/parser/ast.go
+@@ -26,38 +26,42 @@ func collect(doc gast.Node, body []byte, bodyOffset int64, note *ParsedNote) {
+ 				Start:  bodyOffset + node.Start,
+ 				End:    bodyOffset + node.End,
+ 			})
+ 
+ 		case *gast.Image:
+ 			start, end := findMarkdownLinkSpan(node, true, body, node.Destination)
+ 			if start != offsetUnknown {
+ 				start += bodyOffset
+ 				end += bodyOffset
+ 			}
++			target, anchor := splitAnchor(string(node.Destination))
+ 			note.Links = append(note.Links, Link{
+ 				Raw:    string(node.Destination),
+-				Target: PercentDecode(string(node.Destination)),
++				Target: PercentDecode(target),
++				Anchor: PercentDecode(anchor),
+ 				Alias:  inlineText(node, body),
+ 				Kind:   LinkEmbed,
+ 				Start:  start,
+ 				End:    end,
+ 			})
+ 
+ 		case *gast.Link:
+ 			start, end := findMarkdownLinkSpan(node, false, body, node.Destination)
+ 			if start != offsetUnknown {
+ 				start += bodyOffset
+ 				end += bodyOffset
+ 			}
++			target, anchor := splitAnchor(string(node.Destination))
+ 			note.Links = append(note.Links, Link{
+ 				Raw:    string(node.Destination),
+-				Target: PercentDecode(string(node.Destination)),
++				Target: PercentDecode(target),
++				Anchor: PercentDecode(anchor),
+ 				Alias:  inlineText(node, body),
+ 				Kind:   LinkMarkdown,
+ 				Start:  start,
+ 				End:    end,
+ 			})
+ 
+ 		case *BlockIDNode:
+ 			note.Blocks = append(note.Blocks, Block{
+ 				ID:    node.ID,
+ 				Start: bodyOffset + node.Start,
+@@ -71,20 +75,42 @@ func collect(doc gast.Node, body []byte, bodyOffset int64, note *ParsedNote) {
+ 			if note.Inline == nil {
+ 				note.Inline = map[string][]string{}
+ 			}
+ 			note.Inline[node.Key] = append(note.Inline[node.Key], node.Value)
+ 		}
+ 
+ 		return gast.WalkContinue, nil
+ 	})
+ }
+ 
++// splitAnchor reparte um destino de link no PRIMEIRO '#': antes fica o alvo,
++// depois a ancora — heading ou "^bloco".
++//
++// E a UNICA separacao de '#' do parser: splitWikilink a chama, e os ramos
++// Markdown de collect tambem. Ate 2026-09-06 so o wikilink separava, e o
++// destino Markdown chegava inteiro ao indice, que procurava a nota "b.md#Sec"
++// — inexistente — e a contava como alvo ausente.
++//
++// Nao apara espaco: quem precisa disso e splitWikilink, porque "[[ a | b ]]" e
++// grafia aceita; um destino Markdown vem do goldmark ja delimitado, e aparar
++// aqui mudaria o alvo de quem nao pediu.
++//
++// Roda ANTES de PercentDecode nos ramos Markdown, e a ordem e a regra: "%23" e
++// um '#' que faz parte do NOME do arquivo. Decodificar primeiro o promoveria a
++// separador de uma ancora que ninguem escreveu.
++func splitAnchor(s string) (target, anchor string) {
++	if i := strings.IndexByte(s, '#'); i >= 0 {
++		return s[:i], s[i+1:]
++	}
++	return s, ""
++}
++
+ // tagsFromFrontmatter le as chaves "tags" e "tag" do frontmatter. Cada uma
+ // pode ser uma string unica, uma string com virgulas, ou uma lista; cada
+ // valor entra sem o '#' inicial.
+ func tagsFromFrontmatter(fm map[string]any) []string {
+ 	var out []string
+ 	for _, key := range []string{"tags", "tag"} {
+ 		for _, v := range stringsFromFrontmatterValue(fm[key]) {
+ 			out = append(out, strings.TrimPrefix(v, "#"))
+ 		}
+ 	}
+diff --git a/internal/parser/ext_wikilink.go b/internal/parser/ext_wikilink.go
+index 213a4ff..b8dcd39 100644
+--- a/internal/parser/ext_wikilink.go
++++ b/internal/parser/ext_wikilink.go
+@@ -106,29 +106,30 @@ func (p *wikilinkParser) Parse(_ gast.Node, block text.Reader, _ gparser.Context
+ 	if embed {
+ 		node.LinkKind = LinkEmbed
+ 	}
+ 
+ 	block.Advance(total)
+ 	return node
+ }
+ 
+ // splitWikilink reparte "alvo#ancora|alias" nas tres partes. A ordem importa:
+ // o alias e sempre o ultimo, e a ancora vem antes dele.
++//
++// O corte do '#' e de splitAnchor (ast.go), que o ramo Markdown de collect
++// tambem usa: uma conta so. Aqui sobra o que e proprio do wikilink — o '|' e o
++// aparo de espaco das tres partes.
+ func splitWikilink(inner string) (target, anchor, alias string) {
+ 	if i := strings.IndexByte(inner, '|'); i >= 0 {
+ 		alias = inner[i+1:]
+ 		inner = inner[:i]
+ 	}
+-	if i := strings.IndexByte(inner, '#'); i >= 0 {
+-		anchor = inner[i+1:]
+-		inner = inner[:i]
+-	}
++	inner, anchor = splitAnchor(inner)
+ 	return strings.TrimSpace(inner), strings.TrimSpace(anchor), strings.TrimSpace(alias)
+ }
+ 
+ // WikilinkExtension registra o inline parser no goldmark.
+ type WikilinkExtension struct{}
+ 
+ // Extend registra o parser inline de wikilink no goldmark.
+ //
+ // E parser INLINE, e nao varredura de texto, de proposito: o goldmark nao
+ // chama parsers inline dentro de bloco de codigo, entao a supressao dentro de
+diff --git a/internal/parser/links_anchor_test.go b/internal/parser/links_anchor_test.go
+new file mode 100644
+index 0000000..b1e8b7b
+--- /dev/null
++++ b/internal/parser/links_anchor_test.go
+@@ -0,0 +1,46 @@
++package parser
++
++import "testing"
++
++// Link Markdown com ancora: o parser separava so o wikilink, e o indice
++// procurava a nota "b.md#Sec" — que nao existe — e contava alvo ausente.
++// Medido em 2026-09-06 em cofres reais: 267 alvos comecando com "#" em um
++// cofre, 372 em outro, todos contados como broken_links.
++func TestMarkdownLinkSeparaAncora(t *testing.T) {
++	casos := []struct {
++		nome, src, target, anchor string
++	}{
++		{"nota e heading", "[x](b.md#Sec)", "b.md", "Sec"},
++		{"so ancora", "[x](#Topo)", "", "Topo"},
++		{"ancora percent-encoded", "[x](b.md#Se%C3%A7%C3%A3o)", "b.md", "Seção"},
++		{"embed markdown", "![x](b.md#Sec)", "b.md", "Sec"},
++		{"sem ancora fica igual", "[x](b.md)", "b.md", ""},
++		{"URL com fragmento: Target sem fragmento, esquema intacto", "[x](https://ex.com/p#f)", "https://ex.com/p", "f"},
++	}
++	for _, c := range casos {
++		t.Run(c.nome, func(t *testing.T) {
++			doc := Parse([]byte(c.src))
++			if len(doc.Links) != 1 {
++				t.Fatalf("links = %d, queria 1", len(doc.Links))
++			}
++			l := doc.Links[0]
++			if l.Target != c.target || l.Anchor != c.anchor {
++				t.Errorf("Target=%q Anchor=%q, queria %q/%q", l.Target, l.Anchor, c.target, c.anchor)
++			}
++		})
++	}
++}
++
++// O '#' escapado como %23 faz parte do NOME do arquivo, e nao separa ancora.
++// E por isso que a separacao acontece antes de PercentDecode: decodificar
++// primeiro transformaria "C%23.md" em "C#.md" e o '#' viraria separador de uma
++// ancora que ninguem escreveu.
++func TestMarkdownLinkNaoSeparaNoPercent23(t *testing.T) {
++	doc := Parse([]byte("[x](C%23.md)"))
++	if len(doc.Links) != 1 {
++		t.Fatalf("links = %d, queria 1", len(doc.Links))
++	}
++	if got := doc.Links[0]; got.Target != "C#.md" || got.Anchor != "" {
++		t.Errorf("Target=%q Anchor=%q, queria %q/%q", got.Target, got.Anchor, "C#.md", "")
++	}
++}
+diff --git a/internal/parser/types.go b/internal/parser/types.go
+index 95c2d1b..536210d 100644
+--- a/internal/parser/types.go
++++ b/internal/parser/types.go
+@@ -85,24 +85,34 @@ type Block struct {
+ 	End   int64 `json:"end"`
+ }
+ 
+ // offsetUnknown marca um offset que o parser nao conseguiu determinar. Ver o
+ // comentario de Link.Start.
+ const offsetUnknown int64 = -1
+ 
+ // Link e uma referencia a outra nota ou a um recurso, na sintaxe wikilink,
+ // embed ou markdown.
+ type Link struct {
+-	Raw    string   `json:"raw"` // texto original, para reescrita fiel
+-	Target string   `json:"target"`
+-	Alias  string   `json:"alias,omitempty"`
+-	Anchor string   `json:"anchor,omitempty"` // heading ou ^bloco
++	Raw    string `json:"raw"` // texto original, para reescrita fiel
++	Target string `json:"target"`
++	Alias  string `json:"alias,omitempty"`
++	// Anchor e o que vem depois do '#': heading ou "^bloco". Vale para os TRES
++	// Kind — wikilink, embed e link Markdown —, e Target nunca traz o '#'.
++	//
++	// Ate 2026-09-06 so o wikilink separava, e "[x](b.md#Sec)" chegava com
++	// Target="b.md#Sec" e Anchor="". O indice procurava uma nota com esse nome,
++	// nao achava, e somava o link em broken_links; "[x](#Topo)", que aponta
++	// para a propria nota, virava alvo ausente do mesmo jeito.
++	//
++	// Anchor vazio com Target vazio nao existe: "[[]]" o parser recusa, e
++	// "[x]()" continua sendo alvo ausente de verdade.
++	Anchor string   `json:"anchor,omitempty"`
+ 	Kind   LinkKind `json:"kind"`
+ 
+ 	// Start e End delimitam o link no buffer, com bodyOffset ja somado.
+ 	//
+ 	// As QUATRO grafias trazem span correto. Sondado em 2026-08-26 (achado B14
+ 	// da auditoria, que corrigiu este proprio comentario):
+ 	//
+ 	//   [[wiki]]         start= 6 end=14  span="[[wiki]]"
+ 	//   [alvo](alvo.md)  start=20 end=35  span="[alvo](alvo.md)"
+ 	//   ![[e.png]]       start=40 end=50  span="![[e.png]]"
+diff --git a/internal/writer/linkrewrite.go b/internal/writer/linkrewrite.go
+index e0270de..8e967b6 100644
+--- a/internal/writer/linkrewrite.go
++++ b/internal/writer/linkrewrite.go
+@@ -86,24 +86,24 @@ func RewriteLinks(src []byte, replacements []LinkReplacement) ([]byte, error) {
+ // alias e ancora do link original.
+ func BuildLinkText(orig parser.Link, newTarget string) string {
+ 	switch orig.Kind {
+ 	case parser.LinkWiki:
+ 		return formatWikiLink("", newTarget, orig.Anchor, orig.Alias)
+ 	case parser.LinkEmbed:
+ 		if strings.HasPrefix(orig.Raw, "!") && strings.HasPrefix(strings.TrimPrefix(orig.Raw, "!"), "[[") {
+ 			return formatWikiLink("!", newTarget, orig.Anchor, orig.Alias)
+ 		}
+ 		targetEnc := encodeMarkdownTarget(newTarget, orig.Raw)
+-		return fmt.Sprintf("![%s](%s)", orig.Alias, targetEnc)
++		return fmt.Sprintf("![%s](%s%s)", orig.Alias, targetEnc, anchorMarkdown(orig.Anchor, orig.Raw))
+ 	case parser.LinkMarkdown:
+ 		targetEnc := encodeMarkdownTarget(newTarget, orig.Raw)
+-		return fmt.Sprintf("[%s](%s)", orig.Alias, targetEnc)
++		return fmt.Sprintf("[%s](%s%s)", orig.Alias, targetEnc, anchorMarkdown(orig.Anchor, orig.Raw))
+ 	default:
+ 		return formatWikiLink("", newTarget, orig.Anchor, orig.Alias)
+ 	}
+ }
+ 
+ func formatWikiLink(prefix, target, anchor, alias string) string {
+ 	var sb strings.Builder
+ 	sb.WriteString(prefix)
+ 	sb.WriteString("[[")
+ 	sb.WriteString(target)
+@@ -112,16 +112,31 @@ func formatWikiLink(prefix, target, anchor, alias string) string {
+ 		sb.WriteString(anchor)
+ 	}
+ 	if alias != "" {
+ 		sb.WriteByte('|')
+ 		sb.WriteString(alias)
+ 	}
+ 	sb.WriteString("]]")
+ 	return sb.String()
+ }
+ 
++// anchorMarkdown reemite o "#ancora" de um link em grafia Markdown, com o
++// MESMO encoding do alvo — a ancora vem decodificada do parser, e um espaco
++// cru fecharia o destino antes da hora.
++//
++// Existe desde 2026-09-06, quando o parser passou a separar a ancora do
++// destino Markdown: ate ali ela vinha grudada em Target e sobrevivia a
++// reescrita por acidente. Depois da separacao, formatar so o alvo novo apagava
++// o "#Sec" de todo link que note_move tocasse.
++func anchorMarkdown(anchor, origRaw string) string {
++	if anchor == "" {
++		return ""
++	}
++	return "#" + encodeMarkdownTarget(anchor, origRaw)
++}
++
+ func encodeMarkdownTarget(target string, origRaw string) string {
+ 	if strings.Contains(origRaw, "%20") || strings.Contains(target, " ") {
+ 		return strings.ReplaceAll(target, " ", "%20")
+ 	}
+ 	return target
+ }
+diff --git a/internal/writer/linkrewrite_test.go b/internal/writer/linkrewrite_test.go
+index bfa99f1..9c3954a 100644
+--- a/internal/writer/linkrewrite_test.go
++++ b/internal/writer/linkrewrite_test.go
+@@ -54,20 +54,58 @@ func TestRewriteLinks_PreservesSyntaxAndEmbed(t *testing.T) {
+ 	if err != nil {
+ 		t.Fatalf("RewriteLinks: %v", err)
+ 	}
+ 
+ 	want := "Markdown: [texto](novo.md)\nEmbed: ![[imagem_nova.png]]"
+ 	if string(got) != want {
+ 		t.Errorf("obtido %q, quer %q", string(got), want)
+ 	}
+ }
+ 
++// A ancora do link Markdown sobrevive a reescrita.
++//
++// Desde 2026-09-06 o parser separa "b.md#Sec" em Target e Anchor, e os ramos
++// Markdown de BuildLinkText formatavam SO o alvo novo: um note_move apagaria o
++// "#Sec" de todo link reescrito, silenciosamente, e o destino da secao viraria
++// o topo da nota.
++//
++// A ultima linha cobre o encoding: o parser devolve a ancora DECODIFICADA
++// ("Com Espaco"), e reemiti-la crua produziria "[x](c.md#Com Espaco)" — um
++// destino com espaco, que o CommonMark nao aceita sem colchete angular, ou
++// seja, um link que deixa de ser link.
++func TestRewriteLinks_PreservaAncoraEmLinkMarkdown(t *testing.T) {
++	input := "Link: [x](b.md#Sec)\nEmbed: ![x](b.md#Sec)\nEspaco: [x](b.md#Com%20Espaco)"
++	src := []byte(input)
++
++	note := parser.Parse(src)
++
++	if len(note.Links) != 3 {
++		t.Fatalf("esperado 3 links, obtido %d", len(note.Links))
++	}
++
++	replacements := []writer.LinkReplacement{
++		{Link: note.Links[0], NewTarget: "c.md"},
++		{Link: note.Links[1], NewTarget: "c.md"},
++		{Link: note.Links[2], NewTarget: "c.md"},
++	}
++
++	got, err := writer.RewriteLinks(src, replacements)
++	if err != nil {
++		t.Fatalf("RewriteLinks: %v", err)
++	}
++
++	want := "Link: [x](c.md#Sec)\nEmbed: ![x](c.md#Sec)\nEspaco: [x](c.md#Com%20Espaco)"
++	if string(got) != want {
++		t.Errorf("obtido %q, quer %q", string(got), want)
++	}
++}
++
+ func TestRewriteLinks_MultipleOccurrencesInSameNote(t *testing.T) {
+ 	input := "Primeiro [[nota_antiga]], segundo [[nota_antiga]] e terceiro [texto](nota_antiga.md)."
+ 	src := []byte(input)
+ 
+ 	note := parser.Parse(src)
+ 
+ 	if len(note.Links) != 3 {
+ 		t.Fatalf("esperado 3 links, obtido %d", len(note.Links))
+ 	}
+ 

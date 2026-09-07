@@ -1,0 +1,11 @@
+fix(write): note_move rewrites the moved note's own self-references at its new path
+
+A note that cites itself by name ("[[a]]" inside a.md) enters affectedNotes
+under its own pre-move key, but moverCorpo already renamed the file to its
+new path by the time the rewrite loop runs. Reading and writing by the old
+key gave ENOENT, leaving the move half-done (body moved, self-citation never
+rewritten). caminhoAtual is now the single decision of "where this citer
+lives now", used for the lock, the read and the write.
+
+Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01P5wkw6PAdBFzF3uB1w1jNj

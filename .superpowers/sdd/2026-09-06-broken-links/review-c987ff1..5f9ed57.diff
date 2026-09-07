@@ -1,0 +1,835 @@
+# Review package: c987ff1..5f9ed57
+
+## Commits
+5f9ed57 feat(tools): vault_broken_links lists every missing target and anchor in the vault
+
+## Files changed
+ README.md                                  |   1 +
+ docs/ESTRUTURA.md                          |   1 +
+ docs/TOOLS.md                              |  38 ++++++
+ docs/wiki/Home.md                          |   4 +-
+ docs/wiki/_Sidebar.md                      |   2 +-
+ docs/wiki/concepts/camadas-e-fronteiras.md |   2 +-
+ docs/wiki/concepts/os-dois-indices.md      |   2 +-
+ docs/wiki/features/busca.md                |   2 +-
+ docs/wiki/features/tools-mcp.md            |  15 +--
+ internal/mcpsrv/tools_read.go              |  32 +++++
+ internal/mcpsrv/tools_read_test.go         |  14 ++-
+ internal/service/broken.go                 | 144 +++++++++++++++++++++++
+ internal/service/broken_test.go            | 182 +++++++++++++++++++++++++++++
+ 13 files changed, 424 insertions(+), 15 deletions(-)
+
+## Diff
+diff --git a/README.md b/README.md
+index 3e6af49..947b60c 100644
+--- a/README.md
++++ b/README.md
+@@ -227,20 +227,21 @@ Full contracts, schemas and error codes in [`docs/TOOLS.md`](docs/TOOLS.md).
+ **📖 Reading**
+ 
+ | Tool | What it does |
+ |---|---|
+ | `vault_search` | BM25 search, exact phrase, folder, tag, frontmatter and date filters |
+ | `note_read` | A whole note, a section by heading, or a block by `^id`; several notes in one call, with per-item overrides |
+ | `note_outline` | The note's map: real headings, and title candidates for notes converted from PDF/DOCX/EPUB |
+ | `note_list` | Lists by glob, folder, tag or frontmatter query |
+ | `note_metadata` | Frontmatter, tags, links, backlinks, headings and blocks |
+ | `link_graph` | Link neighbourhood, with direction and depth |
++| `vault_broken_links` | Every broken link in the vault — missing target or missing anchor — with source and context, paginated |
+ | `tag_list` | Every tag in the vault, with counts |
+ | `vault_stats` | Notes, orphans, broken links and watcher counters |
+ 
+ **✏️ Writing** — all accept `dry_run` and `expected_hash`
+ 
+ | Tool | What it does |
+ |---|---|
+ | `note_create` | Creates the note, failing if it already exists |
+ | `note_append` | Appends to the end of the note or of a section |
+ | `note_patch` | Replaces the content under a heading or block |
+diff --git a/docs/ESTRUTURA.md b/docs/ESTRUTURA.md
+index bfadbfe..91a58d9 100644
+--- a/docs/ESTRUTURA.md
++++ b/docs/ESTRUTURA.md
+@@ -120,20 +120,21 @@ gobsidian/
+ │   │   ├── block.go              substituir bloco por ^id
+ │   │   ├── linkrewrite.go        reescrita de links em note_move
+ │   │   └── diff.go               diff unificado para dry-run
+ │   │
+ │   ├── service/
+ │   │   ├── service.go            struct Service; injeção dos subsistemas
+ │   │   ├── read.go               métodos de leitura
+ │   │   ├── outline.go            note_outline: headings do índice + candidatos do parser
+ │   │   ├── write.go              métodos de escrita
+ │   │   ├── graph.go              link_graph, note_metadata, tag_list, vault_stats
++│   │   ├── broken.go             vault_broken_links: lista o que vault_stats conta
+ │   │   ├── search.go             vault_search: filtro, paginação, trechos
+ │   │   ├── search_lazy.go        carga única e cancelável do índice de busca
+ │   │   └── errors.go             taxonomia de erros de domínio e classificação
+ │   │
+ │   ├── mcpsrv/
+ │   │   ├── server.go             construção do servidor, registro de tools
+ │   │   ├── tools_read.go         handlers e schemas das tools de leitura
+ │   │   ├── alvo_note_read.go     item de paths: string ou objeto, e o schema com oneOf
+ │   │   ├── tools_write.go        handlers e schemas das tools de escrita
+ │   │   ├── resources.go          exposição de notas como resources gobsidian://
+diff --git a/docs/TOOLS.md b/docs/TOOLS.md
+index a52e70b..f6c6e99 100644
+--- a/docs/TOOLS.md
++++ b/docs/TOOLS.md
+@@ -277,20 +277,58 @@ Vizinhança de links de uma nota.
+   "required": ["path"]
+ }
+ ```
+ 
+ **Retorno.** `nodes` com `path`, `title` e `distance` (saltos até a nota de origem; a travessia é em largura, então a primeira vez que um nó sai da fila já é pela rota mais curta), e `edges` com `source`, `target`, `kind`, `alias`, `anchor` e `resolved`.
+ 
+ `alias` e `anchor` fazem parte da IDENTIDADE da aresta: `A→B#Prescrição` e `A→B#Honorários` são referências diferentes e saem como arestas separadas. `resolved` só vem falso com `include_broken`, que é o único caminho que produz aresta sem alvo no cofre.
+ 
+ **Notas.** `depth` acima de 2 pode devolver uma fração grande do cofre em bases densamente ligadas. O teto de 3 é intencional.
+ 
++Desde a Task 182, em que `[[#Seção]]` e `[x](#Seção)` passaram a resolver para a própria nota de origem, uma aresta pode sair com `source == target`: é a nota citando um heading dela mesma, e não um defeito da travessia.
++
++---
++
++## `vault_broken_links`
++
++Todos os links quebrados do cofre: alvo ausente ou âncora ausente, com origem e contexto. É a lista do que `vault_stats` apenas conta em `broken_links` e `broken_anchors`.
++
++```json
++{
++  "type": "object",
++  "properties": {
++    "state":  { "type": "string", "enum": ["target_missing", "anchor_missing"], "description": "Omitido devolve os dois estados. Valor fora do enum devolve INVALID_ARGUMENT." },
++    "prefix": { "type": "string", "description": "Restringe a nota de ORIGEM por PREFIXO DE STRING sobre o caminho relativo ao cofre, e não por segmento: 'sub' casa 'sub/c.md' e também 'subtotal.md'. Comparação insensível a caixa e a forma Unicode (NFC). Vazio percorre o cofre inteiro." },
++    "limit":  { "type": "integer", "default": 100, "description": "Acima de 500, o servidor clampa a 500." },
++    "offset": { "type": "integer", "default": 0, "description": "Negativo vira 0." }
++  }
++}
++```
++
++**Retorno.** `links` com `source` (a nota que cita), `target` (a grafia do alvo, sem o `#`), `anchor`, `alias`, `kind` (`wikilink`, `embed` ou `markdown`), `state` e `context` (o texto ao redor da referência, o mesmo campo de `note_metadata.links`); e `total`, a contagem **antes** de `offset` e `limit`, como em `note_list`.
++
++```json
++{
++  "links": [
++    { "source": "a.md", "target": "nada", "kind": "wikilink", "state": "target_missing", "context": "…[[nada]]…" },
++    { "source": "a.md", "target": "b", "anchor": "Nada", "kind": "wikilink", "state": "anchor_missing", "context": "…[[b#Nada]]…" }
++  ],
++  "total": 2
++}
++```
++
++**O que NÃO entra.** Link externo (`state` `external`, um alvo com esquema de URI) fica de fora pelo mesmo motivo que fica de fora das contagens de `vault_stats`: uma URL nunca foi para o cofre, e listá-la como quebrada afoga o sinal em falso positivo. Link resolvido também não entra — inclusive a âncora que aponta para a própria nota (`[[#Seção]]`, `[x](#Seção)`), que desde a Task 182 resolve e só aparece aqui quando o heading citado não existe.
++
++**Ordem.** Determinística: por `source`, e dentro de uma nota pela posição da referência no corpo. Uma lista paginada cuja ordem varia entre chamadas repete item numa página e some com outro na seguinte.
++
++**Erros.** `INVALID_ARGUMENT` para `state` fora do enum. Um `prefix` que não casa nenhuma nota **não** é erro: devolve `total: 0` e `links` vazio.
++
+ ---
+ 
+ ## `tag_list`
+ 
+ Todas as tags do cofre.
+ 
+ ```json
+ {
+   "type": "object",
+   "properties": {
+diff --git a/docs/wiki/Home.md b/docs/wiki/Home.md
+index f43545d..465ebc5 100644
+--- a/docs/wiki/Home.md
++++ b/docs/wiki/Home.md
+@@ -77,21 +77,21 @@ Ver [Onde ficam os dados](overview/onde-ficam-os-dados.md).
+ | Cache do índice de busca | mesma pasta, `inverted_cache.gob` |
+ | Socket e lock do daemon | diretório de runtime do usuário, `<hash-do-cofre>.sock` |
+ | Lixeira | `.trash/` **dentro** do cofre |
+ 
+ ## Quais são as peças importantes?
+ 
+ - [Camadas e fronteiras](concepts/camadas-e-fronteiras.md) — quem pode importar o quê.
+ - [Os dois índices](concepts/os-dois-indices.md) — metadados e busca, e por que são separados.
+ - [Busca](features/busca.md) · [Escrita](features/escrita.md) · [Watcher](features/watcher.md)
+ - [Daemon e ponte](features/daemon-e-ponte.md) — como N sessões compartilham um índice.
+-- [As 13 tools](features/tools-mcp.md)
++- [As 14 tools](features/tools-mcp.md)
+ 
+ ## O que eu não devo quebrar?
+ 
+ Quatro regras que derrubam o produto em silêncio se violadas — stdout, rede,
+ tipos do SDK e `ctx`. Estão em [Regras não negociáveis](risks/regras-nao-negociaveis.md).
+ 
+ E [Armadilhas já pagas](risks/armadilhas-pagas.md): defeitos que passaram por
+ revisão e só apareceram em produção. Estão escritos para não voltarem.
+ 
+ ## Por onde eu começo a ler?
+@@ -117,21 +117,21 @@ Nenhuma página deste wiki está `stale`: todas foram conferidas contra o códig
+ ## Catálogo
+ 
+ <!-- wiki:catalog:start -->
+ ### Visão geral
+ 
+ - [Como rodar](overview/como-rodar.md) — Subcomandos, flags, configuração e a bateria de verificação.
+ - [Onde ficam os dados](overview/onde-ficam-os-dados.md) — Caches, socket, lock, lixeira e temporários — o que o servidor grava e onde.
+ 
+ ### Funcionalidades
+ 
+-- [As 13 tools MCP](features/tools-mcp.md) — Superfície pública do servidor — 8 tools de leitura, 5 de escrita, e os resources.
++- [As 14 tools MCP](features/tools-mcp.md) — Superfície pública do servidor — 9 tools de leitura, 5 de escrita, e os resources.
+ - [Busca](features/busca.md) — Tokenização, ranking BM25, recorte de trecho e o cache de duas camadas.
+ - [Daemon e ponte](features/daemon-e-ponte.md) — Como N sessões do host compartilham um índice — socket AF_UNIX, handshake e ociosidade.
+ - [Escrita](features/escrita.md) — As cinco tools de escrita, gravação atômica, travas por caminho e preservação de EOL/BOM.
+ - [Parser](features/parser.md) — Markdown do Obsidian — frontmatter, headings com offsets e quatro extensões goldmark.
+ - [Watcher](features/watcher.md) — Fachada sobre fsnotify — filtro, debounce, correlação de rename e reconciliação.
+ 
+ ### Fluxos
+ 
+ - [Encerramento](flows/encerramento.md) — Os quatro mecanismos que garantem que o processo morre, e o desligamento por etapas.
+ - [Fluxo de boot](flows/boot.md) — O que roda entre o host lançar o processo e as tools serem anunciadas.
+diff --git a/docs/wiki/_Sidebar.md b/docs/wiki/_Sidebar.md
+index 6aac52a..782f046 100644
+--- a/docs/wiki/_Sidebar.md
++++ b/docs/wiki/_Sidebar.md
+@@ -1,20 +1,20 @@
+ **[🏠 Gobsidian](Home.md)**
+ 
+ **Visão geral**
+ 
+ - [Como rodar](overview/como-rodar.md)
+ - [Onde ficam os dados](overview/onde-ficam-os-dados.md)
+ 
+ **Funcionalidades**
+ 
+-- [As 13 tools MCP](features/tools-mcp.md)
++- [As 14 tools MCP](features/tools-mcp.md)
+ - [Busca](features/busca.md)
+ - [Daemon e ponte](features/daemon-e-ponte.md)
+ - [Escrita](features/escrita.md)
+ - [Parser](features/parser.md)
+ - [Watcher](features/watcher.md)
+ 
+ **Fluxos**
+ 
+ - [Encerramento](flows/encerramento.md)
+ - [Fluxo de boot](flows/boot.md)
+diff --git a/docs/wiki/concepts/camadas-e-fronteiras.md b/docs/wiki/concepts/camadas-e-fronteiras.md
+index f52f269..1ec7fba 100644
+--- a/docs/wiki/concepts/camadas-e-fronteiras.md
++++ b/docs/wiki/concepts/camadas-e-fronteiras.md
+@@ -86,14 +86,14 @@ Uma, e ela é de forma, não de segurança:
+ A que **era** de segurança fechou: a superfície de escrita construía
+ `vault.CanonicalPath` por conversão, sem passar por `vault.Resolve`, e no Windows
+ `..\..\x.md` escapava da raiz do cofre. Hoje todo caminho de escrita entra por
+ `s.index.ResolvePath` (nota existente) ou por `vault.Resolve` (destino novo, no
+ `note_create` e no `to` do `note_move`), e o confinamento mora em
+ `vault.Canonicalize` — **uma conta por regra**.
+ 
+ ## Ver também
+ 
+ - [Os dois índices](os-dois-indices.md)
+-- [As 13 tools MCP](../features/tools-mcp.md) — a superfície que `mcpsrv` expõe.
++- [As 14 tools MCP](../features/tools-mcp.md) — a superfície que `mcpsrv` expõe.
+ - [Watcher](../features/watcher.md) — a fronteira do fsnotify.
+ - [Regras não negociáveis](../risks/regras-nao-negociaveis.md)
+ - `docs/ARCHITECTURE.md` — a especificação, com os AD-01 a AD-09.
+diff --git a/docs/wiki/concepts/os-dois-indices.md b/docs/wiki/concepts/os-dois-indices.md
+index 10d4c1c..f9d654d 100644
+--- a/docs/wiki/concepts/os-dois-indices.md
++++ b/docs/wiki/concepts/os-dois-indices.md
+@@ -23,21 +23,21 @@ metade das perguntas sobre este código.
+ | Pacote | `internal/index` | `internal/search` |
+ | Guarda | título, tags, aliases, headings, blocos, links, offsets | termo → (nota, posições) |
+ | Custo | proporcional ao **número de notas** | proporcional aos **bytes** do cofre |
+ | Tempo de montagem | ~1 s num cofre real | minutos, num cofre de 109 MB |
+ | Quando fica pronto | antes de anunciar as tools | em segundo plano, ou na 1ª busca |
+ | Cache | `index_cache.gob` | `inverted_cache.gob` |
+ 
+ A diferença de custo é o motivo de existirem separados: o host desiste do
+ handshake MCP em 30 s, e esperar a tokenização do cofre significava morrer antes
+ de anunciar qualquer coisa. Hoje o índice de metadados sozinho já sustenta 11
+-das 13 tools; só `vault_search` precisa do outro.
++das 14 tools; só `vault_search` precisa do outro.
+ 
+ ## O índice de metadados
+ 
+ `index.Index` são oito mapas sob um `sync.RWMutex`: `notes`, `assets`,
+ `lowerPath`, `byName`, `byAlias`, `backlinks`, `tags` e `citantesPorNome`
+ (índice reverso que permite reindexar um arquivo sem varrer o cofre).
+ 
+ **As chaves dos derivados passam todas por `internal/index/chave.go`**, que
+ aplica NFC além da caixa, e os quatro mapas de chave derivada são **listas** —
+ nenhuma dessas chaves é única por construção. Publicar e remover são um par
+diff --git a/docs/wiki/features/busca.md b/docs/wiki/features/busca.md
+index fa07ded..f4f3aaf 100644
+--- a/docs/wiki/features/busca.md
++++ b/docs/wiki/features/busca.md
+@@ -109,13 +109,13 @@ regime já mudado, e continuou 8: mudança sem ganho significativo é dívida pu
+ recorte, `Search` devolve erro. Antes disso, um `ctx` cancelado devolvia entre 24
+ e 99 dos 200 resultados com `err == nil` e `Total` intacto.
+ 
+ **Índice em construção não devolve lista curta.** Ver
+ [Os dois índices](../concepts/os-dois-indices.md).
+ 
+ ## Ver também
+ 
+ - [Formato do cache](../entities/formato-do-cache.md)
+ - [Parser](parser.md) — de onde vêm os headings que o peso de campo consulta.
+-- [As 13 tools MCP](tools-mcp.md) — o schema de `vault_search`.
++- [As 14 tools MCP](tools-mcp.md) — o schema de `vault_search`.
+ - [Achados em aberto](../notes/achados-abertos.md) — desempenho e precisão do
+   recorte têm itens abertos.
+diff --git a/docs/wiki/features/tools-mcp.md b/docs/wiki/features/tools-mcp.md
+index 3d54d86..c811da5 100644
+--- a/docs/wiki/features/tools-mcp.md
++++ b/docs/wiki/features/tools-mcp.md
+@@ -1,46 +1,47 @@
+ ---
+-title: As 13 tools MCP
++title: As 14 tools MCP
+ type: feature
+ status: active
+-description: Superfície pública do servidor — 8 tools de leitura, 5 de escrita, e os resources.
++description: Superfície pública do servidor — 9 tools de leitura, 5 de escrita, e os resources.
+ source_paths:
+   - internal/mcpsrv/server.go
+   - internal/mcpsrv/tools_read.go
+   - internal/mcpsrv/tools_write.go
+   - internal/mcpsrv/resources.go
+   - internal/mcpsrv/recover.go
+-source_commit: f7de8e81
++source_commit: c987ff1
+ tags: [mcp, tools, api]
+ language: pt-BR
+-updated_at: '2026-08-31'
++updated_at: '2026-09-06'
+ ---
+ 
+-# As 13 tools MCP
++# As 14 tools MCP
+ 
+ O contrato de cada uma está em `docs/TOOLS.md`. Esta página explica como elas se
+ ligam ao código.
+ 
+-## Leitura (7)
++## Leitura (9)
+ 
+ | Tool | Fachada | Toca o disco? |
+ |---|---|---|
+ | `vault_stats` | `service.VaultStats` | não |
+ | `vault_search` | `service.Search` | sim, para recortar trechos |
+ | `note_read` | `service.ReadNote` / `ReadNotes` | sim, só a faixa pedida |
+ | `note_outline` | `service.Outline` | sim, a nota inteira |
+ | `note_list` | `service.ListNotes` | não |
+ | `note_metadata` | `service.NoteMetadata` | não |
+ | `link_graph` | `service.LinkGraph` | não |
++| `vault_broken_links` | `service.BrokenLinks` | não |
+ | `tag_list` | `service.TagList` | não |
+ 
+-Cinco das oito respondem **só do índice em memória**. É o que torna `note_list` a
++Seis das nove respondem **só do índice em memória**. É o que torna `note_list` a
+ tool barata, e é por isso que ela devolve a projeção `ListItem` em vez da `Note`
+ inteira — despejar headings, blocos e links por nota transformaria "que notas
+ existem na pasta X" numa resposta de dezenas de milhares de tokens.
+ 
+ `note_read` aceita `path` **ou** `paths` (lote de até 50), mutuamente
+ exclusivos: os dois preenchidos é erro de validação, não precedência silenciosa.
+ No lote, a falha de um item não derruba os demais — cada um vira um
+ `ReadNoteItem` na mesma posição de `Alvos`.
+ 
+ **Cada item de `paths` é uma string ou um objeto**, misturados na mesma lista, e
+diff --git a/internal/mcpsrv/tools_read.go b/internal/mcpsrv/tools_read.go
+index 006390a..cfe3ccd 100644
+--- a/internal/mcpsrv/tools_read.go
++++ b/internal/mcpsrv/tools_read.go
+@@ -279,20 +279,45 @@ func (s *Server) registerReadToolsInternal() {
+ 					IncludeEmbeds: includeEmbeds,
+ 					Limit:         limit,
+ 				})
+ 				if err != nil {
+ 					return nil, service.GraphResult{}, toolErr(err)
+ 				}
+ 				return nil, out, nil
+ 			}),
+ 	)
+ 
++	mcp.AddTool(s.mcp,
++		&mcp.Tool{
++			Name:        "vault_broken_links",
++			Description: "Todos os links quebrados do cofre: alvo ausente ou ancora ausente, com origem e contexto.",
++		},
++		guard(s.log, "vault_broken_links",
++			func(ctx context.Context, _ *mcp.CallToolRequest, in vaultBrokenLinksInput) (*mcp.CallToolResult, service.BrokenLinksResult, error) {
++				// state, limit e offset viajam CRUS, como em link_graph:
++				// service.BrokenLinks (broken.go) aplica o mesmo ValidarEnum
++				// das outras tools, o mesmo ComTeto de note_list e o piso de
++				// offset. Validar so aqui deixaria o dominio sem guarda para
++				// quem chega por outra porta.
++				out, err := s.svc.BrokenLinks(ctx, service.BrokenLinksRequest{
++					State:  in.State,
++					Prefix: in.Prefix,
++					Limit:  valorOuZero(in.Limit),
++					Offset: valorOuZero(in.Offset),
++				})
++				if err != nil {
++					return nil, service.BrokenLinksResult{}, toolErr(err)
++				}
++				return nil, out, nil
++			}),
++	)
++
+ 	mcp.AddTool(s.mcp,
+ 		&mcp.Tool{
+ 			Name:        "tag_list",
+ 			Description: "Todas as tags do cofre.",
+ 		},
+ 		guard(s.log, "tag_list",
+ 			func(ctx context.Context, _ *mcp.CallToolRequest, in tagListInput) (*mcp.CallToolResult, service.TagResult, error) {
+ 				minCount := 1
+ 				if in.MinCount != nil {
+ 					minCount = *in.MinCount
+@@ -378,20 +403,27 @@ type noteMetadataInput struct {
+ 
+ type linkGraphInput struct {
+ 	Path          string `json:"path"`
+ 	Direction     string `json:"direction,omitempty"`
+ 	Depth         *int   `json:"depth,omitempty"`
+ 	IncludeBroken *bool  `json:"include_broken,omitempty"`
+ 	IncludeEmbeds *bool  `json:"include_embeds,omitempty"`
+ 	Limit         *int   `json:"limit,omitempty"`
+ }
+ 
++type vaultBrokenLinksInput struct {
++	State  string `json:"state,omitempty" jsonschema:"Filtra por estado: 'target_missing' (a nota citada não existe) ou 'anchor_missing' (a nota existe, o heading ou bloco citado não). Omitido devolve os dois."`
++	Prefix string `json:"prefix,omitempty" jsonschema:"Restringe a nota de ORIGEM por prefixo de string sobre o caminho relativo ao cofre, não por segmento: 'sub' casa 'sub/c.md' e também 'subtotal.md'. Vazio percorre o cofre inteiro."`
++	Limit  *int   `json:"limit,omitempty" jsonschema:"Máximo de links devolvidos. Padrão 100, teto 500."`
++	Offset *int   `json:"offset,omitempty" jsonschema:"Quantos links pular, para paginar. 'total' na resposta é a contagem antes de offset e limit."`
++}
++
+ type tagListInput struct {
+ 	Prefix       string `json:"prefix,omitempty" jsonschema:"Restringe por prefixo de string sobre a chave dobrada da tag, não por segmento: 'civil/' devolve as subtags de civil e não a própria civil; 'proj/al' devolve proj/alpha."`
+ 	MinCount     *int   `json:"min_count,omitempty"`
+ 	Sort         string `json:"sort,omitempty" jsonschema:"Ordenação: 'name' (crescente por nome) ou 'count' (decrescente por contagem, desempate por nome). Padrão: 'name'."`
+ 	Hierarchical bool   `json:"hierarchical,omitempty" jsonschema:"Retorna árvore em vez de lista plana."`
+ }
+ 
+ type noteOutlineInput struct {
+ 	Path string `json:"path" jsonschema:"Caminho da nota."`
+ 	// Teto declarado, e nao silencioso: uma nota convertida de livro produz
+diff --git a/internal/mcpsrv/tools_read_test.go b/internal/mcpsrv/tools_read_test.go
+index 179acb2..78c3bd0 100644
+--- a/internal/mcpsrv/tools_read_test.go
++++ b/internal/mcpsrv/tools_read_test.go
+@@ -44,21 +44,23 @@ func newTestServerWithIndex(t *testing.T, root string) *mcpsrv.Server {
+ 	}
+ 
+ 	svc := service.New(v, idx, inv, nil, service.Options{})
+ 	cfg := config.Defaults()
+ 
+ 	return mcpsrv.New(context.Background(), svc, cfg, slog.New(slog.NewTextHandler(io.Discard, nil)))
+ }
+ 
+ func TestReadTools(t *testing.T) {
+ 	root := t.TempDir()
+-	writeFile(t, root, "A.md", "---\ntags: [a]\n---\n# A\nText A\n[[B]]\n")
++	// [[B#Nada]] existe para vault_broken_links ter o que listar: B.md tem
++	// heading "B" e nao tem "Nada", entao o link resolve a nota e nao a ancora.
++	writeFile(t, root, "A.md", "---\ntags: [a]\n---\n# A\nText A\n[[B]]\n[[B#Nada]]\n")
+ 	writeFile(t, root, "B.md", "---\ntags: [b]\n---\n# B\nText B\n")
+ 
+ 	srv := newTestServerWithIndex(t, root)
+ 
+ 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+ 	defer cancel()
+ 
+ 	clientTransport, serverTransport := mcp.NewInMemoryTransports()
+ 	go func() { _ = srv.Connect(ctx, serverTransport) }()
+ 
+@@ -67,21 +69,21 @@ func TestReadTools(t *testing.T) {
+ 	if err != nil {
+ 		t.Fatalf("Connect: %v", err)
+ 	}
+ 	defer func() { _ = session.Close() }()
+ 
+ 	t.Run("Tools registered", func(t *testing.T) {
+ 		tools, err := session.ListTools(ctx, nil)
+ 		if err != nil {
+ 			t.Fatalf("ListTools: %v", err)
+ 		}
+-		wantTools := []string{"vault_search", "note_read", "note_list", "note_metadata", "link_graph", "tag_list"}
++		wantTools := []string{"vault_search", "note_read", "note_list", "note_metadata", "link_graph", "vault_broken_links", "tag_list"}
+ 		found := make(map[string]bool)
+ 		for _, tool := range tools.Tools {
+ 			found[tool.Name] = true
+ 		}
+ 		for _, wt := range wantTools {
+ 			if !found[wt] {
+ 				t.Errorf("Tool %s not found", wt)
+ 			}
+ 		}
+ 	})
+@@ -132,20 +134,28 @@ func TestReadTools(t *testing.T) {
+ 			args:   map[string]interface{}{"path": "A.md"},
+ 			wantIn: []string{"A.md", `"tags":["a"]`},
+ 		},
+ 		{
+ 			name: "link_graph valid",
+ 			tool: "link_graph",
+ 			args: map[string]interface{}{"path": "A.md"},
+ 			// B.md so aparece se a travessia seguiu o [[B]] de A.md.
+ 			wantIn: []string{`"nodes"`, "A.md", "B.md"},
+ 		},
++		{
++			name: "vault_broken_links valid",
++			tool: "vault_broken_links",
++			args: map[string]interface{}{"state": "anchor_missing"},
++			// total confere a contagem antes da pagina; o resto confere que o
++			// filtro devolveu o link certo e nao a lista inteira.
++			wantIn: []string{`"total":1`, "A.md", `"anchor_missing"`, `"anchor":"Nada"`},
++		},
+ 		{
+ 			name:   "tag_list valid",
+ 			tool:   "tag_list",
+ 			args:   map[string]interface{}{},
+ 			wantIn: []string{`"tags"`, `"a"`, `"b"`},
+ 		},
+ 	}
+ 
+ 	for _, tt := range tests {
+ 		t.Run(tt.name, func(t *testing.T) {
+diff --git a/internal/service/broken.go b/internal/service/broken.go
+new file mode 100644
+index 0000000..1c4fad2
+--- /dev/null
++++ b/internal/service/broken.go
+@@ -0,0 +1,144 @@
++package service
++
++import (
++	"cmp"
++	"context"
++	"slices"
++	"strings"
++
++	"github.com/jonyd/gobsidian/internal/index"
++	"github.com/jonyd/gobsidian/internal/text"
++)
++
++// BrokenLinksRequest sao os parametros de vault_broken_links.
++type BrokenLinksRequest struct {
++	// State filtra: "target_missing", "anchor_missing" ou "" (os dois).
++	State string `json:"state"`
++	// Prefix restringe a origem a um caminho canonico (pasta ou nota). Vazio =
++	// cofre inteiro.
++	Prefix string `json:"prefix"`
++	Limit  int    `json:"limit"`
++	Offset int    `json:"offset"`
++}
++
++// BrokenLink e um link sem alvo ou sem ancora, com o bastante para achar e
++// corrigir: a nota de origem, a grafia da referencia e o texto ao redor dela.
++type BrokenLink struct {
++	Source  string `json:"source"`
++	Target  string `json:"target"`
++	Anchor  string `json:"anchor,omitempty"`
++	Alias   string `json:"alias,omitempty"`
++	Kind    string `json:"kind"`
++	State   string `json:"state"`
++	Context string `json:"context,omitempty"`
++}
++
++// BrokenLinksResult e o retorno de vault_broken_links. Total e a contagem
++// ANTES de offset/limit, como em note_list, para o cliente saber que existe
++// mais do que ele recebeu.
++type BrokenLinksResult struct {
++	Links []BrokenLink `json:"links"`
++	Total int          `json:"total"`
++}
++
++// achadoQuebrado carrega o offset da referencia no corpo so ate a ordenacao.
++// Start nao vai para o retorno — quem corrige o link o localiza pelo Context e
++// pela grafia —, mas e ele que torna a ordem dentro de uma nota deterministica
++// sem depender da ordem em que o indice guardou os links.
++type achadoQuebrado struct {
++	link  BrokenLink
++	start int64
++}
++
++// BrokenLinks lista o que vault_stats apenas conta.
++//
++// `vault_stats` com include_health devolve broken_links e broken_anchors, dois
++// numeros; quem quer CORRIGIR precisa de onde eles estao, e a unica saida era
++// chamar note_metadata nota a nota. Esta tool percorre o mesmo laco de saude de
++// graph.go e devolve os links em vez da contagem.
++//
++// LinkExternal fica de fora pelo mesmo motivo que fica de fora de VaultStats:
++// uma URL nunca foi para o cofre, e lista-la como quebrada afoga o sinal em
++// falso positivo. LinkOK tambem nao entra — inclusive a auto-ancora, que desde
++// a Task 182 resolve para a propria nota de origem.
++//
++// Nao recebe ctx util: le so o indice em memoria.
++func (s *Service) BrokenLinks(_ context.Context, req BrokenLinksRequest) (BrokenLinksResult, error) {
++	if s.index == nil {
++		return BrokenLinksResult{}, Errorf(CodeVaultUnavailable, "indice indisponivel")
++	}
++
++	// Mesma porta de enum das outras tools: um state fora da lista tem de
++	// dizer INVALID_ARGUMENT, e nao responder o cofre inteiro como se o filtro
++	// tivesse valido. O padrao vazio significa "os dois estados".
++	estado, err := ValidarEnum("state", req.State, "", "target_missing", "anchor_missing")
++	if err != nil {
++		return BrokenLinksResult{}, err
++	}
++
++	// A comparacao de prefixo passa pela mesma chave que o writer e o index
++	// usam para caminho — NFC mais caixa —, senao "Sub/" e "sub/" seriam duas
++	// pastas aqui e uma la. E prefixo de string, nao de segmento, como o de
++	// tag_list: "sub" casa "sub/c.md" e tambem "subtotal.md".
++	prefixo := text.ChaveDeCaminho(req.Prefix)
++
++	limit := ComTeto(req.Limit)
++	offset := req.Offset
++	if offset < 0 {
++		offset = 0
++	}
++
++	// NotePaths, nao Paths: Paths inclui anexos, que Get nao resolve.
++	var achados []achadoQuebrado
++	for _, p := range s.index.NotePaths() {
++		if prefixo != "" && !strings.HasPrefix(text.ChaveDeCaminho(string(p)), prefixo) {
++			continue
++		}
++		n, ok := s.index.Get(p)
++		if !ok {
++			continue
++		}
++		for _, l := range n.Links {
++			if l.State != index.LinkTargetMissing && l.State != index.LinkAnchorMissing {
++				continue
++			}
++			if estado != "" && l.State.String() != estado {
++				continue
++			}
++			achados = append(achados, achadoQuebrado{
++				link: BrokenLink{
++					Source:  string(p),
++					Target:  l.Target,
++					Anchor:  l.Anchor,
++					Alias:   l.Alias,
++					Kind:    l.Kind.String(),
++					State:   l.State.String(),
++					Context: l.Context,
++				},
++				start: l.Start,
++			})
++		}
++	}
++
++	// Ordem deterministica: a origem e depois a posicao no corpo. Uma lista
++	// paginada cuja ordem varia entre chamadas repete item numa pagina e some
++	// com outro na seguinte.
++	slices.SortFunc(achados, func(a, b achadoQuebrado) int {
++		if c := cmp.Compare(a.link.Source, b.link.Source); c != 0 {
++			return c
++		}
++		return cmp.Compare(a.start, b.start)
++	})
++
++	total := len(achados)
++	var pagina []achadoQuebrado
++	if offset < total {
++		pagina = achados[offset:min(offset+limit, total)]
++	}
++
++	res := BrokenLinksResult{Links: make([]BrokenLink, len(pagina)), Total: total}
++	for i, a := range pagina {
++		res.Links[i] = a.link
++	}
++	return res, nil
++}
+diff --git a/internal/service/broken_test.go b/internal/service/broken_test.go
+new file mode 100644
+index 0000000..e0626ce
+--- /dev/null
++++ b/internal/service/broken_test.go
+@@ -0,0 +1,182 @@
++package service
++
++import (
++	"context"
++	"fmt"
++	"os"
++	"path/filepath"
++	"strings"
++	"testing"
++)
++
++// cofreQuebrado monta o cofre dos casos de BrokenLinks: uma nota com os cinco
++// tipos de referencia que interessam, uma nota em subpasta e o alvo que existe.
++func cofreQuebrado(t *testing.T) string {
++	t.Helper()
++	root := t.TempDir()
++	writeFile(t, root, "a.md", strings.Join([]string{
++		"# Topo",
++		"",
++		"[[b]]",
++		"[[nada]]",
++		"[[b#Nada]]",
++		"[x](#Topo)",
++		"[s](https://ex.com)",
++		"",
++	}, "\n"))
++	writeFile(t, root, "b.md", "# Sec\n\ntexto\n")
++	if err := os.MkdirAll(filepath.Join(root, "sub"), 0755); err != nil {
++		t.Fatalf("MkdirAll sub: %v", err)
++	}
++	writeFile(t, root, filepath.Join("sub", "c.md"), "[[outra]]\n")
++	return root
++}
++
++// TestBrokenLinksListaOQueVaultStatsSoConta cobre o contrato inteiro da tool:
++// o que entra, o que fica de fora, a ordem e a paginacao.
++func TestBrokenLinksListaOQueVaultStatsSoConta(t *testing.T) {
++	svc := newTestService(t, cofreQuebrado(t))
++	ctx := context.Background()
++
++	t.Run("sem filtro", func(t *testing.T) {
++		res, err := svc.BrokenLinks(ctx, BrokenLinksRequest{})
++		if err != nil {
++			t.Fatalf("BrokenLinks: %v", err)
++		}
++		if res.Total != 3 {
++			t.Fatalf("Total = %d, queria 3: %+v", res.Total, res.Links)
++		}
++		// A ordem e o contrato: Source e depois a posicao no corpo.
++		querido := []struct{ source, target, state string }{
++			{"a.md", "nada", "target_missing"},
++			{"a.md", "b", "anchor_missing"},
++			{"sub/c.md", "outra", "target_missing"},
++		}
++		if len(res.Links) != len(querido) {
++			t.Fatalf("len(Links) = %d, queria %d: %+v", len(res.Links), len(querido), res.Links)
++		}
++		for i, q := range querido {
++			got := res.Links[i]
++			if got.Source != q.source || got.Target != q.target || got.State != q.state {
++				t.Errorf("Links[%d] = {%s %s %s}, queria {%s %s %s}",
++					i, got.Source, got.Target, got.State, q.source, q.target, q.state)
++			}
++		}
++		// O externo e a auto-ancora que resolve nao podem ter entrado. Sem estas
++		// duas linhas, "Total == 3" ainda passaria se um filtro errado deixasse
++		// a URL entrar e derrubasse outro item por engano.
++		for _, l := range res.Links {
++			if strings.Contains(l.Target, "ex.com") {
++				t.Errorf("link externo entrou na lista: %+v", l)
++			}
++			if l.Target == "" && l.Anchor == "Topo" {
++				t.Errorf("auto-ancora que resolve entrou na lista: %+v", l)
++			}
++		}
++	})
++
++	t.Run("filtro por estado", func(t *testing.T) {
++		res, err := svc.BrokenLinks(ctx, BrokenLinksRequest{State: "anchor_missing"})
++		if err != nil {
++			t.Fatalf("BrokenLinks: %v", err)
++		}
++		if res.Total != 1 || len(res.Links) != 1 {
++			t.Fatalf("Total = %d, len = %d, queria 1 e 1: %+v", res.Total, len(res.Links), res.Links)
++		}
++		l := res.Links[0]
++		if l.State != "anchor_missing" || l.Anchor != "Nada" || l.Target != "b" {
++			t.Errorf("Links[0] = %+v, queria State=anchor_missing Anchor=Nada Target=b", l)
++		}
++		if l.Context == "" {
++			t.Errorf("Context vazio: sem ele quem recebe a lista nao acha o link no corpo")
++		}
++	})
++
++	t.Run("filtro por prefixo", func(t *testing.T) {
++		res, err := svc.BrokenLinks(ctx, BrokenLinksRequest{Prefix: "sub"})
++		if err != nil {
++			t.Fatalf("BrokenLinks: %v", err)
++		}
++		if res.Total != 1 || len(res.Links) != 1 {
++			t.Fatalf("Total = %d, len = %d, queria 1 e 1: %+v", res.Total, len(res.Links), res.Links)
++		}
++		if res.Links[0].Source != "sub/c.md" || res.Links[0].Target != "outra" {
++			t.Errorf("Links[0] = %+v, queria sub/c.md -> outra", res.Links[0])
++		}
++	})
++
++	t.Run("prefixo que nao casa nada nao e erro", func(t *testing.T) {
++		res, err := svc.BrokenLinks(ctx, BrokenLinksRequest{Prefix: "pasta-que-nao-existe"})
++		if err != nil {
++			t.Fatalf("prefixo sem casamento devolveu erro: %v", err)
++		}
++		if res.Total != 0 || len(res.Links) != 0 {
++			t.Errorf("Total = %d, len = %d, queria 0 e 0", res.Total, len(res.Links))
++		}
++	})
++
++	t.Run("paginacao", func(t *testing.T) {
++		res, err := svc.BrokenLinks(ctx, BrokenLinksRequest{Limit: 1, Offset: 1})
++		if err != nil {
++			t.Fatalf("BrokenLinks: %v", err)
++		}
++		// Total e a contagem ANTES de offset/limit, como em note_list.
++		if res.Total != 3 {
++			t.Errorf("Total = %d, queria 3: o total nao pode encolher com a pagina", res.Total)
++		}
++		if len(res.Links) != 1 {
++			t.Fatalf("len(Links) = %d, queria 1", len(res.Links))
++		}
++		if res.Links[0].Target != "b" || res.Links[0].State != "anchor_missing" {
++			t.Errorf("Links[0] = %+v, queria o SEGUNDO item da ordem (b, anchor_missing)", res.Links[0])
++		}
++	})
++
++	t.Run("offset alem do fim devolve pagina vazia", func(t *testing.T) {
++		res, err := svc.BrokenLinks(ctx, BrokenLinksRequest{Offset: 99})
++		if err != nil {
++			t.Fatalf("BrokenLinks: %v", err)
++		}
++		if res.Total != 3 || len(res.Links) != 0 {
++			t.Errorf("Total = %d, len = %d, queria 3 e 0", res.Total, len(res.Links))
++		}
++	})
++
++	t.Run("estado invalido nao vira silencio", func(t *testing.T) {
++		_, err := svc.BrokenLinks(ctx, BrokenLinksRequest{State: "quebrado"})
++		if err == nil {
++			t.Fatal("state invalido foi ACEITO e caiu no padrao em silencio")
++		}
++		if got := CodeOf(err); got != CodeInvalidArgument {
++			t.Errorf("codigo = %s, queria %s\nerro: %v", got, CodeInvalidArgument, err)
++		}
++	})
++}
++
++// TestBrokenLinksAplicaOTetoDeLimit e o mesmo desenho de
++// TestNoteListAplicaOTetoDeLimit: sem um cofre ACIMA do teto, o clamp e
++// inobservavel — afirmar `len(Links) <= LimiteTeto` sobre tres links da o mesmo
++// verde com ou sem a regra.
++func TestBrokenLinksAplicaOTetoDeLimit(t *testing.T) {
++	root := t.TempDir()
++	var corpo strings.Builder
++	for i := 0; i <= LimiteTeto; i++ {
++		fmt.Fprintf(&corpo, "[[naoexiste-%04d]]\n", i)
++	}
++	writeFile(t, root, "muitos.md", corpo.String())
++	svc := newTestService(t, root)
++
++	res, err := svc.BrokenLinks(context.Background(), BrokenLinksRequest{Limit: 100000})
++	if err != nil {
++		t.Fatalf("BrokenLinks: %v", err)
++	}
++	// Controle: sem esta linha, um cofre que nao subisse acima do teto faria a
++	// asercao seguinte passar sem exercer o clamp.
++	if res.Total != LimiteTeto+1 {
++		t.Fatalf("Total = %d, queria %d — o cofre nao tem links quebrados suficientes para o teto ser observavel",
++			res.Total, LimiteTeto+1)
++	}
++	if len(res.Links) != LimiteTeto {
++		t.Errorf("len(Links) = %d, queria %d: o limite absurdo chegou ao corte como veio", len(res.Links), LimiteTeto)
++	}
++}

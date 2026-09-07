@@ -1,0 +1,262 @@
+# Review package: 5f9ed57..3ff26ef
+
+## Commits
+3ff26ef fix(write): note_move rewrites the moved note's own self-references at its new path
+
+## Files changed
+ internal/service/anchor_selfref_test.go | 114 +++++++++++++++++++++++++++-----
+ internal/service/write.go               |  29 ++++++--
+ 2 files changed, 119 insertions(+), 24 deletions(-)
+
+## Diff
+diff --git a/internal/service/anchor_selfref_test.go b/internal/service/anchor_selfref_test.go
+index 1ffbab3..aac7777 100644
+--- a/internal/service/anchor_selfref_test.go
++++ b/internal/service/anchor_selfref_test.go
+@@ -1,42 +1,42 @@
+ package service_test
+ 
+ import (
+ 	"context"
+ 	"os"
+ 	"path/filepath"
+ 	"testing"
+ 
+ 	"github.com/jonyd/gobsidian/internal/service"
++	"github.com/jonyd/gobsidian/internal/vault"
+ )
+ 
+ // Desde 2026-09-06 um link so de ancora resolve para a PROPRIA nota, e com isso
+ // a nota virou backlink de si mesma. note_move colhia esse backlink como se
+ // fosse um citante a reescrever: movia o corpo primeiro e so depois lia o
+ // caminho ANTIGO para reescrever os links, o que dava ENOENT e devolvia
+ // CodeInternal com o move ja pela metade — corpo movido, citantes intactos.
+ //
+ // O discriminante e Target == "", e NAO "o citante e a propria nota":
+-// auto-referencia com alvo escrito precisa continuar sendo reescrita. Este
+-// teste nao consegue fixar essa segunda metade — ver o LIMITE abaixo —, entao
+-// ela fica com ref.md, que prova ao menos que o guarda nao desligou a reescrita
+-// de citante nenhum.
+-//
+-// LIMITE MEDIDO em 2026-09-06: uma nota que cita a si mesma com alvo ESCRITO
+-// ("[[a]]" dentro de a.md) derruba note_move pelo mesmo ENOENT, e isso e
+-// PRE-EXISTENTE — independe da Task 182, porque nada nela toca link com alvo.
+-// Sondado neste mesmo tree com uma nota cujo unico conteudo era "Veja [[a]].":
+-// `MoveNote: lendo nota "a.md": ... The system cannot find the file specified`.
+-// Por isso a nota movida aqui nao contem "[[a]]": o teste falharia por um
+-// defeito que nao e desta tarefa. Registrado no relatorio.
++// auto-referencia com alvo escrito precisa continuar sendo reescrita. Ate a
++// Task 185 este teste nao conseguia fixar essa segunda metade, porque
++// "[[a]]" dentro de a.md derrubava note_move pelo MESMO ENOENT — pre-existente,
++// independente da Task 182, e so exposto por ela como forma comum. A Task 185
++// fechou o laco de reescrita para ler e gravar no caminho NOVO quando o
++// citante e a propria nota movida, e agora "[[a]]" entra aqui, ao lado das tres
++// formas so de ancora, provando as duas metades no mesmo teste: o guarda nao
++// desligou a reescrita de citante nenhum (ref.md) E a auto-referencia com alvo
++// escrito continua sendo reescrita depois do move (a propria a.md, ja em
++// sub/b.md).
+ func TestMoveNote_LinkSoDeAncoraNaoQuebraOMove(t *testing.T) {
+-	origem := "# Topo\n\nVeja [x](#Topo) e [[#Topo]] e ![[#Topo]].\n"
++	origem := "# Topo\n\nVeja [x](#Topo) e [[#Topo]] e ![[#Topo]] e [[a]].\n"
++	quer := "# Topo\n\nVeja [x](#Topo) e [[#Topo]] e ![[#Topo]] e [[b]].\n"
+ 	svc, _, _, root := createMoveService(t, map[string]string{
+ 		"a.md":   origem,
+ 		"ref.md": "Outra nota aponta para [[a]]\n",
+ 	})
+ 
+ 	res, err := svc.MoveNote(context.Background(), service.MoveNoteRequest{
+ 		From:          "a.md",
+ 		To:            "sub/b.md",
+ 		UpdateLinks:   true,
+ 		CreateFolders: true,
+@@ -50,38 +50,116 @@ func TestMoveNote_LinkSoDeAncoraNaoQuebraOMove(t *testing.T) {
+ 
+ 	if _, err := os.Stat(filepath.Join(root, "a.md")); !os.IsNotExist(err) {
+ 		t.Errorf("a nota continua no caminho antigo (err=%v)", err)
+ 	}
+ 
+ 	lido, err := os.ReadFile(filepath.Join(root, "sub", "b.md"))
+ 	if err != nil {
+ 		t.Fatalf("a nota nao chegou ao caminho novo: %v", err)
+ 	}
+ 
+-	// As tres formas de ancora saem intactas: mover a nota nao muda para onde
++	// As tres formas de ancora saem intactas — mover a nota nao muda para onde
+ 	// elas apontam, e escrever um alvo ali inventaria "[[b#Topo]]" onde o autor
+-	// escreveu "[[#Topo]]".
+-	if string(lido) != origem {
+-		t.Errorf("o corpo mudou no move:\n got %q\nwant %q", lido, origem)
++	// escreveu "[[#Topo]]" — e "[[a]]" sai reescrito para "[[b]]": e
++	// auto-referencia com ALVO escrito, e essa precisa acompanhar o move. A
++	// leitura veio do caminho NOVO (sub/b.md), que e o ponto que ENOENT antes.
++	if string(lido) != quer {
++		t.Errorf("o corpo apos o move:\n got %q\nwant %q", lido, quer)
+ 	}
+ 
+ 	// E o citante de verdade FOI reescrito — o guarda nao pode ter desligado a
+ 	// reescrita de quem realmente aponta para a nota movida.
+ 	refRaw, err := os.ReadFile(filepath.Join(root, "ref.md"))
+ 	if err != nil {
+ 		t.Fatalf("lendo ref.md: %v", err)
+ 	}
+ 	if querRef := "Outra nota aponta para [[b]]\n"; string(refRaw) != querRef {
+ 		t.Errorf("ref.md = %q, quer %q", refRaw, querRef)
+ 	}
++	if res.LinksUpdated != 2 {
++		t.Errorf("LinksUpdated = %d, quer 2 (ref.md e a propria a.md; nunca os tres de ancora)", res.LinksUpdated)
++	}
++}
++
++// TestMoveNote_NotaQueCitaASiMesma cobre o Achado F1 da revisao 182 na forma
++// que a revisao chamou de comum: "[[a]]" dentro de a.md, alvo ESCRITO (nao so
++// ancora). A nota entra em affectedNotes como sua propria citante; moverCorpo
++// renomeia o arquivo primeiro; o laco de reescrita lia o caminho ANTIGO —
++// ENOENT, com o corpo ja movido e o link nunca reescrito.
++//
++// O move aqui preserva o nome-base (a.md -> sub/a.md), entao o texto de
++// "[[a]]" NAO muda na reescrita — writer.RewriteLinks escreve o mesmo
++// nome-base que ja estava la. Por isso a asserção que discrimina esta correcao
++// nao pode ser textual: e o Resolved do link, lido do INDICE depois de aplicar
++// o rename que o watcher aplicaria em producao via index.MoveNote.
++func TestMoveNote_NotaQueCitaASiMesma(t *testing.T) {
++	origem := "# A\n\nVeja [[a]].\n"
++	svc, v, idx, root := createMoveService(t, map[string]string{
++		"a.md": origem,
++	})
++
++	res, err := svc.MoveNote(context.Background(), service.MoveNoteRequest{
++		From:          "a.md",
++		To:            "sub/a.md",
++		UpdateLinks:   true,
++		CreateFolders: true,
++	})
++	if err != nil {
++		t.Fatalf("MoveNote: %v", err)
++	}
++	if res.To != "sub/a.md" {
++		t.Errorf("res.To = %q, quer %q", res.To, "sub/a.md")
++	}
++
++	if _, err := os.Stat(filepath.Join(root, "a.md")); !os.IsNotExist(err) {
++		t.Errorf("a nota continua no caminho antigo (err=%v)", err)
++	}
++
++	novoAbs := filepath.Join(root, "sub", "a.md")
++	lido, err := os.ReadFile(novoAbs)
++	if err != nil {
++		t.Fatalf("a nota nao chegou ao caminho novo: %v", err)
++	}
++	if string(lido) != origem {
++		t.Errorf("o corpo mudou no move (nome-base identico, texto nao deveria mudar):\n got %q\nwant %q", lido, origem)
++	}
++
++	// Confirma pelo INDICE, nao pela grafia: "[[a]]" continua resolvendo por
++	// nome mesmo sem reescrita nenhuma no texto, entao ler o corpo de volta nao
++	// discrimina se o link foi de fato realocado. idx.MoveNote e o que o
++	// watcher chamaria em producao ao ver o rename; sem ele o indice desta
++	// suite fica parado no estado pre-move (nenhuma tool de escrita atualiza o
++	// indice direto — ver o comentario de TestMoveNote_HappyPathActuallyMovesTheFile).
++	canonicalFrom := vault.CanonicalPath("a.md")
++	canonicalTo := vault.CanonicalPath("sub/a.md")
++	idx.MoveNote(v, canonicalFrom, canonicalTo)
++
++	nota, ok := idx.Get(canonicalTo)
++	if !ok {
++		t.Fatalf("idx.Get(%q): nota nao encontrada apos index.MoveNote", canonicalTo)
++	}
++	var achou bool
++	for _, l := range nota.Links {
++		if l.Target != "a" {
++			continue
++		}
++		achou = true
++		if l.Resolved != canonicalTo {
++			t.Errorf("link [[a]] com Resolved = %q, quer %q", l.Resolved, canonicalTo)
++		}
++	}
++	if !achou {
++		t.Fatalf("nenhum link com Target=%q em %q", "a", canonicalTo)
++	}
++
+ 	if res.LinksUpdated != 1 {
+-		t.Errorf("LinksUpdated = %d, quer 1 (so o de ref.md, nunca os tres de ancora)", res.LinksUpdated)
++		t.Errorf("LinksUpdated = %d, quer 1 (o proprio [[a]])", res.LinksUpdated)
+ 	}
+ }
+ 
+ // note_delete com report_broken_links listava a propria nota apagada como
+ // "nota cujos links quebram", e emitia um BrokenAnchor de a.md para a.md. A
+ // nota deixou de existir; nao ha link dela que sobreviva para quebrar.
+ func TestDeleteNote_NaoAcusaAPropriaNotaApagada(t *testing.T) {
+ 	svc, _, _, _ := createDeleteService(t, map[string]string{
+ 		"a.md":   "# Topo\n\n[[#Topo]] e [[#Nada]]\n",
+ 		"ref.md": "Link para [[a]]\n",
+diff --git a/internal/service/write.go b/internal/service/write.go
+index dc92e31..a2a4fe1 100644
+--- a/internal/service/write.go
++++ b/internal/service/write.go
+@@ -633,41 +633,58 @@ func (s *Service) MoveNote(ctx context.Context, req MoveNoteRequest) (MoveNoteRe
+ 	// A inversao troca quem fica inconsistente quando a segunda etapa falha:
+ 	// agora sobra link apontando para o caminho antigo, que e VISIVEL e
+ 	// recuperavel, em vez de nota duplicada, que e silenciosa. Nao e nada de
+ 	// graca — e menos grave, e esta escrito.
+ 	if err := s.moverCorpo(ctx, canonicalFrom, canonicalTo, absTo); err != nil {
+ 		return moveNoteErro(err)
+ 	}
+ 
+ 	for _, refPath := range affectedKeys {
+ 		replacements := affectedNotes[refPath]
+-		unlock := s.locker.Lock(refPath)
+-		absRef := s.vault.Abs(refPath)
++
++		// Uma nota que cita a si mesma por NOME ("[[a]]" dentro de a.md, alvo
++		// escrito — nao so ancora, que ja sai de affectedNotes no laco acima)
++		// entra aqui sob a chave ANTIGA: foi assim que Backlinks() a indexou,
++		// antes do move. Mas o CORPO ja foi renomeado para canonicalTo, duas
++		// linhas acima — o arquivo em refPath == canonicalFrom nao existe
++		// mais. Ler, travar e gravar por refPath dava ENOENT: o laco lia o
++		// caminho que o proprio move tinha acabado de apagar.
++		//
++		// caminhoAtual e a UNICA decisao de "onde este citante mora agora",
++		// usada nos tres pontos — trava, leitura e escrita — e nao em dois
++		// `if` separados que podiam divergir entre si.
++		caminhoAtual := refPath
++		if refPath == canonicalFrom {
++			caminhoAtual = canonicalTo
++		}
++
++		unlock := s.locker.Lock(caminhoAtual)
++		absRef := s.vault.Abs(caminhoAtual)
+ 		raw, err := os.ReadFile(absRef)
+ 		if err != nil {
+ 			unlock()
+-			return moveNoteErro(Errorf(CodeInternal, "lendo nota %q: %v", refPath, err))
++			return moveNoteErro(Errorf(CodeInternal, "lendo nota %q: %v", caminhoAtual, err))
+ 		}
+ 
+ 		rewritten, err := writer.RewriteLinks(raw, replacements)
+ 		if err != nil {
+ 			unlock()
+-			return moveNoteErro(Errorf(CodeInternal, "reescrevendo links em %q: %v", refPath, err))
++			return moveNoteErro(Errorf(CodeInternal, "reescrevendo links em %q: %v", caminhoAtual, err))
+ 		}
+ 
+ 		if err := vault.WriteAtomic(ctx, absRef, rewritten); err != nil {
+ 			unlock()
+-			return moveNoteErro(Errorf(CodeInternal, "escrevendo nota %q: %v", refPath, err))
++			return moveNoteErro(Errorf(CodeInternal, "escrevendo nota %q: %v", caminhoAtual, err))
+ 		}
+ 
+ 		unlock()
+-		rewrittenList = append(rewrittenList, string(refPath))
++		rewrittenList = append(rewrittenList, string(caminhoAtual))
+ 		linksUpdatedCount += len(replacements)
+ 	}
+ 
+ 	return MoveNoteResult{
+ 		From:          string(canonicalFrom),
+ 		To:            string(canonicalTo),
+ 		Rewritten:     rewrittenList,
+ 		LinksUpdated:  linksUpdatedCount,
+ 		BrokenAnchors: brokenAnchors,
+ 	}, nil

@@ -1,0 +1,423 @@
+# Review package: 8e684d0..c987ff1
+
+## Commits
+c987ff1 fix(links): keep note_move and note_delete correct for anchor-only self-links
+
+## Files changed
+ internal/index/move_test.go             |  51 ++++++++++++++
+ internal/index/resolve_anchor_test.go   |  18 +++--
+ internal/index/update.go                |  16 +++++
+ internal/parser/ast.go                  |   8 +--
+ internal/service/anchor_selfref_test.go | 113 ++++++++++++++++++++++++++++++++
+ internal/service/write.go               |  30 +++++++++
+ 6 files changed, 226 insertions(+), 10 deletions(-)
+
+## Diff
+diff --git a/internal/index/move_test.go b/internal/index/move_test.go
+index 2c0f708..9d2961b 100644
+--- a/internal/index/move_test.go
++++ b/internal/index/move_test.go
+@@ -252,20 +252,71 @@ func TestMoveNote_UpdatesOutgoingBacklinks(t *testing.T) {
+ 		t.Fatal(err)
+ 	}
+ 	idx.MoveNote(v, "a.md", "b.md")
+ 
+ 	bls := idx.backlinks["c.md"]
+ 	if len(bls) != 1 || bls[0].From != "b.md" {
+ 		t.Errorf("outgoing backlinks survived mutation: c.md backlinks = %v", bls)
+ 	}
+ }
+ 
++// Link so de ancora resolve para a PROPRIA nota, e MoveNote nao tinha por onde
++// alcanca-lo: o passo 6 procura a origem em ix.notes[oldPath], ja apagado no
++// passo 1, e o passo 8 acha o citante por citantesPorNome, onde alvo vazio nao
++// entra (update.go:538-541). O link ficava LinkOK com Resolved apontando para um
++// caminho que nao esta mais no indice, e o balde de backlinks do caminho novo
++// carregava um From de nota inexistente — que e a forma exata do defeito [[STJ]]
++// descrito no comentario de nomeChave.
++//
++// Para "[[a]]" isso se auto-corrigia no passo 8, porque o alvo escrito poe o
++// citante em citantesPorNome. Para alvo vazio nao havia saida.
++func TestMoveNote_LinkSoDeAncoraSegueANota(t *testing.T) {
++	root := t.TempDir()
++	writeFileHelper(t, root, "a.md", "# Topo\n\n[[#Topo]]\n")
++	v, err := vault.New(root)
++	if err != nil {
++		t.Fatalf("vault.New: %v", err)
++	}
++	idx := New()
++	if err := idx.Build(context.Background(), v); err != nil {
++		t.Fatal(err)
++	}
++
++	if err := os.MkdirAll(filepath.Join(root, "b"), 0o755); err != nil {
++		t.Fatal(err)
++	}
++	if err := os.Rename(filepath.Join(root, "a.md"), filepath.Join(root, "b", "a.md")); err != nil {
++		t.Fatal(err)
++	}
++	idx.MoveNote(v, "a.md", "b/a.md")
++
++	movida, ok := idx.Get("b/a.md")
++	if !ok {
++		t.Fatal("b/a.md ausente do indice depois do move")
++	}
++	if len(movida.Links) != 1 {
++		t.Fatalf("links = %d, quer 1: %+v", len(movida.Links), movida.Links)
++	}
++	if got := movida.Links[0]; got.Resolved != "b/a.md" || got.State != LinkOK {
++		t.Errorf("Resolved=%q State=%v, quer %q/%v", got.Resolved, got.State, "b/a.md", LinkOK)
++	}
++
++	for _, bl := range idx.Backlinks("b/a.md") {
++		if bl.From == "a.md" {
++			t.Errorf("backlinks de b/a.md ainda tem From=%q, uma nota que nao existe mais", bl.From)
++		}
++	}
++	if bls := idx.Backlinks("a.md"); len(bls) != 0 {
++		t.Errorf("backlinks do caminho antigo = %v, quer vazio", bls)
++	}
++}
++
+ func TestMoveNote_ReprocessesBrokenLinks(t *testing.T) {
+ 	root := t.TempDir()
+ 	writeFileHelper(t, root, "a.md", "# A\n")
+ 	writeFileHelper(t, root, "d.md", "# D\n\nLink para [[a]]\n")
+ 	v, _ := vault.New(root)
+ 	idx := New()
+ 	if err := idx.Build(context.Background(), v); err != nil {
+ 		t.Fatal(err)
+ 	}
+ 
+diff --git a/internal/index/resolve_anchor_test.go b/internal/index/resolve_anchor_test.go
+index 3175b89..f4556d5 100644
+--- a/internal/index/resolve_anchor_test.go
++++ b/internal/index/resolve_anchor_test.go
+@@ -16,46 +16,52 @@ import (
+ // principal sinal de saude do cofre. Medido em 2026-09-06 em cofres reais: 267
+ // alvos comecando com "#" num deles e 372 em outro, todos falsos positivos.
+ func TestAncoraNaMesmaNota(t *testing.T) {
+ 	root := t.TempDir()
+ 	writeFile(t, root, "b.md", "# Sec\n")
+ 	writeFile(t, root, "a.md", strings.Join([]string{
+ 		"# Topo",
+ 		"[x](b.md#Sec)", // 0: outra nota, ancora existente
+ 		"[x](#Topo)",    // 1: propria nota, ancora existente
+ 		"[[#Topo]]",     // 2: idem, em wikilink
+-		"[x](#Nada)",    // 3: propria nota, ancora inexistente
+-		"[[#Nada]]",     // 4: idem, em wikilink
+-		"[x]()",         // 5: contrapeso — sem alvo E sem ancora
++		"![[#Topo]]",    // 3: idem, em embed — a terceira forma que o
++		//                     comentario de resolveTarget afirma
++		"[x](#Nada)", // 4: propria nota, ancora inexistente
++		"[[#Nada]]",  // 5: idem, em wikilink
++		"[x]()",      // 6: contrapeso — sem alvo E sem ancora
+ 	}, "\n\n")+"\n")
+ 
+-	v, _ := vault.New(root)
++	v, err := vault.New(root)
++	if err != nil {
++		t.Fatalf("vault.New: %v", err)
++	}
+ 	idx := index.New()
+ 	if err := idx.Build(context.Background(), v); err != nil {
+ 		t.Fatalf("Build: %v", err)
+ 	}
+ 
+ 	note, ok := idx.Get("a.md")
+ 	if !ok {
+ 		t.Fatal("a.md ausente")
+ 	}
+-	if len(note.Links) != 6 {
+-		t.Fatalf("links = %d, quer 6: %+v", len(note.Links), note.Links)
++	if len(note.Links) != 7 {
++		t.Fatalf("links = %d, quer 7: %+v", len(note.Links), note.Links)
+ 	}
+ 
+ 	want := []struct {
+ 		resolved vault.CanonicalPath
+ 		state    index.LinkState
+ 	}{
+ 		{"b.md", index.LinkOK},
+ 		{"a.md", index.LinkOK},
+ 		{"a.md", index.LinkOK},
++		{"a.md", index.LinkOK},
+ 		{"a.md", index.LinkAnchorMissing},
+ 		{"a.md", index.LinkAnchorMissing},
+ 		{"", index.LinkTargetMissing},
+ 	}
+ 
+ 	for i, w := range want {
+ 		got := note.Links[i]
+ 		if got.Resolved != w.resolved || got.State != w.state {
+ 			t.Errorf("link %d (%q#%q): Resolved=%q State=%v, quer %q/%v",
+ 				i, got.Target, got.Anchor, got.Resolved, got.State, w.resolved, w.state)
+diff --git a/internal/index/update.go b/internal/index/update.go
+index 2542c5f..fb94fcc 100644
+--- a/internal/index/update.go
++++ b/internal/index/update.go
+@@ -497,20 +497,36 @@ func (ix *Index) MoveNote(v *vault.Vault, oldPath, newPath vault.CanonicalPath)
+ 	// service.Search lendo note.Path fora do RLock.
+ 	//
+ 	// A copia entra no mapa sob newPath; a entrada de oldPath e apagada logo
+ 	// abaixo. Quem ja segurava o ponteiro antigo continua lendo a nota antiga,
+ 	// coerente, ate largar — que e o contrato de qualquer leitura sem trava.
+ 	movida := *original
+ 	movida.Links = append([]ResolvedLink(nil), original.Links...)
+ 	movida.Path = newPath
+ 	n := &movida
+ 
++	// Link so de ancora resolve para a PROPRIA nota, entao mover a nota move o
++	// alvo dele — e nenhum dos passos abaixo o alcanca. O passo 6 procura a
++	// origem em ix.notes[oldPath], que o passo 1 acabou de apagar; o passo 8 acha
++	// o citante por citantesPorNome, onde alvo vazio nao entra (logo abaixo, no
++	// passo 1b). Sem esta correcao o link ficava LinkOK apontando para um caminho
++	// que nao esta mais em ix.notes — o defeito [[STJ]] que o comentario de
++	// nomeChave descreve —, e o passo 7 tambem falhava, porque procurava o balde
++	// de backlinks pelo Resolved antigo, ja movido.
++	//
++	// movida.Links e copia privada (linha acima), entao escrever nela e seguro.
++	for i := range n.Links {
++		if n.Links[i].Resolved == oldPath {
++			n.Links[i].Resolved = newPath
++		}
++	}
++
+ 	// Sem cofre nao ha Stat.
+ 	//
+ 	// O ramo `v == nil` fazia `os.Stat(string(newPath))` — um caminho
+ 	// CANONICO, que e RELATIVO a raiz do cofre, resolvido contra o diretorio
+ 	// de trabalho do processo (achado B16). No melhor caso falhava; no pior
+ 	// encontrava um arquivo homonimo em outro lugar do disco e copiava ModTime
+ 	// e Size DELE para a nota. Zerar o ModTime forca reindexacao, que e a
+ 	// resposta honesta para "nao sei".
+ 	if v != nil {
+ 		if info, err := os.Stat(v.Abs(newPath)); err == nil {
+diff --git a/internal/parser/ast.go b/internal/parser/ast.go
+index 22a1cf5..891ea74 100644
+--- a/internal/parser/ast.go
++++ b/internal/parser/ast.go
+@@ -91,24 +91,24 @@ func collect(doc gast.Node, body []byte, bodyOffset int64, note *ParsedNote) {
+ // — inexistente — e a contava como alvo ausente.
+ //
+ // Nao apara espaco: quem precisa disso e splitWikilink, porque "[[ a | b ]]" e
+ // grafia aceita; um destino Markdown vem do goldmark ja delimitado, e aparar
+ // aqui mudaria o alvo de quem nao pediu.
+ //
+ // Roda ANTES de PercentDecode nos ramos Markdown, e a ordem e a regra: "%23" e
+ // um '#' que faz parte do NOME do arquivo. Decodificar primeiro o promoveria a
+ // separador de uma ancora que ninguem escreveu.
+ func splitAnchor(s string) (target, anchor string) {
+-	if i := strings.IndexByte(s, '#'); i >= 0 {
+-		return s[:i], s[i+1:]
+-	}
+-	return s, ""
++	// strings.Cut devolve (s, "", false) quando nao acha o separador, que e
++	// exatamente o resultado desejado para um destino sem '#'.
++	target, anchor, _ = strings.Cut(s, "#")
++	return target, anchor
+ }
+ 
+ // tagsFromFrontmatter le as chaves "tags" e "tag" do frontmatter. Cada uma
+ // pode ser uma string unica, uma string com virgulas, ou uma lista; cada
+ // valor entra sem o '#' inicial.
+ func tagsFromFrontmatter(fm map[string]any) []string {
+ 	var out []string
+ 	for _, key := range []string{"tags", "tag"} {
+ 		for _, v := range stringsFromFrontmatterValue(fm[key]) {
+ 			out = append(out, strings.TrimPrefix(v, "#"))
+diff --git a/internal/service/anchor_selfref_test.go b/internal/service/anchor_selfref_test.go
+new file mode 100644
+index 0000000..1ffbab3
+--- /dev/null
++++ b/internal/service/anchor_selfref_test.go
+@@ -0,0 +1,113 @@
++package service_test
++
++import (
++	"context"
++	"os"
++	"path/filepath"
++	"testing"
++
++	"github.com/jonyd/gobsidian/internal/service"
++)
++
++// Desde 2026-09-06 um link so de ancora resolve para a PROPRIA nota, e com isso
++// a nota virou backlink de si mesma. note_move colhia esse backlink como se
++// fosse um citante a reescrever: movia o corpo primeiro e so depois lia o
++// caminho ANTIGO para reescrever os links, o que dava ENOENT e devolvia
++// CodeInternal com o move ja pela metade — corpo movido, citantes intactos.
++//
++// O discriminante e Target == "", e NAO "o citante e a propria nota":
++// auto-referencia com alvo escrito precisa continuar sendo reescrita. Este
++// teste nao consegue fixar essa segunda metade — ver o LIMITE abaixo —, entao
++// ela fica com ref.md, que prova ao menos que o guarda nao desligou a reescrita
++// de citante nenhum.
++//
++// LIMITE MEDIDO em 2026-09-06: uma nota que cita a si mesma com alvo ESCRITO
++// ("[[a]]" dentro de a.md) derruba note_move pelo mesmo ENOENT, e isso e
++// PRE-EXISTENTE — independe da Task 182, porque nada nela toca link com alvo.
++// Sondado neste mesmo tree com uma nota cujo unico conteudo era "Veja [[a]].":
++// `MoveNote: lendo nota "a.md": ... The system cannot find the file specified`.
++// Por isso a nota movida aqui nao contem "[[a]]": o teste falharia por um
++// defeito que nao e desta tarefa. Registrado no relatorio.
++func TestMoveNote_LinkSoDeAncoraNaoQuebraOMove(t *testing.T) {
++	origem := "# Topo\n\nVeja [x](#Topo) e [[#Topo]] e ![[#Topo]].\n"
++	svc, _, _, root := createMoveService(t, map[string]string{
++		"a.md":   origem,
++		"ref.md": "Outra nota aponta para [[a]]\n",
++	})
++
++	res, err := svc.MoveNote(context.Background(), service.MoveNoteRequest{
++		From:          "a.md",
++		To:            "sub/b.md",
++		UpdateLinks:   true,
++		CreateFolders: true,
++	})
++	if err != nil {
++		t.Fatalf("MoveNote: %v", err)
++	}
++	if res.To != "sub/b.md" {
++		t.Errorf("res.To = %q, quer %q", res.To, "sub/b.md")
++	}
++
++	if _, err := os.Stat(filepath.Join(root, "a.md")); !os.IsNotExist(err) {
++		t.Errorf("a nota continua no caminho antigo (err=%v)", err)
++	}
++
++	lido, err := os.ReadFile(filepath.Join(root, "sub", "b.md"))
++	if err != nil {
++		t.Fatalf("a nota nao chegou ao caminho novo: %v", err)
++	}
++
++	// As tres formas de ancora saem intactas: mover a nota nao muda para onde
++	// elas apontam, e escrever um alvo ali inventaria "[[b#Topo]]" onde o autor
++	// escreveu "[[#Topo]]".
++	if string(lido) != origem {
++		t.Errorf("o corpo mudou no move:\n got %q\nwant %q", lido, origem)
++	}
++
++	// E o citante de verdade FOI reescrito — o guarda nao pode ter desligado a
++	// reescrita de quem realmente aponta para a nota movida.
++	refRaw, err := os.ReadFile(filepath.Join(root, "ref.md"))
++	if err != nil {
++		t.Fatalf("lendo ref.md: %v", err)
++	}
++	if querRef := "Outra nota aponta para [[b]]\n"; string(refRaw) != querRef {
++		t.Errorf("ref.md = %q, quer %q", refRaw, querRef)
++	}
++	if res.LinksUpdated != 1 {
++		t.Errorf("LinksUpdated = %d, quer 1 (so o de ref.md, nunca os tres de ancora)", res.LinksUpdated)
++	}
++}
++
++// note_delete com report_broken_links listava a propria nota apagada como
++// "nota cujos links quebram", e emitia um BrokenAnchor de a.md para a.md. A
++// nota deixou de existir; nao ha link dela que sobreviva para quebrar.
++func TestDeleteNote_NaoAcusaAPropriaNotaApagada(t *testing.T) {
++	svc, _, _, _ := createDeleteService(t, map[string]string{
++		"a.md":   "# Topo\n\n[[#Topo]] e [[#Nada]]\n",
++		"ref.md": "Link para [[a]]\n",
++	})
++
++	res, err := svc.DeleteNote(context.Background(), service.DeleteNoteRequest{
++		Path:              "a.md",
++		ToTrash:           true,
++		ReportBrokenLinks: true,
++	})
++	if err != nil {
++		t.Fatalf("DeleteNote: %v", err)
++	}
++
++	for _, p := range res.BrokenLinks {
++		if p == "a.md" {
++			t.Errorf("BrokenLinks = %v; a propria nota apagada nao pode estar na lista", res.BrokenLinks)
++		}
++	}
++	if len(res.BrokenLinks) != 1 || res.BrokenLinks[0] != "ref.md" {
++		t.Errorf("BrokenLinks = %v; quer [ref.md]", res.BrokenLinks)
++	}
++
++	for _, ba := range res.BrokenAnchors {
++		if ba.From == "a.md" {
++			t.Errorf("BrokenAnchors tem %+v; a nota apagada nao aponta mais para nada", ba)
++		}
++	}
++}
+diff --git a/internal/service/write.go b/internal/service/write.go
+index bb55464..dc92e31 100644
+--- a/internal/service/write.go
++++ b/internal/service/write.go
+@@ -485,20 +485,37 @@ func (s *Service) MoveNote(ctx context.Context, req MoveNoteRequest) (MoveNoteRe
+ 			seenFrom[bl.From] = true
+ 
+ 			refNote, ok := s.index.Get(bl.From)
+ 			if !ok {
+ 				continue
+ 			}
+ 
+ 			var replacements []writer.LinkReplacement
+ 			for _, rl := range refNote.Links {
+ 				if rl.Resolved == canonicalFrom {
++					// Link so de ancora aponta para a PROPRIA nota e nao tem
++					// alvo escrito: mover a nota nao muda para onde ele aponta,
++					// e formatar um alvo aqui inventaria "[[b#Topo]]" onde o
++					// autor escreveu "[[#Topo]]".
++					//
++					// O discriminante e Target == "", e NAO "o citante e a
++					// propria nota": "[[a]]" dentro de a.md e auto-referencia
++					// com alvo escrito, e essa precisa continuar sendo
++					// reescrita. Sem este guarda a origem entrava em
++					// affectedNotes, e como o corpo se move ANTES dos citantes
++					// (ver o comentario de moverCorpo, abaixo), a releitura do
++					// caminho antigo dava ENOENT: note_move devolvia
++					// CodeInternal com o move ja pela metade.
++					if rl.Target == "" {
++						continue
++					}
++
+ 					if rl.Anchor != "" && rl.State == index.LinkAnchorMissing {
+ 						brokenAnchors = append(brokenAnchors, BrokenAnchor{
+ 							From:   string(bl.From),
+ 							To:     string(canonicalTo),
+ 							Anchor: rl.Anchor,
+ 						})
+ 					}
+ 
+ 					var newTarget string
+ 					if rl.Kind == parser.LinkWiki || rl.Kind == parser.LinkEmbed {
+@@ -686,20 +703,33 @@ func (s *Service) DeleteNote(ctx context.Context, req DeleteNoteRequest) (Delete
+ 		return DeleteNoteResult{}, ErroDeResolucao(req.Path, err)
+ 	}
+ 
+ 	// 1. Calcula o relatorio de links quebrados e ancoras quebradas ANTES de excluir
+ 	var brokenLinks []string
+ 	var brokenAnchors []BrokenAnchor
+ 	if req.ReportBrokenLinks {
+ 		backlinks := s.index.Backlinks(canonical)
+ 		seen := make(map[string]bool)
+ 		for _, bl := range backlinks {
++			// A propria nota apagada nao e vitima da exclusao dela.
++			//
++			// Desde 2026-09-06 um link so de ancora resolve para a nota que o
++			// contem, entao ela e backlink de si mesma e entrava aqui: a
++			// resposta listava "a.md" entre as notas cujos links quebram e
++			// emitia um BrokenAnchor de a.md para a.md. Nenhum link dentro da
++			// nota apagada sobrevive a exclusao, entao nao ha o que reportar —
++			// e por isso aqui o discriminante e bl.From, ao contrario do de
++			// MoveNote, onde a nota continua existindo no caminho novo.
++			if bl.From == canonical {
++				continue
++			}
++
+ 			pathStr := string(bl.From)
+ 			if !seen[pathStr] {
+ 				seen[pathStr] = true
+ 				brokenLinks = append(brokenLinks, pathStr)
+ 			}
+ 
+ 			refNote, ok := s.index.Get(bl.From)
+ 			if ok {
+ 				for _, rl := range refNote.Links {
+ 					if rl.Resolved == canonical && rl.Anchor != "" {

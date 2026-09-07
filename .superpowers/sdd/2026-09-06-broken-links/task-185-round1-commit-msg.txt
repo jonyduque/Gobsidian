@@ -1,0 +1,13 @@
+test(service): name the real discriminant in TestMoveNote_NotaQueCitaASiMesma
+
+The comment named the Resolved-via-index assertion as what discriminates
+the fix. It does not: "[[a]]" resolves by basename either way, so Resolved
+is sub/a.md in both worlds, and without the fix the test dies earlier at
+the ENOENT (err != nil), never reaching that assertion. What discriminates
+is err == nil plus LinksUpdated == 1 — the latter also rejects the wrong
+fix of skipping the self-citer, which would leave LinksUpdated == 0. The
+Resolved check stays as a regression guard for review-182's F2 (Resolved
+stuck on the old path after index.MoveNote), now labeled as such.
+
+Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01P5wkw6PAdBFzF3uB1w1jNj

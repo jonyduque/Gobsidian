@@ -1,0 +1,11 @@
+docs: the dry-run comment and the graph catch up with the code
+
+note_move's dry-run comment said the origin never enters diffs; since a
+moved note that cites itself is rewritten, it does, under the old path.
+The dependency graph in CLAUDE.md claimed to be re-extracted today and
+missed service -> text, which vault_broken_links' prefix filter added.
+The order comparator in broken.go now says its Source leg is inherited
+from index.NotePaths and repeated on purpose.
+
+Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01P5wkw6PAdBFzF3uB1w1jNj
