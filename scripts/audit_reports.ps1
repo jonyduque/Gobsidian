@@ -133,8 +133,19 @@ $Required = @(
     @{ Name = 'Verificacao'; Pattern = '(?im)^#{1,6}\s.*(verifica|verification|gate)' }
 )
 
-$Filter = if ($Task) { "task-$Task-report.md" } else { 'task-*-report.md' }
+# Qualquer `*-report.md` e relatorio. O filtro antigo era `task-*-report.md`, e
+# os dois `final-fix-report.md` reais (broken-links e gates-e-rf63) ficaram
+# fora da auditoria sem que nada avisasse -- um deles sem nenhuma das quatro
+# secoes (medido em 2026-09-07: 150 -> 152 relatorios, 199 -> 203
+# SECAO-AUSENTE). `-Task X` casa `task-X-report.md` ou `X-report.md`, para
+# que `-Task final-fix` tambem funcione.
+$Filter = '*-report.md'
 $Reports = @(Get-ChildItem -Path $SddRoot -Filter $Filter -Recurse -File | Sort-Object Name)
+if ($Task) {
+    $reTask = '^(?i)(task-)?' + [regex]::Escape($Task) + '-report\.md$'
+    $Reports = @($Reports | Where-Object { $_.Name -match $reTask })
+    $Filter = "-Task $Task"
+}
 
 if ($Reports.Count -eq 0) {
     Write-Output "[!] Nenhum relatorio casou com '$Filter' em $SddRoot"

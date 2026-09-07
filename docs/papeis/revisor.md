@@ -98,6 +98,31 @@ legítimo se o dono do cofre é quem criou o link.
 
 ---
 
+## Revisar é ler
+
+**Revisor não grava dentro do repositório.** Em 2026-09-07 uma re-revisão
+montou um caso ad hoc do hook e, num redirecionamento perdido, sobrescreveu
+`scripts/testdata/gates/msg-sem-escotilha.txt` — a fixture que o gate usa para
+provar que uma mensagem **sem** escotilha é recusada. Com ela trocada, o gate
+seguiria verde testando outra coisa. O orquestrador achou pelo `git diff`.
+
+Regras: fixture de experimento, saída capturada e arquivo temporário vão para
+o scratchpad da sessão, nunca para `scripts/testdata/` nem para
+`.superpowers/`. Antes de devolver, rode `git status --porcelain` e
+`git diff --stat`; se qualquer caminho aparecer, **o primeiro achado do
+relatório é esse**, com o que foi tocado e como foi restaurado — nunca
+restaure com `git checkout`/`git restore`, que é proibido aqui: reescreva o
+conteúdo original à mão, a partir de `git show HEAD:<caminho>`.
+
+**Achado sobre gate testa o gate contra o mecanismo inverso.** F7 da revisão
+final de 2026-09-07 dizia que a exceção de `--amend` no hook era pré-existente
+e cosmética; era um bypass real — `git commit --amend -m "..."` com `.go` em
+stage e doc nenhuma passava. O que separou os dois foi executar: o hook, com
+o comando exato, e ver `allow` onde devia ser `deny`. Achado sobre regra de
+gate vem com o comando que o reproduz e a decisão obtida, não com "parece que".
+
+---
+
 ## O contrato do achado
 
 Cada um com: **mecanismo fechado por leitura** (cadeia verificada até o

@@ -62,6 +62,15 @@ em que a tarefa de fechamento saiu sem Regras de execução e sem Contrato de
 relatório. O script confere as seções exigidas e acusa brief que **destoa em
 tamanho dos irmãos**, que é o sintoma mais confiável.
 
+**Código de harness que o plano prescreve roda antes de despachar.** O plano
+de 2026-09-07 trazia um `pwsh -File check_gates.ps1 -EmStage @('a','b')` que
+nunca vincula array a `-File` — só `-EncodedCommand` vincula — e dois regex de
+RED/GREEN que não casavam a saída real. Ninguém tinha executado uma linha; quem
+descobriu foi o implementador, no meio da tarefa, e a rodada virou depuração do
+plano. Trecho de script, comando de verificação e regex que aparecem em brief
+são executados uma vez, pelo orquestrador, contra o repositório, antes do
+despacho. Prosa que descreve um comando não é o comando.
+
 **A última tarefa de qualquer plano vaza até o fim do arquivo.** O `awk` do
 extrator só corta em cabeçalho casando `Task <número>`. Por isso existe a
 sentinela `# Task 000` no fim do plano — mova-a para depois da última tarefa ao
@@ -106,6 +115,58 @@ O que ele não pega, e você precisa:
 - **Leia o teste que o relatório diz cobrir a regra, e pergunte se ele
   desconecta o caminho normal.** Um teste de fallback com o caminho principal
   ligado mede o caminho principal.
+
+---
+
+## Monitorar quem está rodando
+
+O agente mantém `## Progresso` no relatório, com hora real (`date +%H:%M`), e
+o orquestrador confere que a hora avança. Isso é necessário e não basta: um
+agente pode escrever "editando X" sem tocar em X, e pode editar X sem escrever
+nada. Confira **as duas coisas**: o tamanho do relatório e o mtime dos arquivos
+que a tarefa diz alterar —
+
+```bash
+ls -la --time-style=+%H:%M scripts/check_gates.ps1 .superpowers/sdd/<marco>/task-N-report.md
+```
+
+— num monitor com prazo. Silêncio nos dois por mais de dez minutos é agente
+parado, e agente parado que não disse `BLOCKED` é despacho a refazer com o
+motivo pedido explicitamente.
+
+---
+
+## Rodadas de correção
+
+**Rodadas 1 a 3 voltam para o mesmo implementador**, por `SendMessage` — ele
+tem o contexto do diff e o brief de correção só precisa listar os achados.
+Agente novo começa re-lendo brief, revisão e diff inteiros antes de tocar em
+qualquer linha — tempo que o anterior não gasta (a duração não foi medida).
+Da quarta em diante, agente novo num tier acima.
+
+**Relatório de rodada tem nome sem número** — `final-fix-report.md`,
+`task-N-fix-2-report.md` — e o auditor **agora** o enxerga: até 2026-09-07 o
+glob era `task-*-report.md`, e os dois `final-fix-report.md` reais ficaram
+fora da auditoria — o do plano de broken-links sem nenhuma das quatro seções,
+e ninguém soube (medido: `150` → `152` relatórios, `199` → `203`
+`SECAO-AUSENTE`). Qualquer `*-report.md` conta, e `audit_reports.ps1 -Task
+final-fix` casa o nome sem número. Rode-o na volta de cada rodada, como na
+volta de cada tarefa.
+
+**Revisor só lê — e você confere que só leu.** Uma re-revisão de 2026-09-07
+sobrescreveu `scripts/testdata/gates/msg-sem-escotilha.txt` com um
+redirecionamento perdido enquanto montava um caso ad hoc; o gate teria passado
+a testar a fixture errada. O brief de revisão diz onde é o rascunho (fora do
+repositório: o scratchpad da sessão), e o orquestrador roda `git status
+--porcelain` e `git diff --stat` **depois que o revisor devolve**, antes de
+aceitar qualquer achado. Arquivo tocado por revisor é achado contra o revisor.
+
+**Número medido sobre corpus em movimento não é o número.** O efeito do
+auditor sobre os relatórios reais foi medido em `203` `SECAO-AUSENTE` com o
+próprio relatório da tarefa ainda sendo escrito; a medição final, sobre o
+corpus parado, deu `199`. Ao publicar contagem sobre um corpus, publique junto
+o tamanho do corpus e a data (`150 relatórios, 2026-09-07`), e meça com nenhum
+agente escrevendo nele.
 
 ---
 

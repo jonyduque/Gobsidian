@@ -208,7 +208,8 @@ pwsh -File scripts/verify.ps1              # o gate: 15 etapas, para no primeiro
 pwsh -File scripts/build.ps1               # build com versão via ldflags
 pwsh -File scripts/test_orphans.ps1        # os quatro cenários de encerramento
 pwsh -File scripts/mutate.ps1 ...          # prova de mutação — ver papeis/testador.md
-pwsh -File scripts/audit_reports.ps1 <N>   # auditoria do próprio relatório
+pwsh -File scripts/audit_reports.ps1 <N>   # auditoria do próprio relatório (N ou nome: final-fix)
+pwsh -File scripts/check_gates.ps1         # o hook e o auditor contra os bypasses que já aceitaram
 pwsh -File scripts/check_briefs.ps1 <a> <b>  # antes de despachar tarefas
 pwsh -File scripts/sdd.ps1 status          # ledger + git
 pwsh -File scripts/measure.ps1 -Vault <x>  # RNF-01 e RNF-07 contra um cofre real
@@ -300,6 +301,10 @@ regra abaixo veio de uma dessas.
 - **Registre no ledger antes de dizer que acabou.**
 - **O relatório é o entregável, não o resumo dele.** "Testes passam" não é
   evidência; a saída do teste é.
+- **Gate que aceita o que devia recusar é pior que gate ausente.** O hook de
+  pré-commit aceitou `[sem-doc]` num comentário de shell e num `--amend`; o
+  auditor aceitou `# comment` colado como seção. Regra de gate nova entra com
+  três casos em `check_gates.ps1`: o que recusa, o que aceita, o inverso.
 
 O detalhe de cada uma, com o defeito que a originou, está em
 [`docs/ARMADILHAS.md`](docs/ARMADILHAS.md) e nos documentos de papel.

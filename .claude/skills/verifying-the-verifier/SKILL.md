@@ -1,6 +1,6 @@
 ---
 name: verifying-the-verifier
-description: Rules for building or trusting a gate, checker, harness or measurement script. Use when writing a script that reports pass/fail, when a gate goes green or red unexpectedly, when triaging findings from a checker, or before believing any [OK] on screen.
+description: Rules for building or trusting a gate, checker, hook, harness or measurement script. Use when writing or changing a script that reports pass/fail or allow/deny (pre_commit_docs.ps1, audit_reports.ps1, check_gates.ps1, verify.ps1 steps), when a gate goes green or red unexpectedly, when triaging findings from a checker, when a plan or brief prescribes harness code, or before believing any [OK] on screen.
 ---
 
 # Verifying the verifier
@@ -22,7 +22,26 @@ Run through this whenever a gate goes green, and whenever you write one.
 - [ ] **Can it hang?** `StreamReader.Peek()` blocks on an empty pipe despite the name, so the deadline test one line above was never reached: one cycle sat for 15h44m. Every wait needs a bound that is actually reachable.
 - [ ] **Does a failure mean a defect, or an unobserved run?** A cycle that never launched observed nothing — neither success nor leak. Counting it as failure measures machine load. Distinguish, tolerate a small reported fraction, and keep "measured nothing at all" fatal at any tolerance.
 - [ ] **Does the error path work?** A directive parser called a reporting function whose output silently joined the return value, so the map came back as an array and the next index threw. It only happened on malformed input — the path nobody exercises until they need it.
+- [ ] **Does it see every input it claims to?** `audit_reports.ps1` globbed `task-*-report.md`; the two real `final-fix-report.md` were never audited, and one had none of the four required sections. Measured on 2026-09-07 when the glob became `*-report.md`: 150 → 152 reports, 199 → 203 `SECAO-AUSENTE`. A filter that excludes silently is a gate with a hole nobody can see.
+- [ ] **Does it read the same input the real caller gives it?** The pre-commit hook looked for the `[sem-doc]` hatch anywhere on the command line, so a shell comment (`git commit -F msg # was: -m "wip [sem-doc]"`) and an earlier chained commit both supplied it. The hook now cuts the line to the last `git commit` segment before the first unquoted `#`, `&&`, `||`, `;`, `|` and reads only `-m`/`--message=`/`-am` or the `-F` file.
+- [ ] **Is every branch reachable from the simulated path?** The hook's `--amend` exception lived outside `-Simular`; `check_gates` never exercised it, and it was an unconditional `allow` with a `.go` staged and no doc. The reviewer called it cosmetic; running the exact command showed the `allow`. A branch the harness cannot reach is a branch without a test.
 - [ ] **Is the signal drowning?** Ten permanent benign findings teach people to ignore the output. Either fix them or dispense them **individually, with a stated reason, still printed**. Never with a global list: it suppresses the token everywhere, including in a document that later makes a false claim about it.
+
+## A gate rule ships with three cases
+
+Gates that decide on text lie the way a test that cannot fail lies. Each new rule in `pre_commit_docs.ps1` or `audit_reports.ps1` lands in the same commit as three cases in `scripts/check_gates.ps1`:
+
+1. **What it must refuse** — the literal input that motivated the rule.
+2. **What it must accept** — the closest legitimate input (`git commit -m "fix: issue #12 [sem-doc]"`: the `#` is inside quotes).
+3. **The inverse mechanism** — what a naive implementation of the rule breaks. Stripping fenced code so a pasted `# comment` is not a heading is the rule; a fence that is never closed swallowing every real heading after it is the inverse, and it was found by a re-review (fixture `task-4-report.md`).
+
+All three use the same minimal fixture so the `allow` can only come from the rule under test (for the hook: one `.go` staged, no doc). Then the mutation proof, same as for Go: put the old line back, run `check_gates.ps1`, paste the cases that failed by name, restore. If the harness cannot express the case — `pwsh -File x.ps1 -Param @('a','b')` never binds an array; use `-EncodedCommand` — fix the harness, not the case.
+
+`Secoes-Ausentes` once counted matches in the auditor's output: a fixture that did not exist made the auditor exit 2 with empty output, and the case passed as "0 missing". Exit 2 is `erro`, never `0`. Likewise `Decisao-Hook` read only the decision, so a hook that threw returned `allow` from its `catch` and passed — the case now also checks `permissionDecisionReason` names the hatch.
+
+## Harness code in a plan is run before it is dispatched
+
+The gates plan carried a `check_gates.ps1 -EmStage @('a','b')` invocation that cannot bind, and RED/GREEN regexes that did not match the real output. Nobody had executed a line; the implementer found out mid-task and the round became plan debugging. Any script, command or regex a brief prescribes is executed once by the orchestrator, against the repository, before the dispatch.
 
 ## Never trust an exit code through a pipe
 
@@ -85,4 +104,6 @@ Two agents in one worktree is a hazard, not a speedup:
 | "These findings are all noise" | Then dispense them individually with reasons, so a real one stands out. |
 | "The exit code was 0" | Through a pipe, that is the last command's code. |
 | "Mutation exited 0, rule verified" | Only if the failure output names the rule. |
+| "That branch is pre-existing and cosmetic" | Run the exact command through it. `--amend` was an unconditional allow. |
+| "The glob covers the reports" | List what it does not match. Two real reports were never audited. |
 | "I'll re-run, it's flaky" | Flaky gate = no gate. Find whether it failed to measure or found a defect. |

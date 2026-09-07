@@ -622,7 +622,11 @@ o quarto, que é exatamente o defeito que ela existe para impedir.
   nega é sinalizada. Efeito medido em 2026-09-07 sobre 150 relatórios: `79` →
   `199` `SECAO-AUSENTE` — a medição da Task 188 deu `203` com o relatório
   dessa task ainda em curso; o número acompanha o corpus, não o corrija sem
-  re-medir). As quatro seções obrigatórias de um relatório eram
+  re-medir. Em 2026-09-07 o glob do auditor passou de `task-*-report.md` a
+  `*-report.md`, e os dois `final-fix-report.md` reais entraram: `152`
+  relatórios, `203` `SECAO-AUSENTE` — os quatro novos são todos do
+  `final-fix-report.md` de broken-links). As quatro seções obrigatórias de um
+  relatório eram
   procuradas por regex de palavra solta sobre o corpo inteiro
   (`audit_reports.ps1:113-118`: `red`, `green`, `muta`, `verifica`). A frase
   "**não** há ciclo RED/GREEN nem prova de mutação para colar" satisfazia três

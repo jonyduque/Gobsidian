@@ -108,6 +108,51 @@ Outras armadilhas de teste que já ocorreram:
   `TestPastaQueChegaComArquivosDentro` passa isolado em 2,6 s e já estourou 60 s
   dentro de `go test -race ./...`. Antes de declarar regressão, rode isolado.
 
+---
+
+## Regra de gate
+
+Os gates deste projeto — `scripts/pre_commit_docs.ps1`, `scripts/audit_reports.ps1`
+— são código que decide `allow`/`deny` sobre texto, e mentem do mesmo jeito que
+um teste que não pode falhar: aceitando o que deviam recusar sem que nada
+avise. Em 2026-09-07 a revisão final de um hook que já "tinha teste" achou
+sete achados só nele e no auditor — três deles bypasses inteiros (comentário
+de shell, commit encadeado, `--amend`). Cada regra de gate vem, no mesmo commit, com **três casos em
+`scripts/check_gates.ps1`**:
+
+1. **O que a regra deve recusar** — a entrada que motivou a regra, literal
+   (`git commit -F msg # was: -m "wip [sem-doc]"`).
+2. **O que a regra deve aceitar** — a entrada legítima mais parecida com a
+   recusada (`git commit -m "fix: issue #12 [sem-doc]"`, o `#` dentro de
+   aspas).
+3. **O mecanismo inverso** — a entrada que a implementação ingênua da regra
+   quebraria. Remover cerca de código para não contar `# comentário` como
+   cabeçalho é a regra; cerca **nunca fechada** engolindo os cabeçalhos reais
+   que vêm depois é o inverso, e foi o achado N2.
+
+Os três usam a mesma fixture mínima que faz o `allow` só poder vir da regra
+sob teste (um `.go` em stage sem doc, para o hook). Regra com um caso só
+tem o caso que o autor imaginou; é o terceiro que pega o que ele não
+imaginou.
+
+**Todo ramo do hook é alcançável por `-Simular`.** A exceção de `--amend` não
+era: vivia fora do caminho simulado, `check_gates` não a exercitava, e ela
+era um bypass inteiro (`git commit --amend -m "..."` com `.go` em stage e doc
+nenhuma → `allow`). Ramo que só roda quando o Claude Code chama o hook de
+verdade é ramo sem teste. Se a simulação não alcança, a simulação está
+incompleta — não o caso.
+
+**Prova de mutação de gate é a mesma dos testes de Go:** volte a linha antiga
+(`$Filter = 'task-*-report.md'`), rode `check_gates.ps1`, cole os casos que
+reprovaram **pelo nome**, restaure, rode de novo. Medido em 2026-09-07 para o
+glob do auditor:
+
+```
+[!] -Task final-fix acha final-fix-report.md -> 0 SECAO-AUSENTE: esperado '0', obtido 'erro'
+[!] sem -Task, todos os cinco *-report.md da fixture sao vistos: esperado '5', obtido '4'
+[!] check_gates: 2 de 26 casos reprovados
+```
+
 Ver também [`../ARMADILHAS.md`](../ARMADILHAS.md), que traz o mecanismo de cada
 defeito histórico — vários deles só são testáveis se você souber como montar a
 condição (por exemplo: `FILE_ATTRIBUTE_OFFLINE` é gravável, e é assim que se

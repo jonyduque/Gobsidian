@@ -93,6 +93,18 @@ Eight tasks in this project were handed back as complete without being complete.
 
 **Treat a partial delivery that reads as complete as the worst outcome.** `BLOCKED` with a reason is cheap to act on. A green report over an unfinished task costs an audit to discover. Say so in the dispatch, so the implementer knows escalating is the cheaper move for them too.
 
+## Fix rounds and the reviewer's footprint
+
+**Rounds 1–3 go back to the same implementer** via `SendMessage` — it holds the diff in context and the fix brief only lists the findings; a fresh agent starts by re-reading brief, review and diff. Round 4 onward: a fresh agent one tier up.
+
+**Name the round's report `<plan-dir>/final-fix-report.md` or `task-N-fix-R-report.md`** and audit it like any other: `pwsh -File scripts/audit_reports.ps1 -Task final-fix`. Until 2026-09-07 the auditor's glob was `task-*-report.md` and both real `final-fix-report.md` files went unaudited — one had none of the four required sections.
+
+**A reviewer is read-only, and you check that it was.** A re-review on 2026-09-07 built an ad-hoc case and, through a stray redirect, overwrote `scripts/testdata/gates/msg-sem-escotilha.txt` — the fixture proving a hatch-less message is refused. Tell the reviewer where scratch goes (the session scratchpad, never `scripts/testdata/` or `.superpowers/`), and run `git status --porcelain` and `git diff --stat` after it returns, before accepting any finding.
+
+**Liveness is two signals, not one.** The `## Progresso` section with real `date +%H:%M` lines is necessary and not sufficient — an agent can log "editing X" without touching X. Watch the report's size *and* the mtime of the files the task names (`ls -la --time-style=+%H:%M <files>`), on a bounded Monitor. Ten minutes of silence on both is a stalled agent; a stalled agent that did not say `BLOCKED` is a re-dispatch with the reason asked for explicitly.
+
+**A count over a moving corpus is not the count.** The auditor's effect was first published as `203` measured while the task's own report was still being written; over the frozen corpus it was `199`. Publish corpus size and date with any count, and measure with no agent writing to it.
+
 ## What a report must contain
 
 Require this shape, and send it back if a section is missing rather than reconstructing it yourself:

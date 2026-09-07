@@ -13,6 +13,9 @@ regra sem história é preferência, e preferência não merece espaço aqui.
 - [Daemon e IPC](#daemon-e-ipc)
 - [Medição e benchmark](#medição-e-benchmark)
 - [Contratos de API](#contratos-de-api)
+- [Exclusão mútua entre processos](#exclusao-mutua-entre-processos)
+- [Ledger e rastreio de tarefa](#ledger-e-rastreio-de-tarefa)
+- [Gates e harness de agentes](#gates-e-harness-de-agentes)
 - [Ferramentas deste ambiente](#ferramentas-deste-ambiente)
 
 ---
@@ -580,6 +583,74 @@ escreveu; o código diz o que existe.
 
 ---
 
+## Gates e harness de agentes
+
+Os gates — hook de pré-commit, auditor de relatórios, `check_gates.ps1` — são
+código que decide sobre texto, e cada item abaixo é um texto que eles
+decidiram errado. Todos de 2026-09-07, revisão final do plano de gates.
+
+**O hook lia a escotilha na linha de comando inteira, não na mensagem.**
+`git commit -F msg.txt # was: -m "wip [sem-doc]"` passava: o `[sem-doc]`
+estava num comentário de shell, e o regex de `-m` não sabe o que é
+comentário. `git commit -m "a [sem-doc]" && git commit -m "b"` também: a
+escotilha do primeiro cobria o segundo. A regra: o hook corta a linha ao
+**último** `git commit` e ao primeiro `#`, `&&`, `||`, `;` ou `|` fora de
+aspas, e só então procura `-m`/`--message=`/`-am` ou o arquivo de
+`-F`/`--file=` (`Segmento-Commit`, em `scripts/pre_commit_docs.ps1`). Tudo
+que ele não lê — `-C`, `--fixup`, heredoc, caminho sem aspas — cai fechado,
+e o texto do `deny` diz isso.
+
+**Um ramo que a simulação não alcança é um ramo sem teste — e era um bypass.**
+A exceção de `--amend` no hook vivia fora do caminho de `-Simular`;
+`check_gates.ps1` nunca a exercitou, e `git commit --amend -m "..."` com `.go` em
+stage e doc nenhuma era `allow` incondicional. A revisão a classificou de
+cosmética e pré-existente; **executar o comando** mostrou o `allow`. A
+exceção foi apagada. Toda decisão do hook precisa ser alcançável por
+`-Simular -Comando -EmStage`.
+
+**"Seção presente" era a palavra, não o cabeçalho.** O auditor casava `red`
+em qualquer lugar do relatório, e um relatório que só dizia "não fiz o RED"
+tinha a seção RED. Depois, casando só cabeçalho (`^#{1,6}\s`), um `# comment`
+dentro de saída de shell colada virou cabeçalho — quatro seções "presentes"
+num relatório que não tinha nenhuma (fixture `task-3-report.md`). Cerca de
+código é removida antes de procurar cabeçalho. **E o inverso também foi
+medido**: cerca aberta e nunca fechada engolia todos os cabeçalhos reais
+depois dela (fixture `task-4-report.md`) — número ímpar de cercas, a última
+vira texto.
+
+**O glob do auditor deixava relatório de fora sem dizer.** `task-*-report.md`
+não casa `final-fix-report.md`; os dois relatórios de rodada de correção
+reais nunca foram auditados, e um deles não tinha nenhuma das quatro seções.
+Medido ao corrigir: `150` → `152` relatórios, `199` → `203` `SECAO-AUSENTE`.
+Qualquer `*-report.md` conta; `-Task final-fix` casa o nome sem número.
+
+**O auditor que não chega a varrer respondia "zero seções ausentes".**
+`Secoes-Ausentes` contava ocorrências na saída; com fixture inexistente o
+auditor saía com código 2 e saída vazia, e o caso passava. Saída 2 é `erro`,
+nunca `0`. O mesmo valia para o hook: um hook que estourasse respondia
+`allow` pelo `catch`, e o caso só olhava a decisão — agora olha o motivo
+(`permissionDecisionReason`).
+
+**Harness prescrito num plano e nunca executado chegou quebrado ao
+implementador.** O plano trazia `pwsh -File check_gates.ps1 -EmStage @('a','b')`
+— `-File` não vincula array, só `-EncodedCommand` — e regex de RED/GREEN que
+não casavam a saída real. Ninguém rodou uma linha antes do despacho; a rodada
+virou depuração do plano. Código de harness que aparece em brief é executado
+pelo orquestrador antes de despachar.
+
+**Contagem sobre corpus em movimento.** O efeito do auditor foi publicado como
+`203` medido com o relatório da própria tarefa ainda sendo escrito; sobre o
+corpus parado deu `199`. Contagem sobre corpus vem com tamanho e data, medida
+com nenhum agente escrevendo nele.
+
+**Revisor "somente leitura" sobrescreveu uma fixture.** Ao montar um caso ad
+hoc, uma re-revisão redirecionou saída para
+`scripts/testdata/gates/msg-sem-escotilha.txt`; o gate teria continuado verde
+testando a fixture errada. `git diff --stat` depois de todo revisor, e
+rascunho de revisor fora do repositório.
+
+---
+
 ## Ferramentas deste ambiente
 
 **`bash` no PATH é o do WSL.** Ele não enxerga `C:/Users/...` e responde
@@ -588,6 +659,13 @@ converta `\` para `/` antes de passar caminho.
 
 **Here-string do PowerShell (`@'...'@`) não funciona na ferramenta Bash**, e
 backtick de continuação também não. Para multilinha ali, use heredoc.
+
+**`pwsh -File x.ps1 -Param @('a','b')` não vincula array.** `-File` recebe a
+linha como texto e `@(...)` chega como a string literal; o parâmetro
+`[string[]]` fica com um elemento inútil. Para passar array a um script de
+fora, use `-EncodedCommand` com o script chamado por `&` (é assim que
+`check_gates.ps1` invoca o hook). Custou a primeira rodada do plano de gates
+(2026-09-07).
 
 **PowerShell: array de um elemento vira escalar.**
 `$x = if ($c) { @() } else { @('-race') }` desenrola para string, e `@x` a

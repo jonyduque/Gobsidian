@@ -102,6 +102,14 @@ function Secoes-Ausentes([string]$Task) {
     return ([regex]::Matches($saida, 'SECAO-AUSENTE')).Count.ToString()
 }
 
+# Quantos relatorios o auditor enxergou sem -Task: a linha `=== Relatorios (N) ===`.
+function Relatorios-Vistos {
+    $saida = & pwsh -NoProfile -File $Audit -SddRoot $SddFalso 2>&1 | Out-String
+    if ($LASTEXITCODE -eq 2) { return 'erro' }
+    if ($saida -match '=== Relatorios \((\d+)\) ===') { return $Matches[1] }
+    return 'sem-cabecalho'
+}
+
 Push-Location $ProjectRoot
 try {
     Write-Output "=== pre_commit_docs.ps1 ==="
@@ -205,6 +213,15 @@ try {
     # cabecalhos reais que vem depois dela.
     Caso -Nome 'cerca nao fechada antes das quatro secoes reais -> 0 SECAO-AUSENTE' `
         -Esperado '0' -Obtido (Secoes-Ausentes '4')
+
+    # 2026-09-07: o filtro `task-*-report.md` deixou os dois final-fix-report.md
+    # reais fora da auditoria, um deles sem secao nenhuma. Qualquer
+    # `*-report.md` conta, e -Task aceita nome sem numero.
+    Caso -Nome '-Task final-fix acha final-fix-report.md -> 0 SECAO-AUSENTE' `
+        -Esperado '0' -Obtido (Secoes-Ausentes 'final-fix')
+
+    Caso -Nome 'sem -Task, todos os cinco *-report.md da fixture sao vistos' `
+        -Esperado '5' -Obtido (Relatorios-Vistos)
 }
 finally {
     Pop-Location
