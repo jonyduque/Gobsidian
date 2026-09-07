@@ -161,6 +161,23 @@ try {
     Caso -Nome 'motivo do allow e a escotilha, nao o catch do hook' `
         -Esperado 'escotilha [sem-doc] na mensagem do commit' -Obtido (Motivo-Hook 'git commit -m "fix: x [sem-doc]"' $go)
 
+    # F7 da revisao final: --amend nao e mais allow incondicional. Com .go em
+    # stage e sem doc, amend e commit igual; com nada em stage o caminho normal
+    # ja responde allow.
+    Caso -Nome '--amend -m sem escotilha, .go sem doc -> deny' `
+        -Esperado 'deny' -Obtido (Decisao-Hook 'git commit --amend -m "fix: x"' $go)
+
+    Caso -Nome '--amend -m com escotilha, .go sem doc -> allow' `
+        -Esperado 'allow' -Obtido (Decisao-Hook 'git commit --amend -m "fix: x [sem-doc]"' $go)
+
+    Caso -Nome '--amend --no-edit, nada em stage -> allow' `
+        -Esperado 'nada em stage' -Obtido (Motivo-Hook 'git commit --amend --no-edit' @())
+
+    # N1 da re-revisao final: \" e aspa literal, nao abre nem fecha aspas; o #
+    # depois dela continua sendo comentario de shell.
+    Caso -Nome 'aspa escapada antes do comentario, -F sem escotilha -> deny' `
+        -Esperado 'deny' -Obtido (Decisao-Hook "git commit -F $msgSem \`" # was: -m `"wip [sem-doc]`"" $go)
+
     Write-Output ""
     Write-Output "=== audit_reports.ps1 ==="
     $Audit = Join-Path $PSScriptRoot 'audit_reports.ps1'

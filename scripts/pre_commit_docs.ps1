@@ -84,6 +84,10 @@ function Segmento-Commit([string]$linha) {
     $fim = $linha.Length
     for ($i = $inicio; $i -lt $linha.Length; $i++) {
         $c = $linha[$i]
+        # N1 da re-revisao final: fora de aspas simples, bash trata `\` como
+        # escape do proximo caractere -- `\"` e aspa literal, nao abre nem
+        # fecha aspas, e o `#` depois dela continua sendo comentario de shell.
+        if ($c -eq '\' -and -not $aspaS) { $i++; continue }
         if ($c -eq "'" -and -not $aspaD) { $aspaS = -not $aspaS; continue }
         if ($c -eq '"' -and -not $aspaS) { $aspaD = -not $aspaD; continue }
         if ($aspaS -or $aspaD) { continue }
@@ -133,9 +137,12 @@ try {
         $entrada = $bruto | ConvertFrom-Json
         $comando = $entrada.tool_input.command
         if ($comando -notmatch 'git\s+commit') { Emitir "allow" "nao e git commit" }
-        if ($comando -match '--amend' -and $comando -notmatch '--no-edit') {
-            Emitir "allow" "amend de mensagem"
-        }
+        # F7 da revisao final: --amend nao tem mais allow incondicional aqui.
+        # Com stage vazio o caminho normal ja responde "nada em stage" allow;
+        # com algo em stage a excecao so servia de furo (.go sem doc passava
+        # via `--amend -m "..."`), e vivia fora do `-Simular`, entao
+        # check_gates nunca a alcancava. Amend le mensagem e stage como
+        # qualquer commit.
     }
 
     $mensagem = Extrair-Mensagem $comando

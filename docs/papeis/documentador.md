@@ -149,7 +149,8 @@ página estiver `status: stale`. Página defasada é ponto de partida, não resp
 vale só no trecho do último `git commit` da linha, e só onde o hook consegue
 ler a mensagem: `-m`/`--message=` (inclusive `-am`) e o arquivo de
 `-F`/`--file=`; comentário de shell e comandos encadeados antes dele não
-contam.
+contam. `--amend` segue a mesma regra: com `.go` em stage e sem doc, precisa
+da escotilha ou do doc; com nada em stage, passa.
 
 **Ele bloqueia o modelo, não pergunta ao usuário.** A primeira versão devolvia
 `ask`, e o resultado era o hook interrompendo o *usuário* por causa de um commit
