@@ -63,6 +63,36 @@ function Emitir($decisao, $motivo, $aviso = $null) {
     exit 0
 }
 
+# Corta a linha de comando ate o SEGMENTO do ultimo `git commit` nela: comeca
+# no ultimo `git commit` que aparecer e termina no primeiro `#`, `&&`, `;` ou
+# `|` que estiver FORA de aspas (percorrido caractere a caractere, com estado
+# de aspas simples/duplas -- um `#` dentro de aspas e texto de mensagem, nao
+# comentario). Existe porque a revisao final da Task 187 mediu dois bypasses
+# na mesma familia:
+#   - um `#` de comentario de shell com `-m "... [sem-doc]"` DEPOIS dele, onde
+#     a mensagem de verdade (via -F) nao tinha a escotilha;
+#   - dois `git commit` encadeados com `&&`, onde a escotilha do primeiro
+#     cobria o segundo, que e o commit que de fato acontece por ultimo.
+# So o ultimo segmento e o que sera de fato commitado; qualquer coisa antes
+# dele -- inclusive um commit anterior na mesma linha -- nao e a mensagem.
+function Segmento-Commit([string]$linha) {
+    $ms = [regex]::Matches($linha, 'git\s+commit')
+    if ($ms.Count -eq 0) { return $linha }
+    $inicio = $ms[$ms.Count - 1].Index
+    $aspaS = $false
+    $aspaD = $false
+    $fim = $linha.Length
+    for ($i = $inicio; $i -lt $linha.Length; $i++) {
+        $c = $linha[$i]
+        if ($c -eq "'" -and -not $aspaD) { $aspaS = -not $aspaS; continue }
+        if ($c -eq '"' -and -not $aspaS) { $aspaD = -not $aspaD; continue }
+        if ($aspaS -or $aspaD) { continue }
+        if ($c -eq '#' -or $c -eq ';' -or $c -eq '|') { $fim = $i; break }
+        if ($c -eq '&' -and ($i + 1) -lt $linha.Length -and $linha[$i + 1] -eq '&') { $fim = $i; break }
+    }
+    return $linha.Substring($inicio, $fim - $inicio)
+}
+
 # A escotilha vale na MENSAGEM, nunca na linha de comando. Ate 2026-09-07 o
 # hook procurava [sem-doc] no texto do comando inteiro, e um comentario de
 # shell (`git commit -F msg.txt # [sem-doc]`) o satisfazia com a mensagem
@@ -73,9 +103,14 @@ function Emitir($decisao, $motivo, $aviso = $null) {
 # Le -m/--message= (aspas duplas, simples ou sem aspas, repetidos) e o
 # arquivo de -F/--file=. Sem nenhum dos dois — commit que abriria editor — a
 # mensagem e desconhecida e a escotilha nao vale.
+#
+# O grupo de -m aceita flags curtas agrupadas (`-am`, `-aem`): o lookbehind
+# barra um `-` precedido de letra/digito/traco, que e o que evita casar o
+# segundo `-` de `--amend` como se fosse um `-m` isolado (revisao final, F3).
 function Extrair-Mensagem([string]$linha) {
+    $linha = Segmento-Commit $linha
     $partes = [System.Collections.Generic.List[string]]::new()
-    $reM = '(?:-m|--message)(?:=|\s+)(?:"([^"]*)"|''([^'']*)''|(\S+))'
+    $reM = '(?:(?<![\w-])-[a-zA-Z]*m|--message)(?:=|\s+)(?:"([^"]*)"|''([^'']*)''|(\S+))'
     foreach ($m in [regex]::Matches($linha, $reM)) {
         $texto = @($m.Groups[1].Value, $m.Groups[2].Value, $m.Groups[3].Value) | Where-Object { $_ } | Select-Object -First 1
         if ($texto) { $partes.Add($texto) }
@@ -163,6 +198,8 @@ try {
         "Se documentacao genuinamente NAO se aplica (revert, formatacao, ajuste de",
         "teste que nao muda contrato), inclua [sem-doc] na MENSAGEM do commit (-m ou",
         "arquivo de -F). Na linha de comando fora da mensagem ele nao vale.",
+        "O hook so le -m/--message= e o arquivo de -F/--file=; -C, --fixup, heredoc e",
+        "caminho sem aspas nao sao lidos e caem aqui.",
         "Isso e uma decisao consciente e fica visivel no historico."
     ) | Where-Object { $null -ne $_ }
 

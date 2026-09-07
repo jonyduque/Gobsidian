@@ -146,8 +146,10 @@ página estiver `status: stale`. Página defasada é ponto de partida, não resp
 
 `.claude/settings.json` instala um hook `PreToolUse` filtrado para
 `git commit*`, que roda `scripts/pre_commit_docs.ps1`. A escotilha `[sem-doc]`
-vale na MENSAGEM do commit (`-m` ou o arquivo de `-F`), nunca na linha de
-comando fora dela.
+vale só no trecho do último `git commit` da linha, e só onde o hook consegue
+ler a mensagem: `-m`/`--message=` (inclusive `-am`) e o arquivo de
+`-F`/`--file=`; comentário de shell e comandos encadeados antes dele não
+contam.
 
 **Ele bloqueia o modelo, não pergunta ao usuário.** A primeira versão devolvia
 `ask`, e o resultado era o hook interrompendo o *usuário* por causa de um commit

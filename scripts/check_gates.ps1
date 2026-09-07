@@ -47,8 +47,10 @@ function Caso {
     }
 }
 
-# Decisao do hook em modo simulado. O hook imprime o JSON de hook em stdout;
-# so a decisao interessa aqui.
+# Roda o hook em modo simulado e devolve o objeto hookSpecificOutput inteiro
+# (ou $null se o processo falhar). Decisao-Hook e Motivo-Hook leem um campo
+# cada um a partir daqui -- refatorado na revisao final (F6) para nao duplicar
+# a plumbing de -EncodedCommand entre as duas.
 #
 # Nao chama "pwsh -File $Hook -EmStage $EmStage" direto: -File repassa os
 # argumentos como argv cru (medido nesta tarefa), entao um -EmStage com mais
@@ -56,7 +58,7 @@ function Caso {
 # erro de bind -- nao com a decisao do caso. -EncodedCommand roda o mesmo
 # script, mas o array chega como array de verdade porque quem le a linha e o
 # parser do PowerShell, nao o passa-argumento do -File.
-function Decisao-Hook {
+function Invocar-Hook {
     param([string]$Comando, [string[]]$EmStage)
     try {
         $comandoLiteral = "'" + ($Comando -replace "'", "''") + "'"
@@ -65,17 +67,38 @@ function Decisao-Hook {
         $script = "& $hookLiteral -Simular -Comando $comandoLiteral -EmStage @($emStageLiteral)"
         $encoded = [Convert]::ToBase64String([System.Text.Encoding]::Unicode.GetBytes($script))
         $json = & pwsh -NoProfile -EncodedCommand $encoded
-        if ($LASTEXITCODE -ne 0) { return 'erro' }
-        return ($json | ConvertFrom-Json).hookSpecificOutput.permissionDecision
+        if ($LASTEXITCODE -ne 0) { return $null }
+        return ($json | ConvertFrom-Json).hookSpecificOutput
     }
     catch {
-        return 'erro'
+        return $null
     }
 }
 
-# Conta quantos SECAO-AUSENTE o auditor emite para um relatorio.
+function Decisao-Hook {
+    param([string]$Comando, [string[]]$EmStage)
+    $saida = Invocar-Hook $Comando $EmStage
+    if ($null -eq $saida) { return 'erro' }
+    return $saida.permissionDecision
+}
+
+# F6 da revisao final: hook quebrado responde 'allow' de proposito (catch-all
+# documentado), e um caso que so olha a decisao nao distingue esse allow do
+# allow legitimo da escotilha. Este le o MOTIVO.
+function Motivo-Hook {
+    param([string]$Comando, [string[]]$EmStage)
+    $saida = Invocar-Hook $Comando $EmStage
+    if ($null -eq $saida) { return 'erro' }
+    return $saida.permissionDecisionReason
+}
+
+# Conta quantos SECAO-AUSENTE o auditor emite para um relatorio. F4 da revisao
+# final: um exit 2 precoce (raiz ausente, ou nenhum relatorio casou) tambem
+# emite zero ocorrencias de SECAO-AUSENTE, e um caso que so conta a string nao
+# distingue esse zero vazio do zero legitimo de um relatorio completo.
 function Secoes-Ausentes([string]$Task) {
     $saida = & pwsh -NoProfile -File $Audit -Task $Task -SddRoot $SddFalso 2>&1 | Out-String
+    if ($LASTEXITCODE -eq 2) { return 'erro' }
     return ([regex]::Matches($saida, 'SECAO-AUSENTE')).Count.ToString()
 }
 
@@ -116,6 +139,28 @@ try {
     Caso -Nome 'sem -m nem -F (editor), .go sem doc -> deny' `
         -Esperado 'deny' -Obtido (Decisao-Hook 'git commit' $go)
 
+    # F1 da revisao final: -m dentro de um comentario de shell nao e a mensagem.
+    Caso -Nome '-m com escotilha dentro de comentario de shell, -F sem ela -> deny' `
+        -Esperado 'deny' -Obtido (Decisao-Hook "git commit -F $msgSem # was: -m `"wip [sem-doc]`"" $go)
+
+    # F2: dois commits na linha -- vale o ultimo, que nao tem escotilha.
+    Caso -Nome 'dois git commit encadeados, escotilha so no primeiro -> deny' `
+        -Esperado 'deny' -Obtido (Decisao-Hook 'git commit -m "docs: a [sem-doc]" && git commit -m "feat: b"' $go)
+
+    Caso -Nome 'dois git commit encadeados, escotilha so no ultimo -> allow' `
+        -Esperado 'allow' -Obtido (Decisao-Hook 'git commit -m "feat: a" && git commit -m "docs: b [sem-doc]"' $go)
+
+    # F3: flags curtas agrupadas.
+    Caso -Nome '-am com escotilha -> allow' `
+        -Esperado 'allow' -Obtido (Decisao-Hook 'git commit -am "fix: x [sem-doc]"' $go)
+
+    Caso -Nome 'escotilha dentro de aspas com # no texto -> allow' `
+        -Esperado 'allow' -Obtido (Decisao-Hook 'git commit -m "fix: issue #12 [sem-doc]"' $go)
+
+    # F6: o motivo do allow tem de ser a escotilha, nao o catch-all do hook.
+    Caso -Nome 'motivo do allow e a escotilha, nao o catch do hook' `
+        -Esperado 'escotilha [sem-doc] na mensagem do commit' -Obtido (Motivo-Hook 'git commit -m "fix: x [sem-doc]"' $go)
+
     Write-Output ""
     Write-Output "=== audit_reports.ps1 ==="
     $Audit = Join-Path $PSScriptRoot 'audit_reports.ps1'
@@ -128,6 +173,16 @@ try {
 
     Caso -Nome 'quatro secoes em cabecalho -> 0 SECAO-AUSENTE' `
         -Esperado '0' -Obtido (Secoes-Ausentes '2')
+
+    # F5: secoes que so aparecem em comentario de shell dentro de cerca de
+    # codigo nao contam -- a cerca inteira e removida antes de casar cabecalho.
+    Caso -Nome 'secoes so em comentario de shell dentro de cerca -> 4 SECAO-AUSENTE' `
+        -Esperado '4' -Obtido (Secoes-Ausentes '3')
+
+    # F4: fixture inexistente e o auditor nem chega a varrer -- isso e erro,
+    # nao "zero achados".
+    Caso -Nome 'fixture inexistente -> erro, nao 0' `
+        -Esperado 'erro' -Obtido (Secoes-Ausentes '9999')
 }
 finally {
     Pop-Location

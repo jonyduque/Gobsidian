@@ -146,6 +146,21 @@ foreach ($R in $Reports) {
     $Lines = @(Get-Content -Path $R.FullName -Encoding utf8)
     $Body = $Lines -join "`n"
 
+    # Saida de comando colada usa linhas `# comentario`, que casam
+    # `^#{1,6}\s` igual a um cabecalho de verdade. Medido na revisao final
+    # (F5): quatro secoes "presentes" num relatorio cujo unico texto com essa
+    # forma estava dentro de uma cerca ```bash. $BodySemCercas remove todo
+    # bloco cercado (``` ou ~~~) antes de casar SECAO-AUSENTE; os outros
+    # achados (HEDGE, NAO-RESPOSTA, MUTACAO-CONDICIONAL) continuam sobre
+    # $Body -- um hedge dentro de saida colada ainda vale a pena sinalizar.
+    $emCerca = $false
+    $foraDeCerca = [System.Collections.Generic.List[string]]::new()
+    foreach ($L in $Lines) {
+        if ($L -match '^\s*(```|~~~)') { $emCerca = -not $emCerca; continue }
+        if (-not $emCerca) { $foraDeCerca.Add($L) }
+    }
+    $BodySemCercas = $foraDeCerca -join "`n"
+
     for ($i = 0; $i -lt $Lines.Count; $i++) {
         $L = $Lines[$i]
         if ($L -match $HedgePattern) {
@@ -160,7 +175,7 @@ foreach ($R in $Reports) {
     }
 
     foreach ($Sec in $Required) {
-        if ($Body -notmatch $Sec.Pattern) {
+        if ($BodySemCercas -notmatch $Sec.Pattern) {
             Add-Finding -File $R.FullName -Line 1 -Rule 'SECAO-AUSENTE' -Text "sem secao de $($Sec.Name)"
         }
     }
