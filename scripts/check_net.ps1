@@ -64,6 +64,20 @@ try {
                 if ($Parts.Count -gt 1 -and $Parts[1]) { $Imports = $Parts[1] -split "," }
 
                 $Net = $Imports | Where-Object { $_ -like "net/*" }
+
+                # Segunda reabertura, 2026-09-08 (decisao D-13 do dono, PRD 6.4):
+                # net/http passou a ser permitido em internal/selfupdate, para o
+                # `gobsidian update`. SO net/http, e SO nesse pacote -- qualquer
+                # outro net/* la dentro continua reprovando aqui, e net/http em
+                # qualquer outro pacote tambem.
+                #
+                # Quem cobra o resto da excecao -- a lista fechada de hosts -- e o
+                # vettool do passo 2, que ve literal de string; esta checagem
+                # textual so ve import.
+                if ($Pkg -eq "$ModulePath/internal/selfupdate") {
+                    $Net = $Net | Where-Object { $_ -ne "net/http" }
+                }
+
                 if ($Net) { $Offenders += "$Pkg -> $($Net -join ', ')" }
             }
 
@@ -75,7 +89,7 @@ try {
         }
     }
 
-    Write-Output "[OK] Nenhum pacote de internal/ ou cmd/ importa net/* ou abre socket que saia da maquina (verificado via netcheck vettool em windows, linux, darwin)"
+    Write-Output "[OK] Nenhum pacote de internal/ ou cmd/ importa net/* fora das duas excecoes nomeadas (net para IPC unix; net/http so em internal/selfupdate) -- verificado via netcheck vettool em windows, linux, darwin"
 }
 finally {
     if (Test-Path $TempBin) {

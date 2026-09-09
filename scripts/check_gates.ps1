@@ -222,6 +222,56 @@ try {
 
     Caso -Nome 'sem -Task, todos os cinco *-report.md da fixture sao vistos' `
         -Esperado '5' -Obtido (Relatorios-Vistos)
+
+    # ------------------------------------------------------------------
+    # netcheck: a SEGUNDA excecao da RNF-30 (decisao D-13, 2026-09-08)
+    #
+    # net/http passou a ser permitido em internal/selfupdate, para o
+    # `gobsidian update`. Excecao sem gate vira porta escancarada: os tres
+    # casos abaixo sao o que RECUSA, o que ACEITA, e o inverso -- a excecao
+    # valendo so onde deve, e so para os hosts da lista.
+    #
+    # Roda o analisador DE VERDADE contra fixtures, e nao um grep: a regra
+    # mora no analisador, e um gate que testa outra coisa nao testa a regra.
+    # ------------------------------------------------------------------
+    $VetTool = Join-Path ([System.IO.Path]::GetTempPath()) "netcheck_gate_$([guid]::NewGuid().ToString('N')).exe"
+    go build -o $VetTool ./tools/netcheck/cmd/netcheck
+    if ($LASTEXITCODE -ne 0) {
+        Write-Output "[!] netcheck: falha ao compilar o vettool"
+        $script:Reprovados++
+        $script:Total++
+    }
+    else {
+        try {
+            # Devolve 'aceito' ou 'recusado' para uma fixture.
+            #
+            # Caminho RELATIVO ao modulo (./scripts/...), e nao absoluto: com
+            # caminho absoluto o `go vet` resolve o pacote por diretorio e o
+            # caminho de importacao que chega ao analisador nao termina no nome
+            # do pacote -- a regra da excecao passa a nao reconhecer
+            # internal/selfupdate e o caso "aceito" reprova por engano.
+            function Netcheck-Fixture {
+                param([string]$Dir)
+                $rel = "./scripts/testdata/gates/netcheck/$Dir"
+                if (-not (Test-Path (Join-Path $ProjectRoot $rel))) { return "fixture-ausente" }
+                go vet "-vettool=$VetTool" $rel 2>&1 | Out-Null
+                if ($LASTEXITCODE -eq 0) { return 'aceito' }
+                return 'recusado'
+            }
+
+            Caso -Nome 'net/http em internal/selfupdate -> aceito' `
+                -Esperado 'aceito' -Obtido (Netcheck-Fixture 'permitido/selfupdate')
+
+            Caso -Nome 'net/http em qualquer outro pacote -> recusado' `
+                -Esperado 'recusado' -Obtido (Netcheck-Fixture 'proibido/qualquer')
+
+            Caso -Nome 'host fora da lista, dentro de selfupdate -> recusado' `
+                -Esperado 'recusado' -Obtido (Netcheck-Fixture 'hostestranho/selfupdate')
+        }
+        finally {
+            Remove-Item $VetTool -ErrorAction SilentlyContinue
+        }
+    }
 }
 finally {
     Pop-Location

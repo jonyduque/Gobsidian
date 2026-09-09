@@ -378,7 +378,7 @@ mudar é a estrutura do índice invertido — não o requisito.
 
 | ID | Requisito |
 |---|---|
-| RNF-30 | Nenhum socket que saia da máquina. Socket de domínio Unix é permitido para IPC local, endereçado sob o diretório de runtime do usuário; nenhum socket TCP/UDP e nenhuma requisição HTTP de saída, em nenhuma circunstância |
+| RNF-30 | Nenhum socket que saia da máquina. Duas exceções nomeadas, e só elas: socket de domínio Unix para IPC local, endereçado sob o diretório de runtime do usuário; e HTTPS de saída **em `internal/selfupdate`**, para hosts de uma lista fechada, alcançável apenas por `gobsidian update`. Nenhum socket TCP/UDP em qualquer outro lugar, e nenhuma requisição HTTP fora daquele pacote |
 | RNF-31 | Todo caminho recebido de uma tool é resolvido e verificado como interno ao cofre; travessia rejeitada |
 | RNF-32 | Links simbólicos que apontem para fora do cofre não são seguidos |
 | RNF-33 | Modo `--read-only` que desabilita toda a superfície de escrita |
@@ -399,7 +399,22 @@ A regra verificável é outra, em três partes:
 2. Toda chamada a `net.Dial` ou `net.Listen` no código do produto só aceita a rede como constante literal `"unix"`; rede vinda de variável, ou de qualquer expressão não constante, é recusada estaticamente. Qualquer outra chamada do pacote `net` (`net.DialTCP`, `net.ListenTCP`, `net.DialUDP`, `net.LookupHost` etc.) é proibida por padrão — o par Dial/Listen com `"unix"` é a única porta aberta. Nenhuma chamada a `http.Get`, `http.Client` ou equivalente continua valendo, porque `net/http` já está banido pela regra 1. Verificado por `go vet` com o analisador de `tools/netcheck`.
 3. O endereço do socket Unix é um caminho sob o diretório de runtime do usuário. O analisador estático não prova isso — é um valor de tempo de execução, não estático —; quem prova é o teste. RF-54 (transporte HTTP/SSE) continua fora da v1: o único transporte MCP construído é stdio, e o socket Unix das Tasks 91/92 é IPC auxiliar, não substituto dele.
 
-O resultado é honesto: `net/http` está compilado no binário porque o SDK o carrega, e nunca é exercitado pelo nosso código. Auditável em um comando, e é a garantia que dá para sustentar sem manter um fork podado do SDK.
+O resultado é honesto: `net/http` está compilado no binário porque o SDK o carrega, e — até 2026-09-08 — nunca era exercitado pelo nosso código. Auditável em um comando, e é a garantia que dá para sustentar sem manter um fork podado do SDK.
+
+#### Segunda reabertura, 2026-09-08: `gobsidian update`
+
+**Reaberta pela segunda vez, com autorização explícita do dono do projeto**, para o instalador dentro do binário (decisão D-13 de `docs/superpowers/specs/2026-09-08-instalador-e-encerramento-design.md`). Antes disso, quem baixava uma versão nova era um script (`install.ps1`, `installer/install.js`); com o instalador virando subcomando, o download passa a ser código Go do produto.
+
+A garantia que a RNF-30 protege **não muda**: o produto não vira serviço de rede, não escuta em porta, não fala com terceiros durante a operação normal. Um cliente HTTPS **de saída**, para um host literal, num pacote só, alcançável apenas por um subcomando que o usuário digitou, é coisa diferente de abrir socket para receber conexão. A alternativa considerada e descartada foi deixar o download no script de bootstrap — ela mantém a regra intacta, mas devolve ao shell a metade da lógica que o instalador existe para trazer para dentro do produto, onde há teste.
+
+A exceção é estreita, e as quatro coisas que a estreitam são verificadas:
+
+1. **Um pacote só.** `net/http` pode ser importado por `internal/selfupdate` e por mais nada. Todo outro pacote continua recusado pela regra 1 acima. Verificado por `tools/netcheck`.
+2. **Lista fechada de hosts.** Todo literal de URL escrito dentro de `internal/selfupdate` tem de apontar para um host da lista do analisador — hoje `api.github.com`, `objects.githubusercontent.com` e `github.com`. Host novo exige tocar no analisador, e tocar nele exige explicar aqui. Verificado por `tools/netcheck`.
+3. **URL montada em tempo de execução é recusada em tempo de execução.** O analisador estático não prova para onde uma URL vinda de variável aponta — é a mesma limitação que a regra 2 do IPC já registra. Quem prova é uma guarda no próprio pacote, com teste que a exercita. Análise estática e guarda de runtime cobrem metades diferentes, e dizer que uma cobre a outra seria mentira.
+4. **Só o subcomando `update` alcança o pacote.** `serve`, `daemon` e as tools MCP não o importam: servir um cofre nunca toca a rede.
+
+Os três casos correspondentes vivem em `scripts/check_gates.ps1` — o que aceita, o que recusa e o inverso —, pela regra do projeto de que gate novo entra com os três. Exceção sem gate vira porta escancarada.
 
 ---
 
