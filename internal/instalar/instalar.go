@@ -84,6 +84,9 @@ type Resultado struct {
 	HostsOK     map[string]string // chave -> aviso
 	HostsFalhos map[string]string // chave -> erro
 	Limpeza     Relatorio
+	// ChavesMigradas lista os diretorios de cache cujo nome ficou para tras da
+	// conta de config.VaultKey. Vazio e o caso normal -- ver MigrarChaves.
+	ChavesMigradas []MigracaoDeChave
 }
 
 // ErrRecusado indica que o usuario disse nao. Nao e falha: e decisao dele.
@@ -140,6 +143,17 @@ func Instalar(ctx context.Context, sis Sistema, o Opcoes) (Resultado, error) {
 		return r, fmt.Errorf("limpando: %w", err)
 	}
 	r.Limpeza = limpeza
+
+	// 4b: chaves de cache que ficaram para tras. Mesma janela da limpeza, e
+	// pela mesma razao: renomear diretorio de cache exige que ninguem o esteja
+	// mapeando. Ver MigrarChaves para o defeito que a originou -- a conta de
+	// config.VaultKey deixou de depender de tabela Unicode da toolchain, e um
+	// punhado de cofres muda de chave por isso.
+	migradas, err := MigrarChaves(cacheRaiz, true)
+	if err != nil {
+		return r, fmt.Errorf("migrando chaves de cache: %w", err)
+	}
+	r.ChavesMigradas = migradas
 
 	// 5: o binario.
 	binario, hash, err := instalarBinario(o)

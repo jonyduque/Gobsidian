@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/jonyd/gobsidian/internal/text"
 	"github.com/jonyd/gobsidian/internal/vault"
 )
 
@@ -22,10 +23,29 @@ const (
 	// cada processo (Task 89). O varint continua sendo o que a decodificacao
 	// integral usa; a secao fixa so existe para quem mapeia.
 	// Ver persist_codec.go para o layout e os numeros que motivaram cada peca.
-	CacheFormatVersion   = 6
-	CacheParserVersion   = 1
-	CacheAnalyzerVersion = 1
+	CacheFormatVersion = 6
+	CacheParserVersion = 1
+
+	// versaoManualDoAnalisador sobe a mao quando o analisador passa a produzir
+	// termos diferentes por decisao nossa -- regra de tokenizacao, stemming,
+	// stopword. Ela NAO cobre a outra metade: as tabelas Unicode da toolchain,
+	// que decidem o que e letra e o que e digito e mudam sem ninguem pedir.
+	versaoManualDoAnalisador = 1
 )
+
+// CacheAnalyzerVersion e a versao efetiva do analisador: a nossa mais a
+// geracao das tabelas Unicode da toolchain.
+//
+// E var, e nao const, porque a segunda metade so se conhece em tempo de
+// compilacao do binario. O Go 1.27 subiu as tabelas da 15 para a 17
+// (`text.VersaoDasTabelas` explica o mecanismo inteiro); antes disto um cache
+// gravado pelo binario velho era lido como valido pelo novo, com termos que o
+// novo nao produziria. Agora ele bate de frente com ErrCacheVersionMismatch e
+// e reconstruido -- 3021 ms no cofre de referencia do dono, uma vez.
+//
+// A conta e uma so, aqui, e as duas metades cabem sem se somar por acidente:
+// a manual multiplica por 1000, a Unicode fica nas centenas.
+var CacheAnalyzerVersion = versaoManualDoAnalisador*1000 + text.VersaoDasTabelas()
 
 // Erros exportados para operações de persistência de cache.
 var (

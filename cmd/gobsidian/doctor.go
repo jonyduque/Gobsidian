@@ -125,6 +125,22 @@ func relatarProcessosELixo(con *console.Stream, aplicar bool) {
 		}
 	}
 
+	// Chaves de cache que ficaram para tras da conta de config.VaultKey.
+	//
+	// SEMPRE em simulacao aqui, mesmo com -Aplicar: renomear um diretorio de
+	// cache enquanto um daemon o mapeia com mmap e pedir problema, e `doctor`
+	// roda com o produto no ar. Quem renomeia e `install`/`update`, sob a
+	// trava global e com nenhum processo vivo.
+	if migradas, err := instalar.MigrarChaves(instalar.RaizDoCache(), false); err != nil {
+		con.Warn("chaves de cache: %v", err)
+	} else if len(migradas) > 0 {
+		con.Warn("%d cache(s) sob chave superada", len(migradas))
+		for _, m := range migradas {
+			con.Detail("%s -> %s  (%s)", m.De, m.Para, m.Cofre)
+		}
+		con.Detail("rode `gobsidian update` para renomear com tudo encerrado")
+	}
+
 	r, err := instalar.Limpar(runtimeDir, instalar.RaizDoCache(), aplicar)
 	if err != nil {
 		con.Warn("lixo do diretorio de runtime: %v", err)

@@ -12,6 +12,8 @@ import (
 	"strings"
 
 	"github.com/cespare/xxhash/v2"
+	"golang.org/x/text/cases"
+	"golang.org/x/text/language"
 )
 
 // Flags espelha exatamente o que a CLI aceita. cobra preenche esta struct
@@ -232,8 +234,47 @@ func validateMaxResults(n int) error {
 // byAlias em CLAUDE.md): enquanto os dois calculos concordam por coincidencia
 // eles nunca divergem, ate que um dos dois lados mude sozinho.
 func VaultKey(vaultPath string) string {
-	sum := xxhash.Sum64String(strings.ToLower(vaultPath))
+	sum := xxhash.Sum64String(caixaEstavel(vaultPath))
 	return strconv.FormatUint(sum, 16)
+}
+
+// caixaEstavel baixa a caixa com a tabela do x/text, que e MODULO FIXADO, e
+// nao com strings.ToLower, que consulta a tabela da STDLIB.
+//
+// # O defeito que isto evita
+//
+// Ate 2026-09-09 esta conta usava strings.ToLower. As tabelas Unicode da
+// stdlib se movem quando a toolchain se move -- o Go 1.27 as subiu da geracao
+// 15 para a 17 --, e VaultKey nomeia o diretorio de cache E o caminho do
+// socket IPC. Chave que muda entre duas versoes do binario deixa um daemon
+// velho escutando num caminho e um cliente novo procurando noutro: DOIS
+// processos servindo o mesmo cofre. Foi o que aconteceu em 2026-09-08, por
+// outra causa, e so foi descoberto comparando milissegundos entre linhas de
+// log duplicadas.
+//
+// O Unicode congela o case mapping de caractere ja atribuido, entao o risco
+// era estreito -- caminho contendo code point atribuido DEPOIS da 15. Estreito
+// nao e zero, e a defesa custa esta funcao.
+//
+// # Por que nao rebaixar so A-Z
+//
+// Era a primeira redacao, e ela trocava um defeito por outro. O sistema de
+// arquivos do Windows e INSENSIVEL a caixa: "C:\Area\Cofre" e
+// "C:\AREA\Cofre" sao o MESMO diretorio, e filepath.Abs (config.go:80) so
+// torna o caminho absoluto -- nao conserta a grafia para a que esta no disco.
+// Dobrar so ASCII faria duas grafias do mesmo cofre virarem duas chaves, que e
+// o mesmo "dois processos, um cofre" pela porta da frente.
+//
+// cases.Lower(language.Und) mantem a dobra de caixa que ToLower fazia, com a
+// tabela vindo de golang.org/x/text v0.40.0, fixado no go.mod. Ela so se move
+// quando NOS movermos a dependencia -- e ai a mudanca e deliberada, com a
+// migracao de instalar.MigrarChaves para acompanha-la.
+//
+// Um Caser do x/text guarda estado e nao pode ser compartilhado entre
+// goroutines, por isso um por chamada. VaultKey nao esta em caminho quente:
+// ela nomeia diretorio de cache, socket e handshake, tudo uma vez por processo.
+func caixaEstavel(s string) string {
+	return cases.Lower(language.Und).String(s)
 }
 
 // RaizDoCache e o diretorio que contem UM subdiretorio por cofre, cada um

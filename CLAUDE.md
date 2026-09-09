@@ -330,7 +330,12 @@ destruiu trabalho exatamente assim.
 `goldmark`, `yaml.v3`, `x/text`. `tidy` removeria todas, junto com o pin do SDK
 MCP, que é decisão fechada (PRD D6). Se faltar entrada em `go.sum`, use
 `go get <caminho-do-pacote>@<versão-fixada>` — caminho do **pacote**, não do
-módulo. Piso é `go 1.25.0`, forçado por `go-sdk@v1.5.0`.
+módulo. O piso que `go-sdk@v1.5.0` força é `go 1.25.0`; a diretiva declara
+`go 1.27.0` por decisão do dono em 2026-09-09, e o que ela compra está no plano
+[`docs/superpowers/plans/2026-09-09-go-1-27.md`](docs/superpowers/plans/2026-09-09-go-1-27.md):
+rótulos de goroutine no traceback e o perfil `goroutineleak`, que são o que
+faltava para dizer **qual** espera travou. O custo é exigir Go 1.27+ de quem
+compila da fonte; o projeto distribui binário e o CI já fixava a 1.27.1.
 
 **Commits em Conventional Commits, em inglês.**
 

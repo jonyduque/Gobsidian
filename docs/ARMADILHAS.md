@@ -189,6 +189,53 @@ isto está agora", e não da chave por onde foi encontrado.
 
 ## Índice, chaves derivadas e consistência
 
+**A tabela Unicode da stdlib se move quando a toolchain se move.** Há duas
+fontes de Unicode neste binário e só uma é fixada: `norm.NFC`/`norm.NFD` vêm do
+`golang.org/x/text`, módulo com versão no `go.mod`; `strings.ToLower`,
+`unicode.IsLetter` e `unicode.IsDigit` vêm da stdlib. O Go 1.27 subiu as
+tabelas da geração 15 para a 17, e o projeto já tinha publicado a v1.6.0
+compilada com ela.
+
+Duas contas derivadas passavam por lá, e as consequências eram diferentes:
+
+- **`internal/search/analyzer.go`** decide o que é termo com
+  `unicode.IsLetter`/`IsDigit`, e essa decisão vai **persistida** no índice
+  invertido. Os três botões de versão do cabeçalho — formato, parser,
+  analisador — são bumpados à mão, e ninguém bumpa por causa de upgrade de
+  toolchain: um cache gravado pelo binário velho era lido como válido pelo
+  novo. Conserto: `CacheAnalyzerVersion` passou a carregar
+  `text.VersaoDasTabelas()` dentro do número, então o cache se invalida sozinho
+  na próxima geração e o problema não volta.
+- **`config.VaultKey`** usava `strings.ToLower` e nomeia o diretório de cache
+  **e o caminho do socket IPC**. Chave que muda entre duas versões do binário
+  deixa um daemon velho escutando num caminho e um cliente novo procurando
+  noutro — dois processos servindo o mesmo cofre, que é o incidente de
+  2026-09-08 por outra porta.
+
+O cache de **metadados** (`internal/index`) não precisou de nada: ele recalcula
+toda chave derivada ao carregar — `publishNoteLocked` chama `ChaveDeTag`, e
+`LoadIndexCache` refaz byAlias, backlinks e a resolução de links pelas mesmas
+funções que `Build` chama. Derivado que se recalcula não envelhece; derivado
+que se persiste, sim. **É a distinção que decide se uma tabela móvel importa.**
+
+**Rebaixar só A-Z trocava um defeito por outro.** Foi a primeira redação do
+conserto de `VaultKey`, e ela ignorava que o sistema de arquivos do Windows é
+**insensível a caixa**: `C:\Área\Cofre` e `C:\ÁREA\Cofre` são o mesmo
+diretório, e `filepath.Abs` (`config.go:80`) só torna o caminho absoluto — não
+conserta a grafia para a do disco. Dobrar apenas ASCII faria duas grafias do
+mesmo cofre virarem duas chaves, que é o mesmo "dois processos, um cofre" pela
+porta da frente. A conta ficou com `cases.Lower(language.Und)` do x/text:
+mantém a dobra e a tabela só se move quando **nós** movermos a dependência.
+
+**Medido antes de trocar** (2026-09-09): para caminho latino, inclusive
+acentuado, as duas contas dão o **mesmo** hash — `C:/Users/x/Cofre`,
+`C:/ÁREA/Cofre`, `C:/Área de Trabalho/Cofre` e `C:/AÇÃO/x` não mudaram de
+chave. Diferem onde o x/text aplica casing especial que o `ToLower` simples não
+aplica: sigma final grego (`C:/ΣΊΣΥΦΟΣ/x`) e I com ponto turco
+(`C:/İSTANBUL/x`). `instalar.MigrarChaves` renomeia o diretório desses casos
+pelo caminho que o cabeçalho guarda — e a prova não depende de conhecer a conta
+antiga, então serve para qualquer mudança futura.
+
 **Chave de mapa calculada em dois lugares diverge, e a divergência só aparece no
 caminho menos usado.** `byAlias` era escrito minúsculo por `alias.go` no boot e
 cru por `Replace`; `resolve.go` lia minúsculo. Enquanto o índice só era

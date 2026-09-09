@@ -13,6 +13,7 @@ import (
 
 	"github.com/jonyd/gobsidian/internal/index"
 	"github.com/jonyd/gobsidian/internal/search"
+	"github.com/jonyd/gobsidian/internal/text"
 	"github.com/jonyd/gobsidian/internal/vault"
 )
 
@@ -535,5 +536,30 @@ func TestIndiceRecarregadoEIdenticoAoConstruido(t *testing.T) {
 	}
 	if lido.TermCount() != fresco.TermCount() {
 		t.Errorf("TermCount recarregado = %d, construido = %d", lido.TermCount(), fresco.TermCount())
+	}
+}
+
+// TestCacheAnalyzerVersionCarregaAGeracaoUnicode prova que a versao efetiva do
+// analisador leva DENTRO dela a geracao das tabelas Unicode da toolchain.
+//
+// Sem isto, um cache gravado por binario com Unicode 15 era lido como valido
+// por binario com Unicode 17, com termos que o segundo nao produziria --
+// `analyzer.go` decide o que e termo com unicode.IsLetter/IsDigit, e essa
+// decisao vai persistida no indice invertido.
+//
+// A prova de mutacao e direta: devolver a constante para `1` faz
+// CacheAnalyzerVersion%1000 valer 1 e o caso reprovar nomeando a diferenca.
+func TestCacheAnalyzerVersionCarregaAGeracaoUnicode(t *testing.T) {
+	geracao := text.VersaoDasTabelas()
+	if geracao == 0 {
+		t.Fatalf("text.VersaoDasTabelas() = 0: sem geracao nao ha o que carimbar")
+	}
+	if got := search.CacheAnalyzerVersion % 1000; got != geracao {
+		t.Errorf("CacheAnalyzerVersion %% 1000 = %d, tabelas Unicode dizem %d -- o carimbo saiu do numero",
+			got, geracao)
+	}
+	if search.CacheAnalyzerVersion <= geracao {
+		t.Errorf("CacheAnalyzerVersion = %d nao carrega a metade manual: ela multiplica por 1000",
+			search.CacheAnalyzerVersion)
 	}
 }
