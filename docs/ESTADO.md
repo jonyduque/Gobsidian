@@ -575,6 +575,21 @@ reprova pelo motivo errado.
 | `check_test_isolation.ps1` | teste não escreve fora do `t.TempDir()` | `t.Setenv("XDG_CACHE_HOME")` desviava `os.UserCacheDir` no Linux e em nenhuma outra plataforma |
 | `check_partida.ps1` | "nada roda antes de os mecanismos de encerramento estarem armados" | I/O antes de `boot.VigiarHost`: 2 de 100 ciclos sem `reason=`, nas duas rodadas do CI |
 
+**Um órfão sem diagnóstico custou 200 ciclos para ser classificado.** Em
+2026-09-09 o CI deu `1 orfao(s) em 100 ciclos` no `parent-death`, com
+`parent-gone: 100x` — a decisão de encerrar estava certa nos 100 —, e o
+relatório não dizia se o encerramento **travou** ou apenas **saiu tarde**. As
+duas respostas pedem ações opostas, e o log já as distinguia: a linha
+`encerramento travou alem do guarda-chuva` só existe no primeiro caso. Foram
+precisas mais 200 rodadas para responder o que o log tinha — o re-run do CI
+(100/100 nos quatro cenários) e 100 ciclos locais (100/100, `parent-gone:
+100x`). **Medido: 1 sobrevivente em 300 ciclos de `parent-death`, com o motivo
+certo em 300/300**, no dia em que o job do CI atravessou uma janela ~2× mais
+lenta (os ciclos 60→70 levaram 135 s contra ~60 s no resto da rodada). Nenhum
+limiar foi mexido: alargar a janela por causa de uma falha é o que o gate
+existe para impedir. O que entrou foi o diagnóstico — ao achar um
+sobrevivente, o script agora diz qual dos três casos é.
+
 **`test_orphans.ps1` não compila — ele roda o que estiver em `bin/`.** Hoje
 recusa binário mais velho que o código. Antes disso, um binário de quatro dias
 antes deu três `[OK]` nos cenários que não dependiam do código novo e 100 falhas

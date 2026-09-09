@@ -651,6 +651,41 @@ for ($i = 1; $i -le $Cycles; $i++) {
     if ($Alive -and $Alive.ProcessName -eq "gobsidian" -and $Alive.StartTime -eq $ServerAlive.StartTime) {
         $Survivors++
         Write-Warning "[!] Ciclo ${i}: PID $ServerPid sobreviveu"
+
+        # Diz POR QUE ele sobreviveu, e as duas respostas pedem acoes opostas.
+        #
+        # O log ja distingue as duas, e em 2026-09-09 esta linha nao existia:
+        # o CI deu 1 orfao em 100 ciclos de parent-death com "parent-gone:
+        # 100x" -- decisao certa nos 100 --, e nada no relatorio dizia se o
+        # encerramento travou ou so demorou a sair. Foram precisas mais 200
+        # rodadas (o re-run do CI e 100 locais, as duas verdes) para responder
+        # o que este bloco responde de graca.
+        #
+        #   guarda-chuva disparou -> o encerramento travou de verdade, e o
+        #     defeito e do produto: alguma espera nao voltou dentro dos 6 s de
+        #     lifecycle.OrcamentoDeEncerramento.
+        #   guarda-chuva calado   -> o processo decidiu certo e saiu tarde;
+        #     e ambiente (runner sob carga), nao codigo.
+        #
+        # E o ultimo "reason=" fecha a terceira possibilidade: nenhum
+        # mecanismo disparou.
+        $LogDoCiclo = Join-Path $WorkDir "cycle_$i.log"
+        $Texto = ''
+        if (Test-Path $LogDoCiclo) {
+            $Lido = Get-Content -Path $LogDoCiclo -Raw -ErrorAction SilentlyContinue
+            if ($Lido) { $Texto = $Lido }
+        }
+        $Motivo = ([regex]::Matches($Texto, 'reason=(\S+)') | Select-Object -Last 1)
+        if ($Texto -match 'encerramento travou alem do guarda-chuva') {
+            Write-Warning "    guarda-chuva disparou: o encerramento TRAVOU alem de lifecycle.OrcamentoDeEncerramento -- defeito de produto"
+        }
+        elseif ($Motivo) {
+            Write-Warning "    guarda-chuva calado, reason=$($Motivo.Groups[1].Value): decidiu encerrar e saiu tarde -- suspeitar do ambiente antes do codigo"
+        }
+        else {
+            Write-Warning "    sem reason= no log: NENHUM mecanismo de encerramento disparou"
+        }
+
         Stop-Process -Id $ServerPid -Force -ErrorAction SilentlyContinue
     }
 
