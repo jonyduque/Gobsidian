@@ -5,6 +5,18 @@ on:
   pull_request:
 
 jobs:
+  # A bateria do projeto, no MESMO script que roda na maquina de quem
+  # desenvolve. Ate 2026-09-08 o CI reimplementava um subconjunto dela, e
+  # mutate.ps1, check_gates.ps1 e audit_reports.ps1 nao rodavam aqui.
+  #
+  # 1.26 e a toolchain que o dono usa (medido: go1.26.5 em 2026-09-08). A
+  # matriz abaixo continua em 1.25, que e o piso declarado no go.mod: as duas
+  # pontas sao testadas, e um piso que ninguem compila e um piso que ja quebrou.
+  gate:
+    uses: ./.github/workflows/gate.yml
+    with:
+      go-version: '1.26'
+
   test:
     strategy:
       fail-fast: false
@@ -151,3 +163,80 @@ jobs:
       - name: 100 ciclos - daemon ocioso
         shell: pwsh
         run: ./scripts/test_orphans.ps1 -Cycles 100 -Scenario daemon-idle
+
+  instalador:
+    # As 1 738 linhas de instalador que este job substitui tinham ZERO cobertura
+    # de CI -- e sao o codigo que encerra processos do usuario e reescreve a
+    # configuracao de hosts que ele editou a mao.
+    #
+    # O teste instala num diretorio TEMPORARIO, com --hosts none e --no-path:
+    # um runner de CI nao tem host de IA para configurar, e mexer no PATH dele
+    # nao prova nada. O que se prova aqui e que o binario se instala de verdade,
+    # nas tres plataformas, e escreve o manifesto que `update` depois le.
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version: '1.25'
+
+      - name: compilar
+        run: go build -o bin/gobsidian ./cmd/gobsidian
+
+      - name: instalar num diretorio temporario
+        shell: bash
+        run: |
+          set -eu
+          DESTINO="$(mktemp -d)/gobsidian"
+          COFRE="$(mktemp -d)"
+          ./bin/gobsidian install --install-dir "$DESTINO" --vault "$COFRE" --hosts none --no-path --yes
+          echo "DESTINO=$DESTINO" >> "$GITHUB_ENV"
+
+      - name: o binario esta la e responde
+        shell: bash
+        run: |
+          set -eu
+          EXE="$DESTINO/gobsidian"
+          if [ "${{ matrix.os }}" = "windows-latest" ]; then EXE="$DESTINO/gobsidian.exe"; fi
+          test -x "$EXE" || { echo "[!] binario nao foi instalado em $EXE"; exit 1; }
+          "$EXE" version
+
+      - name: o manifesto foi escrito e nomeia o binario
+        shell: pwsh
+        run: |
+          $m = Join-Path ([Environment]::GetFolderPath('LocalApplicationData')) 'gobsidian/instalacao.json'
+          if (-not (Test-Path $m)) {
+            # Fora do Windows o manifesto segue os.UserCacheDir.
+            $base = if ($env:XDG_CACHE_HOME) { $env:XDG_CACHE_HOME } elseif ($IsMacOS) { "$env:HOME/Library/Caches" } else { "$env:HOME/.cache" }
+            $m = Join-Path $base 'gobsidian/instalacao.json'
+          }
+          if (-not (Test-Path $m)) { Write-Output "[!] manifesto nao encontrado em $m"; exit 1 }
+          $doc = Get-Content $m -Raw | ConvertFrom-Json
+          if (-not $doc.binario) { Write-Output "[!] manifesto sem o caminho do binario"; exit 1 }
+          if (-not $doc.hash)    { Write-Output "[!] manifesto sem o hash"; exit 1 }
+          Write-Output "[OK] manifesto: $($doc.binario)"
+
+  bootstraps:
+    # Os tres bootstraps sao 126 linhas que ninguem compila. Um erro de sintaxe
+    # neles so apareceria na maquina de quem esta instalando pela primeira vez
+    # -- a pior hora possivel para descobrir.
+    #
+    # Isto NAO baixa nada: o que se verifica e que cada script e sintaticamente
+    # valido para a shell dele.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: sh
+        run: sh -n bootstrap/install.sh
+      - name: powershell
+        shell: pwsh
+        run: |
+          $erros = $null
+          [System.Management.Automation.Language.Parser]::ParseFile(
+            (Resolve-Path bootstrap/install.ps1), [ref]$null, [ref]$erros) | Out-Null
+          if ($erros) { $erros | ForEach-Object { Write-Output $_ }; exit 1 }
+          Write-Output "[OK] bootstrap/install.ps1"

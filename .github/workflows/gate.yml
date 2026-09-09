@@ -1,0 +1,33 @@
+# gate.yml e a bateria do projeto -- scripts/verify.ps1 -- rodando no CI.
+#
+# Ela existe como workflow REUSAVEL (workflow_call) porque dois lugares
+# precisam dela: o `ci` de todo push, e o `release` de toda tag. Escrever as
+# etapas duas vezes seria duas contas da mesma regra, e a que fica na copia
+# menos usada e a que diverge -- exatamente o que aconteceu ate 2026-09-08,
+# quando o `ci.yml` reimplementava um subconjunto de `verify.ps1` e
+# `mutate.ps1`, `check_gates.ps1` e `audit_reports.ps1` nao rodavam no CI
+# em lugar nenhum.
+name: gate
+
+on:
+  workflow_call:
+    inputs:
+      go-version:
+        required: false
+        type: string
+        default: '1.26'
+
+jobs:
+  verify:
+    # windows-latest, e nao ubuntu: verify.ps1 cobra os tetos de latencia, o
+    # gate de encoding e os checks de plataforma que so existem no Windows --
+    # e o Windows e a plataforma que o produto serve.
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version: ${{ inputs.go-version }}
+      - name: bateria completa (scripts/verify.ps1)
+        shell: pwsh
+        run: ./scripts/verify.ps1
