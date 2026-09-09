@@ -152,6 +152,80 @@ Toda escrita no cofre é atômica — temporário `.gobsidian-tmp-*` no mesmo di
 - `level=WARN`: Falhas leves (por exemplo, bloqueios de compartilhamento ou permissão de leitura rejeitada).
 - Overflow do buffer do sistema operacional aparece como `msg="Overflow de fsnotify detectado, reconciliação agendada"` em `WARN`, e o contador `reconciliations` sobe. Recorrência indica ampliar `--debounce-ms`. **Em macOS e BSD isso nunca aparece**: o backend kqueue do `fsnotify` v1.10.1 não emite `ErrEventOverflow`, e lá o único anteparo contra evento perdido é a reindexação no boot (`ARCHITECTURE.md` §5.3).
 
+### Quem escreveu esta linha? `pid` e `versao` (2026-09-08)
+
+Todo log do **daemon** carrega `pid=` e `versao=`:
+
+```
+time=2026-09-08T21:22:10.988-03:00 level=INFO msg="linha de teste" pid=50484 versao=v1.5.1
+```
+
+Não é enfeite. O arquivo de log é **um só por cofre** e recebe append de N
+instâncias ao longo de meses — 727 261 bytes na máquina do dono, medido em
+2026-09-08. Sem esses dois campos, descobrir qual processo escreveu uma linha
+exige cruzar o mtime do arquivo com o `StartTime` de cada processo, e o
+resultado fica ambíguo justamente no caso que importa: duas instâncias do mesmo
+cofre convivendo. A investigação de 2026-09-08 gastou três rodadas de análise
+nisso.
+
+O log rotaciona acima de **5 MB**, guardando **um** arquivo anterior em
+`<socket>.sock.log.1`. Rotaciona, nunca apaga: o log é a única memória do
+daemon — ele não tem terminal —, e a mesma investigação dependeu de linhas de
+2026-08-24. Falha de rotação não impede a abertura do log; um daemon sem log é
+pior que um log grande.
+
+### A queda para o modo em processo é `WARN`, com `motivo=` (2026-09-08)
+
+Quando a ponte não consegue falar com um daemon, ela serve o cofre no próprio
+processo. Isso **funciona**, e por isso a linha era `INFO` — a mesma gravidade
+do caminho bom. Medido em 2026-09-08: o PID 42628 serviu o cofre Estudo assim
+por 20 h, com watcher e índice próprios, gravando no **mesmo**
+`inverted_cache.gob` que o daemon. O sintoma foi `falha ao salvar cache
+invertido de busca ... apos 10 tentativas: Access is denied.`
+
+Hoje a queda é `WARN` e diz por quê:
+
+| `motivo=` | O que aconteceu | O que fazer |
+|---|---|---|
+| `versao-divergente` | há um daemon **vivo e saudável** do outro lado, de outra versão | reinstalar; não é transitório, se repete em toda partida |
+| `config-divergente` | idem, com `--read-only` ou `--max-results` diferentes | alinhar as flags entre as sessões |
+| `daemon-nao-subiu` | o daemon não existe e não conseguiu nascer | ler `<socket>.sock.log` |
+| `daemon-mudo` | o daemon nasceu e não respondeu | ler `<socket>.sock.log` |
+
+A classificação olha **todos** os erros do caminho, não só o último: com um
+daemon de outra versão no socket, o primeiro *dial* devolve versão incompatível
+mas a tentativa seguinte estoura por *timeout* — julgar pelo erro final chamaria
+de "daemon não subiu" o caso em que há um daemon perfeitamente vivo.
+
+### O encerramento inteiro tem teto, não só o `Shutdown` (2026-09-08)
+
+`lifecycle.Shutdown` sempre teve guarda própria de 6 s. Ela cobre apenas o corpo
+dela — e havia três esperas **depois** dela sem orçamento nenhum: o `wg.Wait`
+dentro de `daemon.Run`, o `lc.Wait` e o `c.Esperar`.
+
+Medido em 2026-09-07: o daemon PID 42856 registrou `encerramento solicitado
+reason=idle` às 19:30:36, **nunca** registrou `daemon encerrado`, e seguia vivo
+20 h depois com 274 MB residentes, 0 s de CPU em 3 s de amostragem e 26 threads
+em espera. Como o processo continuou vivo, a guarda do `Shutdown` não chegou a
+valer: o travamento estava fora dela.
+
+`lifecycle.ArmarGuardaChuva` cobre o intervalo inteiro, nos **três** pontos de
+saída do processo — `serve`, ponte e daemon. Se o encerramento passar de 6 s a
+contar do cancelamento do context, sai esta linha e o processo morre:
+
+```
+level=ERROR msg="encerramento travou alem do guarda-chuva" orcamento=6s
+```
+
+Ver essa linha é um defeito a investigar, não um erro operacional: o produto
+deveria ter encerrado sozinho.
+
+**Os 6 s não são livres.** `scripts/test_orphans.ps1` mede com uma janela de
+`$SettleMs = 8000`, e o comentário dela fixa a relação — a janela do harness tem
+de ser **maior** que o guarda-chuva do produto. Mudar um exige mudar o outro
+primeiro.
+
+
 ## 5. Medições do Orçamento de Performance
 
 Medido com `scripts/measure.ps1`, que lê `index_ms` do próprio log de boot e amostra o `WorkingSet64` do processo depois do handshake MCP e de um período de acomodação. O script reporta o **maior** RSS observado, não o último: um pico mascarado por uma amostra tardia seria ficção.

@@ -543,6 +543,43 @@ o quarto, que é exatamente o defeito que ela existe para impedir.
 
 ## Dívidas abertas
 
+- **A causa do encerramento pendurado do daemon não foi encontrada.** Medido em
+  2026-09-07 na máquina do dono: o daemon PID 42856 registrou `encerramento
+  solicitado reason=idle` às 19:30:36, **nunca** registrou `daemon encerrado`, e
+  seguia vivo 20 h depois — 274 MB residentes, **0 s de CPU em 3 s** de
+  amostragem, 26 threads em `Wait,UserRequest`. Bloqueado, não girando.
+
+  O que se **sabe**: o travamento está **fora** de `lifecycle.Shutdown`, porque
+  a guarda dela teria feito `os.Exit(1)` em 6 s e o processo continuou vivo.
+  Sobram três esperas — `wg.Wait` em `internal/daemon/daemon.go`, `lc.Wait` e
+  `c.Esperar` em `cmd/gobsidian/daemon.go`.
+
+  O que **não** se sabe: qual das três. `dlv attach` responde `could not find
+  goroutine array`, porque o binário é compilado com `-s -w`
+  (`scripts/build.ps1` e `.github/workflows/release.yml`).
+
+  A Task 189 pôs **anteparo, não conserto**: `lifecycle.ArmarGuardaChuva` cobre
+  o intervalo inteiro nos três pontos de saída. O sintoma não pode mais durar
+  20 h; a causa continua aberta. Para investigar de novo: compilar sem `-s -w`,
+  instalar, e esperar a reprodução.
+
+  Nota de escopo: o cenário `daemon-idle` de `scripts/test_orphans.ps1` roda
+  **100 ciclos no CI e passa**. Ele não pega este defeito — a hipótese, **não
+  medida**, é que o cofre sintético do cenário é pequeno demais para exercitar
+  watcher e índice reais.
+- **O estado de socket que produz `dial 10022` + `remove 1920` não foi
+  reproduzido.** `ipc.cleanupSocketFile` falhou 20+ vezes desde 2026-09-01 no
+  cofre Estudo com `The file cannot be accessed by the system`, e cada falha
+  derrubou toda ponte para o modo em processo. Dois cenários foram medidos em
+  2026-09-08 e **nenhum** produz o par observado: listener fechado limpo dá
+  `10061` e o arquivo já não existe (o `Close` desvincula no Windows); processo
+  morto à força dá `10061` e o `os.Remove` **funciona**.
+
+  A Task 192 pôs **saída, não diagnóstico**: se o caminho não se apaga, o
+  arquivo sai do caminho por `rename` — permitido no Windows onde apagar não é,
+  medido inclusive sobre executável em uso. E o erro passou a relatar o que
+  havia no caminho, que era o que faltava em campo.
+
 - **O pico de memória da reconstrução do índice não tem requisito, por decisão.**
   Com cache frio o `servindo` fica de 5× a 12× acima do alvo de cache quente —
   Estudo 58 → 706 MB, TJSP 127 → 1.180 MB. O RNF-07 passou a nomear "com cache
