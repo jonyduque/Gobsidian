@@ -61,7 +61,12 @@ func rodarUpdate(ctx context.Context, cmd *cobra.Command, apenasConferir, sim bo
 	con.Info("instalada: %s", version)
 	con.Info("publicada: %s", release.Tag)
 
-	if release.Tag == version {
+	// selfupdate.PrecisaAtualizar, e nao `release.Tag == version`: a comparacao
+	// por igualdade dizia que um build local -- carimbado pelo `git describe` de
+	// scripts/build.ps1 como "v1.5.1-20-gcf8991a-dirty" -- estava DESATUALIZADO
+	// em relacao a v1.5.1, e `update` faria downgrade. Encontrado rodando
+	// `update --check` de verdade em 2026-09-09.
+	if !selfupdate.PrecisaAtualizar(version, release.Tag) {
 		con.OK("Ja esta na ultima versao")
 		return nil
 	}
