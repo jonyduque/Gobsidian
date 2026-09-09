@@ -257,7 +257,7 @@ conferir, e as duas versões anteriores diziam.
 ## Comandos
 
 ```bash
-pwsh -File scripts/verify.ps1              # o gate: 21 etapas, para no primeiro erro
+pwsh -File scripts/verify.ps1              # o gate: 22 etapas, para no primeiro erro
 pwsh -File scripts/build.ps1               # build com versão via ldflags
 pwsh -File scripts/test_orphans.ps1        # os quatro cenários de encerramento
 pwsh -File scripts/mutate.ps1 ...          # prova de mutação — ver papeis/testador.md

@@ -234,6 +234,12 @@ Invoke-Step "check_tool_params" { & (Join-Path $PSScriptRoot "check_tool_params.
 Invoke-Step "check_doc_refs" { & (Join-Path $PSScriptRoot "check_doc_refs.ps1") }
 Invoke-Step "check_readme_anchors" { & (Join-Path $PSScriptRoot "check_readme_anchors.ps1") }
 
+# O README em portugues tem as MESMAS ancoras e nenhuma cobertura ate
+# 2026-09-09: o gate so olhava README.md, e a versao pt-BR e onde errar e mais
+# facil -- ancora com acento nao perdoa. Duas linhas, e nao um -Path com dois
+# valores, porque uma etapa que reprova precisa dizer QUAL arquivo quebrou.
+Invoke-Step "check_readme_anchors (pt-BR)" { & (Join-Path $PSScriptRoot "check_readme_anchors.ps1") -Path (Join-Path (Split-Path -Parent $PSScriptRoot) "README.pt-BR.md") }
+
 # Os gates que casam a palavra em vez da evidencia foram contornados sem
 # intencao (ESTADO.md, 2026-09-06). check_gates prova, a cada rodada, que o
 # bypass conhecido continua recusado.

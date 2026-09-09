@@ -2,412 +2,280 @@
 
 # 🪨 gobsidian
 
-**MCP server for local Obsidian vaults. One Go binary, no runtime, no orphan processes.**
+**High-performance MCP server for local Obsidian vaults.**  
+Single Go binary. Zero runtime dependencies. No orphan processes.
 
 🌍 **English** · [Português](README.pt-BR.md)
 
-[![Go](https://img.shields.io/badge/Go-1.25%2B-00ADD8?logo=go&logoColor=white)](https://go.dev)
-[![MCP](https://img.shields.io/badge/MCP-2025--11--25-6E56CF)](https://modelcontextprotocol.io)
-[![Platforms](https://img.shields.io/badge/platforms-Windows%20%7C%20Linux%20%7C%20macOS-informational)](#-compatibility)
-[![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
+[![Go](https://img.shields.io/badge/Go-1.27+-00ADD8?logo=go&logoColor=white&style=flat-square)](https://go.dev)[![MCP](https://img.shields.io/badge/MCP-Standard-6E56CF?style=flat-square)](https://modelcontextprotocol.io)[![Platforms](https://img.shields.io/badge/platforms-Windows%20%7C%20macOS%20%7C%20Linux-informational?style=flat-square)](#-compatibility)[![License](https://img.shields.io/badge/license-MIT-green?style=flat-square)](LICENSE)
 
-🔍 [Overview](#-overview) ·
-📦 [Install](#-install) ·
-⚙️ [Configuration](#-configuration) ·
-🧰 [Tools](#-mcp-tools) ·
-💻 [CLI](#-command-line)
+[Features](#-key-features) • [Installation](#-installation) • [Host Configuration](#-host-configuration) • [MCP Tools](#-mcp-tools) • [CLI Reference](#-cli-reference) • [Compatibility](#-compatibility) • [Development](#-development) • [Docs](#-documentation) • [License](#-license)
 
-🧵 [Daemon](#-daemon) ·
-🖥️ [Compatibility](#-compatibility) ·
-📊 [Performance](#-performance) ·
-🛠️ [Development](#-development) ·
-📚 [Documentation](#-documentation)
+---
 
 </div>
 
----
-
-## 🔍 Overview
-
-`gobsidian` exposes a local Obsidian vault to any MCP host — Claude Desktop, Claude Code, Gemini CLI, Antigravity, VS Code — through a single executable speaking JSON-RPC over stdio.
-
-It came out of three concrete problems with the existing Obsidian MCP servers:
-
-| 🐛 Problem | ✅ What `gobsidian` does |
-|---|---|
-| Zombie processes after the host closes | Four independent shutdown mechanisms, each verified over 100 abrupt-kill cycles |
-| Full reindex on every file event | Incremental watcher with coalescing, and an index of byte offsets |
-| Generic parsers that break on wikilinks, embeds and block ids | Purpose-built parser, frozen by 48 golden files and checked against a real dump of Obsidian's `metadataCache` |
-
-### ✨ Features
-
-- ⚡ **Reading by offset.** Reading a 2 KB section out of a 500 KB note costs 2 KB of I/O, not 500 KB.
-- 🎯 **Search tells you WHERE.** `vault_search` returns `match_offset`, the absolute offset of the match, which feeds `note_read(offset=…)` directly — find a term in a 255 KB note and read only the bytes around it.
-- 🗺️ **Converted notes get their structure back.** PDF, DOCX and EPUB become notes with no `#` heading at all: the title is a bold paragraph. `note_outline` maps them, separating real headings from **candidates** and saying which is which, and `note_read(heading=…)` reads a candidate's section directly when no Markdown heading matches — the reply carries `section_synthetic` so a guess is never passed off as structure. Writing stays out on purpose: reading the wrong place returns the wrong paragraph, writing the wrong place destroys work.
-- 📚 **Batch reads with per-item overrides.** `note_read` accepts `["a.md", {"path":"b.md","heading":"X"}]` in one list: six chapters with six sections in one call, not six.
-- 🔎 **BM25 search** with field weights, exact phrase, and folder, tag, frontmatter and date filters.
-- 🇧🇷 **Portuguese analyzer**: accents, case folding, and dual indexing — raw and reduced forms in the same posting list. Index keys normalize to NFC, so a note written on a Mac is found by a request from Windows.
-- ✍️ **Surgical, atomic writes.** `note_append` and `note_patch` insert by heading or block id; every write goes through a temp file and a rename, so an Obsidian open beside it never sees a half-written file.
-- 🔗 **`note_move` rewrites the links**, preserving alias, anchor and original form.
-- 👀 **Incremental watcher** with debounce, and reconciliation by full scan when `fsnotify` overflows.
-- 🔒 **`--read-only` mode** that removes the write tools from `ListTools` — absent, not merely rejected.
-- 🚫 **No socket that leaves the machine**, enforced in CI by a `go vet` analyzer on all three systems.
-
-> [!NOTE]
-> The vault is the source of truth; the index is derived and disposable. If it corrupts, it rebuilds in seconds.
+`gobsidian` connects your local Obsidian vault to any Model Context Protocol (MCP) client (Claude Desktop, Claude Code, Gemini CLI, Cursor, VS Code, Codex, Windsurf, Antigravity) over standard input/output (`stdio`).
 
 ---
 
-## 📦 Install
+## ✨ Key Features
 
-**The installer is the binary itself.** The bootstrap below does one thing --
-download the executable and run it. Everything else (choosing the vault, the
-`PATH` entry, registering the MCP hosts, cleaning up leftovers from previous
-runs) happens inside `gobsidian`, where it is covered by tests. Before
-2026-09-08 that logic lived twice, in PowerShell and in Node, with none.
+* **Sub-file Precision:** Reads sections and blocks directly by byte offsets without loading massive markdown files into memory.
+* **Smart Converted Note Parsing:** Recovers heading structures from converted PDF, DOCX, and EPUB notes.
+* **Fast BM25 Search:** In-memory full-text search engine with tag, folder, date, and YAML frontmatter filtering.
+* **Full Multilingual Normalization:** NFC-normalized index with dual raw/stemmed posting lists (full Portuguese accent support).
+* **Atomic & Safe Writes:** Section-targeted edits (`note_append`, `note_patch`) run through temp files and atomic renames to prevent vault corruption.
+* **Automatic Link Refactoring:** Moving notes automatically rewrites incoming `[[wikilinks]]`, anchors, and aliases.
+* **Zombie Prevention:** Multi-tier shutdown mechanisms guarantee processes terminate cleanly when client hosts close.
+* **Strict Confinement:** Runs in pure local I/O mode; `--read-only` flag strips all disk-mutation endpoints from MCP exposure.
+* **Self-installing:** The binary *is* the installer. It closes running instances, cleans stale files, adds itself to `PATH`, and writes the MCP host configuration — no admin rights, no separate script.
 
-**Windows:**
+---
 
-```powershell
-iex (irm https://raw.githubusercontent.com/jonyduque/Gobsidian/master/bootstrap/install.ps1)
-```
+## 📦 Installation
 
-**Linux and macOS:**
+### Quick Install (Automated)
 
 ```bash
+# Windows (PowerShell):
+iex (irm https://raw.githubusercontent.com/jonyduque/Gobsidian/master/bootstrap/install.ps1)
+
+# macOS & Linux (bash):
 curl -fsSL https://raw.githubusercontent.com/jonyduque/Gobsidian/master/bootstrap/install.sh | sh
-```
 
-**nushell:**
-
-```nu
+# Nushell
 http get https://raw.githubusercontent.com/jonyduque/Gobsidian/master/bootstrap/install.nu | save -f /tmp/gi.nu; nu /tmp/gi.nu
 ```
 
-Or download the binary from the releases page and just run it: with no
-arguments, in a terminal, it notices it is not installed and installs itself.
+The bootstrap script does one thing: it downloads the binary to a temporary
+directory and runs `gobsidian install`. Everything else — closing running
+instances, cleaning stale runtime files, placing the binary in your user
+directory (no admin/root needed), updating `PATH`, and configuring detected
+MCP hosts — is the binary's own work, and is covered by tests.
 
 <details>
-<summary>⚙️ <b>Options</b> — unattended install, specific host, updating</summary>
+<summary>⚙️ <b>Advanced Install Flags & Manual Methods</b></summary>
 
-<br>
+#### Automated Flags
 
-```powershell
+Every flag after the bootstrap is forwarded verbatim to `gobsidian install`:
+
+```bash
+# Example (Linux/macOS)
+curl -fsSL .../install.sh | sh -s -- --vault "/path/to/vault" --hosts claude-desktop --yes
+
+# Example (PowerShell)
 & ([scriptblock]::Create((irm .../bootstrap/install.ps1))) --vault "C:\My Vault" --hosts claude-desktop --yes
+
+# Example (Nushell)
+http get https://raw.githubusercontent.com/jonyduque/Gobsidian/master/bootstrap/install.nu | save -f /tmp/gi.nu; nu /tmp/gi.nu --vault "C:\My Vault" --hosts claude-desktop --yes
 ```
+
+* `--vault <path>`: Direct vault path (skips interactive menu).
+* `--hosts <list>`: Comma-separated target clients. Valid values: `antigravity`,
+  `antigravity-ide`, `claude-code`, `claude-desktop`, `codex`, `cursor`,
+  `gemini-cli`, `vscode`, `windsurf`. Use `none` to install the binary without
+  touching any host configuration; omit the flag to auto-detect.
+* `--read-only`: Sets up the server with write operations disabled.
+* `--install-dir <path>`: Overrides the installation directory.
+* `--no-path`: Installs without touching `PATH`.
+* `--yes`: Non-interactive mode (assumes default answers).
+
+Host configuration files are never overwritten: `gobsidian` merges its entry
+and leaves the rest of your JSON byte-for-byte, writing a `.gobsidian-backup`
+next to the file before touching it.
+
+#### Precompiled Binaries
+
+Download the binary for your architecture from [Releases](https://github.com/jonyduque/Gobsidian/releases) and run it. With no arguments it installs itself; `gobsidian install --help` lists the options.
+
+#### Build from Source
+
+Requires **Go 1.27+**:
 
 ```bash
-curl -fsSL .../bootstrap/install.sh | sh -s -- --vault "/path/to/vault" --yes
+git clone https://github.com/jonyduque/Gobsidian.git
+cd Gobsidian
+go build -o gobsidian ./cmd/gobsidian
 ```
 
-| Flag | Effect |
-|---|---|
-| `--vault` | Vault to serve. Without it, the installer reads Obsidian's own vault registry and asks. |
-| `--hosts` | Configure only these hosts, no menu. `none` configures none. |
-| `--install-dir` | Where to put the binary. Default is inside the user profile — **it never asks for elevation**. |
-| `--read-only` | Register the server with `--read-only`. |
-| `--yes` | Ask nothing: install, add to `PATH`, configure every detected host. |
-| `--no-path` | Leave `PATH` alone. |
-
-Accepted hosts: `claude-desktop`, `claude-code`, `gemini-cli`, `antigravity`, `antigravity-ide`, `codex`, `vscode`, `cursor`, `windsurf`.
-
-Environment variables also work: `GOBSIDIAN_VAULT`, `GOBSIDIAN_INSTALL_DIR`.
-
-**The other subcommands:**
-
-| Command | What it does |
-|---|---|
-| `gobsidian update` | Checks the published version, downloads it, **verifies the SHA-256 and aborts on a mismatch**, then swaps the binary. `--check` only reports. |
-| `gobsidian path --add` / `--remove` | Only the `PATH` entry. |
-| `gobsidian vaults` | Only the host configuration — switch vault without reinstalling. |
-| `gobsidian doctor --fix` | Reports who is serving each vault right now, and removes leftovers it can prove are orphaned. |
-
-The SHA-256 check lives in `update`, not in the bootstrap, and that is
-deliberate: the check that matters is the **old** binary verifying the **new**
-one. A binary cannot credibly verify itself once it is already running.
-
-Installing and updating **end every running `gobsidian` process** — they list
-PID and vault first and ask, and refusing aborts. A global lock keeps anything
-from starting mid-swap, and the MCP hosts restart their servers on their own
-afterwards; measured on 2026-09-07, that took 15 seconds.
+> `go install github.com/...` does **not** work: the module path declared in
+> `go.mod` (`github.com/jonyd/gobsidian`) is not the repository path, so the
+> Go module proxy cannot resolve it. Clone and build.
 
 </details>
-
-<details>
-<summary>📥 <b>Prebuilt binary or from source</b></summary>
-
-<br>
-
-Download from [Releases](https://github.com/jonyduque/Gobsidian/releases) and put it in any directory on `PATH`. There is no service and no system registration.
-
-| System | File |
-|---|---|
-| 🪟 Windows x86-64 | `gobsidian-windows-amd64.exe` |
-| 🐧 Linux x86-64 | `gobsidian-linux-amd64` |
-| 🍎 macOS Apple Silicon | `gobsidian-darwin-arm64` |
-
-```bash
-sha256sum -c SHA256SUMS.txt --ignore-missing
-```
-
-From source, with **Go 1.25+** (a floor imposed by the MCP SDK, not a preference):
-
-```bash
-go install github.com/jonyd/gobsidian/cmd/gobsidian@latest
-```
-
-</details>
-
-> [!TIP]
-> With elevation it goes to `Program Files` and the machine `PATH`; without elevation, to `%LOCALAPPDATA%\Programs\gobsidian` and the user `PATH`. The installer does **not** request UAC on its own.
-
-> [!NOTE]
-> **Upgrading from an older version?** The cache format has changed, so the first start rebuilds the index in the background — the tools answer from the first second. Do not keep two versions installed side by side: each invalidates the other's cache on every switch.
 
 ---
 
-## ⚙️ Configuration
+## ⚙️ Host Configuration
 
-The installer does this for you. What follows is for configuring by hand.
+The installer configures detected hosts for you. To (re)configure a vault later
+without reinstalling the binary:
 
-<details>
-<summary>📝 <b>Manual configuration per host</b></summary>
+```bash
+gobsidian vaults --vault "/path/to/vault"
+```
 
-<br>
+To register `gobsidian` by hand instead:
 
-**Claude Desktop** — `%APPDATA%\Claude\claude_desktop_config.json` on Windows, `~/Library/Application Support/Claude/claude_desktop_config.json` on macOS:
+### CLI Registrations
+```bash
+# Claude Code
+claude mcp add gobsidian -- gobsidian serve --vault "/path/to/vault"
+
+# Gemini CLI
+gemini mcp add gobsidian gobsidian serve --vault "/path/to/vault"
+
+# VS Code
+code --add-mcp '{"name":"gobsidian","command":"gobsidian","args":["serve","--vault","/path/to/vault"]}'
+```
+
+### JSON Configuration (Claude Desktop, Cursor, Windsurf)
+Add to your client's MCP configuration file:
 
 ```json
 {
   "mcpServers": {
     "gobsidian": {
-      "command": "C:\\Program Files\\gobsidian\\gobsidian.exe",
-      "args": ["serve", "--vault", "C:\\My Vault"]
+      "command": "gobsidian",
+      "args": ["serve", "--vault", "/absolute/path/to/vault"]
     }
   }
 }
 ```
+> **Windows Tip:** Escape backslashes in JSON configuration files (`"C:\\Users\\name\\Vault"`) or use forward slashes (`"C:/Users/name/Vault"`).
 
-**Claude Code** and **Gemini CLI** register themselves — the argument order differs:
-
-```bash
-claude mcp add gobsidian --scope user -- gobsidian serve --vault "C:\My Vault"
-gemini mcp add gobsidian gobsidian serve --vault "C:\My Vault" --scope user
-```
-
-**VS Code**:
-
-```bash
-code --add-mcp '{"name":"gobsidian","command":"gobsidian","args":["serve","--vault","C:\\My Vault"]}'
-```
-
-**Antigravity**, **Antigravity IDE**, **Cursor** and **Windsurf** use the same format as Claude Desktop, in `~/.gemini/antigravity/mcp_config.json`, `~/.gemini/antigravity-ide/mcp_config.json`, `~/.cursor/mcp.json` and `~/.codeium/windsurf/mcp_config.json`.
-
-> [!IMPORTANT]
-> Three mistakes account for most Windows failures: **single backslashes** (JSON requires `\\`), **extra quotes** around a path with spaces (each `args` entry is already one string), and a **relative path** to the binary (the host does not inherit your shell's `PATH`).
-
-</details>
-
-<details>
-<summary>🎛️ <b>CLI flags</b></summary>
-
-<br>
-
-A flag declared by a subcommand but never read by it promises a contract the code doesn't keep — `index` and `inspect` used to declare `--read-only`, `--debounce-ms` and `--max-results` this way. The **Subcommands** column is the actual contract: what each subcommand declares.
-
-| Flag | Effect | Subcommands |
-|---|---|---|
-| `--vault <path>` | Vault root. Required. | all |
-| `--read-only` | Removes the entire write surface. | `serve`, `daemon`, `doctor` |
-| `--cache-dir <path>` | Cache directory. Default: a hash of the vault path, always **outside** it. | `serve`, `search`, `daemon`, `index`, `inspect` |
-| `--debounce-ms <n>` | Watcher coalescing window. | `serve`, `daemon` |
-| `--log-level <level>` | `debug`, `info`, `warn` or `error`. | `serve`, `search`, `daemon`, `index`, `inspect` |
-| `--eager-search` | Loads the search index at boot. Default: lazy — most sessions read and write without ever searching. | `serve`, `daemon` |
-| `--max-results <n>` | Caps results per query. | `serve`, `search`, `daemon`, `doctor` |
-| `--follow-symlinks` | Follows a symlink inside the vault; the default refuses, because confinement doesn't reach the target. | all |
-| `--json` | Structured JSON output. | `search`, `index`, `inspect` |
-| `--limit <n>` | Maximum results returned. Default: 20. | `search` |
-
-`search` reuses the index and search cache from `serve`; the first run builds and writes it, later runs load it.
-
-</details>
-
-> [!TIP]
-> Start with `--read-only` until you trust the configuration. You keep search, reading and the link graph, with no tool able to touch the disk.
+> **Getting the best out of the tools:** the MCP schema cannot carry enumerations
+> or defaults to the model ([why](docs/TOOLS.md)), so a ready-made prompt is
+> provided in [`docs/PROMPT.md`](docs/PROMPT.md). Paste it into your client's
+> instructions.
 
 ---
 
-## 🧰 MCP tools
+## 🧰 MCP Tools
 
-Full contracts, schemas and error codes in [`docs/TOOLS.md`](docs/TOOLS.md).
+Complete schema contracts and error definitions are detailed in [`docs/TOOLS.md`](docs/TOOLS.md).
 
-**📖 Reading**
-
-| Tool | What it does |
+### Read Operations
+| Tool | Description |
 |---|---|
-| `vault_search` | BM25 search, exact phrase, folder, tag, frontmatter and date filters |
-| `note_read` | A whole note, a section by heading, or a block by `^id`; several notes in one call, with per-item overrides |
-| `note_outline` | The note's map: real headings, and title candidates for notes converted from PDF/DOCX/EPUB |
-| `note_list` | Lists by glob, folder, tag or frontmatter query |
-| `note_metadata` | Frontmatter, tags, links, backlinks, headings and blocks |
-| `link_graph` | Link neighbourhood, with direction and depth |
-| `vault_broken_links` | Every broken link in the vault — missing target or missing anchor — with source and context, paginated |
-| `tag_list` | Every tag in the vault, with counts |
-| `vault_stats` | Notes, orphans, broken links and watcher counters |
+| `vault_search` | Search via BM25 query with exact matching and frontmatter/tag filters. |
+| `note_read` | Read full notes, specific `# headings`, or `^block-id` targets. Supports batching. |
+| `note_outline` | Retrieve structural hierarchy, explicit headings, and synthetic candidate titles. |
+| `note_list` | Filter notes by folder, glob patterns, tags, or YAML metadata. |
+| `note_metadata` | Extract YAML frontmatter, outgoing links, backlinks, and tags. |
+| `link_graph` | Graph neighborhood traversal with configurable depth and direction. |
+| `vault_broken_links` | Report dead wikilinks and dangling anchors with source context. |
+| `tag_list` | Scan all vault tags and return aggregated occurrence counts. |
+| `vault_stats` | Inspect total notes, orphaned files, broken links, and watcher counters. |
 
-**✏️ Writing** — all accept `dry_run` and `expected_hash`
+### Write Operations
+*All write actions support `dry_run` and concurrency protection via `expected_hash`.*
 
-| Tool | What it does |
+| Tool | Description |
 |---|---|
-| `note_create` | Creates the note, failing if it already exists |
-| `note_append` | Appends to the end of the note or of a section |
-| `note_patch` | Replaces the content under a heading or block |
-| `note_move` | Moves or renames, rewriting the wikilinks that point at it |
-| `note_delete` | Removes, with a prior report of the links that will break |
-
-Notes are also published as MCP resources under `gobsidian:///<path>`. The scheme is our own because `obsidian://` belongs to the application and is registered with the operating system.
+| `note_create` | Create a new note file (safely fails if file exists). |
+| `note_append` | Append content to note bottom or directly under a specific heading. |
+| `note_patch` | Replace contents under a specific heading or block ID atomically. |
+| `note_move` | Rename/relocate files and update all incoming `[[wikilinks]]` across the vault. |
+| `note_delete` | Remove file after surfacing an impact report of newly broken links. |
 
 ---
 
-## 💻 Command line
+## 💻 CLI Reference
 
-`gobsidian` works outside MCP, and that is what makes diagnosis possible.
-
-```bash
-gobsidian serve   --vault "/path/to/vault"                    # what the MCP host runs
-gobsidian doctor  --vault "/path/to/vault"                    # diagnoses the environment
-gobsidian index   --vault "/path/to/vault" --json             # indexes and exits, with a summary
-gobsidian search  "architecture" --vault "/path/to/vault"     # search without an MCP host
-gobsidian inspect "Folder/Note.md" --vault "/vault" --json    # how the note was interpreted
-```
-
-> [!TIP]
-> 🩺 `gobsidian doctor` is the first command to run when something does not work: unreachable vault, permissions, cloud-only OneDrive files, paths over 260 characters, and casing collisions.
-
-`index` and `inspect` open the metadata index the same way `serve` does: from the cache when it is fresh, built from the vault otherwise. `index --json` reports which one happened in `origin` (`"build"` on the first run against a vault, `"cache"` once a fresh cache exists at `--cache-dir`).
-
-**Output.** Coloured in a terminal, plain text when redirected — `doctor > report.txt` writes a clean file. The decision is per destination, so a redirected `stdout` does not strip colour from `stderr`. `NO_COLOR` turns everything off. The markers `[OK]`, `[!]`, `[i]`, `[*]` and `[...]` are pure ASCII, and colour only reinforces them.
-
-In `serve`, **stdout belongs entirely to JSON-RPC** and every log goes to stderr. `doctor` and `version` print to stdout on purpose, because they are CLI commands.
-
----
-
-## 🧵 Daemon
-
-On by default. When two or more sessions point at the **same vault at the same time** and one of them searches, the daemon shares a single index between them instead of each loading its own copy.
-
-Aggregate working set, a real vault of 4,513 notes:
-
-| Sessions | Without daemon | With daemon | |
-|---|---|---|---|
-| 1 | 244.3 MB | 260.3 MB | +6.5% |
-| 3 | 733.3 MB | 288.7 MB | −60.6% |
-| 5 | 1,221.3 MB | 319.4 MB | −73.8% |
-
-A single isolated session — the most common case — **costs 16 MB more**. The measurement's technical recommendation was to ship it off by default; the project decision was to ship it on, so that the gain at three and five sessions does not depend on finding an environment variable. Full table and reasoning in [`docs/OPERACAO.md`](docs/OPERACAO.md).
+`gobsidian` includes standalone CLI tools for installation, diagnostics, testing, and indexing outside of MCP hosts:
 
 ```bash
-GOBSIDIAN_NO_DAEMON=1 gobsidian serve --vault "/path/to/vault"
+# Start MCP server over stdio
+gobsidian serve --vault "/path/to/vault" [--read-only]
+
+# Install or reconfigure (no arguments at all also installs)
+gobsidian install [--vault <path>] [--hosts <list>] [--read-only] [--yes]
+
+# Update to the latest published release
+gobsidian update [--check] [--yes]
+
+# Configure hosts for a vault, without reinstalling the binary
+gobsidian vaults --vault "/path/to/vault"
+
+# Add or remove the install directory from your user PATH
+gobsidian path [--add|--remove]
+
+# Run system and vault health check (permissions, case collisions, MAX_PATH)
+gobsidian doctor --vault "/path/to/vault"
+
+# Build index cache directly
+gobsidian index --vault "/path/to/vault" [--json]
+
+# Execute CLI search
+gobsidian search "query" --vault "/path/to/vault" [--limit 20]
+
+# Inspect parsed representation of a file
+gobsidian inspect "Note.md" --vault "/path/to/vault" [--json]
+
+# Print version, commit and build date
+gobsidian version
 ```
-
-In `claude_desktop_config.json`, the variable goes in the server entry's `env` block.
-
-The transport is a local Unix domain socket under the user's runtime directory, and ownership of the startup lock is a kernel lock — `flock` on Unix, `LockFileEx` on Windows — so a daemon that dies never leaves the lock held. **If the daemon fails to start, `serve` falls back to the usual in-process mode** — the worst case is losing the shared memory, never the functionality. With no session connected, the daemon exits on its own after 15 minutes.
 
 ---
 
 ## 🖥️ Compatibility
 
-| Item | State |
+| Item | Support |
 |---|---|
-| 🪟 Windows 10+ | First-class platform |
-| 🐧 Linux (kernel 5.x+) and 🍎 macOS 13+ | Supported; CI runs build, `vet` and `go test -race` on all three |
-| MCP protocol | `2025-11-25`; negotiation down to earlier versions by the official SDK, pinned at `v1.5.0` |
-| ☁️ OneDrive, Dropbox and Google Drive | Supported, including cloud-only files, which are never opened so as not to trigger a download |
-| Paths over 260 characters on Windows | Supported |
+| **Operating systems** | Windows, macOS, Linux — a single static binary per platform, no runtime dependencies. |
+| **Go (build from source)** | 1.27 or newer. The published binaries need nothing installed. |
+| **MCP hosts** | Claude Desktop, Claude Code, Gemini CLI, Cursor, VS Code, Codex, Windsurf, Antigravity (IDE and standalone). |
+| **Vault storage** | Local disk, including OneDrive-synced folders. Cloud-only placeholders are indexed by name and never opened, so no download is triggered. |
+| **Attachments** | Indexed by filename; their contents are never read. |
 
----
+Windows is the primary target and gets the most coverage: long paths, case
+collisions, OneDrive placeholders, and `fsnotify` edge cases are documented in
+[`docs/WINDOWS.md`](docs/WINDOWS.md).
 
-## 📊 Performance
-
-Deterministic synthetic vault of **5,000 notes**, 12-core laptop running Windows 11, without `-race`.
-
-| What | Measured |
-|---|---|
-| Cold indexing (metadata) | **500 ms** |
-| Boot with a valid cache | 208–282 ms synthetic; 179–193 ms at 1,254 notes; 891 ms at 5,686 |
-| `note_read` p95 | **345 µs** |
-| `note_list` with a filter, p95 | **534 µs** |
-| `vault_search` p95 | **8 of 8 shapes**, worst case 43 ms |
-| Single-file reindex | **335 µs** |
-| Live heap at rest | 5 real vaults, 15% to 64% of headroom |
-| Orphan processes after the host dies | **0 over 400 cycles** |
-
-Boot scales with the size of the vault: the `Stat` sweep that validates the cache before accepting it costs more in a cloud-synced vault. Memory is measured as **live heap**, not RSS — RSS in Go tracks the collector's goal, roughly 2× the live heap at the last cycle, and measures GC policy rather than the data held.
-
-The table of all 22 non-functional requirements, each with a number or the words "not measured", is in [`docs/OPERACAO.md`](docs/OPERACAO.md).
-
-CI compares six benchmarks against `docs/bench-baseline.json` and **fails the build** on a regression above 20%.
+When several MCP hosts open the same vault, they share one background daemon
+over a local socket instead of building one index per client. Shutdown is
+covered by four mechanisms (stdin EOF, signal, parent death, idle timeout), each
+exercised by a 100-cycle gate on every CI run — that is what "no orphan
+processes" means here.
 
 ---
 
 ## 🛠️ Development
 
 ```bash
-pwsh -File scripts/verify.ps1        # the whole battery, stopping at the first error
-pwsh -File scripts/build.ps1         # binary with the version baked in
+# Run validation battery (build, race, lint, vet across three GOOS, gates)
+pwsh -File scripts/verify.ps1
+
+# Build release binary
+pwsh -File scripts/build.ps1
+
+# Run orphan-process termination gate
+pwsh -File scripts/test_orphans.ps1 -Cycles 100
 ```
 
-<details>
-<summary>🔬 <b>What the battery covers</b></summary>
-
-<br>
-
-In order, stopping at the first error: build, `go test -race`, latency ceilings **without** `-race`, `go vet` on all three targets, `gofmt`, `golangci-lint`, the network check, the schema-parameter check, the check for documentation references to artifacts that do not exist, the README anchor check, and the gate check — the pre-commit hook and the report auditor run against the bypasses they once accepted (a `[sem-doc]` hatch in a shell comment, a section named in prose instead of a heading), and must refuse every one.
-
-It is one command because a loose list invites running three of the five.
-
-> [!IMPORTANT]
-> `golangci-lint` must be **v2.12.2**. A binary built with a Go older than `go.mod` rejects the config before analysing a single line, and a local zero says nothing about CI.
-
-</details>
-
-<details>
-<summary>👻 <b>The orphan-process gate</b> — four scenarios, one per mechanism</summary>
-
-<br>
-
-```bash
-pwsh -File scripts/test_orphans.ps1 -Cycles 100                      # all four, the default
-pwsh -File scripts/test_orphans.ps1 -Cycles 100 -Scenario parent-death
-```
-
-| Scenario | What dies | Only possible mechanism |
-|---|---|---|
-| `stdin-eof` | the host | EOF on stdin |
-| `parent-death` | the intermediate host, with the pipe held by a **survivor** | parent watch |
-| `signal` | **nothing** | `CTRL_BREAK` |
-| `daemon-idle` | the only bridge | idleness — the daemon has neither a parent nor a host stdin |
-
-**Each scenario disconnects the others**, and the harness fails if the recorded reason is not the one belonging to the mechanism it names. Without that, falling through to the wrong mechanism would look green — which is how the parent watch crossed entire milestones without ever being exercised.
-
-**A leaked orphan and an unmeasured cycle are different things.** A cycle that never launched the process observed nothing, neither success nor leak, and failing over it measures the machine's load. Up to 2% of cycles may go unmeasured — always printed, never silent — and `-MaxNaoMedidosPct 0` demands that every one of them measure. A real leak, or a run in which **no** cycle measured, fails at any threshold.
-
-The script **does not build**: it refuses a `bin/gobsidian.exe` older than the code and tells you to run `build.ps1`. Without that guard, a stale binary passes the scenarios that do not depend on the new code and fails the ones that do, with a message pointing at the wrong place.
-
-</details>
+`verify.ps1` green is required before any commit. Contribution conventions,
+architectural rules, and the historical record of every defect that cost time
+here live in [`CLAUDE.md`](CLAUDE.md) and [`docs/ARMADILHAS.md`](docs/ARMADILHAS.md).
 
 ---
 
 ## 📚 Documentation
 
-The documents below are written in Portuguese.
+Detailed documentation (written in Portuguese):
 
-| Document | Contents |
-|---|---|
-| [`docs/PRD.md`](docs/PRD.md) | Problem, requirements, closed decisions, risks, milestones |
-| [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) | Layers, flows, data model, concurrency, lifecycle |
-| [`docs/ESTRUTURA.md`](docs/ESTRUTURA.md) | Directory tree, each package's responsibility, conventions |
-| [`docs/TOOLS.md`](docs/TOOLS.md) | Each tool's contract: input and output schemas, error codes |
-| [`docs/WINDOWS.md`](docs/WINDOWS.md) | OneDrive, MAX_PATH, path casing, fsnotify |
-| [`docs/OPERACAO.md`](docs/OPERACAO.md) | Measurements, the full table of non-functional requirements, diagnosis and known limits |
+* [`docs/PRD.md`](docs/PRD.md) — Scope, design goals, non-functional requirements.
+* [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) — System architecture, concurrency, and caching.
+* [`docs/ESTRUTURA.md`](docs/ESTRUTURA.md) — Codebase structure and package responsibilities.
+* [`docs/TOOLS.md`](docs/TOOLS.md) — Complete schemas, inputs, and error matrices for MCP tools.
+* [`docs/PROMPT.md`](docs/PROMPT.md) — Ready-made prompt for MCP clients, and why it is needed.
+* [`docs/WINDOWS.md`](docs/WINDOWS.md) — Windows edge cases (OneDrive, fsnotify, long paths).
+* [`docs/OPERACAO.md`](docs/OPERACAO.md) — Diagnostics, latency benchmarks, and operational limits.
+
+---
+
+## 📄 License
+
+MIT © [Jony Duque](LICENSE)
