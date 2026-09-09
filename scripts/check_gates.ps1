@@ -335,6 +335,76 @@ try {
         Caso -Nome 'aresta real omitida do documento -> recusado' `
             -Esperado 'recusado' -Obtido 'mutante-nao-aplicou'
     }
+
+    # ------------------------------------------------------------------
+    # check_pins: as versoes fixadas concordam entre si
+    #
+    # Os dois defeitos que este gate cobre aconteceram no mesmo dia: o pin do
+    # golangci-lint ficou discordando de si mesmo (a substituicao literal pegou
+    # a mensagem e nao a condicao, escrita com pontos escapados), e o gate do
+    # release rodou numa toolchain diferente da que compila o binario -- contra
+    # o que o comentario do proprio arquivo afirma.
+    #
+    # Os mutantes saem de copias dos arquivos VIVOS, pela mesma razao do
+    # check_graph: fixture com copia de pin envelhece e reprova pelo motivo
+    # errado.
+    # ------------------------------------------------------------------
+    $PinsScript = Join-Path $PSScriptRoot 'check_pins.ps1'
+
+    function Pins-Resultado {
+        param([string]$RaizAlvo)
+        & $PinsScript -Raiz $RaizAlvo -Silencioso *> $null
+        if ($LASTEXITCODE -eq 0) { return 'aceito' }
+        return 'recusado'
+    }
+
+    # Copia os quatro arquivos que o check le, aplicando UMA troca.
+    function Pins-Raiz {
+        param([string]$Arquivo, [string]$De, [string]$Para)
+        $tmp = Join-Path ([IO.Path]::GetTempPath()) ("pins_" + [guid]::NewGuid().ToString('N'))
+        New-Item -ItemType Directory -Path (Join-Path $tmp 'scripts') -Force | Out-Null
+        New-Item -ItemType Directory -Path (Join-Path $tmp '.github/workflows') -Force | Out-Null
+        Copy-Item (Join-Path $ProjectRoot 'scripts/verify.ps1') (Join-Path $tmp 'scripts/verify.ps1')
+        foreach ($y in @('ci.yml', 'gate.yml', 'release.yml')) {
+            Copy-Item (Join-Path $ProjectRoot ".github/workflows/$y") (Join-Path $tmp ".github/workflows/$y")
+        }
+        $alvo = Join-Path $tmp $Arquivo
+        $texto = Get-Content -Path $alvo -Raw -Encoding UTF8
+        if ($texto -notmatch [regex]::Escape($De)) { return $null }
+        [IO.File]::WriteAllText($alvo, ($texto -replace [regex]::Escape($De), $Para), (New-Object Text.UTF8Encoding($false)))
+        return $tmp
+    }
+
+    Caso -Nome 'pins como estao -> aceito' `
+        -Esperado 'aceito' -Obtido (Pins-Resultado $ProjectRoot)
+
+    # O defeito real: a condicao escapada fica para tras da mensagem.
+    $p1 = Pins-Raiz 'scripts/verify.ps1' '"2\.13\.2"' '"2\.12\.2"'
+    if ($p1) {
+        Caso -Nome 'pin do linter discordando entre condicao e mensagem -> recusado' `
+            -Esperado 'recusado' -Obtido (Pins-Resultado $p1)
+        Remove-Item $p1 -Recurse -Force -ErrorAction SilentlyContinue
+    }
+    else {
+        Caso -Nome 'pin do linter discordando entre condicao e mensagem -> recusado' `
+            -Esperado 'recusado' -Obtido 'mutante-nao-aplicou'
+    }
+
+    # O outro: o gate do release deixa de cobrar a toolchain que compila.
+    # DEZ espacos: a linha do job de build. A do gate tem seis. Sem essa
+    # distincao o -replace trocaria as DUAS -- e elas voltariam a concordar,
+    # com o mutante passando por nao ter mutado nada util. A primeira versao
+    # deste caso fez exatamente isso.
+    $p2 = Pins-Raiz '.github/workflows/release.yml' "          go-version: '1.27.1'" "          go-version: '1.25'"
+    if ($p2) {
+        Caso -Nome 'gate do release em toolchain diferente do build -> recusado' `
+            -Esperado 'recusado' -Obtido (Pins-Resultado $p2)
+        Remove-Item $p2 -Recurse -Force -ErrorAction SilentlyContinue
+    }
+    else {
+        Caso -Nome 'gate do release em toolchain diferente do build -> recusado' `
+            -Esperado 'recusado' -Obtido 'mutante-nao-aplicou'
+    }
 }
 finally {
     Pop-Location

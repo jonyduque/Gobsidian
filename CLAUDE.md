@@ -256,7 +256,7 @@ conferir, e as duas versões anteriores diziam.
 ## Comandos
 
 ```bash
-pwsh -File scripts/verify.ps1              # o gate: 16 etapas, para no primeiro erro
+pwsh -File scripts/verify.ps1              # o gate: 17 etapas, para no primeiro erro
 pwsh -File scripts/build.ps1               # build com versão via ldflags
 pwsh -File scripts/test_orphans.ps1        # os quatro cenários de encerramento
 pwsh -File scripts/mutate.ps1 ...          # prova de mutação — ver papeis/testador.md
@@ -272,7 +272,7 @@ pwsh -File scripts/gen_vault.ps1 -Notes 5000 -Seed 42 -Out <x>   # cofre de benc
 a lista solta convida a rodar três dos cinco: cobre build, `go test -race`, a
 contagem de testes pulados, tetos de latência, `go vet` nos três GOOS, `gofmt`,
 `golangci-lint` (Windows e Linux), `check_net`, `check_tool_params`,
-`check_doc_refs`, `check_readme_anchors`, `check_gates` e `check_graph`. A contagem de pulados **informa e não
+`check_doc_refs`, `check_readme_anchors`, `check_gates`, `check_graph` e `check_pins`. A contagem de pulados **informa e não
 reprova** — há skip legítimo, como o de `vaulttest` fora do Windows —, mas um
 teste que pula não cobre nada, e o de paridade pulava sem que o gate dissesse.
 Aceita `-SkipCross` e `-SkipNet` para iteração rápida; o gate roda tudo.

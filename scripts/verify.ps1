@@ -274,6 +274,15 @@ Invoke-Step "check_gates" { & (Join-Path $PSScriptRoot "check_gates.ps1") }
 # proxima redacao erra tambem.
 Invoke-Step "check_graph" { & (Join-Path $PSScriptRoot "check_graph.ps1") }
 
+# As versoes fixadas concordando entre si.
+#
+# Um pin que discorda de si mesmo e pior que pin nenhum: ele afirma um numero e
+# cobra outro. Aconteceu em 2026-09-09, quando a substituicao literal de
+# "2.12.2" pegou a mensagem e nao a condicao, escrita com pontos escapados. E o
+# gate do release chegou a rodar numa toolchain diferente da que compila o
+# binario publicado, contra o que o comentario daquele arquivo afirma.
+Invoke-Step "check_pins" { & (Join-Path $PSScriptRoot "check_pins.ps1") }
+
 Pop-Location
 
 Write-Output ""
