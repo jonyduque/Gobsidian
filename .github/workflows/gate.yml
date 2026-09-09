@@ -48,9 +48,17 @@ jobs:
         with:
           version: ${{ inputs.golangci-version }}
           install-mode: binary
-          # A acao so instala; quem roda o lint e o verify.ps1, no passo
-          # seguinte, para os dois GOOS que ele cobre.
-          args: --version
+          # install-only: a acao INSTALA e poe no PATH, sem rodar o linter.
+          # Quem roda e o verify.ps1 no passo seguinte, para os dois GOOS que
+          # ele cobre.
+          #
+          # A primeira tentativa passou `args: --version` achando que isso
+          # faria a acao so conferir a instalacao. Nao faz: ela monta
+          # `golangci-lint run <args>`, e o comando virou
+          # `golangci-lint run --version` -- "unknown flag: --version",
+          # exit 3. O log do CI mostrou a linha montada, e a opcao que
+          # realmente existe para isto estava ali ao lado.
+          install-only: true
 
       - name: bateria completa (scripts/verify.ps1)
         shell: pwsh
