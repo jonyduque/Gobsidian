@@ -104,9 +104,14 @@ Access is denied.`
 
 ### 2.4 O diretório de runtime acumula
 
-`%LocalAppData%\gobsidian\run`: **960 arquivos `.lock`**, **3 `.sock` órfãos**
-de cofres que não existem mais, **11 `.log`** — um deles com 727 261 bytes, sem
+`%LocalAppData%\gobsidian\run`: **960 arquivos `.lock`** e **11 `.log`** — um deles com 727 261 bytes, sem
 rotação. `trava.go` documenta que o `.lock` **nunca** é removido, de propósito.
+
+Os **4 `.sock`** presentes **não** são lixo, e a primeira redação deste
+documento errou ao dizer que três eram de cofres inexistentes. Medido em
+2026-09-08 lendo `search.CacheHeader.VaultPath` de cada cache: as quatro chaves
+são `Estudo`, `Jurisprudência`, `Oral` e `Revisão`, e **os quatro cofres
+existem**. Socket cujo daemon não está rodando agora é estado normal, não sobra.
 O que falta é alguém que limpe o que comprovadamente sobrou.
 
 ### 2.5 Troca de binário a quente

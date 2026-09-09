@@ -456,19 +456,28 @@ func leCacheComArena(dados []byte, arena []TokenPosition) (CacheHeader, *baseSoA
 // vem de fora (mapeado do arquivo) em vez de heap comum, e o laço abaixo pula
 // só a ESCRITA em b.pos — continua decodificando cada delta varint, para o
 // corpo do arquivo continuar sendo a fonte de verdade sobre corrupção.
-func decodificaCache(dados []byte, arena []TokenPosition) (CacheHeader, *baseSoA, error) {
-	l := &leitor{b: dados}
-
-	if len(dados) < len(cacheMagic) {
-		return CacheHeader{}, nil, fmt.Errorf("%w: arquivo com %d bytes, menor que a assinatura",
-			ErrCacheCorrupted, len(dados))
+// decodificaCabecalho lê a assinatura e o cabeçalho, e para aí.
+//
+// Extraída de decodificaCache em 2026-09-08 para que LerCabecalhoDoCache
+// (persist.go) responda "de qual cofre é este cache?" sem decodificar o corpo
+// inteiro — 66 MB no cofre de referência do dono. A limpeza do instalador faz
+// essa pergunta uma vez por diretório de cache, e carregar tudo para ler um
+// campo seria absurdo.
+//
+// UMA conta do formato do cabeçalho, e não duas: quem lê só o cabeçalho e quem
+// lê o arquivo inteiro passam por aqui. Duas leituras do mesmo layout
+// concordam por coincidência até uma delas mudar sozinha.
+func decodificaCabecalho(l *leitor) (CacheHeader, error) {
+	if len(l.b) < len(cacheMagic) {
+		return CacheHeader{}, fmt.Errorf("%w: arquivo com %d bytes, menor que a assinatura",
+			ErrCacheCorrupted, len(l.b))
 	}
 	l.i = len(cacheMagic)
-	if string(dados[:len(cacheMagic)]) != cacheMagic {
+	if string(l.b[:len(cacheMagic)]) != cacheMagic {
 		// Cache de formato anterior cai aqui: a assinatura carrega a versão.
 		// Versão incompatível e não corrupção — a diferença decide se o log
 		// assusta alguém à toa.
-		return CacheHeader{}, nil, ErrCacheVersionMismatch
+		return CacheHeader{}, ErrCacheVersionMismatch
 	}
 
 	var h CacheHeader
@@ -476,7 +485,7 @@ func decodificaCache(dados []byte, arena []TokenPosition) (CacheHeader, *baseSoA
 	h.ParserVersion = int(l.uvarint(math.MaxInt32, "parserVersion"))
 	h.AnalyzerVersion = int(l.uvarint(math.MaxInt32, "analyzerVersion"))
 	if l.err != nil {
-		return CacheHeader{}, nil, l.err
+		return CacheHeader{}, l.err
 	}
 	// Portao de versao ANTES de qualquer campo de layout.
 	//
@@ -487,10 +496,23 @@ func decodificaCache(dados []byte, arena []TokenPosition) (CacheHeader, *baseSoA
 	// resultado seria lixo estruturalmente valido, ou um erro de corrupcao que
 	// culpa o disco por uma troca de formato.
 	if h.FormatVersion != cacheCodecVers {
-		return CacheHeader{}, nil, ErrCacheVersionMismatch
+		return CacheHeader{}, ErrCacheVersionMismatch
 	}
 	h.VaultPath = l.str("vaultPath")
 	h.NoteCount = int(l.uvarint(math.MaxInt32, "noteCount"))
+	if l.err != nil {
+		return CacheHeader{}, l.err
+	}
+	return h, nil
+}
+
+func decodificaCache(dados []byte, arena []TokenPosition) (CacheHeader, *baseSoA, error) {
+	l := &leitor{b: dados}
+
+	h, err := decodificaCabecalho(l)
+	if err != nil {
+		return CacheHeader{}, nil, err
+	}
 	totPost := l.uvarint(limitePostings, "totalPostings")
 	totPos := l.uvarint(limitePosicoes, "totalPosicoes")
 	if l.err != nil {

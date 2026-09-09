@@ -202,7 +202,7 @@ func TestPresencaArquivoOrfaoNaoContaEPodeSerLimpo(t *testing.T) {
 | `.log` | acima de 5 MB → rotacionado, **nunca** apagado |
 | diretório de cache | cofre não existe mais |
 
-"Cofre não existe mais" é decidível sem adivinhação: `search.CacheHeader.VaultPath` já guarda o caminho e já é gravado (`internal/search/persist.go:44`, `persist_codec.go:187`). Medido em 2026-09-08 no diretório do dono: **960 `.lock`**, **3 `.sock`** de cofres inexistentes, **11 `.log`** (um com 727 261 bytes).
+"Cofre não existe mais" é decidível sem adivinhação: `search.CacheHeader.VaultPath` já guarda o caminho e já é gravado (`internal/search/persist.go:44`, `persist_codec.go:187`). Medido em 2026-09-08 no diretório do dono: **960 `.lock`** e **11 `.log`** (um com 727 261 bytes). Os **4 `.sock`** presentes **não** são lixo — as chaves são `Estudo`, `Jurisprudência`, `Oral` e `Revisão`, e os quatro cofres existem; socket sem daemon rodando é estado normal. A primeira redação deste plano dizia que três eram de cofres inexistentes, sem ter verificado.
 
 - [ ] **Step 1: Teste que falha**, com um diretório de runtime falso contendo os quatro casos **e** os quatro inversos (lock tomado, socket com ouvinte, log pequeno, cache de cofre existente). Sem os inversos, uma limpeza que apagasse tudo passaria.
 

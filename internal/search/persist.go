@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 
@@ -45,6 +46,67 @@ type CacheHeader struct {
 	NoteCount       int
 }
 
+// NomeDoArquivoDeCache e o nome do arquivo do indice invertido dentro do
+// cache-dir. Ate 2026-09-08 o literal aparecia duas vezes neste mesmo arquivo,
+// e a limpeza do instalador seria a terceira.
+const NomeDoArquivoDeCache = "inverted_cache.gob"
+
+// LerCabecalhoDoCache responde "de qual cofre e este cache?" sem decodificar o
+// corpo.
+//
+// A limpeza do instalador (internal/instalar) precisa disso para decidir se um
+// diretorio de cache ficou orfao: o diretorio e nomeado pelo HASH do caminho do
+// cofre (config.VaultKey), e hash nao volta para o caminho. O cabecalho ja
+// guarda VaultPath desde sempre -- ver CacheHeader --, entao a resposta existe
+// e so faltava alcanca-la.
+//
+// Le um PREFIXO do arquivo, e nao o arquivo: o cache do cofre de referencia do
+// dono tem 66 MB, e carregar tudo para ler um campo seria absurdo numa varredura
+// que roda uma vez por diretorio. Se o prefixo nao bastar -- caminho de cofre
+// patologicamente longo --, ele releva e tenta o arquivo inteiro, porque
+// "cabecalho truncado" e "arquivo corrompido" nao podem virar a mesma resposta.
+func LerCabecalhoDoCache(cacheDir string) (CacheHeader, error) {
+	caminho := filepath.Join(cacheDir, NomeDoArquivoDeCache)
+
+	f, err := os.Open(caminho)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return CacheHeader{}, ErrCacheNotFound
+		}
+		return CacheHeader{}, fmt.Errorf("abrindo cache %q: %w", caminho, err)
+	}
+	defer func() { _ = f.Close() }()
+
+	prefixo := make([]byte, prefixoDoCabecalho)
+	n, err := io.ReadFull(f, prefixo)
+	if err != nil && !errors.Is(err, io.ErrUnexpectedEOF) && !errors.Is(err, io.EOF) {
+		return CacheHeader{}, fmt.Errorf("lendo cache %q: %w", caminho, err)
+	}
+	prefixo = prefixo[:n]
+
+	h, err := decodificaCabecalho(&leitor{b: prefixo})
+	if err == nil {
+		return h, nil
+	}
+	if errors.Is(err, ErrCacheVersionMismatch) || n < prefixoDoCabecalho {
+		// O prefixo era o arquivo inteiro, ou a versao nao bate: reler nao muda
+		// nada.
+		return h, err
+	}
+
+	dados, lerErr := os.ReadFile(caminho)
+	if lerErr != nil {
+		return CacheHeader{}, fmt.Errorf("relendo cache %q: %w", caminho, lerErr)
+	}
+	return decodificaCabecalho(&leitor{b: dados})
+}
+
+// prefixoDoCabecalho e quanto se le antes de decodificar o cabecalho. 64 KiB
+// cobre com folga assinatura, tres versoes, o caminho do cofre e a contagem de
+// notas -- o caminho mais longo medido na maquina do dono em 2026-09-08 tinha
+// 334 caracteres.
+const prefixoDoCabecalho = 64 << 10
+
 // SaveInvertedCache salva o índice invertido em disco atomicamente.
 func SaveInvertedCache(ctx context.Context, cacheDir string, vaultPath string, inv *Inverted) error {
 	if err := ctx.Err(); err != nil {
@@ -73,7 +135,7 @@ func SaveInvertedCache(ctx context.Context, cacheDir string, vaultPath string, i
 	promoverArenaSePresente(inv)
 	termos, docLengths := inv.ExportForCache()
 
-	finalPath := filepath.Join(cacheDir, "inverted_cache.gob")
+	finalPath := filepath.Join(cacheDir, NomeDoArquivoDeCache)
 	if err := vault.ReplaceFile(ctx, finalPath, func(f *os.File) error {
 		return escreveCache(f, header, termos, docLengths)
 	}); err != nil {
@@ -99,7 +161,7 @@ func LoadInvertedCache(ctx context.Context, cacheDir string, vaultPath string) (
 		return nil, nil, ErrCacheNotFound
 	}
 
-	finalPath := filepath.Join(cacheDir, "inverted_cache.gob")
+	finalPath := filepath.Join(cacheDir, NomeDoArquivoDeCache)
 
 	if _, err := os.Stat(finalPath); err != nil {
 		if errors.Is(err, os.ErrNotExist) {

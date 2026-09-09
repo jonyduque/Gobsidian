@@ -236,12 +236,23 @@ func VaultKey(vaultPath string) string {
 	return strconv.FormatUint(sum, 16)
 }
 
-// defaultCacheDir deriva o diretorio de cache de um hash do caminho absoluto
-// do cofre, sempre FORA do cofre (PRD D1).
-func defaultCacheDir(vaultPath string) string {
+// RaizDoCache e o diretorio que contem UM subdiretorio por cofre, cada um
+// nomeado por VaultKey.
+//
+// Exportada em 2026-09-08 para a limpeza do instalador (internal/instalar), que
+// precisa percorrer os subdiretorios para achar cache de cofre que nao existe
+// mais. Ela e a conta unica desse caminho: defaultCacheDir passa por aqui, e
+// nao ha uma segunda derivacao do mesmo diretorio.
+func RaizDoCache() string {
 	base, err := os.UserCacheDir()
 	if err != nil {
 		base = os.TempDir()
 	}
-	return filepath.Join(base, "gobsidian", VaultKey(vaultPath))
+	return filepath.Join(base, "gobsidian")
+}
+
+// defaultCacheDir deriva o diretorio de cache de um hash do caminho absoluto
+// do cofre, sempre FORA do cofre (PRD D1).
+func defaultCacheDir(vaultPath string) string {
+	return filepath.Join(RaizDoCache(), VaultKey(vaultPath))
 }
