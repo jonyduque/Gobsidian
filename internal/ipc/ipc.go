@@ -372,15 +372,67 @@ func readLine(r io.Reader, maxLen int) (string, error) {
 	return "", fmt.Errorf("linha de saudacao excede %d bytes", maxLen)
 }
 
-// cleanupSocketFile remove um arquivo de socket orfao de uma partida
-// anterior que morreu sem fechar o listener. Ausente nao e erro. E
-// independente de plataforma — os.Remove se comporta igual nas tres — por
-// isso mora aqui e nao em ipc_unix.go/ipc_windows.go, que so tem o que
-// varia de verdade (runtimeDir, restrictPermission).
+// removerArquivo e renomearArquivo sao os.Remove e os.Rename em variaveis,
+// para que o teste possa forcar o ramo de falha que producao exibiu 20+ vezes
+// e nenhum reprodutor conhecido produz. Producao nunca as troca -- o mesmo
+// padrao de iniciarDaemonFn em cmd/gobsidian/ponte.go.
+var (
+	removerArquivo  = os.Remove
+	renomearArquivo = os.Rename
+)
+
+// cleanupSocketFile libera o caminho do socket de uma partida anterior que
+// morreu sem fechar o listener. Ausente nao e erro.
+//
+// Ate 2026-09-08 era os.Remove puro, e o comentario afirmava que isso bastava
+// "porque os.Remove se comporta igual nas tres" plataformas. Producao
+// contradisse 20+ vezes desde 2026-09-01, no Windows, com "The file cannot be
+// accessed by the system" (ERROR_CANT_ACCESS_FILE, 1920) -- e cada falha
+// derrubou toda ponte do cofre para o modo em processo, que e o estado em que
+// duas instancias gravam o MESMO cache de busca.
+//
+// O mecanismo continua DESCONHECIDO. Dois cenarios foram reproduzidos em
+// 2026-09-08 e nenhum produz o par observado em campo:
+//
+//	listener fechado limpo   dial 10061   arquivo ja nao existe (Close desvincula)
+//	processo morto a forca   dial 10061   os.Remove com SUCESSO
+//	PRODUCAO                 dial 10022   os.Remove com 1920
+//
+// Por isso o conserto NAO trata o errno. Classificar por numero e o que o
+// comentario de Listen ja proibe -- errnos diferentes descrevem o mesmo estado
+// e o mesmo errno descreve estados diferentes --, e erraria em silencio no
+// proximo estado desconhecido. O conserto e uma SAIDA: se o caminho nao se
+// apaga, tire o arquivo do caminho. Renomear e permitido no Windows onde
+// apagar nao e, medido em 2026-09-08 inclusive sobre executavel em uso.
+//
+// O destino leva timestamp para nunca colidir com uma sobra anterior, e
+// remove-lo e best-effort: se ficar, e lixo inerte FORA do caminho que
+// importa, e a limpeza do instalador o alcanca depois.
+//
+// Quando nem o plano B funciona, o erro passa a dizer o que havia no caminho.
+// Em campo, "The file cannot be accessed by the system" sozinho nao distinguia
+// arquivo, diretorio e ausencia.
 func cleanupSocketFile(path string) error {
-	err := os.Remove(path)
-	if err != nil && !os.IsNotExist(err) {
-		return err
+	err := removerArquivo(path)
+	if err == nil || os.IsNotExist(err) {
+		return nil
 	}
-	return nil
+
+	desviado := fmt.Sprintf("%s.orfao-%d", path, time.Now().UnixNano())
+	if renErr := renomearArquivo(path, desviado); renErr == nil {
+		_ = removerArquivo(desviado)
+		return nil
+	}
+
+	return fmt.Errorf("%w (estado do caminho: %s)", err, estadoDoCaminho(path))
+}
+
+// estadoDoCaminho descreve o que ha em path, para o erro dizer mais que o texto
+// do sistema. Nao interpreta: reporta.
+func estadoDoCaminho(path string) string {
+	fi, err := os.Lstat(path)
+	if err != nil {
+		return fmt.Sprintf("lstat falhou: %v", err)
+	}
+	return fmt.Sprintf("modo=%s tamanho=%d", fi.Mode(), fi.Size())
 }
