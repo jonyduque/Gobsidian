@@ -257,7 +257,7 @@ conferir, e as duas versões anteriores diziam.
 ## Comandos
 
 ```bash
-pwsh -File scripts/verify.ps1              # o gate: 20 etapas, para no primeiro erro
+pwsh -File scripts/verify.ps1              # o gate: 21 etapas, para no primeiro erro
 pwsh -File scripts/build.ps1               # build com versão via ldflags
 pwsh -File scripts/test_orphans.ps1        # os quatro cenários de encerramento
 pwsh -File scripts/mutate.ps1 ...          # prova de mutação — ver papeis/testador.md
@@ -274,8 +274,8 @@ a lista solta convida a rodar três dos cinco: cobre build, `go test -race`, a
 contagem de testes pulados, tetos de latência, `go vet` nos três GOOS, `gofmt`,
 `golangci-lint` (Windows e Linux), `check_net`, `check_tool_params`,
 `check_doc_refs`, `check_readme_anchors`, `check_gates`, `check_graph`,
-`check_pins`, `check_test_isolation`, `check_partida` e `check_prompt`. A
-contagem de pulados
+`check_pins`, `check_test_isolation`, `check_partida`, `check_prompt` e
+`check_unicode`. A contagem de pulados
 **informa e não reprova** — há skip legítimo, como o de `vaulttest` fora do Windows —, mas um
 teste que pula não cobre nada, e o de paridade pulava sem que o gate dissesse.
 Aceita `-SkipCross` e `-SkipNet` para iteração rápida; o gate roda tudo.
@@ -304,9 +304,13 @@ um pacote só — e o protocolo já quebrou compatibilidade várias vezes.
 **`ctx` onde há espera real.** Funções que podem **bloquear** recebem `ctx` e o
 respeitam. Leitura de env var, resolução de caminho e cálculo em memória não
 recebem. Quando o parâmetro existe só por consistência de assinatura,
-nomeie-o `_`. `lifecycle.Shutdown` é o caso especial documentado: recebe `ctx` e
-descarta o cancelamento via `context.WithoutCancel`, porque o context raiz já
-está cancelado quando ela roda.
+nomeie-o `_`. Há **dois** casos especiais, os dois documentados na própria
+função. `lifecycle.Shutdown` recebe `ctx` e descarta o cancelamento via
+`context.WithoutCancel`, porque o context raiz já está cancelado quando ela
+roda. `lifecycle.Esperar` recebe `ctx` como **portador de rótulo**: `pprof.Do`
+encadeia os rótulos do context que recebe, e um `context.Background()` ali
+dentro descartaria todo rótulo que o chamador já tivesse posto — foi o que o
+`contextcheck` apontou quando a primeira redação fez isso.
 
 **Anexo é indexado por nome, nunca lido. Arquivo somente-nuvem nunca é aberto.**
 Abrir dispara download síncrono. E **quem roda antes do guarda precisa do mesmo

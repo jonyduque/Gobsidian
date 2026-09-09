@@ -280,7 +280,7 @@ func servePonteRemota(parent context.Context, cofre string, conn ipc.Conn, stdin
 		}},
 	)
 
-	lifecycle.Esperar(log, "lifecycle", vig.LC.Wait)
+	lifecycle.Esperar(ctx, log, "lifecycle", vig.LC.Wait)
 
 	// ctx.Canceled no retorno do loop de copia e encerramento normal — a
 	// mesma regra que vale para o serve loop de serveEmProcesso (ver

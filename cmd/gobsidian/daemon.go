@@ -263,8 +263,8 @@ func runDaemon(parent context.Context, cfg config.Config, ociosidade time.Durati
 	lifecycle.Shutdown(ctx, log, lifecycle.OrcamentoDeEncerramento,
 		c.PassoWatcher(),
 	)
-	lifecycle.Esperar(log, "lifecycle", lc.Wait)
-	lifecycle.Esperar(log, "goroutines-de-fundo", c.Esperar)
+	lifecycle.Esperar(ctx, log, "lifecycle", lc.Wait)
+	lifecycle.Esperar(ctx, log, "goroutines-de-fundo", c.Esperar)
 
 	log.Info("daemon encerrado", "reason", lc.Reason())
 	return nil

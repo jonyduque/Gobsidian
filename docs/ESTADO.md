@@ -365,6 +365,51 @@ marcado como fechado sem ter sido é pior que o contrário. O ledger é a fonte.
 
 ---
 
+## Go 1.27 — o que foi medido
+
+O plano é [`docs/superpowers/plans/2026-09-09-go-1-27.md`](superpowers/plans/2026-09-09-go-1-27.md).
+Aqui ficam só os números.
+
+**Malloc especializado por tamanho: abaixo do piso de ruído desta máquina.**
+Medido em 2026-09-09 com `GOEXPERIMENT=nosizespecializedmalloc` contra o
+padrão — mesmo código, mesma toolchain (go1.27.0), um flag, que é o único jeito
+de isolar o efeito sem instalar uma segunda toolchain. Quatro benchmarks de
+`service`, `-count=7`, i7-10750H windows/amd64:
+
+| Benchmark | sem | com | delta |
+|---|---|---|---|
+| `LinkGraphBothDepth2` | 4,679 µs ± 23% | 3,537 µs ± 25% | −24,41% (p=0,002) |
+| `TagListHierarquico` | 3,601 ms ± 56% | 5,470 ms ± 49% | ~ (p=0,097) |
+| `NoteListPorTag` | 253,2 µs ± 17% | 334,1 µs ± 21% | +31,96% (p=0,004) |
+| `InvertedLoad` | 15,34 ms ± 22% | 14,04 ms ± 68% | ~ (p=0,902) |
+
+**Conclusão: inconclusivo, e o número não vai para lugar nenhum.** Os intervalos
+de ±23% a ±68% são uma ordem de grandeza maiores que o ~1% que as notas de
+lançamento prometem; dois benchmarks apontam para lados opostos com p<0,01, o
+que é assinatura de ruído e não de efeito. Publicar "−24%" ou "+32%" daqui seria
+escrever número que não se mediu. `B/op` e `allocs/op` saíram **idênticos** nos
+quatro, como esperado — a mudança é no custo da alocação, não no tamanho nem na
+contagem.
+
+Para virar veredito isto precisa de máquina parada, e a máquina do dono não
+estava: a rodada saiu no meio de builds e testes desta mesma sessão.
+
+**`encoding/json` v1 sobre v2: sem diferença observável.** O Go 1.27 passou a
+implementar o v1 sobre a máquina do v2. O corpus de round-trip de
+`internal/hosts` (`roundtrip_test.go`) roda igual com e sem
+`GOEXPERIMENT=nojsonv2`, e as duas medições dizem o mesmo: `Fundir` **atravessa
+byte não-UTF-8 sem alterar** — não troca por U+FFFD, que seria corromper o
+config do usuário em silêncio — e **aceita chave duplicada preservando
+`mcpServers`**. Nenhum pin de `nojsonv2` foi necessário.
+
+**Modernizadores do `go fix`, medidos antes de aplicar:** `waitgroupgo` 3
+arquivos (`lifecycle/parent.go`, `lifecycle/signals.go`, `writer/lock_test.go`),
+`slicesbackward` 1, `atomictypes` 0, `embedlit` 0, `unsafefuncs` 0.
+`strings.CutLast` tinha 1 sítio real (`index/resolve.go`); o outro candidato
+usava `LastIndexAny` com dois separadores e não converte.
+
+---
+
 ## Formato de cache
 
 **O formato do cache de busca é o 6, e não é `gob`** (formato 5 em 2026-08-03/04;

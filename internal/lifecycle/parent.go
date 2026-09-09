@@ -36,10 +36,7 @@ func (l *Lifecycle) watchParent(ctx context.Context, pid int, interval time.Dura
 		return
 	}
 
-	l.wg.Add(1)
-	go func() {
-		defer l.wg.Done()
-
+	l.wg.Go(func() {
 		ticker := time.NewTicker(interval)
 		defer ticker.Stop()
 
@@ -73,5 +70,5 @@ func (l *Lifecycle) watchParent(ctx context.Context, pid int, interval time.Dura
 				}
 			}
 		}
-	}()
+	})
 }

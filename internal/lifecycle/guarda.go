@@ -2,8 +2,12 @@ package lifecycle
 
 import (
 	"context"
+	"fmt"
+	"io"
 	"log/slog"
 	"os"
+	"runtime"
+	"runtime/pprof"
 	"sync"
 	"time"
 )
@@ -65,9 +69,77 @@ func ArmarGuardaChuva(ctx context.Context, log *slog.Logger, orcamento time.Dura
 			// Mesmo verbo e mesma saida da guarda de Shutdown: quem le o log
 			// nao precisa aprender duas linguagens para o mesmo evento.
 			log.Error("encerramento travou alem do guarda-chuva", "orcamento", orcamento)
+			DespejarPilhas(os.Stderr)
 			os.Exit(1)
 		}
 	}()
 
 	return func() { uma.Do(func() { close(pronto) }) }
+}
+
+// TetoDoDespejo limita o que DespejarPilhas escreve. Um encerramento travado ja
+// e um dia ruim; um dump de megabytes no stderr de um host MCP e outro.
+const TetoDoDespejo = 4 << 20
+
+// DespejarPilhas escreve o estado de TODAS as goroutines, e depois o perfil
+// goroutineleak, em w.
+//
+// # Por que isto existe
+//
+// Em 2026-09-07 o daemon PID 42856 pediu encerramento por ociosidade as
+// 19:30:36, nunca registrou "daemon encerrado" e seguiu vivo 20 h, com 274 MB
+// residentes e 26 threads em Wait,UserRequest. As candidatas eram tres --
+// wg.Wait dentro de daemon.Run, lc.Wait e c.Esperar -- e QUAL delas nunca foi
+// determinado: o binario e compilado com -s -w (scripts/build.ps1 e
+// release.yml) e `dlv attach` responde "could not find goroutine array".
+//
+// O guarda-chuva sabia que o encerramento travou, dizia isso no log e saia sem
+// olhar. A resposta estava na memoria do processo o tempo todo. Um dump EM
+// PROCESSO nao se importa com -s -w, que e exatamente o que derrotou o
+// depurador.
+//
+// # As duas metades, e por que nenhuma substitui a outra
+//
+// runtime.Stack diz ONDE cada goroutine estava. Com a diretiva `go 1.27` no
+// go.mod, o cabecalho de cada uma traz os rotulos de runtime/pprof, entao a
+// espera aparece pelo NOME que lifecycle.Esperar registra -- ver o pprof.Do
+// em espera.go.
+//
+// O perfil goroutineleak (GA no Go 1.27) da o veredito: goroutine bloqueada em
+// primitiva INALCANCAVEL, que e vazamento provado. Ele nao cobre o outro caso:
+// espera bloqueada em primitiva alcancavel e nunca sinalizada nao e vazamento
+// pela definicao dele, e e o que o dump mostra. Prometer que o perfil sozinho
+// responde repetiria o erro de afirmar sem medir.
+//
+// # stderr direto, e nao slog
+//
+// Uma pilha de goroutines dentro de um atributo de slog vira uma linha unica
+// com a quebra escapada, ilegivel justamente quando mais se precisa dela.
+// stdout continua sendo do JSON-RPC; stderr e onde o log ja mora.
+func DespejarPilhas(w io.Writer) {
+	buf := make([]byte, 64<<10)
+	for {
+		n := runtime.Stack(buf, true)
+		if n < len(buf) {
+			buf = buf[:n]
+			break
+		}
+		if len(buf) >= TetoDoDespejo {
+			// No teto o dump sai truncado, e sai assim de proposito: pilha
+			// parcial responde mais que pilha nenhuma.
+			break
+		}
+		buf = make([]byte, min(len(buf)*2, TetoDoDespejo))
+	}
+
+	_, _ = fmt.Fprintf(w, "\n=== goroutines no estouro do guarda-chuva ===\n%s\n", buf)
+
+	// Lookup devolve nil se a toolchain nao tiver o perfil. Um encerramento
+	// travado nao pode virar panic dentro do diagnostico do encerramento.
+	if p := pprof.Lookup("goroutineleak"); p != nil {
+		_, _ = fmt.Fprintf(w, "=== goroutineleak (%d) ===\n", p.Count())
+		if err := p.WriteTo(w, 1); err != nil {
+			_, _ = fmt.Fprintf(w, "(perfil goroutineleak falhou: %v)\n", err)
+		}
+	}
 }

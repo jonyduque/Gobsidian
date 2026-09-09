@@ -8,6 +8,8 @@ import (
 	"log/slog"
 	"os"
 	"os/exec"
+	"runtime"
+	"runtime/pprof"
 	"strings"
 	"testing"
 	"time"
@@ -166,7 +168,7 @@ func TestEsperarNomeiaAEsperaAntesDeBloquear(t *testing.T) {
 	// A funcao confere o log NO MEIO da espera: e o estado em que um
 	// encerramento pendurado deixa o arquivo.
 	var durante string
-	Esperar(log, "goroutines-de-fundo", func() { durante = buf.String() })
+	Esperar(context.Background(), log, "goroutines-de-fundo", func() { durante = buf.String() })
 
 	if !strings.Contains(durante, "goroutines-de-fundo") {
 		t.Fatalf("o nome da espera nao estava no log ANTES dela terminar; um travamento nao deixaria rastro:\n%s", durante)
@@ -178,5 +180,136 @@ func TestEsperarNomeiaAEsperaAntesDeBloquear(t *testing.T) {
 	depois := buf.String()
 	if !strings.Contains(depois, "espera concluida") || !strings.Contains(depois, "duracao_ms") {
 		t.Errorf("a linha de saida nao traz a duracao:\n%s", depois)
+	}
+}
+
+// TestDespejarPilhasNomeiaAEsperaQueTravou e a prova de que a diretiva
+// `go 1.27` no go.mod comprou o que se esperava dela.
+//
+// Em 2026-09-07 o daemon PID 42856 travou numa de tres esperas e QUAL nunca foi
+// determinado -- o binario sai com -s -w e `dlv attach` responde "could not
+// find goroutine array". lifecycle.Esperar rotula a goroutine com pprof.Do, e a
+// partir do Go 1.27 esse rotulo sai no cabecalho de cada goroutine no
+// traceback. Este teste segura uma espera e confere que o nome dela aparece.
+//
+// Prova de mutacao: tirar o pprof.Do de Esperar (chamando fn direto) faz o
+// caso reprovar dizendo que "espera-presa" nao esta no dump.
+func TestDespejarPilhasNomeiaAEsperaQueTravou(t *testing.T) {
+	preso := make(chan struct{})
+	entrou := make(chan struct{})
+	pronto := make(chan struct{})
+
+	go func() {
+		defer close(pronto)
+		Esperar(context.Background(), slog.New(slog.NewTextHandler(io.Discard, nil)), "espera-presa", func() {
+			close(entrou)
+			<-preso
+		})
+	}()
+
+	<-entrou
+	// A goroutine fechou `entrou` DENTRO de fn, mas ainda pode nao ter chegado
+	// ao recebimento que a bloqueia. Espera ela aparecer bloqueada no dump.
+	var buf bytes.Buffer
+	prazo := time.Now().Add(5 * time.Second)
+	for {
+		buf.Reset()
+		DespejarPilhas(&buf)
+		if strings.Contains(buf.String(), "espera-presa") || time.Now().After(prazo) {
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+
+	saida := buf.String()
+	close(preso)
+	<-pronto
+
+	if !strings.Contains(saida, "goroutines no estouro do guarda-chuva") {
+		t.Errorf("o dump nao traz o cabecalho que o delimita:\n%s", primeirasLinhas(saida, 5))
+	}
+	if !strings.Contains(saida, "espera-presa") {
+		t.Errorf("o dump nao nomeia a espera presa -- o rotulo de pprof nao chegou ao traceback.\n"+
+			"Sem ele o dump volta a mostrar endereco, que e o que nao respondeu em 2026-09-07.\n%s",
+			primeirasLinhas(saida, 20))
+	}
+}
+
+// TestDespejarPilhasTrazOPerfilDeVazamento confere a segunda metade do dump. O
+// perfil goroutineleak e GA no Go 1.27; se a toolchain nao o tiver, DespejarPilhas
+// omite a secao em vez de entrar em panic, e ai este caso e quem avisa.
+func TestDespejarPilhasTrazOPerfilDeVazamento(t *testing.T) {
+	var buf bytes.Buffer
+	DespejarPilhas(&buf)
+	if !strings.Contains(buf.String(), "=== goroutineleak (") {
+		t.Errorf("o dump nao traz a secao goroutineleak: a toolchain nao tem o perfil, ou ele saiu do codigo")
+	}
+}
+
+func primeirasLinhas(s string, n int) string {
+	linhas := strings.SplitN(s, "\n", n+1)
+	if len(linhas) > n {
+		linhas = linhas[:n]
+	}
+	return strings.Join(linhas, "\n")
+}
+
+// TestSemGoroutineVazadaDepoisDoCicloDeVida usa o perfil goroutineleak, GA no
+// Go 1.27, contra a classe de defeito que originou tudo isto.
+//
+// O perfil relata goroutine bloqueada em primitiva INALCANCAVEL -- vazamento
+// provado, e nao suspeita. Um ciclo completo de lifecycle.New ate Wait nao pode
+// deixar nenhuma goroutine deste pacote la dentro.
+//
+// A assercao olha os QUADROS de internal/lifecycle, e nao a contagem total: o
+// binario de teste roda muitos pacotes e uma contagem global seria refem de
+// goroutine alheia.
+//
+// Prova de mutacao, rodada em 2026-09-09 com uma goroutine presa num canal que
+// mais ninguem alcanca acrescentada a New:
+//
+//	--- FAIL: TestSemGoroutineVazadaDepoisDoCicloDeVida (0.03s)
+//	    guarda_test.go:303: o ciclo de vida deixou goroutine vazada:
+//	    #	0x...	internal/lifecycle.New.func1+0x24	lifecycle.go:68
+//
+// Nao serve mutar watchSignals tirando o `<-ctx.Done()`: signal.Notify mantem
+// o canal alcancavel pelo registro do runtime, entao aquela goroutine ficaria
+// presa sem ser VAZAMENTO pela definicao do perfil -- que e exatamente a
+// distincao registrada em DespejarPilhas.
+func TestSemGoroutineVazadaDepoisDoCicloDeVida(t *testing.T) {
+	pr, pw := io.Pipe()
+	ctx, lc := New(context.Background(), Options{
+		Stdin:               pr,
+		ParentPID:           os.Getpid(),
+		ParentCheckInterval: 10 * time.Millisecond,
+		Logger:              slog.New(slog.NewTextHandler(io.Discard, nil)),
+	})
+
+	// EOF em stdin: o mecanismo normal de encerramento de um serve.
+	if err := pw.Close(); err != nil {
+		t.Fatal(err)
+	}
+	<-ctx.Done()
+	lc.Wait()
+	if err := pr.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	// O perfil so enxerga o que ficou INALCANCAVEL, e isso depende de uma
+	// coleta. Duas, porque a primeira pode apenas tornar alcancavel-para-
+	// finalizacao o que a segunda recolhe.
+	runtime.GC()
+	runtime.GC()
+
+	p := pprof.Lookup("goroutineleak")
+	if p == nil {
+		t.Skip("toolchain sem o perfil goroutineleak")
+	}
+	var buf bytes.Buffer
+	if err := p.WriteTo(&buf, 1); err != nil {
+		t.Fatalf("lendo o perfil: %v", err)
+	}
+	if strings.Contains(buf.String(), "internal/lifecycle") {
+		t.Errorf("o ciclo de vida deixou goroutine vazada:\n%s", buf.String())
 	}
 }

@@ -22,9 +22,7 @@ func (l *Lifecycle) watchSignals(ctx context.Context) {
 	ch := make(chan os.Signal, 1)
 	signal.Notify(ch, os.Interrupt, syscall.SIGTERM)
 
-	l.wg.Add(1)
-	go func() {
-		defer l.wg.Done()
+	l.wg.Go(func() {
 		defer signal.Stop(ch)
 
 		select {
@@ -32,5 +30,5 @@ func (l *Lifecycle) watchSignals(ctx context.Context) {
 			l.trigger("signal")
 		case <-ctx.Done():
 		}
-	}()
+	})
 }

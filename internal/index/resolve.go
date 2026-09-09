@@ -42,8 +42,10 @@ var ErrPathNotFound = errors.New("path not found")
 // uma nota ja removida.
 func nomeChave(s string) string {
 	s = filepath.ToSlash(s)
-	if i := strings.LastIndex(s, "/"); i >= 0 {
-		s = s[i+1:]
+	// CutLast e do Go 1.27. Diz o mesmo que LastIndex mais o recorte, sem o
+	// indice intermediario que so existia para ser somado a um.
+	if _, depois, achou := strings.CutLast(s, "/"); achou {
+		s = depois
 	}
 	s = chaveDeCaminho(s)
 	return strings.TrimSuffix(s, ".md")

@@ -1,29 +1,3 @@
-#Requires -Version 7.0
-<#
-.SYNOPSIS
-    Bateria de verificacao obrigatoria antes de qualquer commit.
-
-.DESCRIPTION
-    Roda, em ordem e parando no primeiro erro: build, testes com detector de
-    corrida, vet nos tres alvos, gofmt, e a verificacao de RNF-30.
-
-    Existe porque a lista de comandos espalhada pela documentacao convida a
-    rodar tres dos cinco. Um comando so nao deixa escolher qual pular.
-
-    O -race nao e opcional: a versao sem ele nao conta como suite verde neste
-    projeto. Varios pacotes coordenam goroutines, e uma corrida so aparece la.
-
-.PARAMETER SkipCross
-    Pula o vet cruzado de linux e darwin. Use apenas em iteracao rapida sobre
-    codigo que nao tem build tag; o gate completo roda os tres.
-
-.PARAMETER SkipNet
-    Pula a verificacao de rede. Use apenas quando nenhum import mudou.
-
-.EXAMPLE
-    .\scripts\verify.ps1
-    .\scripts\verify.ps1 -SkipCross
-#>
 [CmdletBinding()]
 param(
     [switch]$SkipCross,
@@ -308,6 +282,14 @@ Invoke-Step "check_partida" { & (Join-Path $PSScriptRoot "check_partida.ps1") }
 # onde ele pode aprende-los. Isso faz do prompt uma segunda copia de um fato de
 # internal/service -- e a menos consultada das duas.
 Invoke-Step "check_prompt" { & (Join-Path $PSScriptRoot "check_prompt.ps1") }
+
+# Chave derivada contra tabela Unicode que a toolchain move.
+#
+# O Go 1.27 subiu as tabelas da geracao 15 para a 17, com a v1.6.0 ja publicada
+# nessa toolchain. config.VaultKey nomeia o diretorio de cache E o caminho do
+# socket -- chave que se move entre duas versoes do binario e "dois processos
+# servindo um cofre", o incidente de 2026-09-08 por outra porta.
+Invoke-Step "check_unicode" { & (Join-Path $PSScriptRoot "check_unicode.ps1") }
 
 Pop-Location
 

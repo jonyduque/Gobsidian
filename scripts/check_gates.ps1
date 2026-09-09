@@ -577,6 +577,70 @@ try {
         Caso -Nome 'conjunto de uma tool atribuido a outra -> recusado' `
             -Esperado 'recusado' -Obtido 'mutante-nao-aplicou'
     }
+
+    # ------------------------------------------------------------------
+    # check_unicode: chave derivada nao depende de tabela que a toolchain move
+    #
+    # O Go 1.27 subiu as tabelas Unicode da geracao 15 para a 17, com a v1.6.0
+    # ja publicada nessa toolchain. config.VaultKey nomeia o cache E o socket, e
+    # o analisador decide o que e termo no indice persistido. A primeira nao
+    # pode se mover nunca; a segunda pode, desde que o cache saiba.
+    # ------------------------------------------------------------------
+    $UniScript = Join-Path $PSScriptRoot 'check_unicode.ps1'
+
+    function Uni-Resultado {
+        param([string]$RaizAlvo)
+        & $UniScript -Raiz $RaizAlvo -Silencioso *> $null
+        if ($LASTEXITCODE -eq 0) { return 'aceito' }
+        return 'recusado'
+    }
+
+    function Uni-Raiz {
+        param([string]$Arquivo, [string]$De, [string]$Para)
+        $tmp = Join-Path ([IO.Path]::GetTempPath()) ("uni_" + [guid]::NewGuid().ToString('N'))
+        New-Item -ItemType Directory -Path (Join-Path $tmp 'internal/config') -Force | Out-Null
+        New-Item -ItemType Directory -Path (Join-Path $tmp 'internal/search') -Force | Out-Null
+        Copy-Item (Join-Path $ProjectRoot 'internal/config/config.go') (Join-Path $tmp 'internal/config/config.go')
+        Copy-Item (Join-Path $ProjectRoot 'internal/search/persist.go') (Join-Path $tmp 'internal/search/persist.go')
+        $alvo = Join-Path $tmp $Arquivo
+        $texto = Get-Content -Path $alvo -Raw -Encoding UTF8
+        if ($texto -notmatch [regex]::Escape($De)) { return $null }
+        [IO.File]::WriteAllText($alvo, ($texto -replace [regex]::Escape($De), $Para), (New-Object Text.UTF8Encoding($false)))
+        return $tmp
+    }
+
+    Caso -Nome 'chaves derivadas como estao -> aceito' `
+        -Esperado 'aceito' -Obtido (Uni-Resultado $ProjectRoot)
+
+    # A regressao exata: a chave do cofre volta a consultar a tabela da stdlib.
+    $u1 = Uni-Raiz 'internal/config/config.go' `
+        'return cases.Lower(language.Und).String(s)' 'return strings.ToLower(s)'
+    if ($u1) {
+        Caso -Nome 'chave do cofre voltando a usar tabela da stdlib -> recusado' `
+            -Esperado 'recusado' -Obtido (Uni-Resultado $u1)
+        Remove-Item $u1 -Recurse -Force -ErrorAction SilentlyContinue
+    }
+    else {
+        Caso -Nome 'chave do cofre voltando a usar tabela da stdlib -> recusado' `
+            -Esperado 'recusado' -Obtido 'mutante-nao-aplicou'
+    }
+
+    # O inverso, e o outro lado da regra: o analisador PODE usar as tabelas,
+    # desde que o cache carregue a geracao. Sem o carimbo, cache de uma geracao
+    # e lido como valido por outra -- e o gate tem de pegar a ausencia do
+    # carimbo, nao a presenca da chamada.
+    $u2 = Uni-Raiz 'internal/search/persist.go' `
+        'var CacheAnalyzerVersion = versaoManualDoAnalisador*1000 + text.VersaoDasTabelas()' `
+        'var CacheAnalyzerVersion = versaoManualDoAnalisador'
+    if ($u2) {
+        Caso -Nome 'versao do analisador sem a geracao Unicode -> recusado' `
+            -Esperado 'recusado' -Obtido (Uni-Resultado $u2)
+        Remove-Item $u2 -Recurse -Force -ErrorAction SilentlyContinue
+    }
+    else {
+        Caso -Nome 'versao do analisador sem a geracao Unicode -> recusado' `
+            -Esperado 'recusado' -Obtido 'mutante-nao-aplicou'
+    }
 }
 finally {
     Pop-Location

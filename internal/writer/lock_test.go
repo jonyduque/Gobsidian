@@ -17,9 +17,7 @@ func TestPathLocker_SamePathLostUpdate(t *testing.T) {
 	var wg sync.WaitGroup
 
 	for i := 0; i < 50; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			unlock := locker.Lock(p)
 			defer unlock()
 
@@ -27,7 +25,7 @@ func TestPathLocker_SamePathLostUpdate(t *testing.T) {
 			val := counter
 			time.Sleep(1 * time.Millisecond)
 			counter = val + 1
-		}()
+		})
 	}
 
 	wg.Wait()

@@ -253,8 +253,8 @@ func serveEmProcesso(parent context.Context, cfg config.Config, log *slog.Logger
 		c.PassoWatcher(),
 	)
 
-	lifecycle.Esperar(log, "lifecycle", vig.LC.Wait)
-	lifecycle.Esperar(log, "goroutines-de-fundo", c.Esperar)
+	lifecycle.Esperar(ctx, log, "lifecycle", vig.LC.Wait)
+	lifecycle.Esperar(ctx, log, "goroutines-de-fundo", c.Esperar)
 
 	// Depois de Wait, nao antes: a etapa in-flight pode ter sido abandonada
 	// por estouro de orcamento, e sua goroutine ainda estar a caminho do

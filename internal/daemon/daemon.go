@@ -92,18 +92,16 @@ func (d *Daemon) Run(ctx context.Context, aoOcioso func(razao string)) {
 	defer ticker.Stop()
 
 	var wg sync.WaitGroup
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
+	wg.Go(func() {
 		d.acceptLoop(ctx, &wg)
-	}()
+	})
 
 	for {
 		select {
 		case <-ctx.Done():
 			// Nomeada, para que a ultima linha do log diga qual espera nao
 			// voltou. Ver lifecycle.Esperar.
-			lifecycle.Esperar(d.log, "conexoes-em-voo", wg.Wait)
+			lifecycle.Esperar(ctx, d.log, "conexoes-em-voo", wg.Wait)
 			return
 		case <-ticker.C:
 			d.mu.Lock()
@@ -191,11 +189,9 @@ func (d *Daemon) acceptLoop(ctx context.Context, wg *sync.WaitGroup) {
 		d.ultimoCliente = time.Now()
 		d.mu.Unlock()
 
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			d.handleConn(ctx, conn)
-		}()
+		})
 	}
 }
 
