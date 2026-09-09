@@ -161,6 +161,11 @@ func servePonteRemota(parent context.Context, conn ipc.Conn, stdin io.Reader, st
 	// mirrorReader de boot.VigiarHost, que faz dst.CloseWithError(err).
 	ctx, vig := boot.VigiarHost(parent, stdin, log)
 
+	// O guarda-chuva cobre o encerramento INTEIRO. Aqui a espera sem orcamento
+	// e vig.LC.Wait(), depois de Shutdown -- o mesmo desenho que deixou o daemon
+	// PID 42856 vivo 20 h em 2026-09-07. Ver lifecycle.ArmarGuardaChuva.
+	defer lifecycle.ArmarGuardaChuva(ctx, log, lifecycle.OrcamentoDeEncerramento)()
+
 	// As duas direcoes da copia sao goroutines independentes, e nenhuma
 	// delas entra no WaitGroup do lifecycle: uma goroutine parada em Read
 	// nao e desenrolavel por cancelamento de context (a mesma razao pela
@@ -195,7 +200,7 @@ func servePonteRemota(parent context.Context, conn ipc.Conn, stdin io.Reader, st
 	case <-ctx.Done():
 	}
 
-	lifecycle.Shutdown(ctx, log, 6*time.Second,
+	lifecycle.Shutdown(ctx, log, lifecycle.OrcamentoDeEncerramento,
 		vig.PassoFecharEspelho(),
 		// MEIO-FECHAMENTO antes de fechar a conexao inteira.
 		//

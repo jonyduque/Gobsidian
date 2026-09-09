@@ -91,6 +91,18 @@ func serveEmProcesso(parent context.Context, cfg config.Config, log *slog.Logger
 	// nessa ordem — que este caminho e a ponte (ponte.go) compartilham.
 	ctx, vig := boot.VigiarHost(parent, os.Stdin, log)
 
+	// O guarda-chuva cobre o encerramento INTEIRO, e nao so Shutdown.
+	//
+	// internal/boot/busca.go:209 ja registrava o buraco em letra: "serveEmProcesso
+	// faz a espera das goroutines de fundo DEPOIS de lifecycle.Shutdown, entao
+	// essa espera nao passa por orcamento nenhum -- e o harness de orfaos conta
+	// como orfao o que nao morre em 8 s". c.Esperar(), abaixo, e essa espera.
+	//
+	// O daemon tinha o mesmo buraco e foi la que ele custou: PID 42856 vivo 20 h
+	// depois de pedir encerramento (2026-09-07). A regra vale nos tres pontos de
+	// saida do processo, inclusive nos que ainda nao falharam.
+	defer lifecycle.ArmarGuardaChuva(ctx, log, lifecycle.OrcamentoDeEncerramento)()
+
 	// boot.Montar monta o indice, o watcher e o servico de dominio -- a mesma
 	// sequencia que o daemon (internal/daemon + cmd/gobsidian/daemon.go,
 	// Task 92) usa para servir N conexoes em vez de uma. Extraida para as
@@ -137,7 +149,7 @@ func serveEmProcesso(parent context.Context, cfg config.Config, log *slog.Logger
 	case <-ctx.Done():
 	}
 
-	lifecycle.Shutdown(ctx, log, 6*time.Second,
+	lifecycle.Shutdown(ctx, log, lifecycle.OrcamentoDeEncerramento,
 		lifecycle.Step{Name: "in-flight", Budget: 3 * time.Second, Fn: func(ctx context.Context) error {
 			if serveReturned {
 				return nil

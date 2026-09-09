@@ -150,6 +150,18 @@ func runDaemon(parent context.Context, cfg config.Config, ociosidade time.Durati
 
 	ctx, lc := lifecycle.New(parent, lifecycle.Options{Logger: log})
 
+	// O guarda-chuva cobre TUDO daqui para a frente: d.Run (e o wg.Wait dentro
+	// dele), Shutdown, lc.Wait e c.Esperar.
+	//
+	// Armado AQUI, e nao antes de Shutdown, porque wg.Wait mora DENTRO de
+	// d.Run: um guarda armado depois de Run nunca alcancaria a espera que
+	// provavelmente pendurou o PID 42856 em 2026-09-07. Ver ArmarGuardaChuva
+	// para a medicao.
+	//
+	// defer, e nao uma chamada no fim: o retorno da funcao E o fim do
+	// encerramento, e os ramos de erro acima e abaixo saem por ele tambem.
+	defer lifecycle.ArmarGuardaChuva(ctx, log, lifecycle.OrcamentoDeEncerramento)()
+
 	log.Info("daemon iniciado",
 		"vault", cfg.VaultPath,
 		"socket", sockPath,
@@ -173,7 +185,7 @@ func runDaemon(parent context.Context, cfg config.Config, ociosidade time.Durati
 	d := daemon.New(ln, srv, daemon.Config{Vault: cfg, OciosidadeMax: ociosidade}, log)
 	d.Run(ctx, lc.Trigger)
 
-	lifecycle.Shutdown(ctx, log, 6*time.Second,
+	lifecycle.Shutdown(ctx, log, lifecycle.OrcamentoDeEncerramento,
 		c.PassoWatcher(),
 	)
 	lc.Wait()
