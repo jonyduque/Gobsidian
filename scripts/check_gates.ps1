@@ -272,6 +272,69 @@ try {
             Remove-Item $VetTool -ErrorAction SilentlyContinue
         }
     }
+
+    # ------------------------------------------------------------------
+    # check_graph: o grafo do CLAUDE.md contra os imports de verdade
+    #
+    # O proprio CLAUDE.md avisa que "dizer 'conferido' nao e conferir, e as duas
+    # versoes anteriores diziam". Em 2026-09-09 uma TERCEIRA disse -- o bloco
+    # ganhou `selfupdate -> config` e `go list` dizia folha.
+    #
+    # Os mutantes saem do CLAUDE.md VIVO, e nao de fixtures copiadas: uma copia
+    # do grafo teria de ser atualizada toda vez que o grafo real mudasse, e uma
+    # fixture desatualizada reprova pelo motivo errado -- que e a mesma classe de
+    # gate inutil que este arquivo existe para impedir.
+    # ------------------------------------------------------------------
+    $Claude = Join-Path $ProjectRoot 'CLAUDE.md'
+    $GraphScript = Join-Path $PSScriptRoot 'check_graph.ps1'
+
+    function Graph-Resultado {
+        param([string]$Caminho)
+        & $GraphScript -Arquivo $Caminho -Silencioso *> $null
+        if ($LASTEXITCODE -eq 0) { return 'aceito' }
+        return 'recusado'
+    }
+
+    # Escreve uma copia do CLAUDE.md com UMA troca, e falha alto se a troca nao
+    # casou -- um mutante que nao mutou passaria no teste dizendo nada.
+    function Graph-Mutante {
+        param([string]$De, [string]$Para)
+        $texto = Get-Content -Path $Claude -Raw -Encoding UTF8
+        if ($texto -notmatch [regex]::Escape($De)) { return $null }
+        $novo = $texto -replace [regex]::Escape($De), $Para
+        $tmp = Join-Path ([IO.Path]::GetTempPath()) ("claude_grafo_" + [guid]::NewGuid().ToString('N') + ".md")
+        [IO.File]::WriteAllText($tmp, $novo, (New-Object Text.UTF8Encoding($false)))
+        return $tmp
+    }
+
+    Caso -Nome 'grafo do CLAUDE.md como esta -> aceito' `
+        -Esperado 'aceito' -Obtido (Graph-Resultado $Claude)
+
+    # A aresta que NAO existe: exatamente o erro cometido em 2026-09-09.
+    $m1 = Graph-Mutante 'selfupdate -> (folha)' 'selfupdate -> config'
+    if (-not $m1) { $m1 = Graph-Mutante ("selfupdate " + [char]0x2192 + " (folha)") ("selfupdate " + [char]0x2192 + " config") }
+    if ($m1) {
+        Caso -Nome 'aresta no documento que nao existe nos imports -> recusado' `
+            -Esperado 'recusado' -Obtido (Graph-Resultado $m1)
+        Remove-Item $m1 -ErrorAction SilentlyContinue
+    }
+    else {
+        Caso -Nome 'aresta no documento que nao existe nos imports -> recusado' `
+            -Esperado 'recusado' -Obtido 'mutante-nao-aplicou'
+    }
+
+    # A aresta OMITIDA: a forma do erro anterior, que chamava parser de folha.
+    $m2 = Graph-Mutante 'parser   -> text' 'parser   -> (folha)'
+    if (-not $m2) { $m2 = Graph-Mutante ("parser   " + [char]0x2192 + " text") ("parser   " + [char]0x2192 + " (folha)") }
+    if ($m2) {
+        Caso -Nome 'aresta real omitida do documento -> recusado' `
+            -Esperado 'recusado' -Obtido (Graph-Resultado $m2)
+        Remove-Item $m2 -ErrorAction SilentlyContinue
+    }
+    else {
+        Caso -Nome 'aresta real omitida do documento -> recusado' `
+            -Esperado 'recusado' -Obtido 'mutante-nao-aplicou'
+    }
 }
 finally {
     Pop-Location

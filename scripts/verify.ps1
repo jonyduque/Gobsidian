@@ -265,6 +265,15 @@ Invoke-Step "check_readme_anchors" { & (Join-Path $PSScriptRoot "check_readme_an
 # bypass conhecido continua recusado.
 Invoke-Step "check_gates" { & (Join-Path $PSScriptRoot "check_gates.ps1") }
 
+# O grafo de dependencias do CLAUDE.md contra os imports de verdade.
+#
+# O documento afirma que o grafo foi "re-extraido dos imports de producao", e
+# ele mesmo avisa: "dizer 'conferido' nao e conferir, e as duas versoes
+# anteriores diziam". Em 2026-09-09 uma terceira disse. Enquanto a unica coisa
+# entre o documento e a verdade for alguem lembrar de rodar `go list`, a
+# proxima redacao erra tambem.
+Invoke-Step "check_graph" { & (Join-Path $PSScriptRoot "check_graph.ps1") }
+
 Pop-Location
 
 Write-Output ""
