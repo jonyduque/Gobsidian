@@ -301,6 +301,14 @@ Invoke-Step "check_test_isolation" { & (Join-Path $PSScriptRoot "check_test_isol
 # rodadas, com o commit anterior verde.
 Invoke-Step "check_partida" { & (Join-Path $PSScriptRoot "check_partida.ps1") }
 
+# O prompt do usuario contra os enums que o servidor cobra.
+#
+# O host recebe so `type` e `description` de cada tool (TOOLS.md, "Schemas
+# servidos"): nenhum enum chega ao modelo, e docs/PROMPT.md e o unico lugar de
+# onde ele pode aprende-los. Isso faz do prompt uma segunda copia de um fato de
+# internal/service -- e a menos consultada das duas.
+Invoke-Step "check_prompt" { & (Join-Path $PSScriptRoot "check_prompt.ps1") }
+
 Pop-Location
 
 Write-Output ""

@@ -265,6 +265,7 @@ gobsidian/
 │   ├── check_pins.ps1            versões fixadas concordando entre si
 │   ├── check_test_isolation.ps1  teste desviando caminho de máquina por env
 │   ├── check_partida.ps1         nada roda antes de o encerramento estar armado
+│   ├── check_prompt.ps1          docs/PROMPT.md contra os enums de internal/service
 │   ├── pre_commit_docs.ps1       hook: `.go` de produção sem documentação
 │   ├── audit_reports.ps1         as quatro seções obrigatórias de um relatório
 │   ├── check_briefs.ps1          briefs de duas tarefas antes do despacho

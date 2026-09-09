@@ -511,6 +511,72 @@ try {
         Caso -Nome 'ponto de partida que nao armou o encerramento -> recusado' `
             -Esperado 'recusado' -Obtido 'mutante-nao-aplicou'
     }
+
+    # ------------------------------------------------------------------
+    # check_prompt: o prompt do usuario e os enums que o codigo cobra
+    #
+    # docs/PROMPT.md e uma SEGUNDA copia de um fato que mora em
+    # internal/service, e e a copia menos consultada: ninguem abre o prompt ao
+    # acrescentar um valor a um ValidarEnum. A copia e inevitavel -- o host nao
+    # transmite enum nenhum, e o modelo tem de ler os valores em algum lugar --,
+    # o silencio quando ela divergir nao e.
+    # ------------------------------------------------------------------
+    $PromptScript = Join-Path $PSScriptRoot 'check_prompt.ps1'
+
+    function Prompt-Resultado {
+        param([string]$RaizAlvo)
+        & $PromptScript -Raiz $RaizAlvo -Silencioso *> $null
+        if ($LASTEXITCODE -eq 0) { return 'aceito' }
+        return 'recusado'
+    }
+
+    function Prompt-Raiz {
+        param([string]$Arquivo, [string]$De, [string]$Para)
+        $tmp = Join-Path ([IO.Path]::GetTempPath()) ("prompt_" + [guid]::NewGuid().ToString('N'))
+        New-Item -ItemType Directory -Path (Join-Path $tmp 'docs') -Force | Out-Null
+        New-Item -ItemType Directory -Path (Join-Path $tmp 'internal/service') -Force | Out-Null
+        Copy-Item (Join-Path $ProjectRoot 'docs/PROMPT.md') (Join-Path $tmp 'docs/PROMPT.md')
+        Copy-Item (Join-Path $ProjectRoot 'internal/service/*.go') (Join-Path $tmp 'internal/service')
+        $alvo = Join-Path $tmp $Arquivo
+        $texto = Get-Content -Path $alvo -Raw -Encoding UTF8
+        if ($texto -notmatch [regex]::Escape($De)) { return $null }
+        [IO.File]::WriteAllText($alvo, ($texto -replace [regex]::Escape($De), $Para), (New-Object Text.UTF8Encoding($false)))
+        return $tmp
+    }
+
+    Caso -Nome 'prompt como esta -> aceito' `
+        -Esperado 'aceito' -Obtido (Prompt-Resultado $ProjectRoot)
+
+    # O que o gate existe para pegar: o codigo ganha um valor e o prompt fica
+    # para tras. O modelo continuaria chamando o conjunto antigo.
+    $r1 = Prompt-Raiz 'internal/service/graph.go' `
+        '"both", "outgoing", "incoming")' '"both", "outgoing", "incoming", "sideways")'
+    if ($r1) {
+        Caso -Nome 'valor novo no codigo que o prompt nao ensina -> recusado' `
+            -Esperado 'recusado' -Obtido (Prompt-Resultado $r1)
+        Remove-Item $r1 -Recurse -Force -ErrorAction SilentlyContinue
+    }
+    else {
+        Caso -Nome 'valor novo no codigo que o prompt nao ensina -> recusado' `
+            -Esperado 'recusado' -Obtido 'mutante-nao-aplicou'
+    }
+
+    # O inverso, e o que mata a implementacao ingenua: casar por NOME de campo.
+    # Ha dois `sort`, o de note_list e o de tag_list, com conjuntos diferentes.
+    # Trocar um pelo outro deixa os dois nomes presentes dos dois lados -- um
+    # gate que casasse por nome aceitaria, e o prompt estaria ensinando ao
+    # modelo os valores da tool errada.
+    $r2 = Prompt-Raiz 'docs/PROMPT.md' `
+        '- tag_list.sort: name, count' '- tag_list.sort: path, modified, size, title'
+    if ($r2) {
+        Caso -Nome 'conjunto de uma tool atribuido a outra -> recusado' `
+            -Esperado 'recusado' -Obtido (Prompt-Resultado $r2)
+        Remove-Item $r2 -Recurse -Force -ErrorAction SilentlyContinue
+    }
+    else {
+        Caso -Nome 'conjunto de uma tool atribuido a outra -> recusado' `
+            -Esperado 'recusado' -Obtido 'mutante-nao-aplicou'
+    }
 }
 finally {
     Pop-Location
