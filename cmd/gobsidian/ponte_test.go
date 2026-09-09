@@ -252,7 +252,7 @@ func TestServePonteRemotaFazProxyDeBytes(t *testing.T) {
 
 	done := make(chan error, 1)
 	go func() {
-		done <- servePonteRemota(context.Background(), conn, stdinHost, stdoutHost, log)
+		done <- servePonteRemota(context.Background(), t.TempDir(), conn, stdinHost, stdoutHost, log)
 	}()
 
 	// outroLado faz o papel do daemon: o que ele escreve tem que sair no
@@ -310,7 +310,7 @@ func TestServePonteRemotaEncaminhaHostParaDaemon(t *testing.T) {
 
 	done := make(chan error, 1)
 	go func() {
-		done <- servePonteRemota(context.Background(), conn, stdinHost, stdoutHost, log)
+		done <- servePonteRemota(context.Background(), t.TempDir(), conn, stdinHost, stdoutHost, log)
 	}()
 
 	// O lado do daemon le tudo o que a ponte encaminhar, anuncia o pedido

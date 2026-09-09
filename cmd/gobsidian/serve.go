@@ -78,30 +78,10 @@ func runServe(parent context.Context, cfg config.Config) error {
 	// corrompe a sessao.
 	log := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: cfg.LogLevel}))
 
-	if sair := recusarDuranteInstalacao(log, "serve"); sair {
-		os.Exit(0)
-	}
-
-	// A presenca e o que responde "quem esta servindo este cofre agora?".
-	//
-	// Em 2026-09-08 havia dois processos servindo o cofre Estudo e gravando o
-	// mesmo inverted_cache.gob, e a unica forma de descobrir isso foi comparar
-	// milissegundos entre linhas de log duplicadas. Nenhum comando respondia a
-	// pergunta. Ver internal/instalar/presenca.go para por que trava de kernel
-	// e nao enumeracao de processos.
-	//
-	// Falha ao registrar NAO impede servir: presenca e diagnostico, e um
-	// diretorio de runtime inacessivel nao pode derrubar o servidor.
-	// RegistrarAteMorrer, e nao Registrar + defer: runServe termina em os.Exit,
-	// e defer nao roda depois dele -- o golangci-lint acusou exatamente isso.
-	// Quem solta a trava e o kernel, quando o processo morre, que e o mecanismo
-	// inteiro deste desenho.
-	if dir, err := instalar.DiretorioDeRuntime(); err == nil {
-		if err := instalar.RegistrarAteMorrer(dir, cfg.VaultPath, "serve", version); err != nil {
-			log.Debug("nao foi possivel registrar presenca", "err", err)
-		}
-	}
-
+	// NADA de I/O aqui. A trava de instalacao e a presenca rodam depois de
+	// boot.VigiarHost, dentro de serveEmProcesso e de servePonteRemota -- ver
+	// prepararProcesso e o comentario dela para o defeito que colocou as duas
+	// aqui e o que ele custou.
 	codigo := shutdownExitCode(servePonte(parent, cfg, log))
 
 	// Antes do os.Exit, e nao por defer: defer nao roda depois de os.Exit.
@@ -112,6 +92,49 @@ func runServe(parent context.Context, cfg config.Config) error {
 
 	os.Exit(codigo)
 	return nil
+}
+
+// prepararProcesso faz o que este processo precisa do instalador: recusar subir
+// durante uma instalacao, e anunciar a propria presenca.
+//
+// Devolve true quando o processo deve SAIR sem servir.
+//
+// # Por que aqui, e nao no comeco de runServe
+//
+// As duas chamadas fazem I/O -- criar diretorio, abrir arquivo, pedir trava do
+// kernel, gravar JSON, fsync. Na primeira versao elas rodavam em runServe,
+// ANTES de boot.VigiarHost, que e onde lifecycle.New instala o tratador de
+// sinal. Um sinal que chegasse nessa janela nao tinha tratador: o processo
+// morria pela acao padrao, sem registrar "reason=".
+//
+// Medido no CI em 2026-09-09: o cenario `signal` do gate de orfaos reprovou com
+// "2 de 100 ciclos encerraram sem registrar reason=", nas duas rodadas, e o
+// mesmo job estava verde no commit anterior (26bb00d). O harness manda o sinal
+// ~50-150 ms depois de lancar o processo, e o I/O que eu tinha acrescentado
+// cabia dentro disso num runner carregado.
+//
+// A invariante, que vale para qualquer coisa que venha depois: NADA roda antes
+// de os mecanismos de encerramento estarem armados. Quem precisa de I/O na
+// partida faz depois de VigiarHost.
+func prepararProcesso(log *slog.Logger, papel, cofre string) (sair bool) {
+	if recusarDuranteInstalacao(log, papel) {
+		return true
+	}
+
+	// A presenca e o que responde "quem esta servindo este cofre agora?".
+	//
+	// Em 2026-09-08 havia dois processos servindo o cofre Estudo e gravando o
+	// mesmo inverted_cache.gob, e a unica forma de descobrir isso foi comparar
+	// milissegundos entre linhas de log duplicadas.
+	//
+	// Falha ao registrar NAO impede servir: presenca e diagnostico, e um
+	// diretorio de runtime inacessivel nao pode derrubar o servidor.
+	if dir, err := instalar.DiretorioDeRuntime(); err == nil {
+		if err := instalar.RegistrarAteMorrer(dir, cofre, papel, version); err != nil {
+			log.Debug("nao foi possivel registrar presenca", "err", err)
+		}
+	}
+	return false
 }
 
 // recusarDuranteInstalacao faz o processo sair na hora se houver uma instalacao
@@ -162,6 +185,10 @@ func serveEmProcesso(parent context.Context, cfg config.Config, log *slog.Logger
 	// depois de pedir encerramento (2026-09-07). A regra vale nos tres pontos de
 	// saida do processo, inclusive nos que ainda nao falharam.
 	defer lifecycle.ArmarGuardaChuva(ctx, log, lifecycle.OrcamentoDeEncerramento)()
+
+	if prepararProcesso(log, "serve", cfg.VaultPath) {
+		return nil
+	}
 
 	// boot.Montar monta o indice, o watcher e o servico de dominio -- a mesma
 	// sequencia que o daemon (internal/daemon + cmd/gobsidian/daemon.go,

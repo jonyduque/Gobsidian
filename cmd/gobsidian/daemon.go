@@ -73,8 +73,19 @@ func newDaemonCmd() *cobra.Command {
 // estava em tres lugares -- aqui, em internal/daemon e em internal/doctor --
 // e tres contas do mesmo valor concordam por coincidencia ate uma mudar.
 func daemonLogPath(vaultPath string) (string, error) {
-	return daemon.CaminhoDoLog(vaultPath)
+	return caminhoDoLogFn(vaultPath)
 }
+
+// caminhoDoLogFn e daemon.CaminhoDoLog numa variavel, para o teste desviar o
+// log para um t.TempDir().
+//
+// Desviar por VARIAVEL DE AMBIENTE nao funciona nas tres plataformas: o caminho
+// sai de os.UserCacheDir(), que respeita LOCALAPPDATA no Windows e
+// XDG_CACHE_HOME no Linux, e IGNORA os dois no macOS -- la ele devolve
+// $HOME/Library/Caches. Um teste que confiasse no env escreveria no cache real
+// do usuario naquela plataforma, que e a classe de defeito registrada em
+// docs/ARMADILHAS.md. Producao nunca troca esta variavel.
+var caminhoDoLogFn = daemon.CaminhoDoLog
 
 // tetoDoLogDoDaemon e o tamanho a partir do qual o log e rotacionado.
 //
@@ -182,28 +193,6 @@ func runDaemon(parent context.Context, cfg config.Config, ociosidade time.Durati
 	// sonda e o bind nao sao atomicos entre si: dois daemons lancados no mesmo
 	// instante podem ambos sondar "ninguem escuta" antes de qualquer um bindar.
 	// E o item 4 do brief da Task 126, a metade que a prova de orfao nao fecha.
-	// Antes de qualquer coisa: se ha instalacao em curso, este processo nao
-	// sobe. Ver recusarDuranteInstalacao (serve.go) para por que a saida e
-	// codigo zero.
-	//
-	// O daemon precisa disto tanto quanto o serve, e por um motivo proprio: ele
-	// e lancado por uma ponte que ja saiu, entao ninguem estaria olhando se ele
-	// subisse no meio da troca do binario.
-	if recusarDuranteInstalacao(log, "daemon") {
-		return nil
-	}
-
-	// A MESMA forma de serve.go, e nao um defer: a trava tem de sobreviver ao
-	// coletor de lixo pela vida do processo, e quem a solta e o kernel.
-	if dir, err := instalar.DiretorioDeRuntime(); err == nil {
-		if err := instalar.RegistrarAteMorrer(dir, cfg.VaultPath, "daemon", version); err != nil {
-			log.Debug("nao foi possivel registrar presenca", "err", err)
-		}
-		// runDaemon retorna normalmente, entao aqui o defer roda. Em serve.go,
-		// que termina em os.Exit, a chamada e explicita.
-		defer instalar.LiberarPresenca()
-	}
-
 	ln, sockPath, err := daemon.EscutarComLock(cfg.VaultPath)
 	if err != nil {
 		// Todo caminho de saida do daemon loga a causa ANTES de sair.
@@ -233,6 +222,20 @@ func runDaemon(parent context.Context, cfg config.Config, ociosidade time.Durati
 	// defer, e nao uma chamada no fim: o retorno da funcao E o fim do
 	// encerramento, e os ramos de erro acima e abaixo saem por ele tambem.
 	defer lifecycle.ArmarGuardaChuva(ctx, log, lifecycle.OrcamentoDeEncerramento)()
+
+	// DEPOIS de lifecycle.New, nunca antes: ver prepararProcesso (serve.go).
+	//
+	// O daemon precisa disto tanto quanto o serve, e por um motivo proprio: ele
+	// e lancado por uma ponte que ja saiu, entao ninguem estaria olhando se ele
+	// subisse no meio da troca do binario.
+	//
+	// runDaemon retorna normalmente, entao o defer roda; em serve.go, que
+	// termina em os.Exit, a liberacao e explicita.
+	if prepararProcesso(log, "daemon", cfg.VaultPath) {
+		_ = ln.Close()
+		return nil
+	}
+	defer instalar.LiberarPresenca()
 
 	log.Info("daemon iniciado",
 		"vault", cfg.VaultPath,

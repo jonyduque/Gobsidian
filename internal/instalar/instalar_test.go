@@ -37,9 +37,15 @@ func novoMundo(t *testing.T) *mundoDeTeste {
 	t.Helper()
 	raiz := t.TempDir()
 
-	// O manifesto mora sob RaizDoCache(), que sai de os.UserCacheDir().
-	t.Setenv("LOCALAPPDATA", filepath.Join(raiz, "local"))
-	t.Setenv("XDG_CACHE_HOME", filepath.Join(raiz, "cache"))
+	// O manifesto mora sob RaizDoCache(). Desviar por VARIAVEL DE AMBIENTE nao
+	// funciona nas tres plataformas: no macOS, os.UserCacheDir devolve
+	// $HOME/Library/Caches e ignora XDG_CACHE_HOME -- e o CI de 2026-09-09
+	// mostrou o resultado, com os testes gravando no cache real do usuario e um
+	// enxergando o manifesto do outro. A raiz e injetada direto.
+	cacheDeTeste := filepath.Join(raiz, "cache")
+	original := raizDoCache
+	raizDoCache = func() string { return cacheDeTeste }
+	t.Cleanup(func() { raizDoCache = original })
 
 	m := &mundoDeTeste{
 		runtimeDir: filepath.Join(raiz, "run"),

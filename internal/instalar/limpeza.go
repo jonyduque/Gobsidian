@@ -288,9 +288,28 @@ func tamanhoDaArvore(dir string) int64 {
 	return total
 }
 
+// raizDoCache e config.RaizDoCache numa VARIAVEL, e a razao veio do CI.
+//
+// O manifesto e a limpeza moram sob esta raiz, que sai de os.UserCacheDir().
+// Os testes deste pacote desviavam a raiz por variavel de ambiente --
+// LOCALAPPDATA e XDG_CACHE_HOME --, e isso funciona no Windows e no Linux e
+// NAO funciona no macOS: la os.UserCacheDir devolve $HOME/Library/Caches e
+// ignora XDG_CACHE_HOME.
+//
+// O efeito, medido no CI em 2026-09-09: em macos-latest os testes gravaram o
+// manifesto no cache REAL do usuario, um teste enxergou o manifesto que outro
+// tinha deixado, e TestEstaInstaladoResponsePelaIdentidadeDoArquivo reprovou
+// com "EstaInstalado() sem manifesto devolveu (false, <nil>)". Pior que a
+// reprovacao: os testes escreviam fora do t.TempDir(), que e a mesma classe de
+// defeito que ARMADILHAS.md registra para o teste de D-11.
+//
+// Producao nunca troca esta variavel -- o mesmo padrao de iniciarDaemonFn em
+// cmd/gobsidian/ponte.go.
+var raizDoCache = config.RaizDoCache
+
 // RaizDoCache delega para config: uma conta por regra. A limpeza precisa da
 // raiz que contem um subdiretorio por cofre, e quem a define e config.
-func RaizDoCache() string { return config.RaizDoCache() }
+func RaizDoCache() string { return raizDoCache() }
 
 // mesmoDiretorio compara dois caminhos de diretorio.
 //

@@ -16,6 +16,10 @@ on:
         required: false
         type: string
         default: '1.26'
+      golangci-version:
+        required: false
+        type: string
+        default: 'v2.12.2'
 
 jobs:
   verify:
@@ -28,6 +32,26 @@ jobs:
       - uses: actions/setup-go@v7
         with:
           go-version: ${{ inputs.go-version }}
+      # verify.ps1 CHAMA golangci-lint direto, e o runner nao o traz.
+      #
+      # A primeira versao deste workflow assumiu que o runner tinha as mesmas
+      # ferramentas que a maquina de quem desenvolve. Ele nao tem: a tag v1.6.0
+      # reprovou com "The term 'golangci-lint' is not recognized", e nenhum
+      # binario foi publicado -- a falha segura funcionou, mas a causa era esta.
+      #
+      # A versao e FIXADA e conferida duas vezes: aqui na instalacao, e dentro
+      # do proprio verify.ps1, que recusa rodar contra outra ("golangci-lint
+      # fora da versao fixada pelo CI"). Com ela flutuando, um lint verde na
+      # maquina de quem desenvolve nao diz nada sobre o CI.
+      - name: golangci-lint ${{ inputs.golangci-version }}
+        uses: golangci/golangci-lint-action@v9
+        with:
+          version: ${{ inputs.golangci-version }}
+          install-mode: binary
+          # A acao so instala; quem roda o lint e o verify.ps1, no passo
+          # seguinte, para os dois GOOS que ele cobre.
+          args: --version
+
       - name: bateria completa (scripts/verify.ps1)
         shell: pwsh
         run: ./scripts/verify.ps1

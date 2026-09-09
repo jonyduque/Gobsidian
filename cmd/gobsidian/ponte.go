@@ -84,7 +84,7 @@ func servePonte(ctx context.Context, cfg config.Config, log *slog.Logger) error 
 	conn, err := ipc.DialAndHandshake(ctx, cfg.VaultPath, cfg.ReadOnly, cfg.MaxResults, ipcDialTimeout)
 	if err == nil {
 		log.Info("conectado ao daemon via socket")
-		return servePonteRemota(ctx, conn, os.Stdin, os.Stdout, log)
+		return servePonteRemota(ctx, cfg.VaultPath, conn, os.Stdin, os.Stdout, log)
 	}
 	log.Info("socket do daemon indisponivel; tentando iniciar o daemon",
 		"err", err, "errno", errnoDe(err))
@@ -111,7 +111,7 @@ func servePonte(ctx context.Context, cfg config.Config, log *slog.Logger) error 
 		return serveEmProcesso(ctx, cfg, log)
 	}
 	log.Info("conectado ao daemon recem-iniciado via socket")
-	return servePonteRemota(ctx, conn, os.Stdin, os.Stdout, log)
+	return servePonteRemota(ctx, cfg.VaultPath, conn, os.Stdin, os.Stdout, log)
 }
 
 // motivoDaQueda classifica POR QUE a ponte esta caindo para o modo em
@@ -193,7 +193,7 @@ func errnoDe(err error) int {
 // O ganho e maior que a estabilidade: com stdout injetavel, o teste passa a
 // conferir os BYTES que atravessaram a ponte, que e o que ela existe para
 // fazer. Antes ele so conseguia afirmar que a leitura nao travava.
-func servePonteRemota(parent context.Context, conn ipc.Conn, stdin io.Reader, stdout io.Writer, log *slog.Logger) error {
+func servePonteRemota(parent context.Context, cofre string, conn ipc.Conn, stdin io.Reader, stdout io.Writer, log *slog.Logger) error {
 	// O monitor de stdin do lifecycle consome bytes, e o stdin aqui pertence
 	// ao daemon do outro lado do socket. A saida e espelhar: a copia de
 	// verdade le do espelho, e o lifecycle observa so a copia. io.TeeReader
@@ -205,6 +205,11 @@ func servePonteRemota(parent context.Context, conn ipc.Conn, stdin io.Reader, st
 	// e vig.LC.Wait(), depois de Shutdown -- o mesmo desenho que deixou o daemon
 	// PID 42856 vivo 20 h em 2026-09-07. Ver lifecycle.ArmarGuardaChuva.
 	defer lifecycle.ArmarGuardaChuva(ctx, log, lifecycle.OrcamentoDeEncerramento)()
+
+	// DEPOIS de VigiarHost, nunca antes: ver prepararProcesso (serve.go).
+	if prepararProcesso(log, "serve", cofre) {
+		return nil
+	}
 
 	// As duas direcoes da copia sao goroutines independentes, e nenhuma
 	// delas entra no WaitGroup do lifecycle: uma goroutine parada em Read

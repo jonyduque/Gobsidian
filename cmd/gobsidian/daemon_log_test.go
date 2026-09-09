@@ -111,8 +111,7 @@ func TestLoggerDoDaemonCarimbaPidEVersao(t *testing.T) {
 	// %LocalAppData% no Windows, e um teste nao pode sujar
 	// %LocalAppData%\gobsidian\run -- que ja acumulou 960 arquivos .lock
 	// exatamente assim (medido em 2026-09-08).
-	t.Setenv("LOCALAPPDATA", t.TempDir())
-	t.Setenv("XDG_CACHE_HOME", t.TempDir())
+	desviarLogDoDaemon(t)
 
 	log, fechar, err := novoLoggerDoDaemon(cofre, slog.LevelInfo)
 	if err != nil {
@@ -151,8 +150,7 @@ func TestLoggerDoDaemonCarimbaPidEVersao(t *testing.T) {
 // janela recente sem crescer sem limite.
 func TestLoggerDoDaemonRotacionaAcimaDoTeto(t *testing.T) {
 	cofre := t.TempDir()
-	t.Setenv("LOCALAPPDATA", t.TempDir())
-	t.Setenv("XDG_CACHE_HOME", t.TempDir())
+	desviarLogDoDaemon(t)
 
 	// Teto minusculo: o que se prova e o COMPORTAMENTO, nao o numero. Escrever
 	// 5 MB num teste so gastaria disco para provar a mesma coisa.
@@ -206,8 +204,7 @@ func TestLoggerDoDaemonRotacionaAcimaDoTeto(t *testing.T) {
 // recente a cada partida.
 func TestLoggerDoDaemonNaoRotacionaAbaixoDoTeto(t *testing.T) {
 	cofre := t.TempDir()
-	t.Setenv("LOCALAPPDATA", t.TempDir())
-	t.Setenv("XDG_CACHE_HOME", t.TempDir())
+	desviarLogDoDaemon(t)
 
 	caminho, err := daemonLogPath(cofre)
 	if err != nil {
@@ -236,4 +233,25 @@ func TestLoggerDoDaemonNaoRotacionaAbaixoDoTeto(t *testing.T) {
 	if !strings.Contains(string(corrente), "pequeno") {
 		t.Errorf("o log corrente perdeu o conteudo anterior:\n%s", corrente)
 	}
+}
+
+// desviarLogDoDaemon manda o log do daemon para um diretorio temporario.
+//
+// Injeta a FUNCAO, e nao variaveis de ambiente: os.UserCacheDir respeita
+// LOCALAPPDATA no Windows e XDG_CACHE_HOME no Linux, e ignora os dois no
+// macOS. Um teste que confiasse no env passaria aqui e escreveria no cache real
+// do usuario num runner macOS -- o CI de 2026-09-09 mostrou essa forma exata
+// de vazamento em internal/instalar.
+func desviarLogDoDaemon(t *testing.T) {
+	t.Helper()
+	raiz := t.TempDir()
+	original := caminhoDoLogFn
+	caminhoDoLogFn = func(vaultPath string) (string, error) {
+		nome, err := original(vaultPath)
+		if err != nil {
+			return "", err
+		}
+		return filepath.Join(raiz, filepath.Base(nome)), nil
+	}
+	t.Cleanup(func() { caminhoDoLogFn = original })
 }
