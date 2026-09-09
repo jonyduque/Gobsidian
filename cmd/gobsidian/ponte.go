@@ -91,19 +91,59 @@ func servePonte(ctx context.Context, cfg config.Config, log *slog.Logger) error 
 
 	iniciar := func() error { return iniciarDaemonFn(cfg) }
 	if startErr := daemon.EnsureStarted(ctx, cfg, daemonStartTimeout, iniciar); startErr != nil {
-		log.Info("nao foi possivel iniciar o daemon; servindo em processo",
+		// WARN, e nao INFO. Medido em 2026-09-08: o PID 42628 serviu o cofre
+		// Estudo por 20 h neste caminho, com watcher e indice proprios,
+		// gravando no MESMO inverted_cache.gob que o daemon -- e a unica pista
+		// era uma linha INFO, indistinguivel em gravidade do caminho bom.
+		// docs/OPERACAO.md ja registra que essa classe de silencio custou um
+		// marco inteiro desligado em producao sem ninguem perceber.
+		log.Warn("nao foi possivel iniciar o daemon; servindo em processo",
+			"motivo", motivoDaQueda("daemon-nao-subiu", err, startErr),
 			"err", startErr, "errno", errnoDe(startErr))
 		return serveEmProcesso(ctx, cfg, log)
 	}
 
 	conn, err = ipc.DialAndHandshake(ctx, cfg.VaultPath, cfg.ReadOnly, cfg.MaxResults, ipcDialTimeout)
 	if err != nil {
-		log.Info("daemon nao respondeu apos iniciar; servindo em processo",
+		log.Warn("daemon nao respondeu apos iniciar; servindo em processo",
+			"motivo", motivoDaQueda("daemon-mudo", err),
 			"err", err, "errno", errnoDe(err))
 		return serveEmProcesso(ctx, cfg, log)
 	}
 	log.Info("conectado ao daemon recem-iniciado via socket")
 	return servePonteRemota(ctx, conn, os.Stdin, os.Stdout, log)
+}
+
+// motivoDaQueda classifica POR QUE a ponte esta caindo para o modo em
+// processo. Ate 2026-09-08 os casos davam a mesma linha, e eles pedem
+// consertos diferentes:
+//
+//	versao-divergente   ha um daemon VIVO e saudavel do outro lado, de outra
+//	                    versao. Nao e transitorio: se repete em toda partida
+//	                    ate alguem reinstalar.
+//	config-divergente   idem, com --read-only ou --max-results diferentes.
+//	daemon-nao-subiu    o daemon nao existe e nao conseguiu nascer.
+//	daemon-mudo         o daemon nasceu e nao respondeu.
+//
+// Recebe VARIOS erros porque a verdade nem sempre esta no ultimo. Medido ao
+// escrever o teste desta regra: com um daemon de outra versao no socket, o
+// primeiro dial devolve ErrVersionMismatch, mas EnsureStarted logo depois
+// devolve um i/o timeout -- classificar so pelo erro final chamaria de
+// "daemon nao subiu" o caso em que ha um daemon perfeitamente vivo. A ordem
+// dos argumentos e a ordem em que os erros aconteceram.
+//
+// padrao e o motivo do ponto de queda quando nenhum erro se classifica: cada
+// ponto sabe o seu, e nenhum deles e "desconhecido".
+func motivoDaQueda(padrao string, erros ...error) string {
+	for _, e := range erros {
+		switch {
+		case errors.Is(e, ipc.ErrVersionMismatch):
+			return "versao-divergente"
+		case errors.Is(e, ipc.ErrConfigMismatch):
+			return "config-divergente"
+		}
+	}
+	return padrao
 }
 
 // errnoDe extrai o numero do erro de sistema, ou -1 quando nao houver um.

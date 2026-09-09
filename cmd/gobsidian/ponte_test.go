@@ -174,6 +174,44 @@ func TestServePonteVersaoDiferenteCaiParaProcesso(t *testing.T) {
 	if !strings.Contains(logBuf.String(), "servindo em processo") {
 		t.Fatalf("log nao registrou a queda para o modo em processo: %s", logBuf.String())
 	}
+	// Versao divergente NAO e transitoria: ela se repete em toda partida ate
+	// alguem reinstalar, e e o unico caso em que o daemon do outro lado esta
+	// vivo e saudavel. Ate 2026-09-08 ela dava a MESMA linha que "o daemon nao
+	// subiu", e os dois pedem consertos diferentes.
+	if !strings.Contains(logBuf.String(), "motivo=versao-divergente") {
+		t.Fatalf("a queda por versao divergente nao se distingue das outras no log: %s", logBuf.String())
+	}
+}
+
+// TestQuedaParaModoEmProcessoEhWarnComMotivo cobre o silencio medido em
+// 2026-09-08 na maquina do dono: o PID 42628 serviu o cofre Estudo em modo
+// degradado por 20 h, com watcher e indice proprios, gravando no MESMO
+// inverted_cache.gob que o daemon -- e a unica pista era uma linha INFO,
+// indistinguivel em gravidade do caminho bom.
+//
+// docs/OPERACAO.md ja registra que essa classe de silencio custou um marco
+// inteiro desligado em producao sem ninguem perceber. WARN e o minimo: quem
+// filtra por gravidade precisa conseguir separar "estou no caminho bom" de
+// "cai para o caminho ruim".
+func TestQuedaParaModoEmProcessoEhWarnComMotivo(t *testing.T) {
+	semDaemonParaTeste(t)
+
+	var logBuf bytes.Buffer
+	log := slog.New(slog.NewTextHandler(&logBuf, nil))
+
+	cfg := config.Config{VaultPath: filepath.Join(t.TempDir(), "nao-existe")}
+
+	ctx, cancel := context.WithTimeout(context.Background(), vaulttest.Prazo)
+	defer cancel()
+	_ = servePonte(ctx, cfg, log)
+
+	saida := logBuf.String()
+	if !strings.Contains(saida, "level=WARN") {
+		t.Errorf("a queda para o modo em processo saiu sem WARN, entao ela nao se distingue do caminho bom:\n%s", saida)
+	}
+	if !strings.Contains(saida, "motivo=daemon-nao-subiu") {
+		t.Errorf("a queda saiu sem motivo=daemon-nao-subiu:\n%s", saida)
+	}
 }
 
 // TestServePonteRemotaFazProxyDeBytes prova que, quando o handshake da
