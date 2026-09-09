@@ -13,6 +13,34 @@ pwsh -File scripts/sdd.ps1 status
 
 ## Marcos
 
+**Go 1.27, e o que a troca de toolchain já tinha mudado — completo, 2026-09-09.**
+Dez commits, `verify.ps1` verde em cada um, CI verde nos catorze jobs. O plano é
+[`superpowers/plans/2026-09-09-go-1-27.md`](superpowers/plans/2026-09-09-go-1-27.md),
+com as onze tarefas fechadas; as medições estão em "Go 1.27 — o que foi medido".
+
+Metade do marco não foi adoção de novidade: a v1.6.0 já tinha sido publicada
+compilada com a 1.27.1, e ninguém tinha olhado o que isso mexeu. Mexeu em duas
+chaves derivadas que passavam por tabela Unicode da **stdlib** — que a toolchain
+move sozinha, ao contrário do `x/text`, que é módulo fixado. `config.VaultKey`
+nomeia o diretório de cache **e o caminho do socket**, e o analisador de busca
+decide o que é termo no índice **persistido**. A primeira deixou de depender de
+tabela móvel; a segunda passou a carimbar a geração Unicode no cabeçalho do
+cache, então ele se invalida sozinho na próxima. O cache de metadados não
+precisou de nada — ele recalcula toda chave derivada ao carregar, e essa é a
+distinção que decide se uma tabela móvel importa.
+
+*Diagnóstico:* o guarda-chuva sabia que o encerramento tinha travado, dizia isso
+no log e saía sem olhar. Agora ele despeja as pilhas de todas as goroutines e o
+perfil `goroutineleak` antes do `os.Exit(1)` — em processo, que é o que `-s -w`
+não atrapalha e o `dlv attach` não conseguiu fazer com o PID 42856. Os rótulos
+saem no traceback pela diretiva `go 1.27`, então o dump **nomeia** a espera que
+travou em vez de mostrar endereço.
+
+*Harness:* sete gates novos no dia, cada um com o defeito concreto que o
+originou — grafo, pins, isolamento de teste, invariante de partida, prompt,
+tabela Unicode e pin de toolchain contra a diretiva. `check_gates.ps1` foi de 29
+para 49 casos e `verify.ps1` de 15 para 22 etapas.
+
 **Instalador no binário e encerramento com teto — completo, 2026-09-08/09.**
 Vinte commits, `verify.ps1` verde em cada um, gate de órfãos verde nos quatro
 cenários. Duas frentes que a investigação de um `Server transport closed
