@@ -13,6 +13,7 @@ import (
 	"github.com/jonyd/gobsidian/internal/ipc"
 	"github.com/jonyd/gobsidian/internal/lifecycle"
 	"github.com/jonyd/gobsidian/internal/mcpsrv"
+	"github.com/jonyd/gobsidian/internal/service"
 	"github.com/spf13/cobra"
 )
 
@@ -158,7 +159,7 @@ func serveEmProcesso(parent context.Context, cfg config.Config, log *slog.Logger
 	// sequencia que o daemon (internal/daemon + cmd/gobsidian/daemon.go,
 	// Task 92) usa para servir N conexoes em vez de uma. Extraida para as
 	// duas nunca divergirem (ver o comentario do pacote em internal/boot).
-	c, err := boot.Montar(ctx, cfg, log)
+	c, err := boot.Montar(ctx, cfg, service.ModoEmProcesso, log)
 	if err != nil {
 		// O irmao do ramo equivalente em runDaemon. Vale mesmo tendo aqui um
 		// stderr com leitor: o fallback em processo e obrigatorio quando o
@@ -217,8 +218,8 @@ func serveEmProcesso(parent context.Context, cfg config.Config, log *slog.Logger
 		c.PassoWatcher(),
 	)
 
-	vig.LC.Wait()
-	c.Esperar()
+	lifecycle.Esperar(log, "lifecycle", vig.LC.Wait)
+	lifecycle.Esperar(log, "goroutines-de-fundo", c.Esperar)
 
 	// Depois de Wait, nao antes: a etapa in-flight pode ter sido abandonada
 	// por estouro de orcamento, e sua goroutine ainda estar a caminho do

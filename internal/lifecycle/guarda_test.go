@@ -1,6 +1,7 @@
 package lifecycle
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"io"
@@ -149,5 +150,33 @@ func encenarCenario(cenario string) {
 		desarmar := ArmarGuardaChuva(ctx, silencioso, time.Hour)
 		desarmar()
 		desarmar()
+	}
+}
+
+// TestEsperarNomeiaAEsperaAntesDeBloquear e a linha que faltou em 2026-09-07.
+//
+// Sabe-se que o daemon PID 42856 travou numa das tres esperas de encerramento;
+// QUAL delas nao foi possivel determinar, porque nenhuma dizia que tinha
+// comecado. A assercao que importa e a de ENTRADA: ela e a unica que sobrevive
+// a uma espera que nunca volta.
+func TestEsperarNomeiaAEsperaAntesDeBloquear(t *testing.T) {
+	var buf bytes.Buffer
+	log := slog.New(slog.NewTextHandler(&buf, nil))
+
+	// A funcao confere o log NO MEIO da espera: e o estado em que um
+	// encerramento pendurado deixa o arquivo.
+	var durante string
+	Esperar(log, "goroutines-de-fundo", func() { durante = buf.String() })
+
+	if !strings.Contains(durante, "goroutines-de-fundo") {
+		t.Fatalf("o nome da espera nao estava no log ANTES dela terminar; um travamento nao deixaria rastro:\n%s", durante)
+	}
+	if !strings.Contains(durante, "esperando no encerramento") {
+		t.Errorf("a linha de entrada nao foi escrita:\n%s", durante)
+	}
+
+	depois := buf.String()
+	if !strings.Contains(depois, "espera concluida") || !strings.Contains(depois, "duracao_ms") {
+		t.Errorf("a linha de saida nao traz a duracao:\n%s", depois)
 	}
 }

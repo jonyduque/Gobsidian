@@ -698,6 +698,18 @@ type RuntimeStats struct {
 	TotalAlloc   uint64 `json:"total_alloc"`
 	Sys          uint64 `json:"sys"`
 	NumGC        uint32 `json:"num_gc"`
+
+	// Modo e CacheDir respondem "quem esta servindo este cofre, e onde ele
+	// escreve?" -- a pergunta que a investigacao de 2026-09-08 nao conseguiu
+	// fazer ao produto. Dois processos serviam o cofre Estudo e gravavam o
+	// MESMO inverted_cache.gob, e descobrir isso exigiu comparar milissegundos
+	// entre linhas de log duplicadas.
+	//
+	// Modo vale "daemon", "em-processo" ou "desconhecido". Nunca vazio: um
+	// campo que as vezes some faz quem le acreditar que a informacao nao existe
+	// quando ela so nao foi preenchida.
+	Modo     string `json:"modo"`
+	CacheDir string `json:"cache_dir"`
 }
 
 // StatsRequest sao os parametros de vault_stats. Os dois campos sao opcionais
@@ -812,6 +824,8 @@ func (s *Service) VaultStats(ctx context.Context, req StatsRequest) (StatsResult
 			TotalAlloc:   mem.TotalAlloc,
 			Sys:          mem.Sys,
 			NumGC:        mem.NumGC,
+			Modo:         s.modo(),
+			CacheDir:     s.opts.CacheDir,
 		}
 		if s.watcher != nil {
 			stats := s.watcher.Stats()

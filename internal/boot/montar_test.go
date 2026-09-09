@@ -14,7 +14,7 @@ func TestMontarDevolveServicoPronto(t *testing.T) {
 	cfg.EagerSearch = true
 	cfg.DebounceMS = 50
 	ctx, cancel := context.WithCancel(context.Background())
-	c, err := boot.Montar(ctx, cfg, logSilencioso())
+	c, err := boot.Montar(ctx, cfg, "em-processo", logSilencioso())
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -25,6 +25,7 @@ import (
 
 	"github.com/jonyd/gobsidian/internal/config"
 	"github.com/jonyd/gobsidian/internal/ipc"
+	"github.com/jonyd/gobsidian/internal/lifecycle"
 	"github.com/jonyd/gobsidian/internal/mcpsrv"
 )
 
@@ -100,7 +101,9 @@ func (d *Daemon) Run(ctx context.Context, aoOcioso func(razao string)) {
 	for {
 		select {
 		case <-ctx.Done():
-			wg.Wait()
+			// Nomeada, para que a ultima linha do log diga qual espera nao
+			// voltou. Ver lifecycle.Esperar.
+			lifecycle.Esperar(d.log, "conexoes-em-voo", wg.Wait)
 			return
 		case <-ticker.C:
 			d.mu.Lock()

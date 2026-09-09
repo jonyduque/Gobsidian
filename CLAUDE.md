@@ -133,7 +133,7 @@ watcher  → index, search, vault
 service  → index, parser, search, text, vault, writer
 mcpsrv   → config, index, parser, service, vault
 boot     → config, index, lifecycle, search, service, vault, watcher
-daemon   → config, ipc, mcpsrv
+daemon   → config, ipc, lifecycle, mcpsrv
 doctor   → config, daemon, ipc, vault
 hosts      → (folha)
 selfupdate → (folha)
@@ -142,6 +142,15 @@ instalar   → config, daemon, hosts, ipc, search
 
 Os três últimos são de 2026-09-08 (plano do instalador, tasks 195–201), e as
 justificativas de cada aresta:
+
+`daemon → lifecycle` é de 2026-09-09 e a justificativa é a mesma de
+`boot → lifecycle`: **o mesmo andaime escrito duas vezes**. `lifecycle.Esperar`
+registra no log que uma espera de encerramento começou e quanto levou, e as
+cinco esperas do produto — a de conexões em voo dentro de `daemon.Run`, e as
+quatro em `cmd/gobsidian` — precisam da mesma linha, com o mesmo formato. Sem
+ela, a última linha do log não diz qual espera não voltou, que é exatamente o
+que faltou para determinar a causa do PID 42856 em 2026-09-07. `lifecycle`
+continua folha, e continua sem saber quando encerrar: quem decide é quem chama.
 
 `hosts` é **folha**: ele recebe a raiz do sistema de arquivos e o comando a
 registrar por parâmetro. Escreve JSON genérico e não sabe o que é uma tool —

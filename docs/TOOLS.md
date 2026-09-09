@@ -390,7 +390,20 @@ Estado do cofre e saúde do servidor.
 - `alias_collisions`: aliases declarados por mais de uma nota
 - `generation`: geração corrente do índice
 - Com `include_health` — cada campo é ponteiro: ausente quando não pedido, presente (inclusive `0`) quando pedido — `orphans` (notas sem backlink), `broken_links`, `broken_anchors`, `frontmatter_errors`
-- Com `include_runtime`: `runtime` (`num_goroutine`, `alloc`, `total_alloc`, `sys`, `num_gc` — de `runtime.MemStats`, não RSS do processo) e objeto `watcher` (ausente se desligado) com os campos: `active`, `events_received`, `events_dropped`, `events_dropped_by_reason`, `events_coalesced`, `events_processed`, `events_skipped`, `reconciliations`, `reconciled_updated`, `reconciled_removed`.
+- Com `include_runtime`: `runtime` (`num_goroutine`, `alloc`, `total_alloc`, `sys`, `num_gc` — de `runtime.MemStats`, não RSS do processo; mais `modo` e `cache_dir`) e objeto `watcher` (ausente se desligado) com os campos: `active`, `events_received`, `events_dropped`, `events_dropped_by_reason`, `events_coalesced`, `events_processed`, `events_skipped`, `reconciliations`, `reconciled_updated`, `reconciled_removed`.
+
+`modo` vale `daemon`, `em-processo` ou `desconhecido`, e **nunca é vazio**:
+um campo que às vezes some faz quem lê acreditar que a informação não existe,
+quando ela só não foi preenchida. `cache_dir` é o diretório onde esta instância
+grava índice e cache de busca.
+
+Os dois existem por causa de um estado medido em 2026-09-08: **dois processos
+servindo o mesmo cofre**, um pela ponte e outro em processo, gravando o mesmo
+`inverted_cache.gob`. O sintoma foi `Access is denied` ao salvar o cache, e
+descobrir a causa exigiu comparar milissegundos entre linhas de log duplicadas —
+nenhuma tool respondia "quem está servindo este cofre, e onde ele escreve?".
+Dois retornos com o mesmo `cache_dir` são duas instâncias disputando os mesmos
+arquivos.
 
 Não há contagem de links, contagem de tags, contagem de notas vazias, nem
 contagem de notas somente-nuvem não hidratadas — nenhum desses tem campo em

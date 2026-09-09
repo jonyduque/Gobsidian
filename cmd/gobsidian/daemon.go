@@ -20,6 +20,7 @@ import (
 	"github.com/jonyd/gobsidian/internal/instalar"
 	"github.com/jonyd/gobsidian/internal/lifecycle"
 	"github.com/jonyd/gobsidian/internal/mcpsrv"
+	"github.com/jonyd/gobsidian/internal/service"
 	"github.com/spf13/cobra"
 )
 
@@ -236,7 +237,7 @@ func runDaemon(parent context.Context, cfg config.Config, ociosidade time.Durati
 		"read_only", cfg.ReadOnly,
 		"ociosidade_s", ociosidade.Seconds())
 
-	c, err := boot.Montar(ctx, cfg, log)
+	c, err := boot.Montar(ctx, cfg, service.ModoDaemon, log)
 	if err != nil {
 		// Este e o ramo que matou os dois daemons de 2026-08-26: e aqui que
 		// vault.New recusa o cofre (internal/vault/vault.go:90-95, "raiz do
@@ -256,8 +257,8 @@ func runDaemon(parent context.Context, cfg config.Config, ociosidade time.Durati
 	lifecycle.Shutdown(ctx, log, lifecycle.OrcamentoDeEncerramento,
 		c.PassoWatcher(),
 	)
-	lc.Wait()
-	c.Esperar()
+	lifecycle.Esperar(log, "lifecycle", lc.Wait)
+	lifecycle.Esperar(log, "goroutines-de-fundo", c.Esperar)
 
 	log.Info("daemon encerrado", "reason", lc.Reason())
 	return nil

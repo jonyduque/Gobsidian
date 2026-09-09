@@ -30,6 +30,21 @@ type WatchStats interface {
 type Options struct {
 	ReadOnly   bool
 	MaxResults int
+
+	// Modo diz COMO este servico esta sendo servido: "daemon" (uma instancia
+	// para N sessoes) ou "em-processo" (uma instancia por sessao).
+	//
+	// O pacote service nao tem como descobrir isso sozinho -- quem decide e
+	// cmd/gobsidian --, e a diferenca importa para quem diagnostica: em
+	// 2026-09-08 dois processos serviam o mesmo cofre e gravavam o MESMO cache
+	// de busca, e isso so ficou visivel comparando milissegundos entre linhas
+	// de log duplicadas. Vazio sai como "desconhecido".
+	Modo string
+
+	// CacheDir e o diretorio de cache deste cofre, reportado por vault_stats.
+	// Duas instancias com o mesmo CacheDir sao duas instancias disputando os
+	// mesmos arquivos.
+	CacheDir string
 	// CarregarBusca, quando nao nil, adia o carregamento do indice
 	// invertido para a primeira chamada de Search. Quem monta o servico
 	// (cmd/gobsidian) e quem sabe COMO carregar — cache em disco, cofre,
@@ -83,4 +98,27 @@ func New(v *vault.Vault, idx *index.Index, inv *search.Inverted, w WatchStats, o
 		trechos:       search.NewSnippetCache(entradasTrecho),
 		carregarBusca: opts.CarregarBusca,
 	}
+}
+
+// ModoDaemon e ModoEmProcesso sao os dois valores que Options.Modo aceita.
+//
+// Constantes, e nao literais nos pontos de uso: elas atravessam o retorno de
+// vault_stats, que e contrato publico (docs/TOOLS.md), e um valor escrito a mao
+// em dois lugares diverge no dia em que um deles muda.
+const (
+	ModoDaemon       = "daemon"
+	ModoEmProcesso   = "em-processo"
+	ModoDesconhecido = "desconhecido"
+)
+
+// modo devolve o modo declarado, ou "desconhecido".
+//
+// Nunca vazio: um campo que as vezes some faz quem le acreditar que a
+// informacao nao existe, quando ela so nao foi preenchida -- a mesma razao pela
+// qual Orphans e ponteiro em vez de int com omitempty.
+func (s *Service) modo() string {
+	if s.opts.Modo == "" {
+		return ModoDesconhecido
+	}
+	return s.opts.Modo
 }

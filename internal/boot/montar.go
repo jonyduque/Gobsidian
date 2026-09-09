@@ -62,7 +62,7 @@ func (c *Componentes) PassoWatcher() lifecycle.Step {
 // que esta funcao lanca (construcao do indice de busca + watcher.Run) roda
 // por baixo dele e para quando ele for cancelado, exatamente como antes
 // desta extracao.
-func Montar(ctx context.Context, cfg config.Config, log *slog.Logger) (*Componentes, error) {
+func Montar(ctx context.Context, cfg config.Config, modo string, log *slog.Logger) (*Componentes, error) {
 	v, err := vault.New(cfg.VaultPath, vault.SeguirSymlinks(cfg.FollowSymlinks))
 	if err != nil {
 		return nil, err
@@ -185,6 +185,10 @@ func Montar(ctx context.Context, cfg config.Config, log *slog.Logger) (*Componen
 	opts := service.Options{
 		ReadOnly:   cfg.ReadOnly,
 		MaxResults: cfg.MaxResults,
+		// Quem serve sabe COMO esta servindo; o pacote service nao tem como
+		// descobrir. vault_stats reporta os dois com include_runtime.
+		Modo:     modo,
+		CacheDir: cfg.CacheDir,
 	}
 	if !cfg.EagerSearch {
 		// Modo padrao: a carga so acontece na primeira vault_search, e
