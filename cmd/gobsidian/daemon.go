@@ -74,6 +74,39 @@ func daemonLogPath(vaultPath string) (string, error) {
 	return daemon.CaminhoDoLog(vaultPath)
 }
 
+// tetoDoLogDoDaemon e o tamanho a partir do qual o log e rotacionado.
+//
+// 5 MB. Medido em 2026-09-08: o log do cofre Estudo tinha 727 261 bytes e
+// nenhum limite -- ele so cresce, para sempre, porque N instancias fazem
+// append no MESMO arquivo ao longo de meses.
+//
+// E variavel, e nao constante, para o teste poder encolhe-la: escrever 5 MB
+// num teste gastaria disco para provar o mesmo comportamento. Producao nunca
+// a troca -- o mesmo padrao de daemonStartTimeout em ponte.go.
+var tetoDoLogDoDaemon int64 = 5 << 20
+
+// rotacionarLogDoDaemon guarda o log corrente como ".1" quando ele passa do
+// teto, e nao faz nada abaixo dele.
+//
+// ROTACIONA, nunca apaga. O log e a unica memoria do daemon: ele nao tem
+// terminal, e a investigacao de 2026-09-08 dependeu de linhas de 2026-08-24
+// para reconstruir a sequencia de partidas e mortes de um cofre. Um arquivo
+// anterior basta para nao perder a janela recente sem crescer sem limite.
+//
+// Falha de rotacao NAO impede a abertura do log, e por isso esta funcao nao
+// devolve erro: um daemon sem log e pior que um log grande, e este processo e
+// detachado -- se ele nao escrever aqui, nao escreve em lugar nenhum. Foi
+// exatamente esse o defeito de 2026-08-26, com dois daemons morrendo mudos.
+func rotacionarLogDoDaemon(path string) {
+	fi, err := os.Stat(path)
+	if err != nil || fi.Size() < tetoDoLogDoDaemon {
+		return
+	}
+	// os.Rename sobre um destino existente substitui, nas tres plataformas --
+	// que e o comportamento desejado: guarda-se UM anterior, nao uma serie.
+	_ = os.Rename(path, path+".1")
+}
+
 // novoLoggerDoDaemon abre o arquivo de log do daemon e devolve o logger
 // junto com uma funcao de fechamento. O daemon nao tem terminal -- stderr de
 // um processo detachado de verdade (SpawnDetached, internal/daemon/spawn.go)
@@ -97,12 +130,27 @@ func novoLoggerDoDaemon(vaultPath string, level slog.Level) (*slog.Logger, func(
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return nil, nil, fmt.Errorf("criando diretorio do log do daemon: %w", err)
 	}
+	rotacionarLogDoDaemon(path)
 	f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
 	if err != nil {
 		return nil, nil, fmt.Errorf("abrindo log do daemon %s: %w", path, err)
 	}
 
-	log := slog.New(slog.NewTextHandler(io.MultiWriter(f, os.Stderr), &slog.HandlerOptions{Level: level}))
+	// pid e versao em TODA linha, e nao so na de partida.
+	//
+	// O arquivo e UNICO por cofre e recebe append de N instancias ao longo de
+	// meses -- 727 261 bytes na maquina do dono, medido em 2026-09-08. Sem
+	// estes dois campos, descobrir qual processo escreveu uma linha exige
+	// cruzar mtime de arquivo com StartTime de processo, e o resultado fica
+	// ambiguo justamente no caso que importa: duas instancias do mesmo cofre
+	// convivendo, que foi o estado investigado.
+	//
+	// Sao campos ACRESCENTADOS. Nenhuma mensagem muda de texto:
+	// scripts/measure.ps1 casa "servidor pronto" e a regex index_ms=(\d+), e
+	// scripts/test_orphans.ps1 casa reason= -- os dois continuam lendo o que
+	// liam.
+	log := slog.New(slog.NewTextHandler(io.MultiWriter(f, os.Stderr), &slog.HandlerOptions{Level: level})).
+		With("pid", os.Getpid(), "versao", version)
 	return log, f.Close, nil
 }
 
