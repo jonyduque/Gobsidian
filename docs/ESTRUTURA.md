@@ -181,12 +181,49 @@ gobsidian/
 │   │   ├── spawn_windows.go      desanexação do processo (build tag windows)
 │   │   └── spawn_unix.go         desanexação do processo (build tag !windows)
 │   │
-│   └── doctor/
-│       ├── doctor.go             orquestração das verificações
-│       ├── checks.go             verificações independentes de plataforma
-│       ├── daemon.go             verificações do runtime do daemon
-│       ├── checks_windows.go     OneDrive, MAX_PATH, colisão de casing
-│       └── checks_other.go       equivalentes vazias (build tag !windows)
+│   ├── doctor/
+│   │   ├── doctor.go             orquestração das verificações
+│   │   ├── checks.go             verificações independentes de plataforma
+│   │   ├── daemon.go             verificações do runtime do daemon
+│   │   ├── checks_windows.go     OneDrive, MAX_PATH, colisão de casing
+│   │   └── checks_other.go       equivalentes vazias (build tag !windows)
+│   │
+│   ├── hosts/                    FOLHA. Os 9 hosts MCP; não sabe o que é uma tool
+│   │   ├── hosts.go              a tabela: onde cada host mora e como se configura;
+│   │   │                         Ambiente carrega as funções que tocam o mundo,
+│   │   │                         para a tabela ser testável
+│   │   ├── merge.go              Fundir: acrescenta a entrada PRESERVANDO o resto
+│   │   │                         do JSON, com backup antes de qualquer escrita
+│   │   ├── caminhos_windows.go   config do Claude Desktop (build tag windows)
+│   │   ├── caminhos_darwin.go    idem (build tag darwin)
+│   │   └── caminhos_other.go     idem (build tag !windows && !darwin)
+│   │
+│   ├── selfupdate/               FOLHA. ÚNICO pacote com net/http (PRD §6.4)
+│   │   ├── selfupdate.go         release, SHA-256 e ValidarHost — a guarda de
+│   │   │                         runtime que a análise estática não alcança
+│   │   └── transporte_http.go    o único arquivo do produto que fala HTTP
+│   │
+│   ├── instalar/                 o instalador dentro do binário
+│   │   ├── presenca.go           quem está rodando, por trava de kernel — sem
+│   │   │                         enumerar processos e sem código de plataforma
+│   │   ├── trava_global.go       enquanto instala, nenhum serve ou daemon sobe
+│   │   ├── limpeza.go            só o lixo comprovadamente órfão (D-05)
+│   │   ├── manifesto.go          o que a instalação fez; responde "estou instalado?"
+│   │   ├── instalar.go           a sequência de sete passos, com as operações
+│   │   │                         perigosas injetáveis
+│   │   ├── cofres.go             lê o registro de cofres do próprio Obsidian
+│   │   ├── cofres_windows.go     onde esse registro mora (build tag windows)
+│   │   ├── cofres_darwin.go      idem (build tag darwin)
+│   │   ├── cofres_other.go       idem (build tag !windows && !darwin)
+│   │   ├── path_windows.go       PATH do usuário em HKCU; nunca HKLM (D-04)
+│   │   └── path_other.go         bloco marcado em ~/.profile
+│   │
+│   └── text/                     normalização; ver o bloco de text/ acima
+│
+├── bootstrap/                    baixam o executável e o rodam, e nada mais
+│   ├── install.sh                Linux e macOS
+│   ├── install.ps1               Windows
+│   └── install.nu                nushell
 │
 ├── docs/
 │   ├── PRD.md
@@ -210,7 +247,10 @@ gobsidian/
 ├── tools/
 │   ├── parity-dumper/            plugin de dev do Obsidian; serializa app.metadataCache
 │   │                             não é parte do produto, não é distribuído
-│   └── netcheck/                 analisador go/analysis: proíbe rede em internal/ e cmd/
+│   └── netcheck/                 analisador go/analysis: proíbe rede em internal/ e cmd/,
+│                                 com as DUAS exceções nomeadas da RNF-30 —
+│                                 net.Dial/Listen com "unix" literal, e net/http
+│                                 só em internal/selfupdate, com host da lista
 │
 ├── scripts/
 │   ├── build.ps1                 build local com informação de versão
