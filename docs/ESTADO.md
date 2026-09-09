@@ -13,6 +13,37 @@ pwsh -File scripts/sdd.ps1 status
 
 ## Marcos
 
+**Instalador no binário e encerramento com teto — completo, 2026-09-08/09.**
+Vinte commits, `verify.ps1` verde em cada um, gate de órfãos verde nos quatro
+cenários. Duas frentes que a investigação de um `Server transport closed
+unexpectedly` abriu ao mesmo tempo.
+
+*Encerramento:* nenhuma espera fica sem orçamento. `lifecycle.ArmarGuardaChuva`
+cobre o intervalo inteiro nos três pontos de saída, e as cinco esperas dizem no
+log que começaram — a linha que faltou para determinar qual delas pendurou o
+PID 42856 por 20 h. O fallback para o modo em processo deixou de ser `INFO` e
+passou a nomear o motivo entre quatro casos distintos.
+
+*Instalador:* virou subcomando do próprio binário. `install.ps1` (729 linhas) e
+`installer/` (1 090, dos quais 1 009 são o `install.js`) foram apagados;
+**126 linhas de bootstrap substituem 1 819**. A lógica duplicada de verdade —
+os dois instaladores, um em PowerShell e outro em Node — eram 1 738 dessas
+linhas, e é esse o número que a spec e os comentários dos pacotes citam.
+Três pacotes novos — `hosts`, `selfupdate`, `instalar` —, quatro subcomandos, e a
+RNF-30 com uma segunda exceção nomeada, cujo gate entrou **antes** do código que
+ele governa.
+
+O que **não** foi resolvido está nas dívidas abertas abaixo, e é honesto: a causa
+do encerramento pendurado e o estado de socket `10022`/`1920` seguem
+desconhecidos. O que entrou foi anteparo e saída, não conserto.
+
+Duas coisas que o próprio trabalho pegou, e que valem mais que a lista acima:
+o gate de órfãos mostrou que a presença de processos, como escrita primeiro,
+levava o diretório de runtime de 6 para 130 arquivos em 100 ciclos — a mesma
+forma do lixo de 960 `.lock` que a limpeza existe para varrer. E uma prova de
+mutação mostrou que o teste de `vault_stats.modo` passava com o campo fixado em
+vazio dentro da função. Os dois foram consertados com o teste que os nomeia.
+
 **M0 — completa**, etiquetada `m0-lifecycle`: ciclo de vida, `internal/vault`,
 servidor MCP mínimo com `vault_stats`, `doctor`, e 100 ciclos de encerramento
 abrupto com zero órfãos.

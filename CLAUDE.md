@@ -105,8 +105,8 @@ internal/
 docs/              normativa, papéis, história, wiki
 testdata/          golden files do parser, cofre pequeno, corpus de paridade
 bootstrap/         install.sh, install.ps1 e install.nu — baixam o executável
-                   e o rodam, e nada mais (126 linhas no total, contra as
-                   1.803 dos instaladores que substituíram)
+                   e o rodam, e nada mais (126 linhas, contra as 1.819
+                   apagadas: install.ps1 com 729 e installer/ com 1.090)
 tools/             netcheck (analisador da RNF-30); parity-dumper (plugin de
                    dev do Obsidian, não é produto)
 scripts/           gates e utilitários PowerShell — ver Comandos
