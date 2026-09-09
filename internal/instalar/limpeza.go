@@ -291,3 +291,15 @@ func tamanhoDaArvore(dir string) int64 {
 // RaizDoCache delega para config: uma conta por regra. A limpeza precisa da
 // raiz que contem um subdiretorio por cofre, e quem a define e config.
 func RaizDoCache() string { return config.RaizDoCache() }
+
+// mesmoDiretorio compara dois caminhos de diretorio.
+//
+// filepath.Clean tira barra final e "..", e a comparacao e sem caixa porque o
+// Windows nao a distingue -- o mesmo raciocinio de text.ChaveDeCaminho, que
+// este pacote nao usa para nao ganhar uma aresta por uma funcao de tres linhas.
+func mesmoDiretorio(a, b string) bool {
+	if a == "" || b == "" {
+		return false
+	}
+	return strings.EqualFold(filepath.Clean(a), filepath.Clean(b))
+}
