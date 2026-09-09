@@ -562,6 +562,19 @@ via `[OK]` depois de exercitar **um** dos três. O padrão passou a ser `all` po
 causa disso. **Gate cujo padrão cobre parte do que ele aparenta cobrir é pior
 que gate ausente.**
 
+**Quatro gates novos em 2026-09-09, um por afirmação que o projeto fazia sem
+provar.** `verify.ps1` passou de 15 para 19 etapas e `check_gates.ps1` de 29
+para 41 casos; cada gate entrou com três casos, e os mutantes saem dos arquivos
+**vivos**, não de cópias — fixture com cópia de pin ou de grafo envelhece e
+reprova pelo motivo errado.
+
+| Gate | O que era afirmação | O defeito que a derrubou |
+|---|---|---|
+| `check_graph.ps1` | o grafo do `CLAUDE.md` foi "re-extraído dos imports" | terceira redação errada: `selfupdate → config`, e `go list` diz folha |
+| `check_pins.ps1` | as versões fixadas concordam | o pin do `golangci-lint` cobrava v2.12.2 dizendo v2.13.2; o gate do release rodou em toolchain diferente do build |
+| `check_test_isolation.ps1` | teste não escreve fora do `t.TempDir()` | `t.Setenv("XDG_CACHE_HOME")` desviava `os.UserCacheDir` no Linux e em nenhuma outra plataforma |
+| `check_partida.ps1` | "nada roda antes de os mecanismos de encerramento estarem armados" | I/O antes de `boot.VigiarHost`: 2 de 100 ciclos sem `reason=`, nas duas rodadas do CI |
+
 **`test_orphans.ps1` não compila — ele roda o que estiver em `bin/`.** Hoje
 recusa binário mais velho que o código. Antes disso, um binário de quatro dias
 antes deu três `[OK]` nos cenários que não dependiam do código novo e 100 falhas

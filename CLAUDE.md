@@ -256,7 +256,7 @@ conferir, e as duas versões anteriores diziam.
 ## Comandos
 
 ```bash
-pwsh -File scripts/verify.ps1              # o gate: 17 etapas, para no primeiro erro
+pwsh -File scripts/verify.ps1              # o gate: 19 etapas, para no primeiro erro
 pwsh -File scripts/build.ps1               # build com versão via ldflags
 pwsh -File scripts/test_orphans.ps1        # os quatro cenários de encerramento
 pwsh -File scripts/mutate.ps1 ...          # prova de mutação — ver papeis/testador.md
@@ -272,8 +272,9 @@ pwsh -File scripts/gen_vault.ps1 -Notes 5000 -Seed 42 -Out <x>   # cofre de benc
 a lista solta convida a rodar três dos cinco: cobre build, `go test -race`, a
 contagem de testes pulados, tetos de latência, `go vet` nos três GOOS, `gofmt`,
 `golangci-lint` (Windows e Linux), `check_net`, `check_tool_params`,
-`check_doc_refs`, `check_readme_anchors`, `check_gates`, `check_graph` e `check_pins`. A contagem de pulados **informa e não
-reprova** — há skip legítimo, como o de `vaulttest` fora do Windows —, mas um
+`check_doc_refs`, `check_readme_anchors`, `check_gates`, `check_graph`,
+`check_pins`, `check_test_isolation` e `check_partida`. A contagem de pulados
+**informa e não reprova** — há skip legítimo, como o de `vaulttest` fora do Windows —, mas um
 teste que pula não cobre nada, e o de paridade pulava sem que o gate dissesse.
 Aceita `-SkipCross` e `-SkipNet` para iteração rápida; o gate roda tudo.
 
@@ -353,6 +354,14 @@ regra abaixo veio de uma dessas.
 - **Registre no ledger antes de dizer que acabou.**
 - **O relatório é o entregável, não o resumo dele.** "Testes passam" não é
   evidência; a saída do teste é.
+- **Invariante escrita só em comentário é preferência.** A frase "NADA roda
+  antes de os mecanismos de encerramento estarem armados" estava no código, em
+  letra, e foi quebrada **pelo autor dela** no dia seguinte; o CI achou, em 2 de
+  100 ciclos. O mesmo vale para prosa que afirma ter conferido: o grafo do
+  `CLAUDE.md` diz "re-extraído dos imports" e três redações seguidas estavam
+  erradas. Enquanto a única coisa entre a afirmação e a verdade for alguém
+  lembrar de conferir, a próxima também erra. Invariante que vale a pena
+  escrever vale um gate.
 - **Gate que aceita o que devia recusar é pior que gate ausente.** O hook de
   pré-commit aceitou `[sem-doc]` num comentário de shell e num `--amend`; o
   auditor aceitou `# comment` colado como seção. Regra de gate nova entra com

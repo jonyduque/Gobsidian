@@ -283,6 +283,24 @@ Invoke-Step "check_graph" { & (Join-Path $PSScriptRoot "check_graph.ps1") }
 # binario publicado, contra o que o comentario daquele arquivo afirma.
 Invoke-Step "check_pins" { & (Join-Path $PSScriptRoot "check_pins.ps1") }
 
+# Teste que escreve fora do proprio t.TempDir().
+#
+# Em 2026-09-09 dois testes escreveram na maquina do dono pela mesma causa:
+# acharam que apontar uma variavel de ambiente para um diretorio temporario
+# continha a producao. os.UserCacheDir honra LOCALAPPDATA no Windows,
+# XDG_CACHE_HOME no Linux e IGNORA AS DUAS no macOS -- o teste ficava verde nas
+# tres plataformas e escrevia no cache real numa. O que isola e injecao.
+Invoke-Step "check_test_isolation" { & (Join-Path $PSScriptRoot "check_test_isolation.ps1") }
+
+# A invariante da partida: nada roda antes de o encerramento estar armado.
+#
+# Ela existia so como frase num comentario, e foi quebrada pelo autor da frase
+# em 2026-09-09: a trava de instalacao e a presenca foram parar antes de
+# boot.VigiarHost, e um sinal que chegasse nessa janela nao tinha tratador. O
+# CI mediu -- "2 de 100 ciclos encerraram sem registrar reason=", nas duas
+# rodadas, com o commit anterior verde.
+Invoke-Step "check_partida" { & (Join-Path $PSScriptRoot "check_partida.ps1") }
+
 Pop-Location
 
 Write-Output ""

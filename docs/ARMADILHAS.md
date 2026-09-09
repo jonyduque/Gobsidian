@@ -44,6 +44,26 @@ sinal ou pai dispara primeiro. Vigias de sinal e de pai entram, porque fazem
 detecções de EOF independentes correm — SDK e lifecycle — e qual vence decide o
 valor. Tratar como falha faz o host ver erro aleatório a cada desconexão limpa.
 
+**I/O na partida, antes de o tratador de sinal existir.** A trava de instalação
+e o registro de presença — criar diretório, abrir arquivo, pedir trava do
+kernel, gravar JSON, `fsync` — foram parar no começo de `runServe`, **antes** de
+`boot.VigiarHost`, que é onde `lifecycle.New` instala o tratador de sinal. Um
+sinal que chegasse nessa janela não tinha tratador: o processo morria pela ação
+padrão, sem registrar `reason=`. Medido no CI em 2026-09-09: o cenário `signal`
+do gate de órfãos reprovou com "2 de 100 ciclos encerraram sem registrar
+reason=", **nas duas rodadas**, com o mesmo job verde no commit anterior
+(`26bb00d`) — o harness manda o sinal ~50–150 ms depois de lançar o processo, e
+o I/O acrescentado cabia dentro disso num runner carregado.
+
+A invariante: **nada roda antes de os mecanismos de encerramento estarem
+armados**. Quem precisa de I/O na partida faz depois de `VigiarHost`, em
+`prepararProcesso`. Ela existia só como frase num comentário — e foi quebrada
+pelo autor da frase. `scripts/check_partida.ps1` a cobra em duas metades: toda
+função que chama `prepararProcesso` armou o encerramento antes, na mesma
+função; e `runServe` não faz nada além do logger antes de `servePonte`. A
+segunda recusa até cálculo puro de propósito: "só uma leitura de env" foi como
+o I/O entrou.
+
 ---
 
 ## Acesso a arquivo e confinamento
@@ -643,6 +663,30 @@ pelo orquestrador antes de despachar.
 corpus parado deu `199`. Contagem sobre corpus vem com tamanho e data, medida
 com nenhum agente escrevendo nele.
 
+**O parágrafo que diz "conferido" não confere.** O bloco do grafo de
+dependências do `CLAUDE.md` afirma, em letra, ter sido "re-extraído dos imports
+de produção", e o próprio documento avisa: *"dizer 'conferido' não é conferir, e
+as duas versões anteriores diziam"*. Em 2026-09-09 uma **terceira** disse — o
+bloco ganhou `selfupdate → config`, e `go list` dizia folha. O erro foi pego por
+acaso, ao rodar o comando por outro motivo. As duas anteriores: uma somava as
+arestas de teste às de produção e atribuía ao `daemon` um conhecimento de
+`service` e `vault` que ele não tem; outra omitia `text` inteiro e chamava
+`parser` de folha. Três redações erradas, a mesma causa nas três: a única coisa
+entre o documento e a verdade era alguém lembrar de conferir.
+`scripts/check_graph.ps1` roda o `go list` que o documento cita.
+
+**Um pin que discorda de si mesmo é pior que pin nenhum.** A versão do
+`golangci-lint` aparece em quatro lugares. Ao mover o pin de `v2.12.2` para
+`v2.13.2`, uma substituição literal pegou a mensagem do `throw` e **não** a
+condição, escrita com pontos escapados (`"2\.12\.2"`): o erro dizia "fora da
+versão fixada (v2.13.2)" enquanto exigia a v2.12.2. No mesmo dia, o `release.yml`
+rodou o gate numa toolchain diferente da que compila o binário publicado —
+contra o que o comentário daquele arquivo afirma em letra.
+`scripts/check_pins.ps1` cobra as duas. Ele ignora linha de comentário de
+propósito: os dois arquivos citam versões antigas para justificar a conferência,
+e um gate que as tratasse como pin reprovaria para sempre — e gate que reprova
+sempre é desligado na primeira semana.
+
 **Revisor "somente leitura" sobrescreveu uma fixture.** Ao montar um caso ad
 hoc, uma re-revisão redirecionou saída para
 `scripts/testdata/gates/msg-sem-escotilha.txt`; o gate teria continuado verde
@@ -736,3 +780,14 @@ Sintomas de que um teste está fazendo isso: duração que não bate com o que e
 afirma; `t.TempDir()` presente mas nenhum caminho de saída passando por ele;
 e o teste passar mesmo quando a asserção é fraca, porque o trabalho real
 aconteceu em outro lugar.
+
+**Variável de ambiente não isola — e a falha é numa plataforma só.** No mesmo
+dia, os testes do log desviavam `os.UserCacheDir()` com
+`t.Setenv("XDG_CACHE_HOME", …)`. `os.UserCacheDir` honra `LOCALAPPDATA` no
+Windows, `XDG_CACHE_HOME` no Linux e **ignora as duas no macOS** — lá devolve
+`~/Library/Caches` sem consultar env nenhuma. O teste ficava verde nas três
+plataformas e escrevia no cache real numa delas. A correção é a mesma da
+entrada acima: `raizDoCache` e `caminhoDoLogFn` viraram variáveis de pacote que
+o teste troca. `scripts/check_test_isolation.ps1` recusa `t.Setenv`/`os.Setenv`
+das variáveis que a stdlib consulta para resolver casa, cache, config e runtime
+do usuário; ele só enxerga o nome escrito como literal na chamada.

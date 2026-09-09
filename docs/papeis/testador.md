@@ -110,6 +110,32 @@ Outras armadilhas de teste que já ocorreram:
 
 ---
 
+## Isolamento: o que o teste pode alcançar
+
+**Nada que escreva fora do `t.TempDir()`.** Em 2026-09-09 um teste de comando
+alcançou a função que instala de verdade e reescreveu seis configs de host MCP
+da máquina do dono, mais o PATH; o sintoma foi a duração, 25,6 s num subteste.
+No mesmo dia, os testes do log escreveram no cache real do usuário.
+
+**Variável de ambiente não isola.** Foi o que a segunda tentativa usou:
+`t.Setenv("XDG_CACHE_HOME", …)` para desviar `os.UserCacheDir()`. Ela honra
+`LOCALAPPDATA` no Windows, `XDG_CACHE_HOME` no Linux e **ignora as duas no
+macOS**. Verde nas três plataformas, escrevendo no cache real numa.
+`scripts/check_test_isolation.ps1` recusa `t.Setenv`/`os.Setenv` das variáveis
+que resolvem casa, cache, config e runtime do usuário.
+
+O que isola é **injeção**: a função que age, ou a raiz onde ela escreve, vira
+variável de pacote, e o teste a troca por um gravador. Onde a decisão é o que
+se quer provar — *se* instala, não *como* —, provar a decisão é o teste
+inteiro; que a instalação funciona é assunto do pacote que a implementa.
+
+Sintomas de que um teste está escrevendo fora: duração que não bate com o que
+ele afirma; `t.TempDir()` presente mas nenhum caminho de saída passando por
+ele; e o teste passar mesmo com a asserção enfraquecida, porque o trabalho real
+aconteceu em outro lugar.
+
+---
+
 ## Regra de gate
 
 Os gates deste projeto — `scripts/pre_commit_docs.ps1`, `scripts/audit_reports.ps1`

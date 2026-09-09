@@ -405,6 +405,112 @@ try {
         Caso -Nome 'gate do release em toolchain diferente do build -> recusado' `
             -Esperado 'recusado' -Obtido 'mutante-nao-aplicou'
     }
+
+    # ------------------------------------------------------------------
+    # check_test_isolation: variavel de ambiente nao isola teste
+    #
+    # O defeito real: os testes do log desviavam os.UserCacheDir com
+    # t.Setenv("XDG_CACHE_HOME"). Verde nas tres plataformas, escrevendo no
+    # cache real do usuario numa delas -- os.UserCacheDir IGNORA XDG_CACHE_HOME
+    # e LOCALAPPDATA no macOS.
+    #
+    # O mutante sai do arquivo VIVO que teve o defeito, daemon_log_test.go, com
+    # a linha que ele tinha e nao tem mais.
+    # ------------------------------------------------------------------
+    $IsolScript = Join-Path $PSScriptRoot 'check_test_isolation.ps1'
+
+    function Isol-Resultado {
+        param([string]$RaizAlvo)
+        & $IsolScript -Raiz $RaizAlvo -Silencioso *> $null
+        if ($LASTEXITCODE -eq 0) { return 'aceito' }
+        return 'recusado'
+    }
+
+    # Copia UM _test.go vivo para uma raiz propria, com uma linha acrescentada
+    # (ou nenhuma, para o caso inverso).
+    function Isol-Raiz {
+        param([string]$Acrescentar)
+        $tmp = Join-Path ([IO.Path]::GetTempPath()) ("isol_" + [guid]::NewGuid().ToString('N'))
+        New-Item -ItemType Directory -Path (Join-Path $tmp 'cmd/gobsidian') -Force | Out-Null
+        $origem = Join-Path $ProjectRoot 'cmd/gobsidian/daemon_log_test.go'
+        $alvo = Join-Path $tmp 'cmd/gobsidian/daemon_log_test.go'
+        $texto = Get-Content -Path $origem -Raw -Encoding UTF8
+        if ($Acrescentar) { $texto = $texto + "`n" + $Acrescentar + "`n" }
+        [IO.File]::WriteAllText($alvo, $texto, (New-Object Text.UTF8Encoding($false)))
+        return $tmp
+    }
+
+    Caso -Nome 'testes do repositorio como estao -> aceito' `
+        -Esperado 'aceito' -Obtido (Isol-Resultado $ProjectRoot)
+
+    $i1 = Isol-Raiz "`tt.Setenv(`"XDG_CACHE_HOME`", dir)"
+    Caso -Nome 'teste desviando os.UserCacheDir por env -> recusado' `
+        -Esperado 'recusado' -Obtido (Isol-Resultado $i1)
+    Remove-Item $i1 -Recurse -Force -ErrorAction SilentlyContinue
+
+    # O inverso, na MESMA raiz de um so arquivo: sem a linha, aceita. Sem este
+    # caso, o anterior nao distingue "pegou a linha" de "reprova qualquer raiz".
+    $i2 = Isol-Raiz ''
+    Caso -Nome 'o mesmo arquivo sem a linha -> aceito' `
+        -Esperado 'aceito' -Obtido (Isol-Resultado $i2)
+    Remove-Item $i2 -Recurse -Force -ErrorAction SilentlyContinue
+
+    # ------------------------------------------------------------------
+    # check_partida: nada roda antes de o encerramento estar armado
+    #
+    # Os dois mutantes sao as duas metades do defeito de 2026-09-09, cada uma
+    # na forma exata em que ele aconteceu: I/O no comeco de runServe, e um
+    # ponto de partida que chama prepararProcesso sem ter armado nada.
+    # ------------------------------------------------------------------
+    $PartidaScript = Join-Path $PSScriptRoot 'check_partida.ps1'
+
+    function Partida-Resultado {
+        param([string]$RaizAlvo)
+        & $PartidaScript -Raiz $RaizAlvo -Silencioso *> $null
+        if ($LASTEXITCODE -eq 0) { return 'aceito' }
+        return 'recusado'
+    }
+
+    function Partida-Raiz {
+        param([string]$Arquivo, [string]$De, [string]$Para)
+        $tmp = Join-Path ([IO.Path]::GetTempPath()) ("partida_" + [guid]::NewGuid().ToString('N'))
+        New-Item -ItemType Directory -Path (Join-Path $tmp 'cmd/gobsidian') -Force | Out-Null
+        Copy-Item (Join-Path $ProjectRoot 'cmd/gobsidian/*.go') (Join-Path $tmp 'cmd/gobsidian')
+        $alvo = Join-Path $tmp "cmd/gobsidian/$Arquivo"
+        $texto = Get-Content -Path $alvo -Raw -Encoding UTF8
+        if ($texto -notmatch [regex]::Escape($De)) { return $null }
+        [IO.File]::WriteAllText($alvo, ($texto -replace [regex]::Escape($De), $Para), (New-Object Text.UTF8Encoding($false)))
+        return $tmp
+    }
+
+    Caso -Nome 'partida do repositorio como esta -> aceito' `
+        -Esperado 'aceito' -Obtido (Partida-Resultado $ProjectRoot)
+
+    $q1 = Partida-Raiz 'serve.go' `
+        "`tcodigo := shutdownExitCode(servePonte" `
+        "`tinstalar.LiberarPresenca()`n`tcodigo := shutdownExitCode(servePonte"
+    if ($q1) {
+        Caso -Nome 'I/O em runServe antes de servePonte -> recusado' `
+            -Esperado 'recusado' -Obtido (Partida-Resultado $q1)
+        Remove-Item $q1 -Recurse -Force -ErrorAction SilentlyContinue
+    }
+    else {
+        Caso -Nome 'I/O em runServe antes de servePonte -> recusado' `
+            -Esperado 'recusado' -Obtido 'mutante-nao-aplicou'
+    }
+
+    $q2 = Partida-Raiz 'ponte.go' `
+        "`tctx, vig := boot.VigiarHost(parent, stdin, log)" `
+        "`tvar ctx = parent; var vig *boot.Vigia"
+    if ($q2) {
+        Caso -Nome 'ponto de partida que nao armou o encerramento -> recusado' `
+            -Esperado 'recusado' -Obtido (Partida-Resultado $q2)
+        Remove-Item $q2 -Recurse -Force -ErrorAction SilentlyContinue
+    }
+    else {
+        Caso -Nome 'ponto de partida que nao armou o encerramento -> recusado' `
+            -Esperado 'recusado' -Obtido 'mutante-nao-aplicou'
+    }
 }
 finally {
     Pop-Location

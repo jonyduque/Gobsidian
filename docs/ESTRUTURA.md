@@ -255,7 +255,23 @@ gobsidian/
 ├── scripts/
 │   ├── build.ps1                 build local com informação de versão
 │   ├── gen_vault.ps1             gera cofre sintético para benchmark
+│   ├── verify.ps1                o gate: 19 etapas, para no primeiro erro
 │   ├── check_net.ps1             verificação de RNF-30 (ver §4)
+│   ├── check_tool_params.ps1     schema de tool contra o que o código lê
+│   ├── check_doc_refs.ps1        referência a documento que não existe
+│   ├── check_readme_anchors.ps1  âncora de README que não resolve
+│   ├── check_gates.ps1           prova que cada gate recusa o bypass conhecido
+│   ├── check_graph.ps1           grafo do CLAUDE.md contra `go list` de produção
+│   ├── check_pins.ps1            versões fixadas concordando entre si
+│   ├── check_test_isolation.ps1  teste desviando caminho de máquina por env
+│   ├── check_partida.ps1         nada roda antes de o encerramento estar armado
+│   ├── pre_commit_docs.ps1       hook: `.go` de produção sem documentação
+│   ├── audit_reports.ps1         as quatro seções obrigatórias de um relatório
+│   ├── check_briefs.ps1          briefs de duas tarefas antes do despacho
+│   ├── mutate.ps1                prova de mutação (ver papeis/testador.md)
+│   ├── measure.ps1               RNF-01 e RNF-07 contra um cofre real
+│   ├── bench_compare.ps1         compara benchmark com a linha de base
+│   ├── sdd.ps1                   ledger + git
 │   ├── test_orphans.ps1          ciclos de encerramento abrupto, um cenario por mecanismo
 │   ├── orphan_host.ps1           host sintetico: pipe real no stdin do servidor
 │   ├── orphan_keeper.ps1         segura o stdin aberto depois de o pai morrer
@@ -264,6 +280,7 @@ gobsidian/
 │
 ├── .github/workflows/
 │   ├── ci.yml                    vet, lint, test, race
+│   ├── gate.yml                  workflow reusável: roda verify.ps1; ci e release o chamam
 │   ├── bench.yml                 benchmark com verificação de regressão
 │   └── release.yml               dispara em tag `v*`: build e publicação do release
 │
