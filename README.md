@@ -60,59 +60,76 @@ It came out of three concrete problems with the existing Obsidian MCP servers:
 
 ## 📦 Install
 
-Either installer downloads the release binary, **verifies its SHA-256 and aborts on a mismatch**, installs it, adds it to `PATH`, reads Obsidian's own vault registry, and asks which hosts to register the server with.
+**The installer is the binary itself.** The bootstrap below does one thing --
+download the executable and run it. Everything else (choosing the vault, the
+`PATH` entry, registering the MCP hosts, cleaning up leftovers from previous
+runs) happens inside `gobsidian`, where it is covered by tests. Before
+2026-09-08 that logic lived twice, in PowerShell and in Node, with none.
 
-| You are on | Use | Requires |
-|---|---|---|
-| 🪟 Windows | `install.ps1` at the root | nothing beyond PowerShell |
-| 🪟 🐧 🍎 Windows, Linux or macOS | the `installer/` folder | Node.js 18+ |
-
-**Windows, no dependencies:**
-
-```powershell
-iex (irm https://raw.githubusercontent.com/jonyduque/Gobsidian/master/install.ps1)
-```
-
-**Cross-platform** — the same installer in Node, with no `npm install` and no `node_modules`: <!-- check-doc-refs: ignore node_modules -- diretorio do Node, citado para dizer que o instalador nao cria um -->
+**Windows:**
 
 ```powershell
-iex (irm https://raw.githubusercontent.com/jonyduque/Gobsidian/master/installer/install.ps1)
+iex (irm https://raw.githubusercontent.com/jonyduque/Gobsidian/master/bootstrap/install.ps1)
 ```
+
+**Linux and macOS:**
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/jonyduque/Gobsidian/master/installer/install.bash | bash
+curl -fsSL https://raw.githubusercontent.com/jonyduque/Gobsidian/master/bootstrap/install.sh | sh
 ```
 
+**nushell:**
+
+```nu
+http get https://raw.githubusercontent.com/jonyduque/Gobsidian/master/bootstrap/install.nu | save -f /tmp/gi.nu; nu /tmp/gi.nu
+```
+
+Or download the binary from the releases page and just run it: with no
+arguments, in a terminal, it notices it is not installed and installs itself.
+
 <details>
-<summary>⚙️ <b>Options</b> — unattended install, specific host, pinned version</summary>
+<summary>⚙️ <b>Options</b> — unattended install, specific host, updating</summary>
 
 <br>
 
-`iex` runs the **text** of the script, and a `param()` block receives nothing that way. To pass options, use a scriptblock:
-
 ```powershell
-& ([scriptblock]::Create((irm .../install.ps1))) -Vault "C:\My Vault" -Hosts claude-desktop -ReadOnly
-& ([scriptblock]::Create((irm .../installer/install.ps1))) --vault "C:\My Vault" --hosts claude-desktop
+& ([scriptblock]::Create((irm .../bootstrap/install.ps1))) --vault "C:\My Vault" --hosts claude-desktop --yes
 ```
 
 ```bash
-curl -fsSL .../installer/install.bash | bash -s -- --vault "/path/to/vault" --yes
+curl -fsSL .../bootstrap/install.sh | sh -s -- --vault "/path/to/vault" --yes
 ```
 
-| Root | `installer/` | Effect |
-|---|---|---|
-| `-Vault` | `--vault` | Vault to serve. Repeatable, or several comma-separated. |
-| `-Hosts` | `--hosts` | Configure only these hosts, no menu. |
-| `-Version` | `--version` | A specific release. Default: the latest. |
-| `-InstallDir` | `--install-dir` | Where to put the binary. |
-| `-ReadOnly` | `--read-only` | Register with `--read-only`. |
-| `-Yes` | `--yes`, `-y` | Ask nothing. Requires the vault. |
-| `-NoPath` | `--no-path` | Leave `PATH` alone. |
-| — | `--force` | Reinstall even if already present. |
+| Flag | Effect |
+|---|---|
+| `--vault` | Vault to serve. Without it, the installer reads Obsidian's own vault registry and asks. |
+| `--hosts` | Configure only these hosts, no menu. `none` configures none. |
+| `--install-dir` | Where to put the binary. Default is inside the user profile — **it never asks for elevation**. |
+| `--read-only` | Register the server with `--read-only`. |
+| `--yes` | Ask nothing: install, add to `PATH`, configure every detected host. |
+| `--no-path` | Leave `PATH` alone. |
 
 Accepted hosts: `claude-desktop`, `claude-code`, `gemini-cli`, `antigravity`, `antigravity-ide`, `codex`, `vscode`, `cursor`, `windsurf`.
 
-Environment variables work in both installers too: `GOBSIDIAN_VAULT`, `GOBSIDIAN_VERSION`, `GOBSIDIAN_INSTALL_DIR`.
+Environment variables also work: `GOBSIDIAN_VAULT`, `GOBSIDIAN_INSTALL_DIR`.
+
+**The other subcommands:**
+
+| Command | What it does |
+|---|---|
+| `gobsidian update` | Checks the published version, downloads it, **verifies the SHA-256 and aborts on a mismatch**, then swaps the binary. `--check` only reports. |
+| `gobsidian path --add` / `--remove` | Only the `PATH` entry. |
+| `gobsidian vaults` | Only the host configuration — switch vault without reinstalling. |
+| `gobsidian doctor --fix` | Reports who is serving each vault right now, and removes leftovers it can prove are orphaned. |
+
+The SHA-256 check lives in `update`, not in the bootstrap, and that is
+deliberate: the check that matters is the **old** binary verifying the **new**
+one. A binary cannot credibly verify itself once it is already running.
+
+Installing and updating **end every running `gobsidian` process** — they list
+PID and vault first and ask, and refusing aborts. A global lock keeps anything
+from starting mid-swap, and the MCP hosts restart their servers on their own
+afterwards; measured on 2026-09-07, that took 15 seconds.
 
 </details>
 

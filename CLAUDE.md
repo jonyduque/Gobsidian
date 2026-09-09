@@ -95,9 +95,18 @@ internal/
   daemon/          N conexões sobre um índice; spawn; posse por trava do
                    kernel (flock / LockFileEx), nunca por arquivo com PID
   doctor/          diagnóstico de ambiente e do runtime do daemon
+  instalar/        o instalador dentro do binário: presença por trava de
+                   kernel, trava global de instalação, limpeza de lixo órfão,
+                   manifesto, PATH e a sequência de troca do binário
+  hosts/           os 9 hosts MCP: onde mora o config de cada um e como fundir
+                   a entrada preservando o resto do JSON do usuário
+  selfupdate/      release, SHA-256 e download; ÚNICO pacote com net/http
   text/            normalização
 docs/              normativa, papéis, história, wiki
 testdata/          golden files do parser, cofre pequeno, corpus de paridade
+bootstrap/         install.sh, install.ps1 e install.nu — baixam o executável
+                   e o rodam, e nada mais (126 linhas no total, contra as
+                   1.803 dos instaladores que substituíram)
 tools/             netcheck (analisador da RNF-30); parity-dumper (plugin de
                    dev do Obsidian, não é produto)
 scripts/           gates e utilitários PowerShell — ver Comandos
@@ -126,7 +135,41 @@ mcpsrv   → config, index, parser, service, vault
 boot     → config, index, lifecycle, search, service, vault, watcher
 daemon   → config, ipc, mcpsrv
 doctor   → config, daemon, ipc, vault
+hosts      → (folha)
+selfupdate → (folha)
+instalar   → config, daemon, hosts, ipc, search
 ```
+
+Os três últimos são de 2026-09-08 (plano do instalador, tasks 195–201), e as
+justificativas de cada aresta:
+
+`hosts` é **folha**: ele recebe a raiz do sistema de arquivos e o comando a
+registrar por parâmetro. Escreve JSON genérico e não sabe o que é uma tool —
+por isso não importa `mcpsrv` nem `service`, e não vai importar.
+
+`selfupdate` também é **folha** — nenhuma aresta interna. Ele é o **único
+pacote do produto com `net/http`**, sob a segunda exceção nomeada da RNF-30
+(PRD §6.4, decisão D-13 do dono em 2026-09-08), e a lista de hosts que pode
+alcançar é uma constante dele. `serve`, `daemon` e as tools **não o importam**:
+servir um cofre nunca toca a rede, e é `cmd/gobsidian/update.go` o único
+chamador.
+
+(A primeira redação deste bloco escrevia `selfupdate → config`. Os imports
+reais dizem folha; `GOOS=windows go list -f '{{.Imports}}'` foi rodado antes de
+o parágrafo ficar.)
+
+`instalar → daemon` reusa `TentarTravar`, a primitiva de trava de kernel que já
+existe — a presença de processos e a trava global são a MESMA primitiva
+respondendo duas perguntas diferentes. Escrever uma segunda trava seria duas
+contas da mesma regra. `instalar → ipc` é o diretório de runtime
+(`ipc.RuntimeDir`) e a sonda de ouvinte (`ipc.AlguemEscuta`), as duas contas do
+`ipc`. `instalar → search` é `LerCabecalhoDoCache`: decidir se um cache ficou
+órfão exige o caminho do cofre, que só o cabeçalho do cache guarda, e o formato
+dele é de `search`. `instalar → config` é `VaultKey` e a raiz do cache.
+
+`instalar` é importado **só** por `cmd/gobsidian`, como `boot`. E `doctor` NÃO
+importa `instalar`: quem relata processos e lixo é o comando, não o pacote de
+diagnóstico — `doctor` responde sobre o AMBIENTE.
 
 `boot` é de 2026-09-06 (Task 174) e nasceu sem aresta nova nenhuma: as seis
 eram exatamente as que `cmd/gobsidian` já tinha. A sequência de boot — cofre,

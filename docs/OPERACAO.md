@@ -2054,6 +2054,8 @@ está em `INFO` no stderr do servidor.
 
 ### O que foi feito, e o que NÃO foi
 
+**Nota de 2026-09-08: os dois instaladores citados abaixo NÃO EXISTEM MAIS.** `install.ps1` e `installer/` foram apagados quando o instalador virou subcomando do próprio binário (decisão D-01). O parágrafo fica porque descreve o defeito e a correção que motivaram o comportamento que `internal/instalar` herdou — perguntar antes de encerrar, e limpar só o que é comprovadamente órfão. Hoje as duas coisas têm teste, o que nenhum dos dois scripts tinha.
+
 Os dois instaladores (`install.ps1` e `installer/install.js`) passaram a:
 
 - **perguntar antes de matar**, listando PID e cofre de cada processo, e abortar
