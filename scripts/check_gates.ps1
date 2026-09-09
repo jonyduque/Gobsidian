@@ -390,6 +390,59 @@ try {
             -Esperado 'recusado' -Obtido 'mutante-nao-aplicou'
     }
 
+    # A terceira invariante, de 2026-09-09: pin de Go ABAIXO da diretiva do
+    # go.mod. Com GOTOOLCHAIN=local o job nao degrada -- ele para com "go.mod
+    # requires go >= X". Foi o que derrubou onze dos catorze jobs do CI no dia
+    # em que a diretiva subiu para 1.27.0, com ci.yml e bench.yml ainda em
+    # '1.25'. O gate passou, porque ele fixa 1.27.1 -- e passar sozinho ao lado
+    # de onze vermelhos e o pior sinal possivel.
+    #
+    # Pins-Raiz nao copia o go.mod, entao esta invariante precisa da raiz
+    # inteira: e o unico caso que compara arquivo de workflow com o go.mod.
+    function Pins-RaizComGoMod {
+        param([string]$Arquivo, [string]$De, [string]$Para)
+        $tmp = Join-Path ([IO.Path]::GetTempPath()) ("pinsgo_" + [guid]::NewGuid().ToString('N'))
+        New-Item -ItemType Directory -Path (Join-Path $tmp 'scripts') -Force | Out-Null
+        New-Item -ItemType Directory -Path (Join-Path $tmp '.github/workflows') -Force | Out-Null
+        Copy-Item (Join-Path $ProjectRoot 'scripts/verify.ps1') (Join-Path $tmp 'scripts/verify.ps1')
+        Copy-Item (Join-Path $ProjectRoot 'go.mod') (Join-Path $tmp 'go.mod')
+        Copy-Item (Join-Path $ProjectRoot '.github/workflows/*.yml') (Join-Path $tmp '.github/workflows')
+        $alvo = Join-Path $tmp $Arquivo
+        $texto = Get-Content -Path $alvo -Raw -Encoding UTF8
+        if ($texto -notmatch [regex]::Escape($De)) { return $null }
+        # So a PRIMEIRA ocorrencia: trocar todas deixaria o arquivo coerente
+        # consigo mesmo de novo, e o caso passaria sem ter mutado nada util --
+        # o erro que a primeira versao do caso do release ja cometeu.
+        $i = $texto.IndexOf($De)
+        $novo = $texto.Substring(0, $i) + $Para + $texto.Substring($i + $De.Length)
+        [IO.File]::WriteAllText($alvo, $novo, (New-Object Text.UTF8Encoding($false)))
+        return $tmp
+    }
+
+    $p3 = Pins-RaizComGoMod '.github/workflows/ci.yml' "go-version: '1.27.1'" "go-version: '1.25'"
+    if ($p3) {
+        Caso -Nome 'pin de Go abaixo da diretiva do go.mod -> recusado' `
+            -Esperado 'recusado' -Obtido (Pins-Resultado $p3)
+        Remove-Item $p3 -Recurse -Force -ErrorAction SilentlyContinue
+    }
+    else {
+        Caso -Nome 'pin de Go abaixo da diretiva do go.mod -> recusado' `
+            -Esperado 'recusado' -Obtido 'mutante-nao-aplicou'
+    }
+
+    # O inverso: pin ACIMA da diretiva e legitimo, e recusa-lo tornaria
+    # impossivel testar numa toolchain nova antes de subir a diretiva.
+    $p4 = Pins-RaizComGoMod '.github/workflows/ci.yml' "go-version: '1.27.1'" "go-version: '1.28.0'"
+    if ($p4) {
+        Caso -Nome 'pin de Go acima da diretiva -> aceito' `
+            -Esperado 'aceito' -Obtido (Pins-Resultado $p4)
+        Remove-Item $p4 -Recurse -Force -ErrorAction SilentlyContinue
+    }
+    else {
+        Caso -Nome 'pin de Go acima da diretiva -> aceito' `
+            -Esperado 'aceito' -Obtido 'mutante-nao-aplicou'
+    }
+
     # O outro: o gate do release deixa de cobrar a toolchain que compila.
     # DEZ espacos: a linha do job de build. A do gate tem seis. Sem essa
     # distincao o -replace trocaria as DUAS -- e elas voltariam a concordar,

@@ -734,6 +734,21 @@ propósito: os dois arquivos citam versões antigas para justificar a conferênc
 e um gate que as tratasse como pin reprovaria para sempre — e gate que reprova
 sempre é desligado na primeira semana.
 
+**Pin de toolchain abaixo da diretiva não degrada — ele para o job.** Em
+2026-09-09 a diretiva do `go.mod` subiu para `go 1.27.0` e `ci.yml` e
+`bench.yml` continuaram fixando `'1.25'` em dez lugares. Com `GOTOOLCHAIN=local`
+— que o `setup-go` exporta de propósito, para que a toolchain instalada seja a
+que compila — não há fallback: o job morre com `go.mod requires go >= 1.27.0
+(running go 1.25.14; GOTOOLCHAIN=local)`. **Onze dos catorze jobs caíram.**
+
+O que torna isso pior que uma quebra comum é qual job passou: o `gate / verify`,
+que fixa 1.27.1 e roda o `verify.ps1` inteiro, ficou **verde**. Um gate verde ao
+lado de onze vermelhos convida a procurar a causa em qualquer lugar menos na
+configuração. `check_pins.ps1` ganhou a terceira invariante — todo `go-version`
+de todo workflow satisfaz a diretiva — e o inverso também é caso: pin **acima**
+da diretiva é legítimo, e recusá-lo impediria testar numa toolchain nova antes
+de subir a diretiva.
+
 **Revisor "somente leitura" sobrescreveu uma fixture.** Ao montar um caso ad
 hoc, uma re-revisão redirecionou saída para
 `scripts/testdata/gates/msg-sem-escotilha.txt`; o gate teria continuado verde

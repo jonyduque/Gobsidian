@@ -25,6 +25,21 @@
        garantia isso. As duas ja divergiram nesta sessao, quando o gate ficou
        no piso do go.mod e o build subiu para 1.27.1.
 
+    3. TODO PIN DE GO SATISFAZ A DIRETIVA DO go.mod.
+
+       Os workflows fixam a versao do Go com `go-version:` e o setup-go
+       exporta GOTOOLCHAIN=local -- de proposito, para que a toolchain
+       instalada seja a que compila, e nao uma que o go.mod baixe por conta.
+       O preco disso e que um pin ABAIXO da diretiva nao degrada: ele para o
+       job com "go.mod requires go >= X (running Y; GOTOOLCHAIN=local)".
+
+       Aconteceu em 2026-09-09, no mesmo dia em que a diretiva subiu para
+       1.27.0: ci.yml e bench.yml continuaram fixando '1.25' em dez lugares, e
+       o CI caiu em ONZE dos catorze jobs. O unico que passou foi o gate, que
+       fixa 1.27.1 -- e passar deu a impressao errada, porque ele e justamente
+       quem roda o verify inteiro. Um gate verde ao lado de onze jobs vermelhos
+       e o pior sinal possivel.
+
     COMENTARIO NAO E PIN. Os dois arquivos citam versoes antigas de proposito
     -- a v1.64.8 que recusava um go.mod declarando 1.25.0, a v2.12.2 que
     entrava em panic com a toolchain 1.27 -- e essas mencoes sao a historia que
@@ -52,8 +67,9 @@ $Verify = Join-Path $Raiz 'scripts/verify.ps1'
 $CI = Join-Path $Raiz '.github/workflows/ci.yml'
 $Gate = Join-Path $Raiz '.github/workflows/gate.yml'
 $Release = Join-Path $Raiz '.github/workflows/release.yml'
+$GoMod = Join-Path $Raiz 'go.mod'
 
-foreach ($f in @($Verify, $CI, $Gate, $Release)) {
+foreach ($f in @($Verify, $CI, $Gate, $Release, $GoMod)) {
     if (-not (Test-Path $f)) {
         Write-Output "[!] arquivo ausente: $f"
         exit 1
@@ -131,6 +147,46 @@ else {
     }
 }
 
+# ----------------------------------------------------------------------
+# 3. todo pin de Go satisfaz a diretiva do go.mod
+# ----------------------------------------------------------------------
+#
+# Versao como numero comparavel: '1.27.1' -> 1.027001. Partes ausentes valem
+# zero, entao '1.25' e 1.25.0 -- que e como o proprio Go a le.
+function ComoNumero {
+    param([string]$V)
+    $p = @($V -split '\.')
+    $n = 0.0
+    for ($i = 0; $i -lt 3; $i++) {
+        $parte = 0
+        if ($i -lt $p.Count) { [void][int]::TryParse($p[$i], [ref]$parte) }
+        $n += $parte / [math]::Pow(1000, $i)
+    }
+    return $n
+}
+
+$TextoGoMod = Get-Content -Path $GoMod -Raw -Encoding UTF8
+$mDiretiva = [regex]::Match($TextoGoMod, '(?m)^go\s+(?<v>\d+(\.\d+)*)\s*$')
+if (-not $mDiretiva.Success) {
+    $Problemas += "nao achei a diretiva 'go' no go.mod"
+}
+else {
+    $diretiva = $mDiretiva.Groups['v'].Value
+    $alvo = ComoNumero $diretiva
+    foreach ($y in @('ci.yml', 'gate.yml', 'release.yml', 'bench.yml')) {
+        $caminho = Join-Path $Raiz ".github/workflows/$y"
+        if (-not (Test-Path $caminho)) { continue }
+        $codigo = SemComentarios $caminho
+        foreach ($m in [regex]::Matches($codigo, "(?m)(?:go-version:\s*|default:\s*)'(?<v>\d+(\.\d+)*)'")) {
+            $v = $m.Groups['v'].Value
+            if ((ComoNumero $v) -lt $alvo) {
+                $Problemas += "$y fixa Go $v, abaixo da diretiva go $diretiva do go.mod"
+                $Problemas += "    com GOTOOLCHAIN=local o job nao degrada: ele para com 'go.mod requires go >= $diretiva'"
+            }
+        }
+    }
+}
+
 if ($Problemas.Count -gt 0) {
     Write-Output "[!] pins inconsistentes:"
     $Problemas | ForEach-Object { Write-Output "     $_" }
@@ -138,6 +194,6 @@ if ($Problemas.Count -gt 0) {
 }
 
 if (-not $Silencioso) {
-    Write-Output "[OK] pins concordam: golangci-lint $($Versoes[0]); release cobra e compila com a mesma toolchain ($($Gos[0]))"
+    Write-Output "[OK] pins concordam: golangci-lint $($Versoes[0]); release cobra e compila com a mesma toolchain ($($Gos[0])); todo pin de Go satisfaz a diretiva go $diretiva"
 }
 exit 0
