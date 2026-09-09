@@ -4,10 +4,12 @@ import (
 	"context"
 	"log/slog"
 	"os"
+	"path/filepath"
 	"time"
 
 	"github.com/jonyd/gobsidian/internal/boot"
 	"github.com/jonyd/gobsidian/internal/config"
+	"github.com/jonyd/gobsidian/internal/instalar"
 	"github.com/jonyd/gobsidian/internal/ipc"
 	"github.com/jonyd/gobsidian/internal/lifecycle"
 	"github.com/jonyd/gobsidian/internal/mcpsrv"
@@ -75,8 +77,57 @@ func runServe(parent context.Context, cfg config.Config) error {
 	// corrompe a sessao.
 	log := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: cfg.LogLevel}))
 
+	if sair := recusarDuranteInstalacao(log, "serve"); sair {
+		os.Exit(0)
+	}
+
+	// A presenca e o que responde "quem esta servindo este cofre agora?".
+	//
+	// Em 2026-09-08 havia dois processos servindo o cofre Estudo e gravando o
+	// mesmo inverted_cache.gob, e a unica forma de descobrir isso foi comparar
+	// milissegundos entre linhas de log duplicadas. Nenhum comando respondia a
+	// pergunta. Ver internal/instalar/presenca.go para por que trava de kernel
+	// e nao enumeracao de processos.
+	//
+	// Falha ao registrar NAO impede servir: presenca e diagnostico, e um
+	// diretorio de runtime inacessivel nao pode derrubar o servidor.
+	// RegistrarAteMorrer, e nao Registrar + defer: runServe termina em os.Exit,
+	// e defer nao roda depois dele -- o golangci-lint acusou exatamente isso.
+	// Quem solta a trava e o kernel, quando o processo morre, que e o mecanismo
+	// inteiro deste desenho.
+	if dir, err := instalar.DiretorioDeRuntime(); err == nil {
+		if err := instalar.RegistrarAteMorrer(dir, cfg.VaultPath, "serve", version); err != nil {
+			log.Debug("nao foi possivel registrar presenca", "err", err)
+		}
+	}
+
 	os.Exit(shutdownExitCode(servePonte(parent, cfg, log)))
 	return nil
+}
+
+// recusarDuranteInstalacao faz o processo sair na hora se houver uma instalacao
+// em curso, e diz por que.
+//
+// Sai com codigo ZERO, de proposito. Instalacao em curso nao e falha do
+// servidor, e um codigo de erro faria o host MCP tentar de novo em laco durante
+// os segundos da troca -- transformando uma pausa curta numa tempestade de
+// processos que o instalador teria de encerrar um a um.
+//
+// Erro ao consultar a trava devolve false (ver instalar.InstalacaoEmCurso): nao
+// poder perguntar nao pode impedir o produto de subir.
+func recusarDuranteInstalacao(log *slog.Logger, papel string) bool {
+	dir, err := instalar.DiretorioDeRuntime()
+	if err != nil {
+		return false
+	}
+	if !instalar.InstalacaoEmCurso(dir) {
+		return false
+	}
+	log.Warn("instalacao em curso; este processo nao vai subir",
+		"papel", papel,
+		"trava", filepath.Join(dir, instalar.NomeDaTravaGlobal),
+		"o_que_fazer", "o host vai reiniciar o servidor sozinho quando a instalacao terminar")
+	return true
 }
 
 // serveEmProcesso monta o indice, o watcher e o servidor MCP dentro deste

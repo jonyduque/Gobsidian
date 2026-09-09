@@ -28,7 +28,7 @@ func TestAjudanteSeguraTrava(t *testing.T) {
 		t.Skip("processo auxiliar; roda so quando o teste pai o invoca")
 	}
 
-	trava, tomou, err := tentarTravar(path)
+	trava, tomou, err := TentarTravar(path)
 	if err != nil || !tomou {
 		_, _ = os.Stdout.WriteString("FALHOU\n")
 		os.Exit(1)

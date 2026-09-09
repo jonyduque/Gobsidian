@@ -17,6 +17,7 @@ import (
 	"github.com/jonyd/gobsidian/internal/boot"
 	"github.com/jonyd/gobsidian/internal/config"
 	"github.com/jonyd/gobsidian/internal/daemon"
+	"github.com/jonyd/gobsidian/internal/instalar"
 	"github.com/jonyd/gobsidian/internal/lifecycle"
 	"github.com/jonyd/gobsidian/internal/mcpsrv"
 	"github.com/spf13/cobra"
@@ -180,6 +181,25 @@ func runDaemon(parent context.Context, cfg config.Config, ociosidade time.Durati
 	// sonda e o bind nao sao atomicos entre si: dois daemons lancados no mesmo
 	// instante podem ambos sondar "ninguem escuta" antes de qualquer um bindar.
 	// E o item 4 do brief da Task 126, a metade que a prova de orfao nao fecha.
+	// Antes de qualquer coisa: se ha instalacao em curso, este processo nao
+	// sobe. Ver recusarDuranteInstalacao (serve.go) para por que a saida e
+	// codigo zero.
+	//
+	// O daemon precisa disto tanto quanto o serve, e por um motivo proprio: ele
+	// e lancado por uma ponte que ja saiu, entao ninguem estaria olhando se ele
+	// subisse no meio da troca do binario.
+	if recusarDuranteInstalacao(log, "daemon") {
+		return nil
+	}
+
+	// A MESMA forma de serve.go, e nao um defer: a trava tem de sobreviver ao
+	// coletor de lixo pela vida do processo, e quem a solta e o kernel.
+	if dir, err := instalar.DiretorioDeRuntime(); err == nil {
+		if err := instalar.RegistrarAteMorrer(dir, cfg.VaultPath, "daemon", version); err != nil {
+			log.Debug("nao foi possivel registrar presenca", "err", err)
+		}
+	}
+
 	ln, sockPath, err := daemon.EscutarComLock(cfg.VaultPath)
 	if err != nil {
 		// Todo caminho de saida do daemon loga a causa ANTES de sair.

@@ -23,7 +23,7 @@ import (
 //
 // O byte 0 tambem e lido aqui, mas por outro motivo: no Unix o flock nao
 // bloqueia leitura nenhuma, entao a assercao nao prende o desenho da trava —
-// prende que tentarTravar de fato grava o PID depois de tomar a trava, que e
+// prende que TentarTravar de fato grava o PID depois de tomar a trava, que e
 // o que `doctor` mostra.
 func TestTravaDoKernelEntreProcessos(t *testing.T) {
 	cofre := t.TempDir()

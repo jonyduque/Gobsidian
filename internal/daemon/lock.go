@@ -98,7 +98,7 @@ func adquirirLock(vaultPath string) (adquiriu bool, liberar func(), err error) {
 	if err != nil {
 		return false, nil, err
 	}
-	trava, tomou, err := tentarTravar(path)
+	trava, tomou, err := TentarTravar(path)
 	if err != nil {
 		return false, nil, err
 	}
@@ -204,7 +204,7 @@ func ComLockDeEscuta(vaultPath string, fn func() error) error {
 	// cofre — a licao do byAlias que config.VaultKey registra.
 	path := sock + sufixoTravaDeEscuta
 
-	trava, tomou, err := tentarTravar(path)
+	trava, tomou, err := TentarTravar(path)
 	if err != nil {
 		return err
 	}

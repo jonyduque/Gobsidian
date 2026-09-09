@@ -82,7 +82,7 @@ type Conn interface {
 // concordam de proposito. Um cofre, um socket; cofres diferentes nunca
 // colidem.
 func SocketPath(vaultPath string) (string, error) {
-	dir, err := runtimeDir()
+	dir, err := RuntimeDir()
 	if err != nil {
 		return "", fmt.Errorf("diretorio de runtime do usuario: %w", err)
 	}
@@ -130,7 +130,7 @@ func Listen(vaultPath string) (net.Listener, string, error) {
 	// O handshake carrega checagem de versao e de config, e recusaria um
 	// daemon vivo de outra versao — que e justamente o caso em que NAO se pode
 	// roubar o socket dele.
-	if alguemEscuta(path) {
+	if AlguemEscuta(path) {
 		return nil, "", fmt.Errorf("ja ha um daemon ativo em %s", path)
 	}
 	if err := cleanupSocketFile(path); err != nil {
@@ -149,7 +149,7 @@ func Listen(vaultPath string) (net.Listener, string, error) {
 	return ln, path, nil
 }
 
-// alguemEscuta diz se ha um ouvinte vivo no socket.
+// AlguemEscuta diz se ha um ouvinte vivo no socket.
 //
 // Nao interpreta o erro: qualquer falha de dial — recusa, argumento invalido,
 // caminho ausente — significa "nao esta servindo". Ver o comentario em Listen
@@ -160,7 +160,7 @@ func Listen(vaultPath string) (net.Listener, string, error) {
 // do RNF-30 funcionando. Nao ha perda: connect() num socket de dominio Unix
 // resolve na hora, sem a espera de rede que faz um dial TCP precisar de prazo.
 // Um socket sem ouvinte devolve recusa imediatamente.
-func alguemEscuta(path string) bool {
+func AlguemEscuta(path string) bool {
 	c, err := net.Dial("unix", path)
 	if err != nil {
 		return false
