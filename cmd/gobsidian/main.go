@@ -8,10 +8,12 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"os"
 
 	"github.com/jonyd/gobsidian/internal/console"
+	"github.com/jonyd/gobsidian/internal/instalar"
 	"github.com/jonyd/gobsidian/internal/mcpsrv"
 	"github.com/spf13/cobra"
 )
@@ -56,7 +58,22 @@ func newRootCmd() *cobra.Command {
 		SilenceErrors: true,
 	}
 
-	root.AddCommand(newServeCmd(), newDoctorCmd(), newVersionCmd(), newIndexCmd(), newSearchCmd(), newInspectCmd(), newDaemonCmd())
+	root.AddCommand(
+		newServeCmd(), newDoctorCmd(), newVersionCmd(), newIndexCmd(),
+		newSearchCmd(), newInspectCmd(), newDaemonCmd(),
+		newInstallCmd(), newUpdateCmd(), newPathCmd(), newVaultsCmd(),
+	)
+
+	// Sem argumentos: autoinstala, ou mostra a ajuda (decisao D-11 do dono).
+	//
+	// O executavel baixado e clicado precisa fazer algo util. Mas a
+	// autoinstalacao so dispara com DUAS condicoes juntas: nao estar instalado
+	// E haver um terminal do outro lado. A segunda existe porque um host MCP
+	// que invocasse o binario sem argumento -- nenhum faz hoje, todos passam
+	// `serve --vault` -- dispararia uma instalacao no meio de uma sessao.
+	root.RunE = func(cmd *cobra.Command, _ []string) error {
+		return semArgumentos(cmd)
+	}
 
 	// A ajuda formatada e instalada na arvore inteira. Isto nao alcanca o
 	// stdout de `serve`: o cobra so imprime ajuda quando --help e pedido, e
@@ -74,4 +91,62 @@ func newVersionCmd() *cobra.Command {
 			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "gobsidian %s (%s) %s\n", version, commit, buildDate)
 		},
 	}
+}
+
+// terminalInterativoFn e instalar.TerminalInterativo numa variavel, para o
+// teste poder exercitar os dois lados de D-11 sem um pseudo-terminal. Producao
+// nunca a troca -- o mesmo padrao de iniciarDaemonFn em ponte.go.
+var terminalInterativoFn = instalar.TerminalInterativo
+
+// rodarInstalacaoFn e o que semArgumentos chama quando decide autoinstalar.
+//
+// Injetavel, e a razao e um defeito que aconteceu de verdade em 2026-09-08: a
+// primeira versao do teste de D-11 chamava a instalacao REAL. Ela leu o
+// registro do Obsidian, escolheu um cofre, detectou seis hosts de IA e
+// reescreveu a configuracao dos seis para apontar para o BINARIO DE TESTE --
+// alem de acrescentar o diretorio ao PATH do usuario. O estrago foi desfeito
+// pelos backups que hosts.Fundir grava, mas o teste nunca deveria ter podido
+// causa-lo.
+//
+// O que D-11 decide e SE instala, e e isso que o teste exercita. Que a
+// instalacao em si funciona e assunto de internal/instalar, onde tudo que toca
+// a maquina e injetado.
+var rodarInstalacaoFn = rodarInstalacao
+
+// estaInstaladoFn idem, pelo mesmo motivo: o teste precisa dos quatro
+// cruzamentos (instalado x nao, interativo x nao), e tres deles nao dependem de
+// instalar nada de verdade.
+var estaInstaladoFn = func() (bool, error) {
+	instalado, _, err := instalar.EstaInstalado()
+	return instalado, err
+}
+
+// semArgumentos decide o que `gobsidian` sozinho faz.
+//
+// A deteccao de "instalado" e mecanica (instalar.EstaInstalado): existe
+// manifesto E o executavel corrente e o arquivo que ele registra, comparado por
+// os.SameFile -- que atravessa link, junction e diferenca de grafia sem depender
+// de normalizacao de caminho.
+//
+// Qualquer duvida cai na AJUDA, nunca na instalacao. Instalar por engano mexe no
+// PATH e na configuracao de hosts do usuario; mostrar ajuda por engano nao custa
+// nada.
+func semArgumentos(cmd *cobra.Command) error {
+	instalado, err := estaInstaladoFn()
+	if err != nil && !errors.Is(err, instalar.ErrSemManifesto) {
+		return cmd.Help()
+	}
+	if instalado || !terminalInterativoFn() {
+		return cmd.Help()
+	}
+
+	con := console.New(cmd.OutOrStdout())
+	con.Step("gobsidian ainda nao esta instalado nesta maquina")
+	con.Detail("este executavel vai se instalar em %s", instalar.DiretorioPadrao())
+	con.Detail("para so ver a ajuda, rode `gobsidian --help`")
+
+	var o opcoesDeInstalacao
+	o.vault = os.Getenv("GOBSIDIAN_VAULT")
+	o.installDir = os.Getenv("GOBSIDIAN_INSTALL_DIR")
+	return rodarInstalacaoFn(cmd.Context(), cmd, &o, "")
 }

@@ -295,3 +295,30 @@ func TestEstaInstaladoResponsePelaIdentidadeDoArquivo(t *testing.T) {
 		t.Error("EstaInstalado() nao devolveu o manifesto que leu")
 	}
 }
+
+// TestConfigurarHostsDistingueNenhumDeDetectar: `--hosts none` tem de
+// configurar ZERO hosts. Com uma condicao `len(o.Hosts) > 0`, a fatia vazia
+// cairia na deteccao e `none` configuraria tudo -- o oposto do que ele diz.
+func TestConfigurarHostsDistingueNenhumDeDetectar(t *testing.T) {
+	var detectou bool
+	amb := hosts.Ambiente{
+		Home: t.TempDir(),
+		Existe: func(string) bool {
+			detectou = true
+			return false
+		},
+		TemComando: func(string) bool {
+			detectou = true
+			return false
+		},
+		Rodar: func(string, ...string) error { return nil },
+	}
+
+	ok, falhos := configurarHosts(Opcoes{Hosts: []string{}, Ambiente: &amb}, "bin")
+	if len(ok) != 0 || len(falhos) != 0 {
+		t.Errorf("--hosts none configurou algo: ok=%v falhos=%v", ok, falhos)
+	}
+	if detectou {
+		t.Error("--hosts none disparou a deteccao de hosts")
+	}
+}

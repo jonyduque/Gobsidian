@@ -712,3 +712,27 @@ analisar linha nenhuma. O CI fixa `v2.12.2` de propósito. Confira
 nenhum outro cabeçalho o interrompe. Medido: um brief saiu com 33.421 bytes
 contra 3.625–4.425 das irmãs. Por isso existe a sentinela `# Task 000` no fim do
 plano — **mova-a para depois da última tarefa** ao acrescentar tarefas.
+
+**Teste de comando de CLI que chega ao código que muda a máquina.** Em
+2026-09-08, o teste da decisão D-11 (`gobsidian` sem argumentos se autoinstala
+quando não está instalado) chamava a instalação **de verdade**. Ele leu o
+registro de cofres do Obsidian, escolheu um cofre, detectou seis hosts de IA e
+**reescreveu a configuração dos seis** para apontar para o binário de teste,
+além de acrescentar o diretório ao PATH do usuário e gravar um manifesto. O
+subteste levou **25,6 s** — a duração foi o que denunciou.
+
+O estrago foi desfeito por inteiro porque `hosts.Fundir` grava um
+`.gobsidian-backup` antes de tocar em qualquer arquivo, e os três JSON puderam
+ser restaurados byte a byte; os três hosts de CLI foram desregistrados pelos
+próprios CLIs. Mas o teste nunca deveria ter podido causá-lo.
+
+A regra: **um teste de comando não pode alcançar a função que escreve fora do
+`t.TempDir()`**. Onde a decisão é o que se quer provar — e em D-11 é: a
+pergunta é *se* instala, não *como* —, a função que age vira variável de pacote
+e o teste a substitui por um gravador. Que a instalação funciona é assunto do
+pacote que a implementa, onde tudo que toca a máquina é injetado.
+
+Sintomas de que um teste está fazendo isso: duração que não bate com o que ele
+afirma; `t.TempDir()` presente mas nenhum caminho de saída passando por ele;
+e o teste passar mesmo quando a asserção é fraca, porque o trabalho real
+aconteceu em outro lugar.

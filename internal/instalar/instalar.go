@@ -354,9 +354,17 @@ func configurarHosts(o Opcoes, binario string) (ok, falhos map[string]string) {
 	}
 	entrada := hosts.Entrada{Command: binario, Args: args}
 
-	alvos := hosts.Detectar(amb)
-	if len(o.Hosts) > 0 {
-		alvos = nil
+	// != nil, e nao len() > 0: uma fatia VAZIA significa "nenhum host", e uma
+	// fatia NULA significa "detecte voce". Com len() > 0 as duas cairiam na
+	// deteccao, e `--hosts none` configuraria tudo -- o oposto do que ele diz.
+	//
+	// A deteccao so roda no ramo que a USA: ela chama exec.LookPath e percorre
+	// diretorios, e fazer isso para descartar o resultado e trabalho que o
+	// usuario paga sem receber nada.
+	var alvos []hosts.Host
+	if o.Hosts == nil {
+		alvos = hosts.Detectar(amb)
+	} else {
 		for _, chave := range o.Hosts {
 			h, existe := hosts.PorChave(chave)
 			if !existe {
@@ -376,4 +384,15 @@ func configurarHosts(o Opcoes, binario string) (ok, falhos map[string]string) {
 		ok[h.Chave] = aviso
 	}
 	return ok, falhos
+}
+
+// ConfigurarHosts registra o servidor nos hosts pedidos, sem reinstalar nada.
+//
+// E o que `gobsidian vaults` chama: trocar de cofre ou acrescentar um host nao
+// exige encerrar processo, mexer no PATH nem tocar no binario -- e uma
+// instalacao inteira para isso seria desproporcional.
+//
+// chaves nil significa "os detectados"; uma fatia vazia significa "nenhum".
+func ConfigurarHosts(binario, cofre string, readOnly bool, chaves []string) (ok, falhos map[string]string) {
+	return configurarHosts(Opcoes{Cofre: cofre, ReadOnly: readOnly, Hosts: chaves}, binario)
 }
