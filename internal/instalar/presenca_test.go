@@ -168,3 +168,57 @@ func TestRegistrarAteMorrerMantemAPresencaViva(t *testing.T) {
 	// Idempotente, pela mesma razao que o desarmar do guarda-chuva.
 	LiberarPresenca()
 }
+
+// TestPresencaSomeNoEncerramentoLimpo cobre um defeito que o gate de orfaos
+// expos em 2026-09-09.
+//
+// A primeira versao deste pacote soltava a trava e DEIXAVA o arquivo. Rodando
+// os quatro cenarios do gate com 25 ciclos cada, o diretorio de runtime foi de
+// 6 para 130 arquivos de presenca -- a mesma forma do lixo de 960 `.lock` que
+// a limpeza deste mesmo pacote existe para varrer.
+//
+// Remover aqui NAO contradiz internal/daemon/trava.go. Aquele arquivo tem nome
+// fixo por cofre, e entre remover e recriar qualquer um entra; este tem o PID
+// no nome, e ninguem mais disputa este caminho.
+func TestPresencaSomeNoEncerramentoLimpo(t *testing.T) {
+	dir := t.TempDir()
+
+	liberar, err := Registrar(dir, `C:\Cofre`, "serve", "v1")
+	if err != nil {
+		t.Fatalf("Registrar() error = %v", err)
+	}
+	caminho := CaminhoDePresenca(dir, "serve", os.Getpid())
+	if _, err := os.Stat(caminho); err != nil {
+		t.Fatalf("o arquivo de presenca nao foi criado: %v", err)
+	}
+
+	liberar()
+
+	if _, err := os.Stat(caminho); !os.IsNotExist(err) {
+		t.Fatalf("o arquivo de presenca sobreviveu ao encerramento limpo (%v); "+
+			"em 100 ciclos isso vira 130 arquivos", err)
+	}
+}
+
+// TestPresencaDeMorteAbruptaFicaParaALimpeza e o outro lado: quem morre de
+// repente NAO roda a liberacao, e o arquivo tem de ficar -- sem trava, que e
+// exatamente o que Limpar reconhece como orfao. Sem este caso, uma remocao
+// agressiva demais apagaria a prova de que alguem esteve ali.
+func TestPresencaDeMorteAbruptaFicaParaALimpeza(t *testing.T) {
+	dir := t.TempDir()
+	orfa := filepath.Join(dir, "serve.31337"+SufixoDePresenca)
+	if err := os.WriteFile(orfa, []byte(`{"pid":31337,"papel":"serve"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	vivos, err := Vivos(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(vivos) != 0 {
+		t.Errorf("presenca sem trava contou como viva: %+v", vivos)
+	}
+	if _, err := os.Stat(orfa); err != nil {
+		t.Errorf("Vivos() apagou a presenca orfa; ela e trabalho da limpeza: %v", err)
+	}
+}

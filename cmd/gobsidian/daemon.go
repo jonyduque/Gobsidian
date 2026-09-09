@@ -199,6 +199,9 @@ func runDaemon(parent context.Context, cfg config.Config, ociosidade time.Durati
 		if err := instalar.RegistrarAteMorrer(dir, cfg.VaultPath, "daemon", version); err != nil {
 			log.Debug("nao foi possivel registrar presenca", "err", err)
 		}
+		// runDaemon retorna normalmente, entao aqui o defer roda. Em serve.go,
+		// que termina em os.Exit, a chamada e explicita.
+		defer instalar.LiberarPresenca()
 	}
 
 	ln, sockPath, err := daemon.EscutarComLock(cfg.VaultPath)

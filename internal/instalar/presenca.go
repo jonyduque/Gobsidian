@@ -97,7 +97,30 @@ func Registrar(runtimeDir, cofre, papel, versao string) (liberar func(), err err
 		return nil, fmt.Errorf("gravando presenca: %w", err)
 	}
 
-	return trava.Liberar, nil
+	// A liberacao solta a trava E REMOVE o arquivo.
+	//
+	// Aqui remover e seguro, e a diferenca em relacao a internal/daemon/trava.go
+	// -- que nunca remove -- e concreta: aquele arquivo tem nome FIXO por cofre,
+	// e entre remover e recriar qualquer um entra, que era a origem das corridas
+	// do esquema antigo. Este tem o PID no nome: ninguem mais disputa este
+	// caminho, nunca.
+	//
+	// E remover importa. Medido em 2026-09-09, rodando o gate de orfaos com 100
+	// ciclos: sem esta remocao o diretorio de runtime foi de 6 para 130 arquivos
+	// de presenca -- a mesma forma do lixo de 960 `.lock` que a limpeza deste
+	// mesmo pacote existe para varrer. Criar a segunda versao do problema que
+	// se acabou de consertar seria dificil de defender.
+	//
+	// A ordem e obrigatoria: soltar a trava (que fecha o descritor) ANTES de
+	// remover. O Windows recusa apagar um arquivo que o proprio processo mantem
+	// aberto -- foi assim que um teste deste plano passou pelo motivo errado.
+	//
+	// Morte abrupta nao roda isto, e nao precisa: o arquivo fica sem trava, e e
+	// exatamente o que Limpar reconhece como orfao.
+	return func() {
+		trava.Liberar()
+		_ = os.Remove(caminho)
+	}, nil
 }
 
 // presencaViva guarda a trava do processo corrente pela vida dele inteira.
@@ -130,13 +153,16 @@ func RegistrarAteMorrer(runtimeDir, cofre, papel, versao string) error {
 	return nil
 }
 
-// LiberarPresenca solta a presenca deste processo antes da hora.
+// LiberarPresenca solta a presenca deste processo e remove o arquivo dela.
 //
-// Producao nao a chama: o caminho normal e o processo morrer e o kernel soltar.
-// Ela existe para que a presenca seja TESTAVEL sem levantar um subprocesso, e
-// para que presencaViva tenha um leitor de verdade -- uma variavel so escrita
-// e, para qualquer analisador, indistinguivel de codigo morto, e silenciar o
-// aviso esconderia o dia em que ela virasse codigo morto de fato.
+// Producao CHAMA isto: `serve` antes do os.Exit e `daemon` por defer. Sem essas
+// duas chamadas o arquivo fica para sempre, e o gate de orfaos mediu o custo em
+// 2026-09-09 -- 100 ciclos levaram o diretorio de runtime de 6 para 130
+// arquivos de presenca, a mesma forma do lixo de 960 `.lock` que a limpeza
+// deste pacote existe para varrer.
+//
+// Morte abrupta nao chega aqui, e nao precisa: o arquivo fica sem trava, que e
+// o que Limpar reconhece como orfao.
 //
 // Idempotente: chamar duas vezes nao pode entrar em panic, pela mesma razao que
 // o desarmar de lifecycle.ArmarGuardaChuva.

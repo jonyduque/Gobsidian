@@ -102,7 +102,15 @@ func runServe(parent context.Context, cfg config.Config) error {
 		}
 	}
 
-	os.Exit(shutdownExitCode(servePonte(parent, cfg, log)))
+	codigo := shutdownExitCode(servePonte(parent, cfg, log))
+
+	// Antes do os.Exit, e nao por defer: defer nao roda depois de os.Exit.
+	// Sem esta linha o arquivo de presenca fica para sempre -- medido em
+	// 2026-09-09, 100 ciclos do gate de orfaos levaram o diretorio de runtime
+	// de 6 para 130 arquivos.
+	instalar.LiberarPresenca()
+
+	os.Exit(codigo)
 	return nil
 }
 
