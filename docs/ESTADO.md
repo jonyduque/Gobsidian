@@ -594,6 +594,15 @@ o quarto, que é exatamente o defeito que ela existe para impedir.
   20 h; a causa continua aberta. Para investigar de novo: compilar sem `-s -w`,
   instalar, e esperar a reprodução.
 
+  **Caminho novo, a partir de 2026-09-09:** o Go 1.27 traz um *goroutine leak
+  profile* — um tipo de perfil que reporta goroutine bloqueada num primitivo de
+  concorrência que **não pode mais ser desbloqueado**, detectado pelo coletor de
+  lixo. É exatamente a forma deste defeito: uma espera que nunca volta. Os
+  binários publicados passaram a ser compilados com 1.27.1 (ver
+  `.github/workflows/release.yml`), então o perfil está disponível no que o
+  usuário roda. Isto **não foi tentado ainda** — é um caminho anotado, não um
+  resultado.
+
   Nota de escopo: o cenário `daemon-idle` de `scripts/test_orphans.ps1` roda
   **100 ciclos no CI e passa**. Ele não pega este defeito — a hipótese, **não
   medida**, é que o cofre sintético do cenário é pequeno demais para exercitar

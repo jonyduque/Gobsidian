@@ -15,11 +15,25 @@ on:
       go-version:
         required: false
         type: string
-        default: '1.26'
+        # Versao EXATA, com o patch. '1.27' pegaria o patch mais novo do dia e
+        # duas rodadas do mesmo commit poderiam usar toolchains diferentes.
+        # check-latest fica no default (false), e o setup-go exporta
+        # GOTOOLCHAIN=local -- sem isso o go.mod poderia puxar outra toolchain
+        # e a versao instalada aqui nao seria a que compila.
+        default: '1.27.1'
       golangci-version:
         required: false
         type: string
-        default: 'v2.12.2'
+        # v2.13.2 (27/08/2026) e a primeira compilada com go1.27, e por isso o
+        # bump nao e opcional: e parte do porte para 1.27, nao um upgrade a
+        # parte.
+        #
+        # Medido em 2026-09-09, com a toolchain local ja em go1.27.0: a v2.12.2,
+        # compilada com go1.26.4, entra em PANIC ao analisar -- "file requires
+        # newer Go version go1.27 (application built with go1.26)". E o mesmo
+        # defeito que ci.yml ja registra na direcao contraria, quando a v1.64.8
+        # recusava um go.mod declarando 1.25.0.
+        default: 'v2.13.2'
 
 jobs:
   verify:

@@ -201,15 +201,23 @@ Invoke-Step "gofmt" { gofmt -l @DirsFmt } -FailIfOutput
 # ter rodado o linter. Enquanto era um comando separado, era um comando que
 # alguem esquecia.
 #
-# A versao e conferida antes: o go.mod declara go 1.25.0, e um golangci-lint
-# compilado com Go mais antigo recusa o config ANTES de analisar linha nenhuma,
-# saindo com erro que nao diz que o problema e a versao. Sem a conferencia, um
-# zero local nao diz nada sobre o CI, que fixa a v2.12.2.
+# A versao e conferida antes, e a conferencia ja pagou duas vezes.
+#
+# Um golangci-lint compilado com Go MAIS ANTIGO que o alvo falha das duas
+# pontas: recusa o config antes de analisar linha nenhuma quando o go.mod
+# declara mais que ele conhece (a v1.64.8 contra `go 1.25.0`), ou entra em
+# PANIC ao analisar codigo de uma toolchain mais nova -- "file requires newer
+# Go version go1.27 (application built with go1.26)", medido em 2026-09-09 com
+# a v2.12.2 depois de a maquina passar para go1.27.0. Nenhum dos dois erros
+# diz "sua versao do linter esta errada".
+#
+# Sem a conferencia, um zero local nao diz nada sobre o CI, que fixa a v2.13.2
+# -- a primeira compilada com go1.27.
 if (-not $SkipLint) {
     Invoke-Step "golangci-lint" {
         $Ver = (golangci-lint version 2>&1) -join " "
-        if ($Ver -notmatch "2\.12\.2") {
-            throw "golangci-lint fora da versao fixada pelo CI (v2.12.2): $Ver"
+        if ($Ver -notmatch "2\.13\.2") {
+            throw "golangci-lint fora da versao fixada pelo CI (v2.13.2): $Ver"
         }
         golangci-lint run @Alvos
     }

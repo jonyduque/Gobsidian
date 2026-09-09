@@ -9,13 +9,14 @@ jobs:
   # desenvolve. Ate 2026-09-08 o CI reimplementava um subconjunto dela, e
   # mutate.ps1, check_gates.ps1 e audit_reports.ps1 nao rodavam aqui.
   #
-  # 1.26 e a toolchain que o dono usa (medido: go1.26.5 em 2026-09-08). A
-  # matriz abaixo continua em 1.25, que e o piso declarado no go.mod: as duas
-  # pontas sao testadas, e um piso que ninguem compila e um piso que ja quebrou.
+  # 1.27.1 e a toolchain com que os binarios publicados sao compilados (ver
+  # release.yml). A matriz abaixo continua em 1.25, o piso declarado no go.mod:
+  # as duas pontas sao testadas, e um piso que ninguem compila e um piso que ja
+  # quebrou.
   gate:
     uses: ./.github/workflows/gate.yml
     with:
-      go-version: '1.26'
+      go-version: '1.27.1'
 
   test:
     strategy:
@@ -99,7 +100,7 @@ jobs:
       # primeira rodada real deste workflow reprovou com 0 achados locais.
       - uses: golangci/golangci-lint-action@v9
         with:
-          version: v2.12.2
+          version: v2.13.2
 
   lint-windows:
     runs-on: windows-latest
@@ -122,7 +123,7 @@ jobs:
       # primeira rodada real deste workflow reprovou com 0 achados locais.
       - uses: golangci/golangci-lint-action@v9
         with:
-          version: v2.12.2
+          version: v2.13.2
 
   orphans:
     # Gate de liberacao do M0: zero processos gobsidian.exe orfaos apos

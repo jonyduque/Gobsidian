@@ -16,6 +16,14 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
+      # 1.25 aqui de proposito, enquanto o gate e o release usam 1.27.1.
+      #
+      # A referencia em docs/bench-baseline.json foi medida com esta toolchain.
+      # O Go 1.27 reduz em ate 30% o custo de alocacoes pequenas, entao trocar a
+      # versao faria o comparador reportar uma "melhora" enorme que nao veio de
+      # mudanca de codigo -- exatamente o que a semente fixa e o runner unico
+      # existem para impedir. Mudar isto exige regerar a referencia primeiro, e
+      # commita-la deliberadamente.
       - uses: actions/setup-go@v7
         with:
           go-version: '1.25'

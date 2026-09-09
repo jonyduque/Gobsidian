@@ -17,18 +17,15 @@ jobs:
   gate:
     uses: ./.github/workflows/gate.yml
     with:
-      # 1.25 aqui, e 1.26 no `ci`. Nao e inconsistencia: e onde a falha custa
-      # coisas diferentes.
+      # A MESMA versao com que o job abaixo compila os binarios publicados: o
+      # gate tem de cobrar a toolchain que de fato produz o artefato.
       #
-      # O `ci` roda a cada push, e uma toolchain indisponivel no runner aparece
-      # como job vermelho que alguem conserta. Aqui, a mesma indisponibilidade
-      # BLOQUEARIA TODO RELEASE -- e a versao do Go do runner nao e uma coisa
-      # que este repositorio controla.
-      #
-      # 1.25 e o piso declarado no go.mod, e e a MESMA versao com que o job
-      # abaixo compila os binarios publicados. O gate passa a cobrar a
-      # toolchain que de fato produz o artefato.
-      go-version: '1.25'
+      # Exata, com patch, e verificada como publicada antes de entrar aqui
+      # (go1.27.1, agosto de 2026). Uma versao que o runner nao ofereca
+      # bloquearia TODO release, e a versao do Go do runner nao e coisa que este
+      # repositorio controla -- por isso nao se escreve aqui um numero que
+      # ninguem conferiu.
+      go-version: '1.27.1'
 
   build-and-release:
     name: Build and Release
@@ -40,10 +37,18 @@ jobs:
         with:
           fetch-depth: 0
 
+      # 1.27.1, e nao o piso do go.mod, PORQUE E ISTO QUE MUDA O BINARIO.
+      #
+      # O Go 1.27 gera chamadas de alocacao especializadas por tamanho e reduz
+      # em ate 30% o custo de alocacoes pequenas (<80 bytes), ao custo de ~60 KB
+      # de binario. Esse ganho vem de COMPILAR com 1.27; a diretiva `go` do
+      # go.mod nao tem parte nisso -- ela so eleva o minimo exigido de quem
+      # compila, e continua em 1.25.0 para nao quebrar quem esta em 1.25 ou
+      # 1.26 sem precisar.
       - name: Set up Go
         uses: actions/setup-go@v7
         with:
-          go-version: '1.25.x'
+          go-version: '1.27.1'
 
       - name: Get version info
         id: vars
