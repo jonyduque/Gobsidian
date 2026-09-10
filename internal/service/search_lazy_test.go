@@ -65,11 +65,9 @@ func TestBuscaPreguicosaCarregaUmaVezESoUmaVez(t *testing.T) {
 	// Vinte buscas concorrentes: uma carga, nao vinte.
 	var wg sync.WaitGroup
 	for i := 0; i < 20; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			_, _ = svc.Search(context.Background(), service.SearchOptions{Query: "x"})
-		}()
+		})
 	}
 	wg.Wait()
 	if got := cargas.Load(); got != 1 {

@@ -430,9 +430,21 @@ byte não-UTF-8 sem alterar** — não troca por U+FFFD, que seria corromper o
 config do usuário em silêncio — e **aceita chave duplicada preservando
 `mcpServers`**. Nenhum pin de `nojsonv2` foi necessário.
 
-**Modernizadores do `go fix`, medidos antes de aplicar:** `waitgroupgo` 3
-arquivos (`lifecycle/parent.go`, `lifecycle/signals.go`, `writer/lock_test.go`),
-`slicesbackward` 1, `atomictypes` 0, `embedlit` 0, `unsafefuncs` 0.
+**Modernizadores do `go fix`:** `waitgroupgo` toca **11 arquivos**;
+`slicesbackward` 1; `atomictypes`, `embedlit` e `unsafefuncs`, 0.
+
+**O 3 que estava publicado aqui era erro de medição, e o mecanismo importa.** A
+medição saiu de `go fix -diff` rodado **antes** de a diretiva do `go.mod` subir
+de `1.25.0` para `1.27.0`. O modernizador é conservador com a versão de
+linguagem declarada; depois do bump ele achou mais oito. Ao aplicar, o `git add`
+por caminho explícito staged apenas os três que a medição velha nomeava, e os
+outros oito ficaram na árvore por horas sem ninguém notar.
+
+O que escondeu isso não foi o `git add` — foi conferir `git diff --stat` **só
+dos arquivos esperados** em vez do diff inteiro. Medição de alcance de
+ferramenta automática vale para a árvore no estado em que a ferramenta rodou, e
+conferir o resultado exige olhar o que ela mexeu, não o que se esperava que ela
+mexesse.
 `strings.CutLast` tinha 1 sítio real (`index/resolve.go`); o outro candidato
 usava `LastIndexAny` com dois separadores e não converte.
 

@@ -22,11 +22,9 @@ func TestDebounce_Coalescence(t *testing.T) {
 	defer cancel()
 
 	var wg sync.WaitGroup
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
+	wg.Go(func() {
 		Debounce(ctx, in, out, 50*time.Millisecond, log, nil)
-	}()
+	})
 
 	// 10 events on same path
 	path1 := vault.CanonicalPath("file1.md")
@@ -97,11 +95,9 @@ func TestDebounce_NoStarvation(t *testing.T) {
 	defer cancel()
 
 	var wg sync.WaitGroup
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
+	wg.Go(func() {
 		Debounce(ctx, in, out, 10*time.Millisecond, log, nil)
-	}()
+	})
 
 	// Write continuously for 50ms, longer than the 10ms debounce tick
 	path := vault.CanonicalPath("file_starve.md")
@@ -110,9 +106,7 @@ func TestDebounce_NoStarvation(t *testing.T) {
 
 	// consumer
 	var cwg sync.WaitGroup
-	cwg.Add(1)
-	go func() {
-		defer cwg.Done()
+	cwg.Go(func() {
 		for {
 			select {
 			case <-out:
@@ -121,7 +115,7 @@ func TestDebounce_NoStarvation(t *testing.T) {
 				return
 			}
 		}
-	}()
+	})
 
 	// Este sleep e ESTIMULO, nao sincronizacao: ele espaca as escritas para que
 	// elas cubram os 50 ms de forma continua e cruzem varios ticks de 10 ms. Nao

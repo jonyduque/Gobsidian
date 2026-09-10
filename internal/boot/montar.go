@@ -220,9 +220,7 @@ func Montar(ctx context.Context, cfg config.Config, modo string, log *slog.Logge
 
 	c := &Componentes{Vault: v, Index: idx, Inverted: inv, Watcher: w, Service: svc}
 
-	c.espera.Add(1)
-	go func() {
-		defer c.espera.Done()
+	c.espera.Go(func() {
 		if cfg.EagerSearch {
 			// PrepararBusca ANTES de w.Run, e nao em paralelo com
 			// ele.
@@ -241,7 +239,7 @@ func Montar(ctx context.Context, cfg config.Config, modo string, log *slog.Logge
 		// faria eventos se perderem enquanto ninguem busca — e o unico
 		// anteparo seria a reindexacao completa no proximo reinicio.
 		_ = w.Run(ctx)
-	}()
+	})
 
 	// index_ms cobre SO o indice de metadados, e e o que RNF-01 nomeia.
 	//

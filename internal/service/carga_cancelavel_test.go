@@ -22,15 +22,13 @@ func TestCargaConcorrenteRespeitaOPrazoDoChamador(t *testing.T) {
 	liberar := make(chan struct{})
 
 	var wg sync.WaitGroup
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
+	wg.Go(func() {
 		_ = c.fazer(context.Background(), func(context.Context) error {
 			close(comecou)
 			<-liberar
 			return nil
 		})
-	}()
+	})
 	<-comecou
 
 	// Concorrente com prazo curto: tem de voltar com o erro do context, e nao

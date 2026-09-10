@@ -193,13 +193,11 @@ func TestRNF11NoCorruptionUnder1000Crashes(t *testing.T) {
 
 	inicio := time.Now()
 	for range trabalhadores {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			for i := range fila {
 				trabalho(i)
 			}
-		}()
+		})
 	}
 	for i := range iteracoes {
 		fila <- i

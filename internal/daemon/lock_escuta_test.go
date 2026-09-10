@@ -35,9 +35,7 @@ func TestLockDeEscutaSerializaSondaEBind(t *testing.T) {
 	var wg sync.WaitGroup
 	inicio := make(chan struct{})
 	for range tentativas {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			<-inicio
 			err := daemon.ComLockDeEscuta(vault, func() error {
 				entraram.Add(1)
@@ -59,7 +57,7 @@ func TestLockDeEscutaSerializaSondaEBind(t *testing.T) {
 			if err != nil {
 				recusados.Add(1)
 			}
-		}()
+		})
 	}
 	close(inicio)
 	wg.Wait()

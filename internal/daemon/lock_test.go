@@ -51,13 +51,11 @@ func TestDezPontesIniciamUmDaemonSo(t *testing.T) {
 	}
 
 	var wg sync.WaitGroup
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
+	wg.Go(func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 		defer cancel()
 		_ = daemon.EnsureStarted(ctx, cfg, 500*time.Millisecond, iniciar)
-	}()
+	})
 
 	select {
 	case <-vencedorEntrou:
@@ -67,13 +65,11 @@ func TestDezPontesIniciamUmDaemonSo(t *testing.T) {
 
 	var perdedores sync.WaitGroup
 	for range 9 {
-		perdedores.Add(1)
-		go func() {
-			defer perdedores.Done()
+		perdedores.Go(func() {
 			ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 			defer cancel()
 			_ = daemon.EnsureStarted(ctx, cfg, 300*time.Millisecond, iniciar)
-		}()
+		})
 	}
 
 	// Espera as nove RETORNAREM, e nao um sono de duracao arbitraria: quem

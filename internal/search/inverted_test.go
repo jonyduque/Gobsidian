@@ -75,9 +75,7 @@ func TestInvertedConcurrencyRace(t *testing.T) {
 	var wg sync.WaitGroup
 
 	// Writer goroutine (watcher thread)
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
+	wg.Go(func() {
 		i := 0
 		for {
 			select {
@@ -92,13 +90,11 @@ func TestInvertedConcurrencyRace(t *testing.T) {
 				i++
 			}
 		}
-	}()
+	})
 
 	// Reader goroutines (MCP threads)
 	for r := 0; r < 4; r++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			for {
 				select {
 				case <-ctx.Done():
@@ -110,7 +106,7 @@ func TestInvertedConcurrencyRace(t *testing.T) {
 					_ = ix.DocCount()
 				}
 			}
-		}()
+		})
 	}
 
 	wg.Wait()
