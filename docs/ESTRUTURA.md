@@ -223,7 +223,8 @@ gobsidian/
 ├── bootstrap/                    baixam o executável e o rodam, e nada mais
 │   ├── install.sh                Linux e macOS
 │   ├── install.ps1               Windows
-│   └── install.nu                nushell
+│   ├── install.nu                nushell, direto de um cano; nao aceita flag
+│   └── install-flags.nu          nushell, salvo em arquivo; aceita flag apos `--`
 │
 ├── docs/
 │   ├── PRD.md

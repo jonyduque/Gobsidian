@@ -45,7 +45,7 @@ iex (irm https://raw.githubusercontent.com/jonyduque/Gobsidian/master/bootstrap/
 curl -fsSL https://raw.githubusercontent.com/jonyduque/Gobsidian/master/bootstrap/install.sh | sh
 
 # Nushell
-http get https://raw.githubusercontent.com/jonyduque/Gobsidian/master/bootstrap/install.nu | save -f /tmp/gi.nu; nu /tmp/gi.nu
+http get https://raw.githubusercontent.com/jonyduque/Gobsidian/master/bootstrap/install.nu | nu --stdin -c $in
 ```
 
 O script de bootstrap faz uma coisa só: baixa o binário para um diretório
@@ -61,6 +61,12 @@ detectados — é trabalho do próprio binário, e tem teste.
 
 Toda flag depois do bootstrap é repassada literalmente para `gobsidian install`:
 
+> **No nushell é o outro script.** O `install.nu` roda direto de um cano e não
+> aceita flag: em modo `-c` o nushell consome os argumentos para si, e
+> `nu --stdin -c $in --vault X` responde `Unknown flag '--vault'`. Salve o
+> `install-flags.nu` num arquivo, e mantenha o `--` antes das suas flags — sem
+> ele o nushell as lê como se fossem dele.
+
 ```bash
 # Exemplo (Linux/macOS)
 curl -fsSL .../install.sh | sh -s -- --vault "/caminho/do/cofre" --hosts claude-desktop --yes
@@ -68,8 +74,9 @@ curl -fsSL .../install.sh | sh -s -- --vault "/caminho/do/cofre" --hosts claude-
 # Exemplo (PowerShell)
 & ([scriptblock]::Create((irm .../bootstrap/install.ps1))) --vault "C:\Meu Cofre" --hosts claude-desktop --yes
 
-# Exemplo (Nushell)
-http get https://raw.githubusercontent.com/jonyduque/Gobsidian/master/bootstrap/install.nu | save -f /tmp/gi.nu; nu /tmp/gi.nu --vault "C:\Meu Cofre" --hosts claude-desktop --yes
+# Exemplo (Nushell) -- usa o install-flags.nu: ver a nota abaixo
+http get https://raw.githubusercontent.com/jonyduque/Gobsidian/master/bootstrap/install-flags.nu | save -f ($env.TMP | path join gobsidian-install.nu)
+nu ($env.TMP | path join gobsidian-install.nu) -- --vault "C:\Meu Cofre" --hosts claude-desktop --yes
 ```
 
 * `--vault <caminho>`: caminho do cofre (pula o menu interativo).
@@ -219,6 +226,27 @@ gobsidian inspect "Nota.md" --vault "/caminho/do/cofre" [--json]
 # Imprime versão, commit e data de build
 gobsidian version
 ```
+
+### Completação de shell
+
+A completação cobre nome de comando, nome de flag **e valor de flag** —
+`--vault` oferece os cofres que o Obsidian conhece, marcando os que estão
+abertos; `--hosts`, as nove chaves com o nome de cada produto; `--log-level`,
+os quatro níveis.
+
+```bash
+# bash / zsh / fish / powershell
+gobsidian completion bash > /etc/bash_completion.d/gobsidian
+
+# nushell — acrescente ao seu config.nu
+let gobsidian_completer = {|spans| gobsidian _carapace nushell ...$spans | from json }
+$env.config.completions.external = {
+  enable: true
+  completer: $gobsidian_completer
+}
+```
+
+`gobsidian _carapace <shell>` cobre também elvish, oil, tcsh e xonsh.
 
 ---
 

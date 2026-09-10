@@ -45,7 +45,7 @@ iex (irm https://raw.githubusercontent.com/jonyduque/Gobsidian/master/bootstrap/
 curl -fsSL https://raw.githubusercontent.com/jonyduque/Gobsidian/master/bootstrap/install.sh | sh
 
 # Nushell
-http get https://raw.githubusercontent.com/jonyduque/Gobsidian/master/bootstrap/install.nu | save -f /tmp/gi.nu; nu /tmp/gi.nu
+http get https://raw.githubusercontent.com/jonyduque/Gobsidian/master/bootstrap/install.nu | nu --stdin -c $in
 ```
 
 The bootstrap script does one thing: it downloads the binary to a temporary
@@ -61,6 +61,12 @@ MCP hosts — is the binary's own work, and is covered by tests.
 
 Every flag after the bootstrap is forwarded verbatim to `gobsidian install`:
 
+> **Nushell needs the other script.** `install.nu` runs straight from a pipe and
+> takes no flags: in `-c` mode nushell consumes the arguments itself, and
+> `nu --stdin -c $in --vault X` answers `Unknown flag '--vault'`. Save
+> `install-flags.nu` to a file instead, and keep the `--` before your flags —
+> without it nushell reads them as its own.
+
 ```bash
 # Example (Linux/macOS)
 curl -fsSL .../install.sh | sh -s -- --vault "/path/to/vault" --hosts claude-desktop --yes
@@ -68,8 +74,9 @@ curl -fsSL .../install.sh | sh -s -- --vault "/path/to/vault" --hosts claude-des
 # Example (PowerShell)
 & ([scriptblock]::Create((irm .../bootstrap/install.ps1))) --vault "C:\My Vault" --hosts claude-desktop --yes
 
-# Example (Nushell)
-http get https://raw.githubusercontent.com/jonyduque/Gobsidian/master/bootstrap/install.nu | save -f /tmp/gi.nu; nu /tmp/gi.nu --vault "C:\My Vault" --hosts claude-desktop --yes
+# Example (Nushell) -- uses install-flags.nu: see the note below
+http get https://raw.githubusercontent.com/jonyduque/Gobsidian/master/bootstrap/install-flags.nu | save -f ($env.TMP | path join gobsidian-install.nu)
+nu ($env.TMP | path join gobsidian-install.nu) -- --vault "C:\My Vault" --hosts claude-desktop --yes
 ```
 
 * `--vault <path>`: Direct vault path (skips interactive menu).
@@ -218,6 +225,27 @@ gobsidian inspect "Note.md" --vault "/path/to/vault" [--json]
 # Print version, commit and build date
 gobsidian version
 ```
+
+### Shell completion
+
+Completion covers command names, flag names **and flag values** — `--vault`
+offers the vaults Obsidian knows about (marking the ones currently open),
+`--hosts` the nine host keys with their product names, `--log-level` the four
+levels.
+
+```bash
+# bash / zsh / fish / powershell
+gobsidian completion bash > /etc/bash_completion.d/gobsidian
+
+# nushell — add to your config.nu
+let gobsidian_completer = {|spans| gobsidian _carapace nushell ...$spans | from json }
+$env.config.completions.external = {
+  enable: true
+  completer: $gobsidian_completer
+}
+```
+
+`gobsidian _carapace <shell>` also covers elvish, oil, tcsh and xonsh.
 
 ---
 
