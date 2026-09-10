@@ -8,8 +8,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/jonyd/gobsidian/internal/config"
-	"github.com/jonyd/gobsidian/internal/daemon"
+	"github.com/jonyduque/Gobsidian/internal/config"
+	"github.com/jonyduque/Gobsidian/internal/daemon"
 )
 
 // TestClasseDoCaminhoDoSocketDistingueOsEstados e o teste que a investigacao de

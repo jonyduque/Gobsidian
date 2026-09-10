@@ -15,9 +15,9 @@ import (
 	"os"
 	"strings"
 
-	"github.com/jonyd/gobsidian/internal/console"
-	"github.com/jonyd/gobsidian/internal/hosts"
-	"github.com/jonyd/gobsidian/internal/instalar"
+	"github.com/jonyduque/Gobsidian/internal/console"
+	"github.com/jonyduque/Gobsidian/internal/hosts"
+	"github.com/jonyduque/Gobsidian/internal/instalar"
 	"github.com/spf13/cobra"
 )
 

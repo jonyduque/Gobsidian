@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/jonyd/gobsidian/internal/vault"
+	"github.com/jonyduque/Gobsidian/internal/vault"
 )
 
 // TestWalkStopsOnPreCancelledContext confirms that Walk never invokes the

@@ -4,8 +4,8 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/jonyd/gobsidian/internal/parser"
-	"github.com/jonyd/gobsidian/internal/writer"
+	"github.com/jonyduque/Gobsidian/internal/parser"
+	"github.com/jonyduque/Gobsidian/internal/writer"
 )
 
 func TestRewriteLinks_PreservesAliasAndAnchor(t *testing.T) {

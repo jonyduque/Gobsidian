@@ -3,8 +3,8 @@ package service
 import (
 	"context"
 
-	"github.com/jonyd/gobsidian/internal/parser"
-	"github.com/jonyd/gobsidian/internal/vault"
+	"github.com/jonyduque/Gobsidian/internal/parser"
+	"github.com/jonyduque/Gobsidian/internal/vault"
 )
 
 // CandidatosPadrao e CandidatosTeto sao os limites publicados de note_outline.

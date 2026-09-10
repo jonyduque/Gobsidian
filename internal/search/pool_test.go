@@ -3,7 +3,7 @@ package search_test
 import (
 	"testing"
 
-	"github.com/jonyd/gobsidian/internal/search"
+	"github.com/jonyduque/Gobsidian/internal/search"
 )
 
 // TestNormalizeAcentosECaixa afirma o RESULTADO de Normalize em tres

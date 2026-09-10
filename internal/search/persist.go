@@ -8,8 +8,8 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/jonyd/gobsidian/internal/text"
-	"github.com/jonyd/gobsidian/internal/vault"
+	"github.com/jonyduque/Gobsidian/internal/text"
+	"github.com/jonyduque/Gobsidian/internal/vault"
 )
 
 // Constantes de versionamento de cache (Task 49).

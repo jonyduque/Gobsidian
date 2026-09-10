@@ -5,8 +5,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/jonyd/gobsidian/internal/vault"
-	"github.com/jonyd/gobsidian/internal/writer"
+	"github.com/jonyduque/Gobsidian/internal/vault"
+	"github.com/jonyduque/Gobsidian/internal/writer"
 )
 
 func TestPathLocker_SamePathLostUpdate(t *testing.T) {

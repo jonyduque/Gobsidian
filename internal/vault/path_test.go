@@ -6,7 +6,7 @@ import (
 	"runtime"
 	"testing"
 
-	"github.com/jonyd/gobsidian/internal/vault"
+	"github.com/jonyduque/Gobsidian/internal/vault"
 )
 
 // testRoot devolve uma raiz sintetica valida na plataforma corrente. Nenhuma

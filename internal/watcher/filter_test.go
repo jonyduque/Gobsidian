@@ -7,7 +7,7 @@ import (
 	"testing"
 
 	"github.com/fsnotify/fsnotify"
-	"github.com/jonyd/gobsidian/internal/vault"
+	"github.com/jonyduque/Gobsidian/internal/vault"
 )
 
 func TestFilter(t *testing.T) {

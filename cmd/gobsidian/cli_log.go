@@ -5,7 +5,7 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/jonyd/gobsidian/internal/config"
+	"github.com/jonyduque/Gobsidian/internal/config"
 )
 
 // loggerDeCLI e o logger dos subcomandos de CLI (search, index, inspect):

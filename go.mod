@@ -1,4 +1,4 @@
-module github.com/jonyd/gobsidian
+module github.com/jonyduque/Gobsidian
 
 go 1.27.0
 

@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/jonyd/gobsidian/internal/vault"
+	"github.com/jonyduque/Gobsidian/internal/vault"
 )
 
 // TestLongPathWindows exercises LongPath's four load-bearing behaviors on

@@ -4,7 +4,7 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/jonyd/gobsidian/internal/search"
+	"github.com/jonyduque/Gobsidian/internal/search"
 )
 
 // TestInvertedCacheState fixa a regra que impede um cache PARCIAL de passar por

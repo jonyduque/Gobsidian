@@ -4,8 +4,8 @@ import (
 	"context"
 	"testing"
 
-	"github.com/jonyd/gobsidian/internal/index"
-	"github.com/jonyd/gobsidian/internal/vault"
+	"github.com/jonyduque/Gobsidian/internal/index"
+	"github.com/jonyduque/Gobsidian/internal/vault"
 )
 
 // TestModoNuncaSaiVazio: um campo que as vezes some faz quem le acreditar que a

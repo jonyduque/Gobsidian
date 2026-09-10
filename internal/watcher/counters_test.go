@@ -13,9 +13,9 @@ import (
 	"time"
 
 	"github.com/fsnotify/fsnotify"
-	"github.com/jonyd/gobsidian/internal/index"
-	"github.com/jonyd/gobsidian/internal/vault"
-	"github.com/jonyd/gobsidian/internal/vaulttest"
+	"github.com/jonyduque/Gobsidian/internal/index"
+	"github.com/jonyduque/Gobsidian/internal/vault"
+	"github.com/jonyduque/Gobsidian/internal/vaulttest"
 )
 
 // bufferDeLog acumula o que o watcher registrou, para o teste despejar quando

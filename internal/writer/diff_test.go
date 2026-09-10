@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/jonyd/gobsidian/internal/writer"
+	"github.com/jonyduque/Gobsidian/internal/writer"
 )
 
 func TestDiff_CRLFIdenticalProducesEmpty(t *testing.T) {

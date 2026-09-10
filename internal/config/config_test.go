@@ -7,7 +7,7 @@ import (
 
 	"log/slog"
 
-	"github.com/jonyd/gobsidian/internal/config"
+	"github.com/jonyduque/Gobsidian/internal/config"
 )
 
 func TestLoadPrecedence(t *testing.T) {

@@ -5,9 +5,9 @@ import (
 	"fmt"
 	"runtime/debug"
 
-	"github.com/jonyd/gobsidian/internal/index"
-	"github.com/jonyd/gobsidian/internal/service"
-	"github.com/jonyd/gobsidian/internal/vault"
+	"github.com/jonyduque/Gobsidian/internal/index"
+	"github.com/jonyduque/Gobsidian/internal/service"
+	"github.com/jonyduque/Gobsidian/internal/vault"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 

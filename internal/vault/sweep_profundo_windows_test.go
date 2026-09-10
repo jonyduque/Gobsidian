@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/jonyd/gobsidian/internal/vault"
+	"github.com/jonyduque/Gobsidian/internal/vault"
 )
 
 // TestSweepAlcancaCaminhoAlemDeMaxPath fixa o alcance real da varredura — e

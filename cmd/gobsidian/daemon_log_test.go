@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/jonyd/gobsidian/internal/config"
+	"github.com/jonyduque/Gobsidian/internal/config"
 )
 
 // TestDaemonComCofreInexistenteRegistraCausa cobre a morte muda medida em

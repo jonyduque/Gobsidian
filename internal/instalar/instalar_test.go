@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/jonyd/gobsidian/internal/hosts"
+	"github.com/jonyduque/Gobsidian/internal/hosts"
 	"runtime"
 )
 

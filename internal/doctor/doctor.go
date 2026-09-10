@@ -5,7 +5,7 @@ package doctor
 import (
 	"context"
 
-	"github.com/jonyd/gobsidian/internal/config"
+	"github.com/jonyduque/Gobsidian/internal/config"
 )
 
 // Status e a gravidade de uma verificacao. A ordem importa: so StatusFail

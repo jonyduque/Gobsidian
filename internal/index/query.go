@@ -9,8 +9,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/jonyd/gobsidian/internal/text"
-	"github.com/jonyd/gobsidian/internal/vault"
+	"github.com/jonyduque/Gobsidian/internal/text"
+	"github.com/jonyduque/Gobsidian/internal/vault"
 )
 
 // Query e o filtro de note_list: pasta, tags, campos de frontmatter,

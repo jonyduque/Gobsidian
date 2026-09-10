@@ -6,8 +6,8 @@ import (
 	"os"
 
 	"github.com/cespare/xxhash/v2"
-	"github.com/jonyd/gobsidian/internal/index"
-	"github.com/jonyd/gobsidian/internal/vault"
+	"github.com/jonyduque/Gobsidian/internal/index"
+	"github.com/jonyduque/Gobsidian/internal/vault"
 )
 
 // RenameCandidate representa um possível rename detectado.

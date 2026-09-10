@@ -3,7 +3,7 @@ package parser_test
 import (
 	"testing"
 
-	"github.com/jonyd/gobsidian/internal/parser"
+	"github.com/jonyduque/Gobsidian/internal/parser"
 )
 
 // O slug existe para casar o texto do heading com a ancora de um wikilink.

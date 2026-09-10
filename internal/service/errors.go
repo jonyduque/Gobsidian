@@ -9,7 +9,7 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/jonyd/gobsidian/internal/index"
+	"github.com/jonyduque/Gobsidian/internal/index"
 )
 
 // Code e o codigo legivel por maquina devolvido ao cliente. A tabela completa

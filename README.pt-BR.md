@@ -103,14 +103,16 @@ Baixe o binário da sua arquitetura em [Releases](https://github.com/jonyduque/G
 Requer **Go 1.27+**:
 
 ```bash
+go install github.com/jonyduque/Gobsidian/cmd/gobsidian@latest
+```
+
+Ou clone e compile:
+
+```bash
 git clone https://github.com/jonyduque/Gobsidian.git
 cd Gobsidian
 go build -o gobsidian ./cmd/gobsidian
 ```
-
-> `go install github.com/...` **não** funciona: o caminho de módulo declarado no
-> `go.mod` (`github.com/jonyd/gobsidian`) não é o caminho do repositório, então
-> o proxy de módulos do Go não consegue resolvê-lo. Clone e compile.
 
 </details>
 

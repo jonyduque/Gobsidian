@@ -4,10 +4,10 @@ import (
 	"os"
 
 	"fmt"
-	"github.com/jonyd/gobsidian/internal/config"
-	"github.com/jonyd/gobsidian/internal/console"
-	"github.com/jonyd/gobsidian/internal/doctor"
-	"github.com/jonyd/gobsidian/internal/instalar"
+	"github.com/jonyduque/Gobsidian/internal/config"
+	"github.com/jonyduque/Gobsidian/internal/console"
+	"github.com/jonyduque/Gobsidian/internal/doctor"
+	"github.com/jonyduque/Gobsidian/internal/instalar"
 	"github.com/spf13/cobra"
 )
 

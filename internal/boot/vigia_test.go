@@ -6,8 +6,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/jonyd/gobsidian/internal/boot"
-	"github.com/jonyd/gobsidian/internal/vaulttest"
+	"github.com/jonyduque/Gobsidian/internal/boot"
+	"github.com/jonyduque/Gobsidian/internal/vaulttest"
 )
 
 func TestVigiarHostEOFDoStdinCancelaCtx(t *testing.T) {

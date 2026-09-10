@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/jonyd/gobsidian/internal/vaulttest"
+	"github.com/jonyduque/Gobsidian/internal/vaulttest"
 )
 
 // eofReader devolve os bytes de data, em quantas chamadas a Read forem

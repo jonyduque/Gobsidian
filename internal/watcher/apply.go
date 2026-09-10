@@ -11,9 +11,9 @@ import (
 	"os"
 	"sync/atomic"
 
-	"github.com/jonyd/gobsidian/internal/index"
-	"github.com/jonyd/gobsidian/internal/search"
-	"github.com/jonyd/gobsidian/internal/vault"
+	"github.com/jonyduque/Gobsidian/internal/index"
+	"github.com/jonyduque/Gobsidian/internal/search"
+	"github.com/jonyduque/Gobsidian/internal/vault"
 )
 
 // Apply processa o canal de caminhos coalescidos, aplicando as mudanças no índice.

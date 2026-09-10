@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/jonyd/gobsidian/internal/service"
+	"github.com/jonyduque/Gobsidian/internal/service"
 )
 
 func TestMoveNote_BrokenAnchorsReportedOnlyWhenMissing(t *testing.T) {

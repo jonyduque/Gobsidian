@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/jonyd/gobsidian/internal/parser"
+	"github.com/jonyduque/Gobsidian/internal/parser"
 )
 
 func notaLonga() []byte {

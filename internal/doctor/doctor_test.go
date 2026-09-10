@@ -6,8 +6,8 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/jonyd/gobsidian/internal/config"
-	"github.com/jonyd/gobsidian/internal/doctor"
+	"github.com/jonyduque/Gobsidian/internal/config"
+	"github.com/jonyduque/Gobsidian/internal/doctor"
 )
 
 func TestRunFlagsMissingVault(t *testing.T) {

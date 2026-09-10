@@ -8,9 +8,9 @@ import (
 	"testing"
 	"unicode/utf8"
 
-	"github.com/jonyd/gobsidian/internal/index"
-	"github.com/jonyd/gobsidian/internal/search"
-	"github.com/jonyd/gobsidian/internal/vault"
+	"github.com/jonyduque/Gobsidian/internal/index"
+	"github.com/jonyduque/Gobsidian/internal/search"
+	"github.com/jonyduque/Gobsidian/internal/vault"
 )
 
 func snippetPara(t *testing.T, v *vault.Vault, idx *index.Index, ix *search.Inverted, path string, term string, maxChars int) search.Snippet {

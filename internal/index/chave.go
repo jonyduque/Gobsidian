@@ -3,7 +3,7 @@ package index
 import (
 	"strings"
 
-	"github.com/jonyd/gobsidian/internal/text"
+	"github.com/jonyduque/Gobsidian/internal/text"
 )
 
 // As chaves derivadas do indice moram todas aqui, e cada uma tem UMA conta.

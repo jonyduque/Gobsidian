@@ -5,7 +5,7 @@
 package main
 
 import (
-	"github.com/jonyd/gobsidian/tools/netcheck"
+	"github.com/jonyduque/Gobsidian/tools/netcheck"
 	"golang.org/x/tools/go/analysis/singlechecker"
 )
 

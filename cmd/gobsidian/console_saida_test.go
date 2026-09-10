@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/jonyd/gobsidian/internal/console"
+	"github.com/jonyduque/Gobsidian/internal/console"
 )
 
 // esc abre toda sequencia ANSI. Afirmar sobre o byte, e nao sobre as

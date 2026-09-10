@@ -6,7 +6,7 @@ import (
 	"log/slog"
 	"time"
 
-	"github.com/jonyd/gobsidian/internal/lifecycle"
+	"github.com/jonyduque/Gobsidian/internal/lifecycle"
 )
 
 // Vigia e o que o processo precisa para saber quando o host foi embora: o

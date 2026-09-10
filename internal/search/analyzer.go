@@ -6,7 +6,7 @@ import (
 	"unicode"
 	"unicode/utf8"
 
-	"github.com/jonyd/gobsidian/internal/text"
+	"github.com/jonyduque/Gobsidian/internal/text"
 )
 
 // Token representa uma ocorrência de termo indexável em um texto.

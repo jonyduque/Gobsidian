@@ -5,7 +5,7 @@ package index_test
 import (
 	"testing"
 
-	"github.com/jonyd/gobsidian/internal/vaulttest"
+	"github.com/jonyduque/Gobsidian/internal/vaulttest"
 )
 
 // lockFileForTest torna o arquivo ilegivel do jeito que o Windows permite: um

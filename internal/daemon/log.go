@@ -5,7 +5,7 @@ import (
 	"os"
 	"strings"
 
-	"github.com/jonyd/gobsidian/internal/ipc"
+	"github.com/jonyduque/Gobsidian/internal/ipc"
 )
 
 // CaminhoDoLog deriva o arquivo de log do daemon do MESMO caminho que

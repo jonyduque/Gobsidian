@@ -9,10 +9,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/jonyd/gobsidian/internal/index"
-	"github.com/jonyd/gobsidian/internal/vault"
-	"github.com/jonyd/gobsidian/internal/vaulttest"
-	"github.com/jonyd/gobsidian/internal/watcher"
+	"github.com/jonyduque/Gobsidian/internal/index"
+	"github.com/jonyduque/Gobsidian/internal/vault"
+	"github.com/jonyduque/Gobsidian/internal/vaulttest"
+	"github.com/jonyduque/Gobsidian/internal/watcher"
 )
 
 func TestCorrelateRenames(t *testing.T) {

@@ -20,11 +20,11 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/jonyd/gobsidian/internal/boot"
-	"github.com/jonyd/gobsidian/internal/config"
-	"github.com/jonyd/gobsidian/internal/daemon"
-	"github.com/jonyd/gobsidian/internal/ipc"
-	"github.com/jonyd/gobsidian/internal/lifecycle"
+	"github.com/jonyduque/Gobsidian/internal/boot"
+	"github.com/jonyduque/Gobsidian/internal/config"
+	"github.com/jonyduque/Gobsidian/internal/daemon"
+	"github.com/jonyduque/Gobsidian/internal/ipc"
+	"github.com/jonyduque/Gobsidian/internal/lifecycle"
 )
 
 // ipcDialTimeout limita quanto tempo a ponte espera por um daemon antes de

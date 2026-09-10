@@ -5,7 +5,7 @@ package doctor
 import (
 	"fmt"
 
-	"github.com/jonyd/gobsidian/internal/vault"
+	"github.com/jonyduque/Gobsidian/internal/vault"
 	"golang.org/x/sys/unix"
 )
 

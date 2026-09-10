@@ -23,10 +23,10 @@ import (
 	"sync"
 	"time"
 
-	"github.com/jonyd/gobsidian/internal/config"
-	"github.com/jonyd/gobsidian/internal/ipc"
-	"github.com/jonyd/gobsidian/internal/lifecycle"
-	"github.com/jonyd/gobsidian/internal/mcpsrv"
+	"github.com/jonyduque/Gobsidian/internal/config"
+	"github.com/jonyduque/Gobsidian/internal/ipc"
+	"github.com/jonyduque/Gobsidian/internal/lifecycle"
+	"github.com/jonyduque/Gobsidian/internal/mcpsrv"
 )
 
 // Config e o que o daemon precisa alem do config.Config do cofre.

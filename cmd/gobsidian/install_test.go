@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/jonyd/gobsidian/internal/instalar"
+	"github.com/jonyduque/Gobsidian/internal/instalar"
 	"github.com/spf13/cobra"
 )
 

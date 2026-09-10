@@ -496,7 +496,7 @@ Suíte de benchmark no CI com verificação de regressão. Teste de 100 ciclos d
 | D2 | `note_patch` com heading inexistente | Falha por padrão. Criar o heading exige `create_if_missing: true` explícito |
 | D3 | Escrita em lote transacional | Fora de escopo. Não há transação entre arquivos no sistema de arquivos, e prometer uma seria mentira. Reavaliar pós-1.0 |
 | D4 | Múltiplos cofres por instância | Um cofre por instância. Cofres separados viram entradas separadas no `claude_desktop_config.json` |
-| D5 | Nome do produto | `gobsidian`. Módulo `github.com/jonyd/gobsidian`, binário `gobsidian.exe` |
+| D5 | Nome do produto | `gobsidian`. Módulo `github.com/jonyduque/Gobsidian`, binário `gobsidian.exe` |
 | D6 | Versão de protocolo MCP | `2025-11-25` fixada, com fallback negociado. Migração para `2026-07-28` atrás de `internal/mcpsrv`, pós-1.0 |
 | D7 | Garantia de ausência de rede | Análise estática sobre `internal/` e `cmd/`, não sobre o fechamento transitivo. RF-54 fora da v1. Ver §6.4 |
 | D8 | Referência de paridade com o Obsidian | Plugin descartável em `tools/parity-dumper/` serializa `app.metadataCache` uma vez para `testdata/parity/` |

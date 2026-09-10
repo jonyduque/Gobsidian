@@ -3,7 +3,7 @@ package index
 import (
 	"strings"
 
-	"github.com/jonyd/gobsidian/internal/parser"
+	"github.com/jonyduque/Gobsidian/internal/parser"
 )
 
 func (ix *Index) resolveAnchor(link *ResolvedLink) {

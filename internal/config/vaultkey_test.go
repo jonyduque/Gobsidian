@@ -3,7 +3,7 @@ package config_test
 import (
 	"testing"
 
-	"github.com/jonyd/gobsidian/internal/config"
+	"github.com/jonyduque/Gobsidian/internal/config"
 )
 
 // TestVaultKeyDobraCaixaInclusiveForaDoASCII e a propriedade que a primeira

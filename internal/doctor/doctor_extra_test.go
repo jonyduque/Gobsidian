@@ -14,8 +14,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/jonyd/gobsidian/internal/config"
-	"github.com/jonyd/gobsidian/internal/doctor"
+	"github.com/jonyduque/Gobsidian/internal/config"
+	"github.com/jonyduque/Gobsidian/internal/doctor"
 )
 
 // TestCheckCacheDirCreatable confirma o ramo real de sucesso: um CacheDir

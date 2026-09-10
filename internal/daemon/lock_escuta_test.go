@@ -7,8 +7,8 @@ import (
 	"sync/atomic"
 	"testing"
 
-	"github.com/jonyd/gobsidian/internal/daemon"
-	"github.com/jonyd/gobsidian/internal/ipc"
+	"github.com/jonyduque/Gobsidian/internal/daemon"
+	"github.com/jonyduque/Gobsidian/internal/ipc"
 )
 
 // TestLockDeEscutaSerializaSondaEBind fecha o item 4 do brief da Task 126 — a

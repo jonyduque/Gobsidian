@@ -10,8 +10,8 @@ import (
 	"sort"
 	"time"
 
-	"github.com/jonyd/gobsidian/internal/parser"
-	"github.com/jonyd/gobsidian/internal/vault"
+	"github.com/jonyduque/Gobsidian/internal/parser"
+	"github.com/jonyduque/Gobsidian/internal/vault"
 )
 
 // Codec binário do cache do índice de metadados.

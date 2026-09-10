@@ -1,10 +1,10 @@
 package service
 
 import (
-	"github.com/jonyd/gobsidian/internal/index"
-	"github.com/jonyd/gobsidian/internal/search"
-	"github.com/jonyd/gobsidian/internal/vault"
-	"github.com/jonyd/gobsidian/internal/writer"
+	"github.com/jonyduque/Gobsidian/internal/index"
+	"github.com/jonyduque/Gobsidian/internal/search"
+	"github.com/jonyduque/Gobsidian/internal/vault"
+	"github.com/jonyduque/Gobsidian/internal/writer"
 )
 
 // WatchCounters reporta a saude e os contadores do watcher em tempo de execucao.

@@ -4,12 +4,12 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"github.com/jonyd/gobsidian/internal/boot"
-	"github.com/jonyd/gobsidian/internal/config"
-	"github.com/jonyd/gobsidian/internal/console"
-	"github.com/jonyd/gobsidian/internal/search"
-	"github.com/jonyd/gobsidian/internal/service"
-	"github.com/jonyd/gobsidian/internal/vault"
+	"github.com/jonyduque/Gobsidian/internal/boot"
+	"github.com/jonyduque/Gobsidian/internal/config"
+	"github.com/jonyduque/Gobsidian/internal/console"
+	"github.com/jonyduque/Gobsidian/internal/search"
+	"github.com/jonyduque/Gobsidian/internal/service"
+	"github.com/jonyduque/Gobsidian/internal/vault"
 	"github.com/spf13/cobra"
 )
 

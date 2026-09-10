@@ -4,7 +4,7 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/jonyd/gobsidian/internal/service"
+	"github.com/jonyduque/Gobsidian/internal/service"
 )
 
 // TestToolErrPreservesUnwrap trava a regressao do achado 2: toolErr precisa

@@ -7,7 +7,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/jonyd/gobsidian/internal/hosts"
+	"github.com/jonyduque/Gobsidian/internal/hosts"
 )
 
 // O corpus e sobre o CONTEUDO que a fusao promete atravessar, e nao sobre os

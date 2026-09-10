@@ -4,7 +4,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/jonyd/gobsidian/internal/vault"
+	"github.com/jonyduque/Gobsidian/internal/vault"
 )
 
 // As duas grafias do MESMO nome de arquivo. Um cofre sincronizado com macOS

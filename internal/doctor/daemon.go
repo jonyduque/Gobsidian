@@ -22,9 +22,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/jonyd/gobsidian/internal/config"
-	"github.com/jonyd/gobsidian/internal/daemon"
-	"github.com/jonyd/gobsidian/internal/ipc"
+	"github.com/jonyduque/Gobsidian/internal/config"
+	"github.com/jonyduque/Gobsidian/internal/daemon"
+	"github.com/jonyduque/Gobsidian/internal/ipc"
 )
 
 // prazoDeSondaDoDaemon limita o dial de diagnóstico. Curto: D-M7-6 mediu 25,7 us

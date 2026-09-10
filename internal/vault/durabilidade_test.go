@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/jonyd/gobsidian/internal/vault"
+	"github.com/jonyduque/Gobsidian/internal/vault"
 )
 
 // TestWriteAtomicPreservaOModoDoAlvo é metade do achado M12.

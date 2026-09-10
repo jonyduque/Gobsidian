@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/jonyd/gobsidian/internal/parser"
-	"github.com/jonyd/gobsidian/internal/vault"
+	"github.com/jonyduque/Gobsidian/internal/parser"
+	"github.com/jonyduque/Gobsidian/internal/vault"
 )
 
 // HeadingNotFoundError indica que o heading especificado nao foi encontrado na nota.

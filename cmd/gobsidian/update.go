@@ -15,9 +15,9 @@ import (
 	"path/filepath"
 	"runtime"
 
-	"github.com/jonyd/gobsidian/internal/console"
-	"github.com/jonyd/gobsidian/internal/instalar"
-	"github.com/jonyd/gobsidian/internal/selfupdate"
+	"github.com/jonyduque/Gobsidian/internal/console"
+	"github.com/jonyduque/Gobsidian/internal/instalar"
+	"github.com/jonyduque/Gobsidian/internal/selfupdate"
 	"github.com/spf13/cobra"
 )
 

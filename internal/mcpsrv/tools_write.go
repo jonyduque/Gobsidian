@@ -3,7 +3,7 @@ package mcpsrv
 import (
 	"context"
 
-	"github.com/jonyd/gobsidian/internal/service"
+	"github.com/jonyduque/Gobsidian/internal/service"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 

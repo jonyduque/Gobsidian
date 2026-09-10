@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/jonyd/gobsidian/internal/parser"
+	"github.com/jonyduque/Gobsidian/internal/parser"
 )
 
 func TestSplitFrontmatter(t *testing.T) {

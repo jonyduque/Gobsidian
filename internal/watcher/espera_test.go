@@ -4,7 +4,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/jonyd/gobsidian/internal/vaulttest"
+	"github.com/jonyduque/Gobsidian/internal/vaulttest"
 )
 
 // EsperarAte consulta `cond` ate ela valer, e devolve se valeu dentro do prazo.

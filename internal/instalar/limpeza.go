@@ -9,10 +9,10 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/jonyd/gobsidian/internal/config"
-	"github.com/jonyd/gobsidian/internal/daemon"
-	"github.com/jonyd/gobsidian/internal/ipc"
-	"github.com/jonyd/gobsidian/internal/search"
+	"github.com/jonyduque/Gobsidian/internal/config"
+	"github.com/jonyduque/Gobsidian/internal/daemon"
+	"github.com/jonyduque/Gobsidian/internal/ipc"
+	"github.com/jonyduque/Gobsidian/internal/search"
 )
 
 // TetoDoLog e o tamanho a partir do qual um log e rotacionado, e nao apagado.

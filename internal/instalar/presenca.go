@@ -20,7 +20,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/jonyd/gobsidian/internal/daemon"
+	"github.com/jonyduque/Gobsidian/internal/daemon"
 )
 
 // SufixoDePresenca nomeia os arquivos que este pacote interpreta. O diretorio

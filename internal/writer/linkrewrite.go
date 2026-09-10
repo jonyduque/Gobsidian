@@ -7,7 +7,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/jonyd/gobsidian/internal/parser"
+	"github.com/jonyduque/Gobsidian/internal/parser"
 )
 
 var (

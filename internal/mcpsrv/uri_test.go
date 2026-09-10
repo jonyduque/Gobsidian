@@ -3,7 +3,7 @@ package mcpsrv
 import (
 	"testing"
 
-	"github.com/jonyd/gobsidian/internal/vault"
+	"github.com/jonyduque/Gobsidian/internal/vault"
 )
 
 // Este teste existe por um panic no boot, nao por hipotese.

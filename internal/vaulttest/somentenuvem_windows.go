@@ -7,7 +7,7 @@ import (
 
 	"golang.org/x/sys/windows"
 
-	"github.com/jonyd/gobsidian/internal/vault"
+	"github.com/jonyduque/Gobsidian/internal/vault"
 )
 
 // MarcarSomenteNuvem poe FILE_ATTRIBUTE_OFFLINE no arquivo, restaura NORMAL no

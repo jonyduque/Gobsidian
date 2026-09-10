@@ -10,8 +10,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/jonyd/gobsidian/internal/vault"
-	"github.com/jonyd/gobsidian/internal/writer"
+	"github.com/jonyduque/Gobsidian/internal/vault"
+	"github.com/jonyduque/Gobsidian/internal/writer"
 )
 
 func TestReplaceBlock_ParagraphListAndQuote(t *testing.T) {

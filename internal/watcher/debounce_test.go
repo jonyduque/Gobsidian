@@ -8,8 +8,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/jonyd/gobsidian/internal/vault"
-	"github.com/jonyd/gobsidian/internal/vaulttest"
+	"github.com/jonyduque/Gobsidian/internal/vault"
+	"github.com/jonyduque/Gobsidian/internal/vaulttest"
 )
 
 func TestDebounce_Coalescence(t *testing.T) {

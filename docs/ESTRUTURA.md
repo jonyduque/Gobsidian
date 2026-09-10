@@ -388,7 +388,7 @@ Testes de parser comparam contra golden files em JSON, regeneráveis com `go tes
 ### go.mod
 
 ```
-module github.com/jonyd/gobsidian
+module github.com/jonyduque/Gobsidian
 
 go 1.25
 

@@ -1652,9 +1652,9 @@ Ao montar o teste que prova que o cache não abre arquivo somente-nuvem, o
 
 ```
 panic: runtime error: invalid memory address or nil pointer dereference
-github.com/jonyd/gobsidian/internal/index.(*Index).insert(...)
+github.com/jonyduque/Gobsidian/internal/index.(*Index).insert(...)
 	internal/index/index.go:111
-github.com/jonyd/gobsidian/internal/index.(*Index).Build.func4()
+github.com/jonyduque/Gobsidian/internal/index.(*Index).Build.func4()
 	internal/index/build.go:107
 ```
 

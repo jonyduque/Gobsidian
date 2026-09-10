@@ -7,7 +7,7 @@ import (
 	"slices"
 	"testing"
 
-	"github.com/jonyd/gobsidian/internal/vault"
+	"github.com/jonyduque/Gobsidian/internal/vault"
 )
 
 func TestChaveDeTagDobraCaixaHashENFC(t *testing.T) {

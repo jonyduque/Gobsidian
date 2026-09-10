@@ -3,9 +3,9 @@ package index
 import (
 	"time"
 
-	"github.com/jonyd/gobsidian/internal/parser"
-	"github.com/jonyd/gobsidian/internal/text"
-	"github.com/jonyd/gobsidian/internal/vault"
+	"github.com/jonyduque/Gobsidian/internal/parser"
+	"github.com/jonyduque/Gobsidian/internal/text"
+	"github.com/jonyduque/Gobsidian/internal/vault"
 )
 
 // LinkState diz o que aconteceu ao tentar resolver um link.

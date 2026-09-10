@@ -14,13 +14,13 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/jonyd/gobsidian/internal/boot"
-	"github.com/jonyd/gobsidian/internal/config"
-	"github.com/jonyd/gobsidian/internal/daemon"
-	"github.com/jonyd/gobsidian/internal/instalar"
-	"github.com/jonyd/gobsidian/internal/lifecycle"
-	"github.com/jonyd/gobsidian/internal/mcpsrv"
-	"github.com/jonyd/gobsidian/internal/service"
+	"github.com/jonyduque/Gobsidian/internal/boot"
+	"github.com/jonyduque/Gobsidian/internal/config"
+	"github.com/jonyduque/Gobsidian/internal/daemon"
+	"github.com/jonyduque/Gobsidian/internal/instalar"
+	"github.com/jonyduque/Gobsidian/internal/lifecycle"
+	"github.com/jonyduque/Gobsidian/internal/mcpsrv"
+	"github.com/jonyduque/Gobsidian/internal/service"
 	"github.com/spf13/cobra"
 )
 

@@ -5,7 +5,7 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/jonyd/gobsidian/internal/vault"
+	"github.com/jonyduque/Gobsidian/internal/vault"
 )
 
 // TestErrorIsTypedNilTarget trava a regressao do achado 4: um alvo

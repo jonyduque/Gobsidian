@@ -14,9 +14,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/jonyd/gobsidian/internal/config"
-	"github.com/jonyd/gobsidian/internal/ipc"
-	"github.com/jonyd/gobsidian/internal/vaulttest"
+	"github.com/jonyduque/Gobsidian/internal/config"
+	"github.com/jonyduque/Gobsidian/internal/ipc"
+	"github.com/jonyduque/Gobsidian/internal/vaulttest"
 )
 
 func TestSocketPathDeterministicoEMesmaChaveDoCache(t *testing.T) {

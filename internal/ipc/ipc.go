@@ -24,7 +24,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/jonyd/gobsidian/internal/config"
+	"github.com/jonyduque/Gobsidian/internal/config"
 )
 
 // ProtocolVersion identifica o formato do handshake entre ponte e daemon.

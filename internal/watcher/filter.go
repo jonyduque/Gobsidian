@@ -4,7 +4,7 @@ import (
 	"log/slog"
 
 	"github.com/fsnotify/fsnotify"
-	"github.com/jonyd/gobsidian/internal/vault"
+	"github.com/jonyduque/Gobsidian/internal/vault"
 )
 
 // Op descreve a operacao que gerou o evento.

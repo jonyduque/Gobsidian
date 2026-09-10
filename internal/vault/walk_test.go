@@ -8,7 +8,7 @@ import (
 	"sort"
 	"testing"
 
-	"github.com/jonyd/gobsidian/internal/vault"
+	"github.com/jonyduque/Gobsidian/internal/vault"
 )
 
 func writeFile(t *testing.T, root, rel, content string) {

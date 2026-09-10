@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/jonyd/gobsidian/internal/service"
+	"github.com/jonyduque/Gobsidian/internal/service"
 )
 
 // tokenSnakeCase casa qualquer sequencia de letras minusculas e "_", que e a

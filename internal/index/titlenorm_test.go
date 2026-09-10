@@ -6,8 +6,8 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/jonyd/gobsidian/internal/text"
-	"github.com/jonyd/gobsidian/internal/vault"
+	"github.com/jonyduque/Gobsidian/internal/text"
+	"github.com/jonyduque/Gobsidian/internal/vault"
 )
 
 // TestTitleNormAcompanhaOTitulo guarda a divergencia que um campo derivado

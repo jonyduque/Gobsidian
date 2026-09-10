@@ -3,7 +3,7 @@ package mcpsrv
 import (
 	"fmt"
 
-	"github.com/jonyd/gobsidian/internal/service"
+	"github.com/jonyduque/Gobsidian/internal/service"
 )
 
 const codeInternal = service.CodeInternal

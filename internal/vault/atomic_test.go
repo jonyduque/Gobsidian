@@ -14,7 +14,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/jonyd/gobsidian/internal/vault"
+	"github.com/jonyduque/Gobsidian/internal/vault"
 )
 
 // avisoPronto e o que o processo filho imprime imediatamente antes de chamar

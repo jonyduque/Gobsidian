@@ -3,7 +3,7 @@ package service_test
 import (
 	"testing"
 
-	"github.com/jonyd/gobsidian/internal/service"
+	"github.com/jonyduque/Gobsidian/internal/service"
 )
 
 // BenchmarkSearchFiltroTags mede a busca com filtro de tag: hoje o filtro

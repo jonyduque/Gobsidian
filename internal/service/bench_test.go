@@ -6,10 +6,10 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/jonyd/gobsidian/internal/index"
-	"github.com/jonyd/gobsidian/internal/search"
-	"github.com/jonyd/gobsidian/internal/service"
-	"github.com/jonyd/gobsidian/internal/vault"
+	"github.com/jonyduque/Gobsidian/internal/index"
+	"github.com/jonyduque/Gobsidian/internal/search"
+	"github.com/jonyduque/Gobsidian/internal/service"
+	"github.com/jonyduque/Gobsidian/internal/vault"
 )
 
 // Os benchmarks abaixo são o que scripts/bench_compare.ps1 compara contra

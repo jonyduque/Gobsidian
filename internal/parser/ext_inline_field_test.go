@@ -3,7 +3,7 @@ package parser_test
 import (
 	"testing"
 
-	"github.com/jonyd/gobsidian/internal/parser"
+	"github.com/jonyduque/Gobsidian/internal/parser"
 )
 
 func TestInlineFields(t *testing.T) {

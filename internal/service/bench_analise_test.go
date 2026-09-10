@@ -4,8 +4,8 @@ import (
 	"context"
 	"testing"
 
-	"github.com/jonyd/gobsidian/internal/index"
-	"github.com/jonyd/gobsidian/internal/service"
+	"github.com/jonyduque/Gobsidian/internal/index"
+	"github.com/jonyduque/Gobsidian/internal/service"
 )
 
 // Benchmarks das tools que a analise de 2026-09-02 quer mexer e que nao tinham

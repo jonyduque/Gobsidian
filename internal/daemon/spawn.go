@@ -12,7 +12,7 @@ import (
 	"os/exec"
 	"strconv"
 
-	"github.com/jonyd/gobsidian/internal/config"
+	"github.com/jonyduque/Gobsidian/internal/config"
 )
 
 // DefaultIdleSeconds e o padrao de producao: 15 minutos sem nenhuma ponte

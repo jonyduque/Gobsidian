@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/jonyd/gobsidian/internal/search"
+	"github.com/jonyduque/Gobsidian/internal/search"
 )
 
 // BenchmarkAnalyzeCorpoTipico mede o achado P12 na forma em que ele custa: a

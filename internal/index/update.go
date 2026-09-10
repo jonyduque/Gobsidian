@@ -8,8 +8,8 @@ import (
 	"time"
 
 	"github.com/cespare/xxhash/v2"
-	"github.com/jonyd/gobsidian/internal/parser"
-	"github.com/jonyd/gobsidian/internal/vault"
+	"github.com/jonyduque/Gobsidian/internal/parser"
+	"github.com/jonyduque/Gobsidian/internal/vault"
 )
 
 // Replace reindexa um unico caminho: remove as contribuicoes antigas, le e

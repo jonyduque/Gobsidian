@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/jonyd/gobsidian/internal/console"
+	"github.com/jonyduque/Gobsidian/internal/console"
 )
 
 // esc e o byte que abre toda sequencia ANSI. Procurar por ele e o unico jeito

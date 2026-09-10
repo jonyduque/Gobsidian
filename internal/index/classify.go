@@ -1,7 +1,7 @@
 package index
 
 import (
-	"github.com/jonyd/gobsidian/internal/vault"
+	"github.com/jonyduque/Gobsidian/internal/vault"
 )
 
 // classe diz o que uma entrada do cofre vira dentro do indice e se o conteudo

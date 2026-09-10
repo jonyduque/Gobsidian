@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/jonyd/gobsidian/internal/vault"
+	"github.com/jonyduque/Gobsidian/internal/vault"
 )
 
 // TestRemoverNomeNaoDeixaChaveOrfa cobre o que a resolucao NAO cobre.

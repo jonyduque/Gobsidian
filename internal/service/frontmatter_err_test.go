@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/jonyd/gobsidian/internal/vault"
+	"github.com/jonyduque/Gobsidian/internal/vault"
 )
 
 // TestNotaComFrontmatterQuebradoNaoSomeEmSilencio cobre as tres pontas de uma

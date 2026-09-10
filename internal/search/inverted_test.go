@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/jonyd/gobsidian/internal/search"
+	"github.com/jonyduque/Gobsidian/internal/search"
 )
 
 func TestInvertedRemoveLeavesNoEmptyPosting(t *testing.T) {

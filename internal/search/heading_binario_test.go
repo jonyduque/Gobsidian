@@ -3,7 +3,7 @@ package search
 import (
 	"testing"
 
-	"github.com/jonyd/gobsidian/internal/parser"
+	"github.com/jonyduque/Gobsidian/internal/parser"
 )
 
 // TestDentroDeHeading cobre a troca de varredura linear por busca binária

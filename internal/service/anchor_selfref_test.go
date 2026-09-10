@@ -6,8 +6,8 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/jonyd/gobsidian/internal/service"
-	"github.com/jonyd/gobsidian/internal/vault"
+	"github.com/jonyduque/Gobsidian/internal/service"
+	"github.com/jonyduque/Gobsidian/internal/vault"
 )
 
 // Desde 2026-09-06 um link so de ancora resolve para a PROPRIA nota, e com isso

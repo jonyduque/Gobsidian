@@ -4,7 +4,7 @@ import (
 	"strings"
 	"unicode"
 
-	"github.com/jonyd/gobsidian/internal/text"
+	"github.com/jonyduque/Gobsidian/internal/text"
 )
 
 // Slug normaliza um heading para comparacao com a ancora de um wikilink:

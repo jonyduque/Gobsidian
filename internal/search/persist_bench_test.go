@@ -5,7 +5,7 @@ import (
 	"os"
 	"testing"
 
-	"github.com/jonyd/gobsidian/internal/search"
+	"github.com/jonyduque/Gobsidian/internal/search"
 )
 
 // BenchmarkLoadInvertedCacheReal mede o carregamento do cache sobre um cofre de

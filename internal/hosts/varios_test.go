@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/jonyd/gobsidian/internal/hosts"
+	"github.com/jonyduque/Gobsidian/internal/hosts"
 )
 
 func lerServidores(t *testing.T, caminho string) map[string]json.RawMessage {

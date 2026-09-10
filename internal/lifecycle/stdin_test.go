@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/jonyd/gobsidian/internal/lifecycle"
+	"github.com/jonyduque/Gobsidian/internal/lifecycle"
 )
 
 func TestStdinEOFCancelsContext(t *testing.T) {

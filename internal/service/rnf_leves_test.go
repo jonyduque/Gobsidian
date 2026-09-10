@@ -6,10 +6,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/jonyd/gobsidian/internal/index"
-	"github.com/jonyd/gobsidian/internal/search"
-	"github.com/jonyd/gobsidian/internal/service"
-	"github.com/jonyd/gobsidian/internal/vault"
+	"github.com/jonyduque/Gobsidian/internal/index"
+	"github.com/jonyduque/Gobsidian/internal/search"
+	"github.com/jonyduque/Gobsidian/internal/service"
+	"github.com/jonyduque/Gobsidian/internal/vault"
 )
 
 // TestRNF03_RNF05_RNF06 mede os três RNFs de latência que a tabela de

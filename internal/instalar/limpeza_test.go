@@ -8,8 +8,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/jonyd/gobsidian/internal/daemon"
-	"github.com/jonyd/gobsidian/internal/search"
+	"github.com/jonyduque/Gobsidian/internal/daemon"
+	"github.com/jonyduque/Gobsidian/internal/search"
 )
 
 // montarLixeira cria um diretorio de runtime e uma raiz de cache com os quatro

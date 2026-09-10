@@ -7,7 +7,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/jonyd/gobsidian/internal/vaulttest"
+	"github.com/jonyduque/Gobsidian/internal/vaulttest"
 )
 
 // A prova dentro do helper e o que o pacote vende. Este teste confere que ela

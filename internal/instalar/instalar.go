@@ -11,8 +11,8 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/jonyd/gobsidian/internal/hosts"
-	"github.com/jonyd/gobsidian/internal/text"
+	"github.com/jonyduque/Gobsidian/internal/hosts"
+	"github.com/jonyduque/Gobsidian/internal/text"
 	"sort"
 	"strings"
 )

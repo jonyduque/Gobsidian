@@ -3,7 +3,7 @@ package netcheck_test
 import (
 	"testing"
 
-	"github.com/jonyd/gobsidian/tools/netcheck"
+	"github.com/jonyduque/Gobsidian/tools/netcheck"
 	"golang.org/x/tools/go/analysis/analysistest"
 )
 

@@ -5,7 +5,7 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/jonyd/gobsidian/internal/search"
+	"github.com/jonyduque/Gobsidian/internal/search"
 )
 
 func TestAnalyzerDualIndexing(t *testing.T) {

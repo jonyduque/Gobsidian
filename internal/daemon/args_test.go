@@ -4,8 +4,8 @@ import (
 	"slices"
 	"testing"
 
-	"github.com/jonyd/gobsidian/internal/config"
-	"github.com/jonyd/gobsidian/internal/daemon"
+	"github.com/jonyduque/Gobsidian/internal/config"
+	"github.com/jonyduque/Gobsidian/internal/daemon"
 )
 
 // TestArgsDoDaemonEncaminhaAsFlags cobre a classe de defeito que esta função

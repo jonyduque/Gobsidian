@@ -5,8 +5,8 @@ package writer
 import (
 	"sync"
 
-	"github.com/jonyd/gobsidian/internal/text"
-	"github.com/jonyd/gobsidian/internal/vault"
+	"github.com/jonyduque/Gobsidian/internal/text"
+	"github.com/jonyduque/Gobsidian/internal/vault"
 )
 
 // normalizeKey e a chave do registro de travas.

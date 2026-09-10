@@ -6,7 +6,7 @@ import (
 	"testing"
 	"unicode"
 
-	"github.com/jonyd/gobsidian/internal/text"
+	"github.com/jonyduque/Gobsidian/internal/text"
 )
 
 // TestVersaoDasTabelasEhOMaiorDeUnicodeVersion confere a conta contra a

@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/jonyd/gobsidian/internal/index"
+	"github.com/jonyduque/Gobsidian/internal/index"
 )
 
 // TestNoteListAplicaOTetoDeLimit é o achado B4.

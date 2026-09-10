@@ -7,8 +7,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/jonyd/gobsidian/internal/boot"
-	"github.com/jonyd/gobsidian/internal/search"
+	"github.com/jonyduque/Gobsidian/internal/boot"
+	"github.com/jonyduque/Gobsidian/internal/search"
 )
 
 func TestPrepararBuscaSemCacheConstroiEMarcaPronta(t *testing.T) {

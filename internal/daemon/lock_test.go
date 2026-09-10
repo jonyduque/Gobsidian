@@ -7,8 +7,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/jonyd/gobsidian/internal/config"
-	"github.com/jonyd/gobsidian/internal/daemon"
+	"github.com/jonyduque/Gobsidian/internal/config"
+	"github.com/jonyduque/Gobsidian/internal/daemon"
 )
 
 // TestDezPontesIniciamUmDaemonSo e o teste nomeado na prova de mutacao do

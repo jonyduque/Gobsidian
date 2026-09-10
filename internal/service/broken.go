@@ -6,8 +6,8 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/jonyd/gobsidian/internal/index"
-	"github.com/jonyd/gobsidian/internal/text"
+	"github.com/jonyduque/Gobsidian/internal/index"
+	"github.com/jonyduque/Gobsidian/internal/text"
 )
 
 // BrokenLinksRequest sao os parametros de vault_broken_links.

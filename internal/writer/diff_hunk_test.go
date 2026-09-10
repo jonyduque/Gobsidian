@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/jonyd/gobsidian/internal/writer"
+	"github.com/jonyduque/Gobsidian/internal/writer"
 )
 
 // TestCabecalhoDeHunkComComprimentoZero é o achado B8.

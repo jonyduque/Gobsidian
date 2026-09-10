@@ -3,8 +3,8 @@ package service_test
 import (
 	"testing"
 
-	"github.com/jonyd/gobsidian/internal/search"
-	"github.com/jonyd/gobsidian/internal/service"
+	"github.com/jonyduque/Gobsidian/internal/search"
+	"github.com/jonyduque/Gobsidian/internal/service"
 )
 
 // BenchmarkSearchLimit200CacheTrechoRepetido mede a MESMA consulta repetida com
