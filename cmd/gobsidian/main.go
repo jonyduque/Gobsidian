@@ -85,6 +85,7 @@ func newRootCmd() *cobra.Command {
 	// entrou: duas formas de completar o mesmo shell e a duplicacao que este
 	// projeto persegue, e a do carapace completa valor.
 	instalarCompletion(root)
+	acrescentarShellsDoCarapace(root)
 
 	return root
 }

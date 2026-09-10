@@ -15,3 +15,10 @@ tools/parity-dumper/main.js
 # que so existe na maquina de quem instalou nao reduz erro de mais ninguem.
 .agents/
 .agents_test/
+
+# Um `go build ./cmd/gobsidian` na raiz deixa o binario AQUI, e ele envelhece
+# em silencio: em 2026-09-10 um exe de 8 de setembro, sem os comandos install e
+# update, foi confundido com a build atual. Quem compila para valer usa o
+# scripts/build.ps1, que escreve em bin/.
+/gobsidian.exe
+/gobsidian
