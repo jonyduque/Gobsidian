@@ -126,6 +126,29 @@ try {
     Caso -Nome 'escotilha no arquivo de -F -> allow' `
         -Esperado 'allow' -Obtido (Decisao-Hook "git commit -F $msgCom" $go)
 
+    # O -F que NAO abre. Ate 2026-09-10 o hook o ignorava em silencio: a
+    # mensagem ficava vazia, a escotilha escrita dentro dela nunca era vista, e
+    # o bloqueio dizia que faltava documentacao -- acusando o autor de algo que
+    # ele nao fez. Custou tres tentativas de commit num rename mecanico.
+    #
+    # A causa: o hook le o TEXTO do comando, nao o argv. `-F "$M"` chega com o
+    # cifrao literal, porque quem expande a variavel e a shell, depois.
+    Caso -Nome 'arquivo de -F que nao abre -> deny' `
+        -Esperado 'deny' -Obtido (Decisao-Hook 'git commit -F "$M"' $go)
+
+    Caso -Nome 'arquivo de -F que nao abre -> o motivo DIZ que a mensagem nao foi lida' `
+        -Esperado 'avisa' -Obtido (
+            $(if ((Motivo-Hook 'git commit -F "$M"' $go) -match 'NAO CONSEGUI LER A MENSAGEM') { 'avisa' } else { 'silencioso' })
+        )
+
+    # O inverso, e o que impede o aviso de virar ruido: um -F que ABRE nao pode
+    # disparar o aviso. Sem este caso, um hook que avisasse SEMPRE passaria no
+    # anterior.
+    Caso -Nome 'arquivo de -F que abre -> sem aviso de mensagem ilegivel' `
+        -Esperado 'quieto' -Obtido (
+            $(if ((Motivo-Hook "git commit -F $msgCom" $go) -match 'NAO CONSEGUI LER A MENSAGEM') { 'avisou' } else { 'quieto' })
+        )
+
     Caso -Nome 'escotilha em -m entre aspas duplas -> allow' `
         -Esperado 'allow' -Obtido (Decisao-Hook 'git commit -m "fix: x [sem-doc]"' $go)
 

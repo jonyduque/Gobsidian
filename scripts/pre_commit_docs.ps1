@@ -111,6 +111,10 @@ function Segmento-Commit([string]$linha) {
 # O grupo de -m aceita flags curtas agrupadas (`-am`, `-aem`): o lookbehind
 # barra um `-` precedido de letra/digito/traco, que e o que evita casar o
 # segundo `-` de `--amend` como se fosse um `-m` isolado (revisao final, F3).
+# ArquivosDeMensagemIlegiveis guarda os caminhos de -F que nao abriram, para a
+# mensagem de bloqueio poder dizer isso em vez de acusar falta de documentacao.
+$script:ArquivosDeMensagemIlegiveis = [System.Collections.Generic.List[string]]::new()
+
 function Extrair-Mensagem([string]$linha) {
     $linha = Segmento-Commit $linha
     $partes = [System.Collections.Generic.List[string]]::new()
@@ -122,9 +126,27 @@ function Extrair-Mensagem([string]$linha) {
     $reF = '(?:-F|--file)(?:=|\s+)(?:"([^"]*)"|''([^'']*)''|(\S+))'
     foreach ($m in [regex]::Matches($linha, $reF)) {
         $arquivo = @($m.Groups[1].Value, $m.Groups[2].Value, $m.Groups[3].Value) | Where-Object { $_ } | Select-Object -First 1
-        if ($arquivo -and (Test-Path -LiteralPath $arquivo -PathType Leaf)) {
+        if (-not $arquivo) { continue }
+        if (Test-Path -LiteralPath $arquivo -PathType Leaf) {
             $partes.Add((Get-Content -LiteralPath $arquivo -Raw -Encoding utf8))
+            continue
         }
+        # Arquivo de -F que NAO resolve. Ate 2026-09-10 isto era ignorado em
+        # silencio, e o efeito era o pior possivel: a mensagem ficava vazia, a
+        # escotilha [sem-doc] escrita dentro dela nunca era vista, e o hook
+        # bloqueava dizendo que faltava documentacao -- acusando o autor de
+        # algo que ele nao fez.
+        #
+        # Custou tres tentativas de commit, e a causa era o hook ler o TEXTO do
+        # comando e nao o argv: `git commit -F "$M"` chega aqui com o cifrao
+        # literal, porque quem expande a variavel e a shell, depois. O mesmo
+        # vale para caminho estilo MSYS (/c/Users/...), que o Test-Path do
+        # PowerShell nao resolve.
+        #
+        # Nao vira allow nem deny sozinho: o caminho entra na lista e quem
+        # decide continua sendo a regra de documentacao. O que muda e o hook
+        # passar a DIZER que nao conseguiu ler a mensagem.
+        $script:ArquivosDeMensagemIlegiveis.Add($arquivo)
     }
     return ($partes -join "`n")
 }
@@ -187,9 +209,27 @@ try {
         Emitir "allow" "codigo, documentacao e ledger entraram juntos"
     }
 
+    # O aviso do -F ilegivel vem PRIMEIRO, e a ordem importa: se a mensagem nao
+    # foi lida, tudo o que vem depois pode estar acusando o autor de uma falta
+    # que ele nao cometeu -- a escotilha podia estar escrita e o hook nao a viu.
+    $avisoDeMensagem = @()
+    if ($script:ArquivosDeMensagemIlegiveis.Count -gt 0) {
+        $avisoDeMensagem = @(
+            "  [!] NAO CONSEGUI LER A MENSAGEM DO COMMIT:",
+            ($script:ArquivosDeMensagemIlegiveis | ForEach-Object { "      -F $_" }),
+            "      Se a escotilha [sem-doc] estava ai dentro, ela NAO foi vista.",
+            "      Este hook le o TEXTO do comando, nao o argv: `$M ou `$(...) chegam",
+            "      literais, porque quem expande e a shell, depois. Caminho estilo",
+            "      MSYS (/c/Users/...) tambem nao resolve. Repita com o caminho",
+            "      literal do Windows entre aspas.",
+            ""
+        )
+    }
+
     $texto = @(
         "COMMIT BLOQUEADO: codigo de producao mudou e a documentacao correspondente nao entrou.",
         "",
+        $avisoDeMensagem,
         ($bloqueios | ForEach-Object { "  [!] $_" }),
         "",
         "Arquivos .go de producao em stage:",

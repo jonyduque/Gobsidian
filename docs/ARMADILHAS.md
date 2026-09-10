@@ -749,6 +749,28 @@ de todo workflow satisfaz a diretiva — e o inverso também é caso: pin **acim
 da diretiva é legítimo, e recusá-lo impediria testar numa toolchain nova antes
 de subir a diretiva.
 
+**O hook lê o TEXTO do comando, não o argv — e ignorava em silêncio o `-F` que
+não abria.** Em 2026-09-10, um rename mecânico de caminho de módulo tocou
+`internal/mcpsrv/tools_*.go` sem `docs/TOOLS.md`, e o hook bloqueou — corretamente.
+A escotilha `[sem-doc]` foi escrita num arquivo e passada com `git commit -F "$M"`.
+Continuou bloqueando, **três vezes**.
+
+A causa é que o hook recebe a string do comando, e não os argumentos já
+expandidos: `-F "$M"` chega com o cifrão literal, porque quem expande a variável
+é a shell, depois. Caminho estilo MSYS (`/c/Users/...`) tem o mesmo destino — o
+`Test-Path` do PowerShell não o resolve.
+
+O defeito não era não achar o arquivo: era **não dizer**. A mensagem ficava
+vazia, a escotilha nunca era vista, e o bloqueio acusava falta de documentação —
+uma falta que o autor não tinha cometido. Diagnosticar exigiu simular o hook à
+mão (`-Simular -Comando`), que é o caminho que `testador.md` já prescreve.
+
+Agora o `-F` ilegível entra numa lista e o bloqueio abre com ela, antes de
+qualquer outro motivo: se a mensagem não foi lida, tudo o que vem depois pode
+estar acusando errado. Três casos em `check_gates.ps1` — recusa, o motivo
+**diz** que não leu, e o inverso: `-F` que abre não dispara o aviso, senão um
+hook que avisasse sempre passaria no caso do meio.
+
 **Revisor "somente leitura" sobrescreveu uma fixture.** Ao montar um caso ad
 hoc, uma re-revisão redirecionou saída para
 `scripts/testdata/gates/msg-sem-escotilha.txt`; o gate teria continuado verde
