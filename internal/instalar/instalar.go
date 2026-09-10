@@ -12,6 +12,9 @@ import (
 	"time"
 
 	"github.com/jonyd/gobsidian/internal/hosts"
+	"github.com/jonyd/gobsidian/internal/text"
+	"sort"
+	"strings"
 )
 
 // Sistema sao as operacoes que tocam a maquina do usuario.
@@ -62,11 +65,14 @@ type Opcoes struct {
 	// Destino e o diretorio de instalacao. Vazio usa DiretorioPadrao().
 	Destino string
 
-	Versao   string
-	Cofre    string
-	Hosts    []string // chaves; vazio significa "os detectados"
-	ReadOnly bool
-	SemPath  bool
+	Versao string
+	// Cofre e o cofre unico. Fica por compatibilidade com quem passa um so;
+	// CofresExtra acrescenta os demais, e Cofres() e a conta unica dos dois.
+	Cofre       string
+	CofresExtra []string
+	Hosts       []string // chaves; vazio significa "os detectados"
+	ReadOnly    bool
+	SemPath     bool
 
 	// Ambiente permite ao teste montar um mundo. Zero-valor usa o real.
 	Ambiente *hosts.Ambiente
@@ -181,6 +187,7 @@ func Instalar(ctx context.Context, sis Sistema, o Opcoes) (Resultado, error) {
 		Versao:  o.Versao,
 		Hash:    hash,
 		Cofre:   o.Cofre,
+		Cofres:  o.Cofres(),
 		Em:      sis.agora(),
 	}
 	if r.PathMudou {
@@ -362,11 +369,7 @@ func configurarHosts(o Opcoes, binario string) (ok, falhos map[string]string) {
 		amb = *o.Ambiente
 	}
 
-	args := []string{"serve", "--vault", o.Cofre}
-	if o.ReadOnly {
-		args = append(args, "--read-only")
-	}
-	entrada := hosts.Entrada{Command: binario, Args: args}
+	entradas := EntradasParaCofres(binario, o.Cofres(), o.ReadOnly)
 
 	// != nil, e nao len() > 0: uma fatia VAZIA significa "nenhum host", e uma
 	// fatia NULA significa "detecte voce". Com len() > 0 as duas cairiam na
@@ -390,7 +393,7 @@ func configurarHosts(o Opcoes, binario string) (ok, falhos map[string]string) {
 	}
 
 	for _, h := range alvos {
-		aviso, err := h.Configurar(amb, entrada)
+		aviso, err := h.Configurar(amb, entradas)
 		if err != nil {
 			falhos[h.Chave] = err.Error()
 			continue
@@ -407,6 +410,111 @@ func configurarHosts(o Opcoes, binario string) (ok, falhos map[string]string) {
 // instalacao inteira para isso seria desproporcional.
 //
 // chaves nil significa "os detectados"; uma fatia vazia significa "nenhum".
-func ConfigurarHosts(binario, cofre string, readOnly bool, chaves []string) (ok, falhos map[string]string) {
-	return configurarHosts(Opcoes{Cofre: cofre, ReadOnly: readOnly, Hosts: chaves}, binario)
+func ConfigurarHosts(binario string, cofres []string, readOnly bool, chaves []string) (ok, falhos map[string]string) {
+	o := Opcoes{ReadOnly: readOnly, Hosts: chaves}
+	if len(cofres) > 0 {
+		o.Cofre, o.CofresExtra = cofres[0], cofres[1:]
+	}
+	return configurarHosts(o, binario)
+}
+
+// Cofres devolve todos os cofres a configurar, sem repetir e sem vazio.
+//
+// Uma conta so para "quais cofres?": Opcoes carrega Cofre e CofresExtra porque
+// quase todo chamador passa um, e quem lê nunca precisa saber disso.
+func (o Opcoes) Cofres() []string {
+	var saida []string
+	visto := map[string]bool{}
+	for _, c := range append([]string{o.Cofre}, o.CofresExtra...) {
+		if c == "" || visto[c] {
+			continue
+		}
+		visto[c] = true
+		saida = append(saida, c)
+	}
+	return saida
+}
+
+// EntradasParaCofres monta a entrada MCP de cada cofre.
+//
+// A regra de nome, e a razao dela: UM cofre sai sob hosts.ChaveDoServidor,
+// exatamente como antes de 2026-09-09 -- quem ja usa o produto nao tem o
+// config mexido de graca. VARIOS cofres saem cada um sob hosts.ChaveDeCofre,
+// porque um host MCP nao aceita dois servidores com o mesmo nome.
+func EntradasParaCofres(binario string, cofres []string, somenteLeitura bool) []hosts.EntradaNomeada {
+	var saida []hosts.EntradaNomeada
+	for _, cofre := range cofres {
+		args := []string{"serve", "--vault", cofre}
+		if somenteLeitura {
+			args = append(args, "--read-only")
+		}
+		chave := hosts.ChaveDoServidor
+		if len(cofres) > 1 {
+			chave = ChaveDeCofre(cofre)
+		}
+		saida = append(saida, hosts.EntradaNomeada{
+			Chave:   chave,
+			Entrada: hosts.Entrada{Command: binario, Args: args},
+		})
+	}
+	return saida
+}
+
+// ConfiguracaoAtual devolve os cofres que JA estao configurados, lendo os
+// arquivos de config dos hosts detectados.
+//
+// E o primeiro passo da instalacao interativa desde 2026-09-09: antes de
+// oferecer uma lista de cofres, mostrar o que ja existe. Sem isso a pergunta
+// pressupunha que nao havia nada, e reconfigurar um host custava reconfigurar
+// todos.
+//
+// So enxerga host de ARQUIVO. Claude Code, Gemini CLI e Codex guardam a
+// configuracao dentro do proprio CLI, e ler aquilo seria adivinhar um formato
+// que muda entre versoes -- o mesmo motivo de a escrita deles passar pelo CLI.
+func ConfiguracaoAtual(amb hosts.Ambiente) []string {
+	var cofres []string
+	visto := map[string]bool{}
+	for _, h := range hosts.Detectar(amb) {
+		for _, en := range h.EntradasAtuais(amb) {
+			cofre := hosts.CofreDaEntrada(en.Entrada)
+			if cofre == "" || visto[cofre] {
+				continue
+			}
+			visto[cofre] = true
+			cofres = append(cofres, cofre)
+		}
+	}
+	sort.Strings(cofres)
+	return cofres
+}
+
+// ChaveDeCofre monta a chave sob a qual um cofre aparece no config do host,
+// quando ha mais de um.
+//
+// O NOME do cofre, e nao o caminho: a chave vai para a tela do usuario dentro
+// do config dele, e "gobsidian-estudo" diz o que "gobsidian-a1b2c3d4" nao diz.
+//
+// Tirar acento antes de filtrar e o ponto inteiro: sem isso "Acao Direta"
+// perderia as letras acentuadas e viraria "a-o-direta", que e ilegivel
+// exatamente para quem tem cofre em portugues. A conta de tirar acento e
+// text.RemoveAccents -- a MESMA que o indice usa --, e nao uma tabela local.
+//
+// Mora aqui, e nao em internal/hosts, porque `hosts` e folha: ele recebe a
+// chave pronta e nao sabe derivar nome. Ver o grafo no CLAUDE.md.
+func ChaveDeCofre(caminhoDoCofre string) string {
+	base := text.RemoveAccents(filepath.Base(filepath.Clean(caminhoDoCofre)))
+	var b strings.Builder
+	b.WriteString(hosts.PrefixoDeCofre)
+	ultimoHifen := true
+	for _, r := range strings.ToLower(base) {
+		switch {
+		case (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9'):
+			b.WriteRune(r)
+			ultimoHifen = false
+		case !ultimoHifen:
+			b.WriteByte('-')
+			ultimoHifen = true
+		}
+	}
+	return strings.TrimRight(b.String(), "-")
 }

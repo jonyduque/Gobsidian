@@ -25,13 +25,17 @@ const NomeDoManifesto = "instalacao.json"
 // resposta mecanica. Com ele, `update` sabe dizer "voce instalou para 3 hosts,
 // vou reconfigurar os 3".
 type Manifesto struct {
-	Binario        string    `json:"binario"`
-	Versao         string    `json:"versao"`
-	Hash           string    `json:"hash"`
-	PathAdicionado string    `json:"path_adicionado,omitempty"`
-	Hosts          []string  `json:"hosts,omitempty"`
-	Cofre          string    `json:"cofre,omitempty"`
-	Em             time.Time `json:"em"`
+	Binario        string   `json:"binario"`
+	Versao         string   `json:"versao"`
+	Hash           string   `json:"hash"`
+	PathAdicionado string   `json:"path_adicionado,omitempty"`
+	Hosts          []string `json:"hosts,omitempty"`
+	// Cofre e o formato antigo, de um cofre so. Continua sendo LIDO para que
+	// um update a partir de uma instalacao anterior nao perca a configuracao.
+	Cofre string `json:"cofre,omitempty"`
+	// Cofres e o formato atual, desde 2026-09-09.
+	Cofres []string  `json:"cofres,omitempty"`
+	Em     time.Time `json:"em"`
 }
 
 // CaminhoDoManifesto e a conta unica do caminho.

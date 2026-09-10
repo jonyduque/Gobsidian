@@ -134,7 +134,7 @@ func rodarUpdate(ctx context.Context, cmd *cobra.Command, apenasConferir, sim bo
 	}
 
 	con.OK("Atualizado para %s", release.Tag)
-	imprimirResumo(con, r, m.Cofre)
+	imprimirResumo(con, r, cofresDoManifesto(m))
 	con.Detail("os hosts reiniciam o servidor sozinhos; nao ha o que fazer a mao")
 	return nil
 }
@@ -155,4 +155,20 @@ func nomeDoAtivoDaPlataforma() string {
 	default:
 		return fmt.Sprintf("gobsidian-%s-%s", runtime.GOOS, runtime.GOARCH)
 	}
+}
+
+// cofresDoManifesto le a lista de cofres do manifesto, aceitando o formato
+// antigo de um cofre so.
+//
+// O manifesto de antes de 2026-09-09 traz `cofre`; o de agora traz `cofres`. Um
+// update nao pode falhar por causa de um manifesto que ele mesmo escreveu na
+// versao anterior.
+func cofresDoManifesto(m instalar.Manifesto) []string {
+	if len(m.Cofres) > 0 {
+		return m.Cofres
+	}
+	if m.Cofre != "" {
+		return []string{m.Cofre}
+	}
+	return nil
 }

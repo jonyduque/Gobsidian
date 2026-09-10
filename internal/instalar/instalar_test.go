@@ -328,3 +328,92 @@ func TestConfigurarHostsDistingueNenhumDeDetectar(t *testing.T) {
 		t.Error("--hosts none disparou a deteccao de hosts")
 	}
 }
+
+// TestInstalarAceitaOrigemComOutroNome cobre o caso REAL de quem baixa do
+// release: o artefato publicado se chama gobsidian-windows-amd64.exe,
+// gobsidian-darwin-arm64 ou gobsidian-linux-amd64, e nenhum deles e
+// NomeDoExecutavel.
+//
+// A origem e os.Executable() -- o arquivo que estiver rodando, com o nome que
+// tiver. O destino e SEMPRE filepath.Join(dir, NomeDoExecutavel). Sem este
+// caso, o teste da sequencia usa NomeDoExecutavel dos dois lados e a pergunta
+// "o nome do arquivo baixado importa?" fica sem resposta no codigo.
+func TestInstalarAceitaOrigemComOutroNome(t *testing.T) {
+	m := novoMundo(t)
+
+	// O nome do artefato publicado, e nao o nome instalado.
+	baixado := filepath.Join(filepath.Dir(m.origem), "gobsidian-windows-amd64.exe")
+	if err := os.Rename(m.origem, baixado); err != nil {
+		t.Fatal(err)
+	}
+	m.origem = baixado
+
+	r, err := Instalar(context.Background(), m.sistema(), m.opcoes())
+	if err != nil {
+		t.Fatalf("Instalar a partir de %q: %v", filepath.Base(baixado), err)
+	}
+
+	quer := filepath.Join(m.destino, NomeDoExecutavel)
+	if r.Binario != quer {
+		t.Errorf("instalou em %q, queria %q: o destino nao acompanha o nome da origem", r.Binario, quer)
+	}
+	if _, err := os.Stat(quer); err != nil {
+		t.Errorf("o binario nao esta no destino: %v", err)
+	}
+	if base := filepath.Base(r.Binario); base == filepath.Base(baixado) {
+		t.Errorf("o nome do artefato baixado (%s) vazou para a instalacao", base)
+	}
+}
+
+func TestChaveDeCofreTiraAcentoAntesDeFiltrar(t *testing.T) {
+	casos := map[string]string{
+		`C:\Users\x\Estudo`:   "gobsidian-estudo",
+		"/home/x/Meu Cofre":   "gobsidian-meu-cofre",
+		"/home/x/Ação Direta": "gobsidian-acao-direta",
+		"/home/x/Cofre Nº 2":  "gobsidian-cofre-n-2",
+		"/home/x/vault_2026":  "gobsidian-vault-2026",
+	}
+	for caminho, quer := range casos {
+		if got := ChaveDeCofre(caminho); got != quer {
+			t.Errorf("ChaveDeCofre(%q) = %q, queria %q", caminho, got, quer)
+		}
+	}
+}
+
+// EntradasParaCofres carrega a promessa de compatibilidade: um cofre continua
+// saindo sob a chave antiga, e so a partir de dois cada um ganha nome proprio.
+func TestEntradasParaCofresUmMantemAChaveAntiga(t *testing.T) {
+	ens := EntradasParaCofres("gob", []string{`C:\Cofre`}, false)
+	if len(ens) != 1 || ens[0].Chave != hosts.ChaveDoServidor {
+		t.Fatalf("EntradasParaCofres = %+v, queria uma entrada sob %q", ens, hosts.ChaveDoServidor)
+	}
+}
+
+func TestEntradasParaCofresVariosGanhamNomeProprio(t *testing.T) {
+	ens := EntradasParaCofres("gob", []string{"/x/Estudo", "/x/Trabalho"}, true)
+	if len(ens) != 2 {
+		t.Fatalf("EntradasParaCofres = %+v, queria duas", ens)
+	}
+	vistas := map[string]bool{}
+	for _, en := range ens {
+		if en.Chave == hosts.ChaveDoServidor {
+			t.Errorf("com dois cofres nenhuma entrada pode usar a chave generica: %+v", ens)
+		}
+		if vistas[en.Chave] {
+			t.Errorf("duas entradas com a mesma chave %q: um host MCP recusaria", en.Chave)
+		}
+		vistas[en.Chave] = true
+		if !contemArg(en.Args, "--read-only") {
+			t.Errorf("entrada %q perdeu o --read-only", en.Chave)
+		}
+	}
+}
+
+func contemArg(args []string, alvo string) bool {
+	for _, a := range args {
+		if a == alvo {
+			return true
+		}
+	}
+	return false
+}

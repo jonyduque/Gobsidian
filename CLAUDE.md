@@ -105,7 +105,7 @@ internal/
   text/            normalização
 docs/              normativa, papéis, história, wiki
 testdata/          golden files do parser, cofre pequeno, corpus de paridade
-bootstrap/         install.sh, install.ps1 e install.nu — baixam o executável
+bootstrap/         install.sh, install.ps1, install.nu e install-flags.nu — baixam o executável
                    e o rodam, e nada mais (126 linhas, contra as 1.819
                    apagadas: install.ps1 com 729 e installer/ com 1.090)
 tools/             netcheck (analisador da RNF-30); parity-dumper (plugin de
@@ -138,7 +138,7 @@ daemon   → config, ipc, lifecycle, mcpsrv
 doctor   → config, daemon, ipc, vault
 hosts      → (folha)
 selfupdate → (folha)
-instalar   → config, daemon, hosts, ipc, search
+instalar   → config, daemon, hosts, ipc, search, text
 ```
 
 Os três últimos são de 2026-09-08 (plano do instalador, tasks 195–201), e as
@@ -176,6 +176,16 @@ contas da mesma regra. `instalar → ipc` é o diretório de runtime
 `ipc`. `instalar → search` é `LerCabecalhoDoCache`: decidir se um cache ficou
 órfão exige o caminho do cofre, que só o cabeçalho do cache guarda, e o formato
 dele é de `search`. `instalar → config` é `VaultKey` e a raiz do cache.
+
+`instalar → text` é de 2026-09-09 e a justificativa é **uma conta por regra**:
+a chave sob a qual cada cofre aparece no config do host
+(`instalar.ChaveDeCofre`) deriva do NOME do cofre, e derivar nome exige tirar
+acento. `text.RemoveAccents` é a conta que o índice já usa; uma tabela local
+faria "Ação Direta" virar `a-o-direta` numa via e `acao-direta` na outra — e a
+primeira redação desta função, escrita dentro de `hosts`, produzia exatamente
+`a-o-direta`. A conta mora aqui, e não em `hosts`, porque **`hosts` é folha e
+folha não ganha import**: ele recebe a chave pronta e só sabe dizer se ela é
+nossa (`hosts.EhNossa`, `hosts.PrefixoDeCofre`).
 
 `instalar` é importado **só** por `cmd/gobsidian`, como `boot`. E `doctor` NÃO
 importa `instalar`: quem relata processos e lixo é o comando, não o pacote de

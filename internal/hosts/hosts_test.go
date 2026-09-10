@@ -149,7 +149,7 @@ func TestConfigurarHostDeArquivoEscreveNoLugarCerto(t *testing.T) {
 				t.Fatalf("host %s sumiu da tabela", c.chave)
 			}
 
-			aviso, err := h.Configurar(af.Ambiente, e)
+			aviso, err := h.Configurar(af.Ambiente, []EntradaNomeada{{Chave: ChaveDoServidor, Entrada: e}})
 			if err != nil {
 				t.Fatalf("Configurar() error = %v", err)
 			}
@@ -179,7 +179,7 @@ func TestConfigurarHostDeArquivoEscreveNoLugarCerto(t *testing.T) {
 	t.Run("claude-desktop", func(t *testing.T) {
 		af := novoAmbienteFalso(t, nil, nil)
 		h, _ := PorChave("claude-desktop")
-		if _, err := h.Configurar(af.Ambiente, e); err != nil {
+		if _, err := h.Configurar(af.Ambiente, []EntradaNomeada{{Chave: ChaveDoServidor, Entrada: e}}); err != nil {
 			t.Fatalf("Configurar() error = %v", err)
 		}
 		alvo := filepath.Join(diretorioDoClaudeDesktop(af.Ambiente), "claude_desktop_config.json")
@@ -200,7 +200,7 @@ func TestConfigurarHostDeCLIRemoveAntesDeAdicionar(t *testing.T) {
 		t.Run(chave, func(t *testing.T) {
 			af := novoAmbienteFalso(t, nil, nil)
 			h, _ := PorChave(chave)
-			if _, err := h.Configurar(af.Ambiente, e); err != nil {
+			if _, err := h.Configurar(af.Ambiente, []EntradaNomeada{{Chave: ChaveDoServidor, Entrada: e}}); err != nil {
 				t.Fatalf("Configurar() error = %v", err)
 			}
 			if len(af.comandos) < 2 {
@@ -229,7 +229,7 @@ func TestVSCodeRecebeUmJSONNumArgumentoSo(t *testing.T) {
 	e := Entrada{Command: `C:\bin\gobsidian.exe`, Args: []string{"serve", "--vault", `C:\Cofre`}}
 
 	h, _ := PorChave("vscode")
-	if _, err := h.Configurar(af.Ambiente, e); err != nil {
+	if _, err := h.Configurar(af.Ambiente, []EntradaNomeada{{Chave: ChaveDoServidor, Entrada: e}}); err != nil {
 		t.Fatalf("Configurar() error = %v", err)
 	}
 	if len(af.comandos) != 1 || len(af.comandos[0]) != 3 {

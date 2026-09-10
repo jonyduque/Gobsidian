@@ -77,7 +77,17 @@ type Host struct {
 
 	// configurar registra o gobsidian. Devolve o aviso que o usuario precisa
 	// ler depois (tipicamente "reinicie o host").
-	configurar func(Ambiente, Entrada) (string, error)
+	//
+	// Recebe a LISTA de entradas porque a instalacao configura N cofres desde
+	// 2026-09-09. Lista vazia e uma escolha valida: significa "tire as minhas
+	// entradas e nao ponha nenhuma".
+	configurar func(Ambiente, []EntradaNomeada) (string, error)
+
+	// arquivo diz ONDE mora a configuracao deste host, quando ela mora num
+	// arquivo que este pacote escreve. Nulo nos hosts de CLI: la a
+	// configuracao e do proprio CLI, e adivinhar o formato dela e o que
+	// configurar por CLI existe para evitar.
+	arquivo func(Ambiente) string
 }
 
 // Todos devolve a tabela inteira, em ordem estavel.
@@ -92,38 +102,46 @@ func Todos() []Host {
 			detectar: func(a Ambiente) bool {
 				return a.Existe(diretorioDoClaudeDesktop(a)) || a.Existe(instalacaoDoClaudeDesktop(a))
 			},
-			configurar: func(a Ambiente, e Entrada) (string, error) {
+			arquivo: func(a Ambiente) string {
+				return filepath.Join(diretorioDoClaudeDesktop(a), "claude_desktop_config.json")
+			},
+			configurar: func(a Ambiente, ens []EntradaNomeada) (string, error) {
 				alvo := filepath.Join(diretorioDoClaudeDesktop(a), "claude_desktop_config.json")
-				return "Reinicie o Claude Desktop para carregar o servidor.", Fundir(alvo, e)
+				return "Reinicie o Claude Desktop para carregar o servidor.", FundirVarias(alvo, ens)
 			},
 		},
 		{
 			Chave:    "claude-code",
 			Nome:     "Claude Code (CLI)",
 			detectar: func(a Ambiente) bool { return a.TemComando("claude") },
-			configurar: func(a Ambiente, e Entrada) (string, error) {
+			configurar: func(a Ambiente, ens []EntradaNomeada) (string, error) {
 				// O proprio CLI escreve a config dele -- melhor do que adivinhar
 				// o formato e o arquivo, que mudam entre versoes.
 				//
 				// O remove vem antes porque `claude mcp add` RECUSA um nome que
 				// ja existe: sem ele, rodar o instalador duas vezes falhava so
 				// neste host, com "MCP server gobsidian already exists".
-				_ = a.Rodar("claude", "mcp", "remove", ChaveDoServidor, "--scope", "user")
-				args := append([]string{"mcp", "add", ChaveDoServidor, "--scope", "user", "--", e.Command}, e.Args...)
-				return "Registrado no escopo de usuario.", a.Rodar("claude", args...)
+				for _, chave := range chavesAPodar(ens) {
+					_ = a.Rodar("claude", "mcp", "remove", chave, "--scope", "user")
+				}
+				return "Registrado no Claude Code.", registrarPorCLI(a, ens, func(en EntradaNomeada) []string {
+					return append([]string{"mcp", "add", en.Chave, "--scope", "user", "--", en.Command}, en.Args...)
+				}, "claude")
 			},
 		},
 		{
 			Chave:    "gemini-cli",
 			Nome:     "Gemini CLI",
 			detectar: func(a Ambiente) bool { return a.TemComando("gemini") },
-			configurar: func(a Ambiente, e Entrada) (string, error) {
+			configurar: func(a Ambiente, ens []EntradaNomeada) (string, error) {
 				// O remove do gemini assume escopo de PROJETO por padrao, entao
 				// o --scope tem de ser explicito nos dois lados.
-				_ = a.Rodar("gemini", "mcp", "remove", ChaveDoServidor, "--scope", "user")
-				args := append([]string{"mcp", "add", ChaveDoServidor, e.Command}, e.Args...)
-				args = append(args, "--scope", "user")
-				return "Registrado no escopo de usuario.", a.Rodar("gemini", args...)
+				for _, chave := range chavesAPodar(ens) {
+					_ = a.Rodar("gemini", "mcp", "remove", chave, "--scope", "user")
+				}
+				return "Registrado no Gemini CLI.", registrarPorCLI(a, ens, func(en EntradaNomeada) []string {
+					return append([]string{"mcp", "add", en.Chave, en.Command}, en.Args...)
+				}, "gemini")
 			},
 		},
 		{
@@ -132,9 +150,10 @@ func Todos() []Host {
 			detectar: func(a Ambiente) bool {
 				return a.Existe(filepath.Join(a.LocalAppData, "Programs", "Antigravity"))
 			},
-			configurar: func(a Ambiente, e Entrada) (string, error) {
+			arquivo: func(a Ambiente) string { return filepath.Join(a.Home, ".gemini", "antigravity", "mcp_config.json") },
+			configurar: func(a Ambiente, ens []EntradaNomeada) (string, error) {
 				alvo := filepath.Join(a.Home, ".gemini", "antigravity", "mcp_config.json")
-				return "Reinicie o Antigravity.", Fundir(alvo, e)
+				return "Reinicie o Antigravity.", FundirVarias(alvo, ens)
 			},
 		},
 		{
@@ -143,31 +162,40 @@ func Todos() []Host {
 			detectar: func(a Ambiente) bool {
 				return a.Existe(filepath.Join(a.LocalAppData, "Programs", "Antigravity IDE"))
 			},
-			configurar: func(a Ambiente, e Entrada) (string, error) {
+			arquivo: func(a Ambiente) string { return filepath.Join(a.Home, ".gemini", "antigravity-ide", "mcp_config.json") },
+			configurar: func(a Ambiente, ens []EntradaNomeada) (string, error) {
 				alvo := filepath.Join(a.Home, ".gemini", "antigravity-ide", "mcp_config.json")
-				return "Reinicie o Antigravity IDE.", Fundir(alvo, e)
+				return "Reinicie o Antigravity IDE.", FundirVarias(alvo, ens)
 			},
 		},
 		{
 			Chave:    "codex",
 			Nome:     "Codex CLI",
 			detectar: func(a Ambiente) bool { return a.TemComando("codex") },
-			configurar: func(a Ambiente, e Entrada) (string, error) {
-				_ = a.Rodar("codex", "mcp", "remove", ChaveDoServidor)
-				args := append([]string{"mcp", "add", ChaveDoServidor, "--", e.Command}, e.Args...)
-				return "Registrado em ~/.codex/config.toml.", a.Rodar("codex", args...)
+			configurar: func(a Ambiente, ens []EntradaNomeada) (string, error) {
+				for _, chave := range chavesAPodar(ens) {
+					_ = a.Rodar("codex", "mcp", "remove", chave)
+				}
+				return "Registrado em ~/.codex/config.toml.", registrarPorCLI(a, ens, func(en EntradaNomeada) []string {
+					return append([]string{"mcp", "add", en.Chave, "--", en.Command}, en.Args...)
+				}, "codex")
 			},
 		},
 		{
 			Chave:    "vscode",
 			Nome:     "VS Code",
 			detectar: func(a Ambiente) bool { return a.TemComando("code") },
-			configurar: func(a Ambiente, e Entrada) (string, error) {
-				def, err := definicaoParaVSCode(e)
-				if err != nil {
-					return "", err
+			configurar: func(a Ambiente, ens []EntradaNomeada) (string, error) {
+				for _, en := range ens {
+					def, err := definicaoParaVSCode(en)
+					if err != nil {
+						return "", err
+					}
+					if err := a.Rodar("code", "--add-mcp", def); err != nil {
+						return "", err
+					}
 				}
-				return "Registrado na configuracao de usuario do VS Code.", a.Rodar("code", "--add-mcp", def)
+				return "Registrado na configuracao de usuario do VS Code.", nil
 			},
 		},
 		{
@@ -176,8 +204,9 @@ func Todos() []Host {
 			detectar: func(a Ambiente) bool {
 				return a.TemComando("cursor") || a.Existe(filepath.Join(a.LocalAppData, "Programs", "cursor"))
 			},
-			configurar: func(a Ambiente, e Entrada) (string, error) {
-				return "Reinicie o Cursor.", Fundir(filepath.Join(a.Home, ".cursor", "mcp.json"), e)
+			arquivo: func(a Ambiente) string { return filepath.Join(a.Home, ".cursor", "mcp.json") },
+			configurar: func(a Ambiente, ens []EntradaNomeada) (string, error) {
+				return "Reinicie o Cursor.", FundirVarias(filepath.Join(a.Home, ".cursor", "mcp.json"), ens)
 			},
 		},
 		{
@@ -186,9 +215,10 @@ func Todos() []Host {
 			detectar: func(a Ambiente) bool {
 				return a.Existe(filepath.Join(a.Home, ".codeium", "windsurf"))
 			},
-			configurar: func(a Ambiente, e Entrada) (string, error) {
+			arquivo: func(a Ambiente) string { return filepath.Join(a.Home, ".codeium", "windsurf", "mcp_config.json") },
+			configurar: func(a Ambiente, ens []EntradaNomeada) (string, error) {
 				alvo := filepath.Join(a.Home, ".codeium", "windsurf", "mcp_config.json")
-				return "Reinicie o Windsurf.", Fundir(alvo, e)
+				return "Reinicie o Windsurf.", FundirVarias(alvo, ens)
 			},
 		},
 	}
@@ -220,11 +250,11 @@ func PorChave(chave string) (Host, bool) {
 }
 
 // Configurar registra o gobsidian neste host.
-func (h Host) Configurar(a Ambiente, e Entrada) (aviso string, err error) {
+func (h Host) Configurar(a Ambiente, ens []EntradaNomeada) (aviso string, err error) {
 	if h.configurar == nil {
 		return "", fmt.Errorf("host %s nao sabe se configurar", h.Chave)
 	}
-	return h.configurar(a, e)
+	return h.configurar(a, ens)
 }
 
 // Chaves devolve as chaves de todos os hosts conhecidos, para mensagens de
@@ -235,4 +265,59 @@ func Chaves() []string {
 		chaves = append(chaves, h.Chave)
 	}
 	return chaves
+}
+
+// chavesAPodar lista as chaves que um host de CLI precisa remover antes de
+// registrar de novo.
+//
+// Sao as chaves NOVAS -- porque `mcp add` de vários CLIs recusa nome que já
+// existe -- mais ChaveDoServidor, que e o que uma instalacao anterior de um
+// cofre so deixou. Um CLI nao permite listar o que esta la, entao esta e a
+// poda possivel: ela cobre o caminho de ida (um cofre -> varios) e a
+// reconfiguracao do mesmo conjunto.
+//
+// O que ela NAO cobre e o caminho de volta com nomes diferentes: quem
+// configurou "gobsidian-a" e depois so "gobsidian-b" fica com "gobsidian-a"
+// no CLI ate remove-la a mao. Os hosts de arquivo JSON nao tem esse limite --
+// la a poda le o que existe.
+func chavesAPodar(ens []EntradaNomeada) []string {
+	chaves := []string{ChaveDoServidor}
+	for _, en := range ens {
+		if en.Chave != ChaveDoServidor {
+			chaves = append(chaves, en.Chave)
+		}
+	}
+	return chaves
+}
+
+// registrarPorCLI roda um `mcp add` por entrada, parando no primeiro erro.
+//
+// montarArgs existe porque os tres CLIs querem a mesma coisa em ordens
+// diferentes; o LAÇO e a parte comum, e e ele que estava escrito tres vezes.
+func registrarPorCLI(a Ambiente, ens []EntradaNomeada, montarArgs func(EntradaNomeada) []string, comando string) error {
+	for _, en := range ens {
+		if err := a.Rodar(comando, montarArgs(en)...); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// EntradasAtuais devolve as entradas NOSSAS que ja estao na configuracao deste
+// host.
+//
+// Vazio para host de CLI, e isso NAO e uma lacuna a preencher depois: ler a
+// configuracao do Claude Code, do Gemini CLI ou do Codex exigiria adivinhar um
+// formato que muda entre versoes, que e exatamente o que escrever pelo CLI
+// existe para evitar. Quem chama trata "nao sei" como "nao sei", e nao como
+// "nao ha".
+func (h Host) EntradasAtuais(a Ambiente) []EntradaNomeada {
+	if h.arquivo == nil {
+		return nil
+	}
+	ens, err := LerEntradas(h.arquivo(a))
+	if err != nil {
+		return nil
+	}
+	return ens
 }

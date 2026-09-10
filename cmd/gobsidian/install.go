@@ -13,7 +13,6 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"strconv"
 	"strings"
 
 	"github.com/jonyd/gobsidian/internal/console"
@@ -71,7 +70,7 @@ func rodarInstalacao(ctx context.Context, cmd *cobra.Command, o *opcoesDeInstala
 	con := console.New(cmd.OutOrStdout())
 	entrada := bufio.NewReader(cmd.InOrStdin())
 
-	cofre, err := escolherCofre(con, entrada, o)
+	cofres, err := escolherCofres(con, entrada, o)
 	if err != nil {
 		return err
 	}
@@ -85,15 +84,16 @@ func rodarInstalacao(ctx context.Context, cmd *cobra.Command, o *opcoesDeInstala
 		return confirmar(con, entrada, o.sim, pergunta, itens)
 	})
 
-	con.Step("Instalando")
+	con.Titulo("Instalando")
 	r, err := instalar.Instalar(ctx, sis, instalar.Opcoes{
-		Origem:   origem,
-		Destino:  o.installDir,
-		Versao:   version,
-		Cofre:    cofre,
-		Hosts:    chaves,
-		ReadOnly: o.readOnly,
-		SemPath:  o.semPath,
+		Origem:      origem,
+		Destino:     o.installDir,
+		Versao:      version,
+		Cofre:       primeiro(cofres),
+		CofresExtra: resto(cofres),
+		Hosts:       chaves,
+		ReadOnly:    o.readOnly,
+		SemPath:     o.semPath,
 	})
 	if errors.Is(err, instalar.ErrRecusado) {
 		con.Warn("Instalacao cancelada; nada foi alterado")
@@ -103,46 +103,151 @@ func rodarInstalacao(ctx context.Context, cmd *cobra.Command, o *opcoesDeInstala
 		return err
 	}
 
-	imprimirResumo(con, r, cofre)
+	imprimirResumo(con, r, cofres)
 	return nil
 }
 
-// escolherCofre resolve qual cofre servir.
+// primeiro e resto quebram a lista de cofres no formato que Opcoes carrega.
+// Existem como funcoes nomeadas para o chamador nao repetir o cuidado com a
+// lista vazia em dois lugares.
+func primeiro(cofres []string) string {
+	if len(cofres) == 0 {
+		return ""
+	}
+	return cofres[0]
+}
+
+func resto(cofres []string) []string {
+	if len(cofres) <= 1 {
+		return nil
+	}
+	return cofres[1:]
+}
+
+// escolherCofres resolve QUAIS cofres servir.
 //
-// Le o registro do PROPRIO Obsidian em vez de pedir um caminho que o usuario
-// teria de ir buscar. Cofre que nao existe mais nao aparece na lista (ver
-// instalar.CofresDoObsidian).
-func escolherCofre(con *console.Stream, entrada *bufio.Reader, o *opcoesDeInstalacao) (string, error) {
+// # A ordem das perguntas, e por que ela mudou
+//
+// Ate 2026-09-09 a primeira coisa que o instalador fazia era listar os cofres
+// do Obsidian e pedir um numero. Isso pressupunha duas coisas erradas: que nao
+// havia nada configurado, e que a resposta era exatamente um. Quem ja tinha
+// dois cofres registrados reconfigurava os dois para nao perder um, e quem nao
+// queria nenhum nao tinha como dizer.
+//
+// Agora a sequencia e: ler o que ja esta configurado, oferecer MANTER, e so
+// entao mostrar a lista -- com os cofres ja configurados marcados.
+//
+// # Por que caixas
+//
+// Numero digitado aceita um. Caixas aceitam 0..N, que e a forma real da
+// pergunta. Ver console.Selecionar; sem terminal, cai na versao digitada.
+func escolherCofres(con *console.Stream, entrada *bufio.Reader, o *opcoesDeInstalacao) ([]string, error) {
 	if o.vault != "" {
-		return o.vault, nil
+		return []string{o.vault}, nil
 	}
 
-	cofres, err := instalar.CofresDoObsidian(instalar.CaminhoDoRegistroDoObsidian())
+	jaConfigurados := instalar.ConfiguracaoAtual(hosts.AmbienteReal())
+
+	// Manter o que ja existe e a resposta mais provavel de quem roda o
+	// instalador de novo -- e a unica que nao mexe em nada.
+	if len(jaConfigurados) > 0 {
+		corpos := make([]string, 0, len(jaConfigurados))
+		for _, c := range jaConfigurados {
+			corpos = append(corpos, "  "+c)
+		}
+		con.Bloco("Configuracao atual", corpos, "")
+		if o.sim {
+			return jaConfigurados, nil
+		}
+		if simOuNao(con, entrada, "Manter esta configuracao?", true) {
+			return jaConfigurados, nil
+		}
+	}
+
+	doObsidian, err := instalar.CofresDoObsidian(instalar.CaminhoDoRegistroDoObsidian())
 	if err != nil {
 		con.Warn("nao foi possivel ler o registro de cofres do Obsidian: %v", err)
 	}
-	if len(cofres) == 0 {
-		return "", errors.New("nenhum cofre encontrado; passe --vault com o caminho do cofre")
+
+	// A lista soma os cofres do Obsidian com os que JA estao configurados e nao
+	// aparecem la. Um cofre configurado a mao, ou aberto por um Obsidian que
+	// nao e este, sumiria da lista -- e sumir da lista aqui significa ser
+	// desconfigurado.
+	type item struct {
+		caminho string
+		nota    string
+		marcado bool
 	}
-	if len(cofres) == 1 || o.sim {
-		con.Info("cofre: %s", cofres[0].Caminho)
-		return cofres[0].Caminho, nil
+	var itens []item
+	visto := map[string]bool{}
+	for _, c := range doObsidian {
+		nota := ""
+		if c.Aberto {
+			nota = "(aberto agora)"
+		}
+		if contem(jaConfigurados, c.Caminho) {
+			nota = "(ja configurado)"
+		}
+		itens = append(itens, item{c.Caminho, nota, contem(jaConfigurados, c.Caminho)})
+		visto[c.Caminho] = true
+	}
+	for _, c := range jaConfigurados {
+		if !visto[c] {
+			itens = append(itens, item{c, "(ja configurado, fora do Obsidian)", true})
+		}
 	}
 
-	con.Step("Qual cofre?")
-	for i, c := range cofres {
-		marca := ""
-		if c.Aberto {
-			marca = "  (aberto agora)"
+	if len(itens) == 0 {
+		return nil, errors.New("nenhum cofre encontrado; passe --vault com o caminho do cofre")
+	}
+	if o.sim {
+		// Sem interacao, a escolha e o que ja estava, ou o primeiro cofre.
+		if len(jaConfigurados) > 0 {
+			return jaConfigurados, nil
 		}
-		con.Detail("%d) %s%s", i+1, c.Caminho, marca)
+		con.Info("cofre: %s", itens[0].caminho)
+		return []string{itens[0].caminho}, nil
 	}
-	escolha := perguntar(con, entrada, fmt.Sprintf("Numero [1-%d]", len(cofres)), "1")
-	n, err := strconv.Atoi(strings.TrimSpace(escolha))
-	if err != nil || n < 1 || n > len(cofres) {
-		return "", fmt.Errorf("escolha invalida: %q", escolha)
+
+	opcoes := make([]console.Opcao, 0, len(itens))
+	for _, it := range itens {
+		opcoes = append(opcoes, console.Opcao{Rotulo: it.caminho, Nota: it.nota, Marcada: it.marcado})
 	}
-	return cofres[n-1].Caminho, nil
+
+	indices, err := console.Selecionar(con, arquivoDaEntrada(), "Quais cofres configurar?", opcoes)
+	switch {
+	case err == nil:
+	case errors.Is(err, console.ErrCancelado):
+		return nil, errors.New("selecao cancelada; nada foi alterado")
+	case errors.Is(err, console.ErrSemTerminal):
+		// Sem terminal de verdade (pipe, IDE, CI): a MESMA pergunta, digitada.
+		con.Titulo("Quais cofres configurar?")
+		for i, it := range itens {
+			con.Detail("%d) %s  %s", i+1, it.caminho, it.nota)
+		}
+		resposta := perguntar(con, entrada, "Numeros separados por espaco, * para todos, vazio para nenhum", "")
+		indices, err = console.SelecionarDigitando(resposta, opcoes)
+		if err != nil {
+			return nil, err
+		}
+	default:
+		return nil, err
+	}
+
+	var saida []string
+	for _, i := range indices {
+		saida = append(saida, itens[i].caminho)
+	}
+	return saida, nil
+}
+
+func contem(lista []string, alvo string) bool {
+	for _, x := range lista {
+		if x == alvo {
+			return true
+		}
+	}
+	return false
 }
 
 // escolherHosts resolve em quais hosts registrar.
@@ -175,10 +280,11 @@ func escolherHosts(con *console.Stream, entrada *bufio.Reader, o *opcoesDeInstal
 		return []string{}, nil
 	}
 
-	con.Step("Hosts de IA encontrados")
+	nomes := make([]string, 0, len(detectados))
 	for _, h := range detectados {
-		con.Detail("%s", h.Nome)
+		nomes = append(nomes, "  "+h.Nome)
 	}
+	con.Bloco("Hosts de IA encontrados", nomes, "")
 	if o.sim {
 		return nil, nil
 	}
@@ -188,28 +294,45 @@ func escolherHosts(con *console.Stream, entrada *bufio.Reader, o *opcoesDeInstal
 	return nil, nil
 }
 
-func imprimirResumo(con *console.Stream, r instalar.Resultado, cofre string) {
+func imprimirResumo(con *console.Stream, r instalar.Resultado, cofres []string) {
 	con.OK("Instalado")
-	con.Detail("binario  %s", r.Binario)
-	con.Detail("cofre    %s", cofre)
+	con.Bloco("", resumoEmLinhas(con, r, cofres), "")
+}
+
+// resumoEmLinhas monta o corpo do bloco final.
+//
+// Separada de imprimirResumo para o bloco ser montado numa passada so: a
+// moldura precisa de TODAS as linhas antes de decidir a largura, e imprimir
+// direto (como era ate 2026-09-09) nao permite isso.
+func resumoEmLinhas(con *console.Stream, r instalar.Resultado, cofres []string) []string {
+	var l []string
+	add := func(f string, a ...any) { l = append(l, "  "+fmt.Sprintf(f, a...)) }
+	_ = con
+	add("binario  %s", r.Binario)
+	if len(cofres) == 0 {
+		add("cofres   nenhum configurado")
+	}
+	for _, c := range cofres {
+		add("cofre    %s", c)
+	}
 	if r.PathMudou {
-		con.Detail("PATH     %s", instalar.AvisoDePath())
+		add("PATH     %s", instalar.AvisoDePath())
 	}
 	for _, p := range r.Encerrados {
-		con.Detail("encerrado pid %d (%s)", p.PID, p.Papel)
+		add("encerrado pid %d (%s)", p.PID, p.Papel)
 	}
 	for chave, aviso := range r.HostsOK {
-		con.Detail("%-16s %s", chave, aviso)
+		add("%-16s %s", chave, aviso)
 	}
 	for chave, erro := range r.HostsFalhos {
-		con.Warn("%s nao pode ser configurado", chave)
-		con.Detail("%s", erro)
+		add("%-16s FALHOU: %s", chave, erro)
 	}
 	if !r.Limpeza.Vazio() {
-		con.Detail("limpeza  %d trava(s), %d socket(s), %d presenca(s), %d cache(s), %d KB",
+		add("limpeza  %d trava(s), %d socket(s), %d presenca(s), %d cache(s), %d KB",
 			len(r.Limpeza.Locks), len(r.Limpeza.Sockets), len(r.Limpeza.Presencas),
 			len(r.Limpeza.Caches), r.Limpeza.Bytes/1024)
 	}
+	return l
 }
 
 func newPathCmd() *cobra.Command {
@@ -270,7 +393,7 @@ func newVaultsCmd() *cobra.Command {
 				return fmt.Errorf("%w -- rode `gobsidian install` primeiro", err)
 			}
 
-			cofre, err := escolherCofre(con, entrada, &o)
+			cofres, err := escolherCofres(con, entrada, &o)
 			if err != nil {
 				return err
 			}
@@ -279,9 +402,14 @@ func newVaultsCmd() *cobra.Command {
 				return err
 			}
 
-			ok, falhos := instalar.ConfigurarHosts(m.Binario, cofre, o.readOnly, chaves)
+			ok, falhos := instalar.ConfigurarHosts(m.Binario, cofres, o.readOnly, chaves)
 			con.OK("Hosts configurados")
-			con.Detail("cofre    %s", cofre)
+			if len(cofres) == 0 {
+				con.Detail("cofres   nenhum configurado")
+			}
+			for _, c := range cofres {
+				con.Detail("cofre    %s", c)
+			}
 			for chave, aviso := range ok {
 				con.Detail("%-16s %s", chave, aviso)
 			}
@@ -307,7 +435,7 @@ func diretorioDe(caminho string) string {
 
 // perguntar le uma linha, devolvendo o padrao quando o usuario so aperta Enter.
 func perguntar(con *console.Stream, entrada *bufio.Reader, pergunta, padrao string) string {
-	con.Detail("%s (padrao: %s): ", pergunta, padrao)
+	con.Pergunta(pergunta, padrao)
 	linha, err := entrada.ReadString('\n')
 	if err != nil && strings.TrimSpace(linha) == "" {
 		return padrao
@@ -319,13 +447,28 @@ func perguntar(con *console.Stream, entrada *bufio.Reader, pergunta, padrao stri
 	return linha
 }
 
+// perguntar NAO ecoa a resposta de proposito. Enter sozinho nao deixa nada na
+// tela, e o eco resolveria isso -- mas o eco util diz o SIGNIFICADO da
+// escolha, e so quem chama sabe traduzir "S/n" em "sim". Ver simOuNao.
+
 func simOuNao(con *console.Stream, entrada *bufio.Reader, pergunta string, padrao bool) bool {
-	sufixo := "[s/N]"
+	sufixo := "s/N"
 	if padrao {
-		sufixo = "[S/n]"
+		sufixo = "S/n"
 	}
-	resposta := strings.ToLower(perguntar(con, entrada, pergunta+" "+sufixo, map[bool]string{true: "s", false: "n"}[padrao]))
-	return resposta == "s" || resposta == "sim" || resposta == "y" || resposta == "yes"
+	// O padrao mostrado e o par inteiro, com a letra maiuscula marcando qual
+	// deles o Enter escolhe -- e a convencao que todo instalador de linha de
+	// comando usa, e ela cabe no lugar onde Pergunta ja mostra o padrao.
+	resposta := strings.ToLower(perguntar(con, entrada, pergunta, sufixo))
+
+	sim := padrao
+	if resposta != strings.ToLower(sufixo) {
+		// Resposta diferente do proprio sufixo: o usuario digitou algo. Enter
+		// sozinho devolve o sufixo e cai no padrao.
+		sim = resposta == "s" || resposta == "sim" || resposta == "y" || resposta == "yes"
+	}
+	con.Resposta(map[bool]string{true: "sim", false: "nao"}[sim])
+	return sim
 }
 
 // confirmar e o que instalar.Sistema chama antes de encerrar processos.
@@ -344,3 +487,12 @@ func confirmar(con *console.Stream, entrada *bufio.Reader, sim bool, pergunta st
 	}
 	return simOuNao(con, entrada, "Encerrar?", false)
 }
+
+// arquivoDaEntrada devolve a entrada padrao como *os.File, que e o que o modo
+// bruto do terminal exige.
+//
+// cmd.InOrStdin() e um io.Reader e serve para os testes injetarem texto; o modo
+// bruto precisa do descritor de verdade. Quando a entrada nao e o stdin real, a
+// selecao cai sozinha no caminho digitado -- entrarNoModoBruto devolve
+// ErrSemTerminal e quem chama trata.
+func arquivoDaEntrada() *os.File { return os.Stdin }
