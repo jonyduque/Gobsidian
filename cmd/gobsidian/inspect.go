@@ -104,19 +104,30 @@ func newInspectCmd() *cobra.Command {
 			// PowerShell em CP-850 renderia "Inspecao" e "Titulo" como lixo,
 			// e a regra existe justamente para os comandos de diagnostico.
 			con := console.New(out)
-			con.OK("Inspecao da nota %q:", string(n.Path))
-			con.Item("Titulo: %s", n.Title)
-			con.Item("Tamanho: %d bytes", n.Size)
+			campos := []console.Campo{
+				console.Campof("titulo", "%s", n.Title),
+				{Chave: "tamanho", Valor: fmt.Sprintf("%d", n.Size), Nota: "bytes"},
+			}
 			if len(n.Tags) > 0 {
-				con.Item("Tags (%d): %s", len(n.Tags), strings.Join(n.Tags, ", "))
+				campos = append(campos, console.Campo{
+					Chave: "tags", Valor: strings.Join(n.Tags, ", "),
+					Nota: fmt.Sprintf("(%d)", len(n.Tags)),
+				})
 			}
 			if len(headings) > 0 {
-				con.Item("Headings (%d): %s", len(headings), strings.Join(headings, ", "))
+				campos = append(campos, console.Campo{
+					Chave: "headings", Valor: strings.Join(headings, ", "),
+					Nota: fmt.Sprintf("(%d)", len(headings)),
+				})
 			}
-			con.Item("Links de saida: %d", len(n.Links))
+			campos = append(campos, console.Campof("links de saida", "%d", len(n.Links)))
 			if len(backlinks) > 0 {
-				con.Item("Backlinks (%d): %s", len(backlinks), strings.Join(backlinks, ", "))
+				campos = append(campos, console.Campo{
+					Chave: "backlinks", Valor: strings.Join(backlinks, ", "),
+					Nota: fmt.Sprintf("(%d)", len(backlinks)),
+				})
 			}
+			con.Campos(string(n.Path), campos)
 			return nil
 		},
 	}

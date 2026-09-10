@@ -77,11 +77,13 @@ func newIndexCmd() *cobra.Command {
 
 			con := console.New(out)
 			con.OK("Indexacao concluida em %d ms", dur.Milliseconds())
-			con.Item("Origem: %s", origem)
-			con.Item("Notas: %d", notes)
-			con.Item("Anexos: %d", assets)
-			con.Item("Tags: %d", tags)
-			con.Item("Tamanho total: %d bytes", size)
+			con.Campos("Indice", []console.Campo{
+				console.Campof("origem", "%s", origem),
+				console.Campof("notas", "%d", notes),
+				console.Campof("anexos", "%d", assets),
+				console.Campof("tags", "%d", tags),
+				{Chave: "tamanho", Valor: fmt.Sprintf("%d", size), Nota: "bytes"},
+			})
 			return nil
 		},
 	}

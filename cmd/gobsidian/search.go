@@ -74,13 +74,18 @@ func newSearchCmd() *cobra.Command {
 				return nil
 			}
 
-			con.OK("%d resultado(s) para %q (total: %d):", len(res.Results), args[0], res.Total)
+			// Um bloco por resultado seria uma moldura a cada duas linhas; o
+			// que se le aqui e uma LISTA, e a moldura serve para delimita-la,
+			// nao para separar item de item.
+			corpos := make([]string, 0, len(res.Results)*2)
 			for _, m := range res.Results {
-				con.Item("%s (score: %.2f)", m.Path, m.Score)
+				corpos = append(corpos, fmt.Sprintf("  %s  %s",
+					m.Path, con.Dim(fmt.Sprintf("%.2f", m.Score))))
 				if m.Snippet != "" {
-					con.Detail("... %s ...", m.Snippet)
+					corpos = append(corpos, "    "+con.Dim("... "+m.Snippet+" ..."))
 				}
 			}
+			con.Bloco(fmt.Sprintf("%d de %d para %q", len(res.Results), res.Total, args[0]), corpos, "")
 			return nil
 		},
 	}

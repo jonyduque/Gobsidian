@@ -3,6 +3,7 @@ package main
 import (
 	"os"
 
+	"fmt"
 	"github.com/jonyd/gobsidian/internal/config"
 	"github.com/jonyd/gobsidian/internal/console"
 	"github.com/jonyd/gobsidian/internal/doctor"
@@ -40,6 +41,7 @@ func newDoctorCmd() *cobra.Command {
 			// A cor sai do writer do comando, nao de os.Stdout: quem faz
 			// `gobsidian doctor > relatorio.txt` recebe um arquivo limpo.
 			con := console.New(cmd.OutOrStdout())
+			con.Titulo("Diagnostico do ambiente")
 			for _, r := range results {
 				switch r.Status {
 				case doctor.StatusOK:
@@ -111,9 +113,11 @@ func relatarProcessosELixo(con *console.Stream, aplicar bool) {
 		con.Detail("nenhum rodando")
 	default:
 		con.OK("processos do gobsidian")
+		linhas := make([]string, 0, len(vivos))
 		for _, p := range vivos {
-			con.Detail("pid %d  %s  %s  %s", p.PID, p.Papel, p.Versao, p.Cofre)
+			linhas = append(linhas, fmt.Sprintf("  pid %-7d %-8s %-12s %s", p.PID, p.Papel, p.Versao, p.Cofre))
 		}
+		con.Bloco("", linhas, "")
 		// Dois processos servindo o MESMO cofre gravam o mesmo cache de busca.
 		// E o estado medido em 2026-09-08, e ate hoje ele so aparecia por
 		// comparacao de milissegundos entre linhas de log.
@@ -135,10 +139,11 @@ func relatarProcessosELixo(con *console.Stream, aplicar bool) {
 		con.Warn("chaves de cache: %v", err)
 	} else if len(migradas) > 0 {
 		con.Warn("%d cache(s) sob chave superada", len(migradas))
+		linhas := make([]string, 0, len(migradas))
 		for _, m := range migradas {
-			con.Detail("%s -> %s  (%s)", m.De, m.Para, m.Cofre)
+			linhas = append(linhas, fmt.Sprintf("  %s -> %s  %s", m.De, m.Para, con.Dim(m.Cofre)))
 		}
-		con.Detail("rode `gobsidian update` para renomear com tudo encerrado")
+		con.Bloco("", linhas, "rode `gobsidian update` para renomear com tudo encerrado")
 	}
 
 	r, err := instalar.Limpar(runtimeDir, instalar.RaizDoCache(), aplicar)
@@ -157,8 +162,14 @@ func relatarProcessosELixo(con *console.Stream, aplicar bool) {
 		verbo = "removido"
 	}
 	con.Warn("lixo de execucoes anteriores")
-	con.Detail("%d trava(s), %d socket(s), %d presenca(s), %d cache(s) de cofre inexistente, %d log(s) rotacionado(s) -- %d KB %s",
-		len(r.Locks), len(r.Sockets), len(r.Presencas), len(r.Caches), len(r.LogsRotacionados), r.Bytes/1024, verbo)
+	con.Campos("", []console.Campo{
+		console.Campof("travas", "%d", len(r.Locks)),
+		console.Campof("sockets", "%d", len(r.Sockets)),
+		console.Campof("presencas", "%d", len(r.Presencas)),
+		{Chave: "caches", Valor: fmt.Sprintf("%d", len(r.Caches)), Nota: "de cofre inexistente"},
+		console.Campof("logs rotacionados", "%d", len(r.LogsRotacionados)),
+		{Chave: "total", Valor: fmt.Sprintf("%d KB", r.Bytes/1024), Nota: verbo},
+	})
 	if !aplicar {
 		con.Detail("rode `gobsidian doctor --fix` para remover")
 	}

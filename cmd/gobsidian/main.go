@@ -9,7 +9,6 @@ package main
 
 import (
 	"errors"
-	"fmt"
 	"os"
 
 	"github.com/jonyd/gobsidian/internal/console"
@@ -75,10 +74,17 @@ func newRootCmd() *cobra.Command {
 		return semArgumentos(cmd)
 	}
 
-	// A ajuda formatada e instalada na arvore inteira. Isto nao alcanca o
-	// stdout de `serve`: o cobra so imprime ajuda quando --help e pedido, e
-	// nesse caso o comando nao chega a servir nada.
+	// O nushell entra no `completion` que o cobra cria, e nao ao lado dele: o
+	// usuario procura `gobsidian completion <shell>`, e um `completion-nushell`
+	// solto na raiz seria o mesmo comando com dois nomes. SetupHelp chama
+	// InitDefaultCompletionCmd, entao o pai ja existe quando isto roda.
 	console.SetupHelp(root)
+
+	// O carapace acrescenta o nushell e, mais importante, o VALOR de cada flag
+	// -- ver completar.go. O `completion nushell` proprio saiu quando ele
+	// entrou: duas formas de completar o mesmo shell e a duplicacao que este
+	// projeto persegue, e a do carapace completa valor.
+	instalarCompletion(root)
 
 	return root
 }
@@ -88,7 +94,11 @@ func newVersionCmd() *cobra.Command {
 		Use:   "version",
 		Short: "Imprime versao, commit e data de build",
 		Run: func(cmd *cobra.Command, _ []string) {
-			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "gobsidian %s (%s) %s\n", version, commit, buildDate)
+			con := console.New(cmd.OutOrStdout())
+			con.Campos("gobsidian "+version, []console.Campo{
+				console.Campof("commit", "%s", commit),
+				console.Campof("build", "%s", buildDate),
+			})
 		},
 	}
 }

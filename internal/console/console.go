@@ -46,6 +46,33 @@ const (
 	codeYellow = "33"
 	codeBlue   = "34"
 	codeCyan   = "36"
+
+	// As variantes claras. Elas existem para o que e INTERATIVO: numa lista
+	// que se redesenha, o realce precisa se separar do texto ao redor sem
+	// depender de negrito, que muitos terminais renderizam identico ao normal.
+	//
+	// 90-97 sao o intervalo "bright" do ANSI, suportado por todo terminal que
+	// ja suporta 30-37 -- inclusive o conhost legado. Cor de 256 ou truecolor
+	// NAO entra aqui: ela cai como lixo onde a paleta e de 16, e o mesmo
+	// argumento da code page vale para a cor.
+	codeBrightGreen   = "92"
+	codeBrightMagenta = "95"
+	codeBrightCyan    = "96"
+	codeBrightWhite   = "97"
+)
+
+// Os papeis de cor da interface interativa.
+//
+// Nomeados pelo PAPEL, e nao pela cor: "o cursor e ciano claro" e uma decisao
+// que muda, e "o cursor tem a cor de destaque" e uma que fica. Trocar a paleta
+// e editar esta tabela, e nao cacar o codigo por todo lado.
+var (
+	corDestaque = []string{codeBold, codeBrightCyan}    // cursor, foco
+	corMarcada  = []string{codeBold, codeBrightGreen}   // caixa marcada
+	corTitulo   = []string{codeBold, codeBrightWhite}   // titulo de moldura
+	corBorda    = []string{codeDim}                     // a moldura em si
+	corNota     = []string{codeDim}                     // sufixo explicativo
+	corPergunta = []string{codeBold, codeBrightMagenta} // marcador de pergunta
 )
 
 // sgr monta uma sequencia ANSI unica com todos os codigos, em vez de

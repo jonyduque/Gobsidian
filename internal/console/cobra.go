@@ -59,14 +59,17 @@ func registraFuncoes(root *cobra.Command) {
 		return func(s string) string { return fn(saidaDeAjuda(root), s) }
 	}
 
+	// Os mesmos papeis de cor da interface interativa, e nao um segundo
+	// conjunto: a ajuda e a instalacao aparecem na mesma tela, e duas paletas
+	// fariam "titulo" ter duas cores dependendo de qual comando imprimiu.
 	cobra.AddTemplateFunc("tituloForte", estilo(func(s *Stream, t string) string {
-		return s.style(t, codeBold, codeCyan)
+		return s.style(t, corTitulo...)
 	}))
 	cobra.AddTemplateFunc("secao", estilo(func(s *Stream, t string) string {
-		return s.style(t, codeBold, codeYellow)
+		return s.style(t, corDestaque...)
 	}))
 	cobra.AddTemplateFunc("destaque", estilo(func(s *Stream, t string) string {
-		return s.style(t, codeCyan)
+		return s.style(t, corPergunta...)
 	}))
 	cobra.AddTemplateFunc("forte", estilo(func(s *Stream, t string) string {
 		return s.Bold(t)
