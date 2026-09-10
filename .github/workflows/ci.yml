@@ -247,7 +247,12 @@ jobs:
       # nushell, e nada avisava.
       - name: nushell
         run: |
-          curl -fsSL -o /tmp/nu.tar.gz https://github.com/nushell/nushell/releases/latest/download/nu-x86_64-unknown-linux-gnu.tar.gz
+          # A URL sai da API, e nao de latest/download/<nome-fixo>: o nome do
+          # asset carrega a VERSAO ("nu-0.115.1-x86_64-..."), entao um nome
+          # chutado da 404 -- foi o que derrubou este job na primeira vez.
+          url=$(curl -fsSL https://api.github.com/repos/nushell/nushell/releases/latest             | grep -o '"browser_download_url": *"[^"]*x86_64-unknown-linux-gnu.tar.gz"'             | head -1 | cut -d'"' -f4)
+          test -n "$url" || { echo "[!] nao achei o tarball do nushell na API"; exit 1; }
+          curl -fsSL -o /tmp/nu.tar.gz "$url"
           tar -xzf /tmp/nu.tar.gz -C /tmp --strip-components=1 --wildcards '*/nu'
           for f in bootstrap/install.nu bootstrap/install-flags.nu; do
             /tmp/nu -c "if (nu-check $f) { print \"[OK] $f\" } else { print \"[!] $f nao passa no nu-check\"; exit 1 }"

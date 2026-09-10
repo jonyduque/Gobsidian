@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/jonyd/gobsidian/internal/hosts"
+	"runtime"
 )
 
 // mundoDeTeste desvia TUDO que a instalacao tocaria para diretorios
@@ -366,12 +367,35 @@ func TestInstalarAceitaOrigemComOutroNome(t *testing.T) {
 }
 
 func TestChaveDeCofreTiraAcentoAntesDeFiltrar(t *testing.T) {
+	// Barra normal nos casos comuns: filepath.Base e DEPENDENTE DE PLATAFORMA,
+	// e a contrabarra so separa caminho no Windows. A primeira redacao deste
+	// teste usava um caminho com contrabarra como caso geral e reprovava em
+	// linux e darwin -- onde aquilo e UM nome de arquivo inteiro, contrabarras
+	// e tudo. O CI achou; a maquina do dono, nao.
 	casos := map[string]string{
-		`C:\Users\x\Estudo`:   "gobsidian-estudo",
+		"/home/x/Estudo":      "gobsidian-estudo",
 		"/home/x/Meu Cofre":   "gobsidian-meu-cofre",
 		"/home/x/Ação Direta": "gobsidian-acao-direta",
 		"/home/x/Cofre Nº 2":  "gobsidian-cofre-n-2",
 		"/home/x/vault_2026":  "gobsidian-vault-2026",
+	}
+	for caminho, quer := range casos {
+		if got := ChaveDeCofre(caminho); got != quer {
+			t.Errorf("ChaveDeCofre(%q) = %q, queria %q", caminho, got, quer)
+		}
+	}
+}
+
+// O caminho do Windows tem teste PROPRIO, e nao um caso solto na tabela acima:
+// e la que o cofre de verdade mora, e a semantica de filepath.Base so vale
+// naquele GOOS.
+func TestChaveDeCofreComCaminhoDoWindows(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("filepath.Base so trata contrabarra como separador no Windows")
+	}
+	casos := map[string]string{
+		`C:\Users\x\Estudo`:      "gobsidian-estudo",
+		`C:\Users\x\Ação Direta`: "gobsidian-acao-direta",
 	}
 	for caminho, quer := range casos {
 		if got := ChaveDeCofre(caminho); got != quer {
