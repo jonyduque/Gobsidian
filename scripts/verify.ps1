@@ -69,7 +69,15 @@ Invoke-Step "go build" { go build @Alvos }
 # Ele e gravado em arquivo, e nao despejado na tela, porque a saida de `-v` da
 # suite inteira tem dezenas de milhares de linhas; so o rabo aparece, e so
 # quando a etapa reprova.
-$LogTestes = Join-Path ([System.IO.Path]::GetTempPath()) "gobsidian-verify-testes.txt"
+# O nome carrega o PID, e a razao veio de uma colisao real em 2026-09-11: duas
+# rodadas do verify ao mesmo tempo brigaram por este arquivo, e a segunda morreu
+# na etapa 2 com "The process cannot access the file (...) being used by another
+# process". A mensagem culpava `go test -race`, que nao tinha nada a ver -- e
+# perseguir a etapa errada custa mais que a colisao em si.
+#
+# Nome unico por processo resolve, e o arquivo e apagado no fim: sem isso, cada
+# rodada deixaria um log de dezenas de milhares de linhas no TEMP para sempre.
+$LogTestes = Join-Path ([System.IO.Path]::GetTempPath()) "gobsidian-verify-testes-$PID.txt"
 
 Invoke-Step "go test -race" {
     go test -race -v @Alvos 2>&1 | Set-Content -LiteralPath $LogTestes -Encoding utf8
@@ -298,6 +306,11 @@ Invoke-Step "check_prompt" { & (Join-Path $PSScriptRoot "check_prompt.ps1") }
 Invoke-Step "check_unicode" { & (Join-Path $PSScriptRoot "check_unicode.ps1") }
 
 Pop-Location
+
+# O log e insumo intermediario, nao entregavel. Remove-Item com -ErrorAction
+# SilentlyContinue porque uma etapa que reprovou antes de grava-lo deixa o
+# arquivo sem existir, e falhar na limpeza mascararia a falha de verdade.
+Remove-Item -LiteralPath $LogTestes -ErrorAction SilentlyContinue
 
 Write-Output ""
 if ($Failed.Count -gt 0) {

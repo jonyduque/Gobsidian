@@ -105,9 +105,12 @@ func rodarUpdate(ctx context.Context, cmd *cobra.Command, apenasConferir, sim bo
 	}
 	con.OK("SHA-256 confere")
 
-	sis := instalar.SistemaReal(func(pergunta string, itens []string) bool {
-		return confirmar(con, entrada, sim, pergunta, itens)
-	})
+	sis := instalar.SistemaReal(
+		func(pergunta string, itens []string) bool {
+			return confirmar(con, entrada, sim, pergunta, itens)
+		},
+		func(nome string) { con.Passo("%s", nome) },
+	)
 
 	// Destino e cofre saem do MANIFESTO: `update` nao pergunta de novo o que
 	// `install` ja perguntou. Sem manifesto nao ha o que atualizar.

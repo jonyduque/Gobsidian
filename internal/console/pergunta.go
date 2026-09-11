@@ -51,3 +51,14 @@ func (s *Stream) Titulo(format string, a ...any) {
 	s.Line("")
 	s.Line("%s %s", s.style(g.Secao, corDestaque...), s.style(fmt.Sprintf(format, a...), corTitulo...))
 }
+
+// Passo anuncia uma etapa em andamento dentro de uma sequencia.
+//
+// Distinto de Step: Step abre uma etapa de RELATORIO ([...]), e Passo marca
+// progresso numa sequencia que o usuario esta esperando terminar. Sai
+// indentado e apagado, porque o que importa nele e o movimento, nao o conteudo
+// -- quem le quer saber que algo esta acontecendo.
+func (s *Stream) Passo(format string, a ...any) {
+	g := GlifosDaSaida()
+	s.Line("  %s %s", s.style(g.Cursor, corDestaque...), s.Dim(fmt.Sprintf(format, a...)))
+}

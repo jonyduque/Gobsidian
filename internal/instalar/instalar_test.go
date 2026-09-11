@@ -441,3 +441,29 @@ func contemArg(args []string, alvo string) bool {
 	}
 	return false
 }
+
+// TestCaminhoCanonicoDeCofreUneAsDuasGrafias e o defeito que o dono viu em
+// 2026-09-11: a lista de cofres mostrava cada um dos quatro DUAS vezes, um com
+// contrabarra (vindo do registro do Obsidian) e outro com barra normal (vindo
+// do config de um host), e a comparacao literal nao os reconhecia como o mesmo.
+//
+// Os de barra normal ainda apareciam com a nota "fora do Obsidian", que era a
+// afirmacao mais errada da tela: eles estavam no Obsidian, logo acima.
+func TestCaminhoCanonicoDeCofreUneAsDuasGrafias(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("a barra normal so e separador equivalente no Windows")
+	}
+	barra := CaminhoCanonicoDeCofre("C:/Users/jonyd/Obsidian/Estudo")
+	contra := CaminhoCanonicoDeCofre(`C:\Users\jonyd\Obsidian\Estudo`)
+	if barra != contra {
+		t.Errorf("as duas grafias do mesmo cofre continuam diferentes:\n  %q\n  %q", barra, contra)
+	}
+}
+
+// Vazio continua vazio: "nao sei qual cofre" nao pode virar o diretorio atual,
+// que e o que filepath.Abs("") devolve.
+func TestCaminhoCanonicoDeCofreVazioContinuaVazio(t *testing.T) {
+	if got := CaminhoCanonicoDeCofre(""); got != "" {
+		t.Errorf("CaminhoCanonicoDeCofre(\"\") = %q, queria vazio", got)
+	}
+}

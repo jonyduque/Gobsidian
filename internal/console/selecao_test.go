@@ -213,3 +213,34 @@ func TestAchatarPreservaSequenciaANSI(t *testing.T) {
 		t.Errorf("achatar = %q, queria %q", got, quer)
 	}
 }
+
+// A deteccao de Unicode e um palpite informado, e palpite erra: em 2026-09-11 a
+// moldura saiu arredondada no PowerShell e ASCII no nushell, na mesma maquina e
+// no mesmo Windows Terminal. A variavel existe para quem esta na frente da tela
+// poder decidir, e estes casos provam que ela DECIDE -- sem eles, uma variavel
+// que fosse lida e ignorada pareceria funcionar.
+func TestVarDeEstiloDecideSobreADeteccao(t *testing.T) {
+	casos := map[string]string{
+		"1": glifosUnicode.CantoSupEsq,
+		"0": glifosASCII.CantoSupEsq,
+	}
+	for valor, quer := range casos {
+		t.Setenv(VarDeEstilo, valor)
+		if got := GlifosDaSaida().CantoSupEsq; got != quer {
+			t.Errorf("%s=%q deu canto %q, queria %q", VarDeEstilo, valor, got, quer)
+		}
+	}
+}
+
+// Sem a variavel, quem decide volta a ser a deteccao. Sem este caso, uma
+// implementacao que devolvesse SEMPRE o mesmo conjunto passaria no anterior.
+func TestSemVarDeEstiloADeteccaoDecide(t *testing.T) {
+	t.Setenv(VarDeEstilo, "")
+	quer := glifosASCII.CantoSupEsq
+	if suportaUnicode() {
+		quer = glifosUnicode.CantoSupEsq
+	}
+	if got := GlifosDaSaida().CantoSupEsq; got != quer {
+		t.Errorf("sem a variavel o canto foi %q, e a deteccao pede %q", got, quer)
+	}
+}

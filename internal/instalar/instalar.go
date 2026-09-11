@@ -39,10 +39,35 @@ type Sistema struct {
 
 	// Agora existe para o teste nao depender do relogio.
 	Agora func() time.Time
+
+	// Passo anuncia cada etapa ANTES de ela comecar.
+	//
+	// Existe porque a instalacao ficava muda entre a ultima pergunta e o
+	// resumo final, e o que ela faz nesse intervalo nao e rapido nem
+	// inofensivo: toma uma trava global, encerra processos, varre o diretorio
+	// de runtime e a raiz do cache, renomeia diretorio de cache, copia o
+	// binario, mexe no PATH e reescreve o config de cada host. Quem ve uma tela
+	// parada depois de responder nao sabe se ela esta trabalhando ou travada --
+	// e o dono relatou exatamente isso em 2026-09-11.
+	//
+	// Anuncia ANTES, e nao depois: um passo que trava precisa ter dito que
+	// comecou. E a mesma regra de lifecycle.Esperar, pelo mesmo motivo --
+	// a ultima linha impressa e o que sobra quando algo nao volta.
+	//
+	// Nulo nao imprime nada: o teste nao precisa de tela.
+	Passo func(nome string)
+}
+
+// anunciar chama Passo quando ele existe. Existe para os sete pontos de chamada
+// nao repetirem o teste de nulo.
+func (s Sistema) anunciar(nome string) {
+	if s.Passo != nil {
+		s.Passo(nome)
+	}
 }
 
 // SistemaReal e o Sistema que age de verdade.
-func SistemaReal(confirmar func(string, []string) bool) Sistema {
+func SistemaReal(confirmar func(string, []string) bool, passo func(string)) Sistema {
 	return Sistema{
 		Encerrar: func(pid int) error {
 			p, err := os.FindProcess(pid)
@@ -54,6 +79,7 @@ func SistemaReal(confirmar func(string, []string) bool) Sistema {
 		Confirmar:   confirmar,
 		AjustarPath: AdicionarAoPath,
 		Agora:       time.Now,
+		Passo:       passo,
 	}
 }
 
@@ -130,6 +156,7 @@ func Instalar(ctx context.Context, sis Sistema, o Opcoes) (Resultado, error) {
 		cacheRaiz = RaizDoCache()
 	}
 
+	sis.anunciar("tomando a trava de instalacao")
 	liberarTrava, err := TomarTravaGlobal(runtimeDir)
 	if err != nil {
 		return r, err
@@ -137,6 +164,7 @@ func Instalar(ctx context.Context, sis Sistema, o Opcoes) (Resultado, error) {
 	defer liberarTrava()
 
 	// 2 e 3: quem esta rodando, e o aval para encerrar.
+	sis.anunciar("procurando processos em execucao")
 	if err := encerrarProcessos(sis, runtimeDir, &r); err != nil {
 		return r, err
 	}
@@ -144,6 +172,7 @@ func Instalar(ctx context.Context, sis Sistema, o Opcoes) (Resultado, error) {
 	// 4: limpeza. Roda AQUI -- com a trava tomada e ninguem rodando -- e nao
 	// antes: e a unica janela em que remover uma trava livre nao corre com
 	// alguem que esta prestes a toma-la.
+	sis.anunciar("limpando lixo de execucoes anteriores")
 	limpeza, err := Limpar(runtimeDir, cacheRaiz, true)
 	if err != nil {
 		return r, fmt.Errorf("limpando: %w", err)
@@ -155,6 +184,7 @@ func Instalar(ctx context.Context, sis Sistema, o Opcoes) (Resultado, error) {
 	// mapeando. Ver MigrarChaves para o defeito que a originou -- a conta de
 	// config.VaultKey deixou de depender de tabela Unicode da toolchain, e um
 	// punhado de cofres muda de chave por isso.
+	sis.anunciar("conferindo as chaves de cache")
 	migradas, err := MigrarChaves(cacheRaiz, true)
 	if err != nil {
 		return r, fmt.Errorf("migrando chaves de cache: %w", err)
@@ -162,6 +192,7 @@ func Instalar(ctx context.Context, sis Sistema, o Opcoes) (Resultado, error) {
 	r.ChavesMigradas = migradas
 
 	// 5: o binario.
+	sis.anunciar("instalando o binario")
 	binario, hash, err := instalarBinario(o)
 	if err != nil {
 		return r, err
@@ -171,6 +202,7 @@ func Instalar(ctx context.Context, sis Sistema, o Opcoes) (Resultado, error) {
 
 	// 6: PATH.
 	if !o.SemPath {
+		sis.anunciar("ajustando o PATH")
 		mudou, err := sis.ajustarPath(filepath.Dir(binario))
 		if err != nil {
 			return r, fmt.Errorf("ajustando o PATH: %w", err)
@@ -179,6 +211,7 @@ func Instalar(ctx context.Context, sis Sistema, o Opcoes) (Resultado, error) {
 	}
 
 	// 6: hosts.
+	sis.anunciar("configurando os hosts de IA")
 	r.HostsOK, r.HostsFalhos = configurarHosts(o, binario)
 
 	// 7: manifesto.
@@ -196,6 +229,7 @@ func Instalar(ctx context.Context, sis Sistema, o Opcoes) (Resultado, error) {
 	for chave := range r.HostsOK {
 		m.Hosts = append(m.Hosts, chave)
 	}
+	sis.anunciar("gravando o manifesto")
 	if err := GravarManifesto(m); err != nil {
 		return r, err
 	}
@@ -476,7 +510,7 @@ func ConfiguracaoAtual(amb hosts.Ambiente) []string {
 	visto := map[string]bool{}
 	for _, h := range hosts.Detectar(amb) {
 		for _, en := range h.EntradasAtuais(amb) {
-			cofre := hosts.CofreDaEntrada(en.Entrada)
+			cofre := CaminhoCanonicoDeCofre(hosts.CofreDaEntrada(en.Entrada))
 			if cofre == "" || visto[cofre] {
 				continue
 			}
@@ -517,4 +551,39 @@ func ChaveDeCofre(caminhoDoCofre string) string {
 		}
 	}
 	return strings.TrimRight(b.String(), "-")
+}
+
+// CaminhoCanonicoDeCofre poe um caminho de cofre na grafia que o resto do
+// programa usa.
+//
+// # Por que existe
+//
+// O config de um host guarda a grafia que foi PASSADA na hora de configurar, e
+// nada obriga essa grafia a ser a mesma que o registro do Obsidian devolve. Em
+// 2026-09-11 o dono viu a lista de cofres com cada um dos seus quatro cofres
+// DUAS vezes: uma vinda do Obsidian com contrabarra, outra vinda do config do
+// host com barra normal, e a comparacao literal nao as reconhecia como o mesmo
+// cofre.
+//
+// Isso era so apresentacao -- config.Load chama filepath.Abs, que normaliza o
+// separador antes de a VaultKey ser calculada, entao dois processos JAMAIS
+// dividiram o cofre por causa disto (conferido em 2026-09-11: a chave das duas
+// grafias e a mesma DEPOIS de Abs, e diferente antes). Mas uma lista que
+// oferece o mesmo cofre duas vezes, uma marcada e outra nao, e uma lista que
+// nao da para responder.
+//
+// filepath.Abs e a MESMA conta que config.Load usa, e nao uma segunda: chamar
+// Clean com FromSlash aqui daria o mesmo resultado hoje e divergiria no dia em
+// que uma das duas mudasse.
+func CaminhoCanonicoDeCofre(caminho string) string {
+	if caminho == "" {
+		return ""
+	}
+	abs, err := filepath.Abs(caminho)
+	if err != nil {
+		// Caminho que nem Abs resolve nao fica melhor sendo inventado: devolve
+		// como veio, e a comparacao literal volta a valer para ele.
+		return caminho
+	}
+	return abs
 }

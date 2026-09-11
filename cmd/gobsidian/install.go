@@ -70,6 +70,25 @@ func rodarInstalacao(ctx context.Context, cmd *cobra.Command, o *opcoesDeInstala
 	con := console.New(cmd.OutOrStdout())
 	entrada := bufio.NewReader(cmd.InOrStdin())
 
+	// Entrada que NAO e terminal nao pode ser lida como resposta.
+	//
+	// Medido em 2026-09-11, com o bootstrap de nushell rodando de um cano
+	// (`http get .../install.nu | nu --stdin -c $in`): o processo filho herda o
+	// stdin do CANO, que ainda carrega o resto do texto do script, e o
+	// instalador leu as linhas do proprio script como respostas do usuario. A
+	// saida do dono mostrou "escolha invalida: #" -- uma linha de comentario do
+	// install.nu virando escolha de cofre -- e uma pergunta de sim/nao
+	// respondida sozinha.
+	//
+	// Nao basta tratar EOF: o problema e haver bytes que NAO sao resposta. A
+	// unica pergunta segura aqui e "ha alguem do outro lado?", e a resposta e
+	// TerminalInterativo.
+	if !o.sim && !terminalInterativoFn() {
+		con.Warn("a entrada nao e um terminal: usando as respostas padrao")
+		con.Detail("para escolher os cofres, rode `gobsidian install` num terminal")
+		o.sim = true
+	}
+
 	cofres, err := escolherCofres(con, entrada, o)
 	if err != nil {
 		return err
@@ -80,9 +99,15 @@ func rodarInstalacao(ctx context.Context, cmd *cobra.Command, o *opcoesDeInstala
 		return err
 	}
 
-	sis := instalar.SistemaReal(func(pergunta string, itens []string) bool {
-		return confirmar(con, entrada, o.sim, pergunta, itens)
-	})
+	sis := instalar.SistemaReal(
+		func(pergunta string, itens []string) bool {
+			return confirmar(con, entrada, o.sim, pergunta, itens)
+		},
+		// O que o usuario ve entre a ultima pergunta e o resumo. Cada passo
+		// aparece ANTES de comecar, para que o que travar tenha dito que
+		// comecou -- a mesma regra de lifecycle.Esperar.
+		func(nome string) { con.Passo("%s", nome) },
+	)
 
 	con.Titulo("Instalando")
 	r, err := instalar.Instalar(ctx, sis, instalar.Opcoes{
@@ -178,18 +203,25 @@ func escolherCofres(con *console.Stream, entrada *bufio.Reader, o *opcoesDeInsta
 		nota    string
 		marcado bool
 	}
+	// A comparacao e sobre o caminho CANONICO dos dois lados. O registro do
+	// Obsidian devolve contrabarra e o config de um host guarda a grafia que
+	// foi passada na hora de configurar -- em 2026-09-11 o dono viu cada um dos
+	// seus quatro cofres DUAS vezes por causa disso, um com "\\" e outro com
+	// "/", nenhum reconhecido como o outro.
 	var itens []item
 	visto := map[string]bool{}
 	for _, c := range doObsidian {
+		canonico := instalar.CaminhoCanonicoDeCofre(c.Caminho)
+		configurado := contem(jaConfigurados, canonico)
 		nota := ""
 		if c.Aberto {
 			nota = "(aberto agora)"
 		}
-		if contem(jaConfigurados, c.Caminho) {
+		if configurado {
 			nota = "(ja configurado)"
 		}
-		itens = append(itens, item{c.Caminho, nota, contem(jaConfigurados, c.Caminho)})
-		visto[c.Caminho] = true
+		itens = append(itens, item{canonico, nota, configurado})
+		visto[canonico] = true
 	}
 	for _, c := range jaConfigurados {
 		if !visto[c] {
@@ -280,18 +312,54 @@ func escolherHosts(con *console.Stream, entrada *bufio.Reader, o *opcoesDeInstal
 		return []string{}, nil
 	}
 
-	nomes := make([]string, 0, len(detectados))
-	for _, h := range detectados {
-		nomes = append(nomes, "  "+h.Nome)
-	}
-	con.Bloco("Hosts de IA encontrados", nomes, "")
 	if o.sim {
+		nomes := make([]string, 0, len(detectados))
+		for _, h := range detectados {
+			nomes = append(nomes, "  "+h.Nome)
+		}
+		con.Bloco("Hosts de IA encontrados", nomes, "")
 		return nil, nil
 	}
-	if !simOuNao(con, entrada, "Registrar o gobsidian nestes hosts?", true) {
-		return []string{}, nil
+
+	// Caixas, como na lista de cofres, e pela mesma razao: a pergunta real e
+	// QUAIS, e nao "todos ou nenhum". Quem tem seis hosts instalados e quer
+	// configurar dois nao tinha como dizer isso -- respondia "nao" e ficava sem
+	// nenhum.
+	//
+	// Todos marcados por padrao: foram DETECTADOS, entao querer todos e a
+	// resposta provavel, e desmarcar e mais barato que marcar seis.
+	opcoes := make([]console.Opcao, 0, len(detectados))
+	for _, h := range detectados {
+		opcoes = append(opcoes, console.Opcao{Rotulo: h.Nome, Nota: h.Chave, Marcada: true})
 	}
-	return nil, nil
+
+	indices, err := console.Selecionar(con, arquivoDaEntrada(), "Em quais hosts registrar?", opcoes)
+	switch {
+	case err == nil:
+	case errors.Is(err, console.ErrCancelado):
+		return nil, errors.New("selecao cancelada; nada foi alterado")
+	case errors.Is(err, console.ErrSemTerminal):
+		con.Titulo("Em quais hosts registrar?")
+		for i, h := range detectados {
+			con.Detail("%d) %s  (%s)", i+1, h.Nome, h.Chave)
+		}
+		resposta := perguntar(con, entrada, "Numeros separados por espaco, * para todos, vazio para nenhum", "*")
+		indices, err = console.SelecionarDigitando(resposta, opcoes)
+		if err != nil {
+			return nil, err
+		}
+	default:
+		return nil, err
+	}
+
+	// Fatia VAZIA e nao nula: "nenhum host", e nao "detecte voce". A distincao
+	// esta em configurarHosts, e trocar uma pela outra faria "nenhum"
+	// configurar tudo.
+	chaves := []string{}
+	for _, i := range indices {
+		chaves = append(chaves, detectados[i].Chave)
+	}
+	return chaves, nil
 }
 
 func imprimirResumo(con *console.Stream, r instalar.Resultado, cofres []string) {

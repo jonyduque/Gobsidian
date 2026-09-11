@@ -1,5 +1,7 @@
 package console
 
+import "os"
+
 // Glifos e o conjunto de desenho de uma lista de selecao.
 //
 // # Por que ha dois conjuntos, e nao um
@@ -83,10 +85,25 @@ var glifosASCII = Glifos{
 // depender da code page da maquina onde ele roda. Nulo em producao.
 var forcarGlifos *Glifos
 
+// VarDeEstilo permite decidir na mao quando a deteccao erra.
+//
+// GOBSIDIAN_UNICODE=1 forca o desenho bom, =0 forca o ASCII. Existe porque a
+// deteccao e um PALPITE INFORMADO sobre o terminal, e palpite erra: em
+// 2026-09-11 o dono viu a moldura arredondada no PowerShell e a ASCII no
+// nushell, na MESMA maquina e no mesmo Windows Terminal. Quem esta na frente da
+// tela sabe mais que a heuristica, e precisa poder dizer isso.
+const VarDeEstilo = "GOBSIDIAN_UNICODE"
+
 // GlifosDaSaida escolhe o conjunto a partir do que o terminal aguenta.
 func GlifosDaSaida() Glifos {
 	if forcarGlifos != nil {
 		return *forcarGlifos
+	}
+	switch os.Getenv(VarDeEstilo) {
+	case "1", "true", "sim":
+		return glifosUnicode
+	case "0", "false", "nao":
+		return glifosASCII
 	}
 	if suportaUnicode() {
 		return glifosUnicode
