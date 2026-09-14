@@ -1,10 +1,12 @@
-# Resources como árvore, busca no picker, e o SDK despinado
+# Resources como árvore, o daemon que o Claude Desktop não alcança, e o SDK despinado
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** fazer o cofre inteiro aparecer no host, organizável em árvore pelo cliente, buscável enquanto se digita, e com nota e pasta visualmente distintas — decidindo cada item contra o que o protocolo realmente permite, e não contra o que seria conveniente.
 
 **Origem.** O dono viu o menu de connector do Claude Desktop listando notas soltas e perguntou se as pastas podiam virar submenus, com um primeiro item representando a pasta inteira. A resposta curta é que **submenu é decisão do cliente** — nenhuma versão do protocolo tem campo de pai/filho. A resposta útil é que há quatro coisas que o servidor pode fazer para que um cliente que queira árvore consiga montá-la, e uma quinta que resolve melhor o problema real.
+
+**Escopo ampliado em 2026-09-14, por decisão do dono: implementar tudo de uma vez.** Entraram três partes que não são sobre resources, mas que a mesma investigação encontrou e que custam mais que a lista plana do menu: **G**, o servidor aberto pelo Claude Desktop nunca alcançou o daemon, desde 2026-08-24; **H**, quatro defeitos com nome de cofre acentuado ou não latino; e **I**, testes que gravam no diretório de runtime real do usuário. A ordem única está no fim.
 
 **O problema real, medido em 2026-09-11** contra os quatro cofres configurados nesta máquina:
 
@@ -233,22 +235,195 @@ Não entra junto com o resto: é mudança de contrato de conteúdo, não de prot
 
 ---
 
-## Ordem de execução
+## Parte G — o daemon que o Claude Desktop nunca alcança
 
-1. **Parte 0** — o bump. Isolado, medido, verificável sozinho. Um commit.
-2. **Parte E** — as medições. Não custam código e três decisões dependem delas.
-3. **A2** — `VaultTree` na fachada. Testável sem tocar em MCP.
-4. **A1, A3, A4, A5** — a publicação. Um commit por item; A5 traz o gate.
-5. **Parte B** — completion.
-6. **Parte C** — o contrato e a documentação.
+### G0. A causa, medida em 2026-09-14
 
-`verify.ps1` verde antes de cada commit, as 22 etapas. `docs/` e este plano atualizados no mesmo commit que muda comportamento — plano e código não divergem.
+**Sintoma.** Nos logs do Desktop dos quatro cofres, de 2026-08-24 a 2026-09-14, não há **nenhuma** linha `conectado ao daemon`. Toda sessão caiu para o modo em processo: em Estudo, 61 tentativas e 53 quedas registradas. Cada queda paga um índice próprio — o `initialize` de Estudo levou **43 s** em 2026-09-13 — e o Desktop abre **dois** processos por cofre por partida (clientes `claude-ai` e `local-agent-mode-*`, medidos pela sonda da Parte E). Às 16h30 de 2026-09-14 havia 25 processos `gobsidian.exe` somando **2.139 MB**; nem todos eram do Desktop (o Antigravity e o Claude Code também abrem servidores), então o número não é atribuível só a este defeito.
+
+A dupla de erros é sempre a mesma: a ponte recebe `dial 10022` (invalid argument), e o daemon que ela sobe falha em `ipc.cleanupSocketFile` com `remove 1920` (*The file cannot be accessed by the system*). É o estado que `docs/ESTADO.md` registrava como não reproduzido.
+
+**Onde não está.** Com o `doctor` rodado de uma shell comum, os daemons de Estudo e Revisão respondem. Todos os daemons vivos tinham integridade **High**, iniciados pelo Antigravity (`agy.exe`, High); os servidores abertos pelo Desktop são **Medium**. A hipótese de integridade foi testada e **caiu**: um processo Medium de verdade (Agendador de Tarefas, `/rl LIMITED`, confirmado por `S-1-16-8192`) conecta no daemon real e remove socket normalmente — com e sem a identidade do pacote do Claude (`Invoke-CommandInDesktopPackage`). Listener vivo, dono morto à força e backlog lotado também não produzem a dupla.
+
+**Onde está.** Um servidor MCP de diagnóstico registrado no `claude_desktop_config.json` e iniciado pelo próprio Desktop (`app_version 1.52386.6`, pacote MSIX `Claude_pzs8sxrjxfjjc`) mediu, dentro do processo que o Desktop cria — integridade Medium, não elevado, em job com `LimitFlags=0x3C00`, **sem** identidade de pacote:
+
+| Onde o socket AF_UNIX foi criado | `listen` | `lstat` | `dial` |
+|---|---|---|---|
+| `%LOCALAPPDATA%\gobsidian\run` (o daemon real, criado por outro processo) | — | **1920** | **10022** |
+| `%LOCALAPPDATA%\gobsidian\run`, criado pelo **próprio** processo | ok | **1920** | **10022** |
+| `%LOCALAPPDATA%\gobsidian`, pasta existente | ok | **1920** | **10022** |
+| `%LOCALAPPDATA%\gobsidian\run-novo`, criada pelo próprio processo | ok | **1920** | **10022** |
+| `%LOCALAPPDATA%\gobsidian-criado-high`, criada por processo High | ok | **1920** | **10022** |
+| raiz de `%LOCALAPPDATA%` | ok | **1920** | **10022** |
+| `%LOCALAPPDATA%\Temp` | ok | ok | ok |
+| `%LOCALAPPDATA%\Claude\logs` — **excluída** da virtualização no manifesto | ok | ok | ok |
+| `%USERPROFILE%\.gobsidian-teste` | ok | ok | ok |
+| socket criado por processo **High** em `%LOCALAPPDATA%\Temp`, conectado do processo do Desktop | — | ok | ok |
+
+No mesmo processo, gravar, renomear e apagar **arquivo comum** em `%LOCALAPPDATA%\gobsidian` funciona. Um arquivo criado na **raiz** de `%LOCALAPPDATA%` foi desviado para `%LOCALAPPDATA%\Packages\Claude_pzs8sxrjxfjjc\LocalCache\Local\`; um arquivo numa pasta existente e uma subpasta nova dentro de `gobsidian` caíram no caminho real.
+
+**Conclusão.** O manifesto do Desktop declara `virtualization:FileSystemWriteVirtualization` com quatro diretórios excluídos, e o padrão medido bate com esse escopo: dentro de `%LOCALAPPDATA%` socket AF_UNIX não funciona, exceto em `Temp` e na pasta excluída; fora de `%LOCALAPPDATA%` funciona. Os processos que o Desktop cria herdam esse escopo mesmo sem identidade de pacote. **A causa no nível do driver não foi provada** — a leitura coerente com `1920` é um filtro que não trata a tag de reparse do AF_UNIX (`0x80000023`) —, mas o conserto não depende dela: o socket não pode morar em `%LOCALAPPDATA%`.
+
+**Um risco que o defeito escondeu.** Nesse contexto `ipc.AlguemEscuta` responde "ninguém escuta" para um daemon **vivo**, e `Listen` segue para `cleanupSocketFile`. Hoje o `remove` falha e nada acontece. Num contexto em que apagar funcionasse e conectar não, seria o incidente de 2026-08-26 de volta: um segundo daemon rouba o socket do primeiro e os dois gravam o mesmo cache.
+
+**O que não foi investigado.** O daemon de Estudo (PID 38828) estava vivo havia dois dias com ociosidade de 900 s; a hipótese, não medida, é sessão aberta de outro host. E o Claude Code desta máquina aponta para `C:\Program Files\gobsidian\gobsidian.exe` **v1.5.1**, uma instalação antiga separada da v1.8.1 que o Desktop usa.
+
+A evidência bruta está em `docs/ESTADO.md` (dívidas) e em `docs/ARMADILHAS.md` (Daemon e IPC).
+
+### G1. Medir antes de escolher o diretório
+
+O diagnóstico que achou a causa vira ferramenta de desenvolvimento versionada, como `tools/parity-dumper`: não entra no produto nem no release, e roda **só** quando registrada num host.
+
+- [ ] G1.0 — `tools/sondahost`: o servidor de diagnóstico, com instrução de registrar, reiniciar o host e ler a saída. Ele sonda, em cada diretório candidato: `listen`, `lstat` e `dial` de socket próprio; `dial` num socket deixado por processo High; trava `LockFileEx` num arquivo compartilhado com um processo externo; e criação de diretório novo na raiz de `%LOCALAPPDATA%`, conferindo se cai no caminho real ou em `LocalCache`.
+- [ ] G1.1 — `dial` cruzado em `%USERPROFILE%\.gobsidian\run`: socket criado por processo High, conexão do processo do Desktop. Medido só em `Temp` até agora.
+- [ ] G1.2 — Exclusão mútua por `LockFileEx` num arquivo em `%LOCALAPPDATA%\gobsidian\run`, entre um processo High e um do Desktop. Arquivo comum funciona lá; trava de kernel **não foi medida**. Decide se as travas podem ficar onde estão (G2).
+- [ ] G1.3 — Diretório de primeiro nível criado pelo processo do Desktop numa máquina onde ele ainda não existe: cai em `LocalCache`? Arquivo na raiz caiu. Se diretório também cair, uma máquina onde o Desktop é o primeiro a rodar dividiria o **cache** entre dois lugares, e a raiz do cache (`config.RaizDoCache`) também precisa mudar.
+- [ ] G1.4 — Registrar as respostas em `docs/ESTADO.md`, com data e versão do Desktop.
+
+### G2. Tirar o socket de `%LOCALAPPDATA%`
+
+**Recomendação:** `%USERPROFILE%\.gobsidian\run`, se G1.1 passar. É fora do escopo de virtualização medido, persistente e do próprio usuário. **Alternativa medida:** `%LOCALAPPDATA%\Temp\gobsidian\run`, que já passou no teste cruzado — mas limpeza de temporários (Storage Sense) pode apagar o arquivo de um daemon de vida longa, e isso **não foi medido**.
+
+**O que muda é só o socket, se G1.2 passar.** Travas (`.sock.lock`, `.sock.listen.lock`), log do daemon, presença e `instalacao.lock` ficam em `%LOCALAPPDATA%\gobsidian\run`. Isso preserva a exclusão mútua com binários antigos ainda rodando: eles tomam a trava no mesmo arquivo, então um daemon novo e um velho não servem o mesmo cofre ao mesmo tempo. Hoje trava e log derivam de `ipc.SocketPath` "trocando só a extensão"; a derivação passa a ter duas raízes, e cada uma tem **uma** função.
+
+- [ ] G2.1 — `ipc.DiretorioDeSockets()` (nova) e `ipc.RuntimeDir()` (travas, log, presença). No Unix as duas devolvem o mesmo diretório de hoje: o defeito é do Windows. Código de plataforma em `ipc_windows.go`, nunca `runtime.GOOS`.
+- [ ] G2.2 — `SocketPath` passa a usar `DiretorioDeSockets`; `lockPath` e o log do daemon continuam em `RuntimeDir`. Teste: no Windows, o socket fica fora de `%LOCALAPPDATA%` e a trava continua dentro.
+- [ ] G2.3 — Se G1.2 **reprovar**, tudo muda de lugar junto, e a transição com binário antigo vivo precisa de caminho próprio: a ponte nova recusa subir daemon se a trava **antiga** estiver tomada. Não escrever antes de a medição mandar.
+- [ ] G2.4 — `instalar` (limpeza) passa a varrer os dois diretórios; sockets órfãos no diretório antigo viram lixo coberto pela varredura que já existe.
+- [ ] G2.5 — Aceitação na máquina do dono: daemon v1.8.1 vivo, binário novo no Desktop — **um** daemon por cofre, nunca dois. É o cenário de versões mistas, que `scripts/test_orphans.ps1` não cobre.
+
+### G3. `ipc.Listen` não limpa socket num diretório onde não consegue conectar
+
+Critério **comportamental**, como o comentário de `Listen` já exige, nunca o errno: antes de acreditar em `AlguemEscuta`, o processo cria um socket descartável no mesmo diretório e tenta conectar nele. Se nem o próprio socket aceita conexão, "ninguém escuta" não significa nada, e `cleanupSocketFile` não roda.
+
+- [ ] G3.1 — `ipc.SondarDiretorioDeSockets(dir) error`, uma conta só, usada por `Listen`, pela ponte (G4) e pelo `doctor` (G5). Erro tipado `ErrDiretorioSemSocket`, com o diretório no texto.
+- [ ] G3.2 — Teste com a sonda injetável reprovando: `Listen` devolve `ErrDiretorioSemSocket` e **não** chama a limpeza. Prova de mutação: tirar a guarda, rodar, colar a saída do teste que nomeia a limpeza indevida.
+
+### G4. A ponte não sobe daemon que ninguém vai alcançar
+
+- [ ] G4.1 — Quando o primeiro `DialAndHandshake` falha, a ponte roda a sonda de G3 antes de `EnsureStarted`. Se reprovar: não inicia daemon, loga **uma** linha WARN `motivo=diretorio-sem-socket` com o diretório e o erro, e serve em processo. Hoje ela sobe um daemon por partida, que morre logando `daemon nao pode abrir o socket` no log do cofre — 53 quedas só em Estudo.
+- [ ] G4.2 — `motivoDaQueda` ganha o caso novo. Teste: `iniciarDaemonFn` **não** é chamado quando a sonda reprova.
+
+### G5. `doctor` diz se o diretório de sockets funciona
+
+- [ ] G5.1 — Linha nova: diretório de sockets e resultado da sonda de G3 **neste processo**. Com o texto honesto: o `doctor` roda da shell do usuário, não de dentro do host, então passar aqui não prova que passa no Desktop. O que prova é a linha `conectado ao daemon` no log do host.
+
+### G6. Verificar na máquina do dono
+
+- [ ] G6.1 — Depois de instalar o binário novo e reiniciar o Desktop, medir e registrar em `docs/ESTADO.md`: `conectado ao daemon` presente nos logs do Desktop dos quatro cofres; tempo de `initialize` de Estudo; quantos processos `gobsidian.exe` e quanta memória; se `cache de indice de metadados desatualizado; reconstruindo` some da segunda partida em diante.
+- [ ] G6.2 — Só depois de G6.1: investigar o daemon vivo por dois dias com ociosidade de 900 s. Pode ser efeito do próprio defeito; pode não ser.
+
+### G7. Binário de host desatualizado
+
+- [ ] G7.1 — `doctor` (seção de hosts, via `instalar`) lista entradas do gobsidian nos configs de host cujo `command` não é o binário instalado, com a versão de cada um. Medido nesta máquina: Claude Code em v1.5.1 (`C:\Program Files\gobsidian`), Desktop em v1.8.1. Teste com config de fixture. Não reescreve config nenhum: relata.
+
+### G8. `doctor` conta ponte como gravador e não vê binário antigo
+
+Medido em 2026-09-14, com o `doctor` de Revisão rodado pelo dono e a lista de processos classificada por pai, integridade e memória:
+
+| Quem abriu | Integridade | Memória | Presença no `doctor` | O que é |
+|---|---|---|---|---|
+| Antigravity (`agy.exe`), 11:00 | High | 24 MB cada | sim, `serve` | **ponte** para o daemon |
+| Claude Code, 16:22 e 16:23, `C:\Program Files\gobsidian` **v1.5.1** | High | 12–13 MB cada | **não aparece** | ponte de binário antigo |
+| Claude Desktop, 17:22, dois por cofre | Medium | 42–153 MB cada | sim, `serve` | **em processo** (G0): índice e cache próprios |
+| daemons de 09-12 a 09-14 | High | 36–1.681 MB | sim, `daemon` | o dono do cache |
+
+O `doctor` avisou "4 processos servem o mesmo cofre — eles gravam o MESMO cache de busca; encerre os extras" para Estudo, Oral e Revisão, e 3 para Jurisprudência. Os gravadores de verdade eram o daemon e os servidores em processo do Desktop; a ponte do Antigravity não grava nada. E cinco processos v1.5.1 não entraram na conta.
+
+Dois defeitos, com mecanismo:
+
+- **A presença não sabe o modo.** `instalar.Registrar` grava só `papel` (`serve` ou `daemon`), e `prepararProcesso` registra **antes** de `servePonte` decidir entre ponte e em processo. O `doctor` não tem como separar, e o conselho "encerre os extras" manda matar processos que estão certos.
+- **Processo sem presença é invisível.** A presença entrou em 2026-09-09; qualquer binário anterior serve cofre sem aparecer. É o caso medido: v1.5.1 do Claude Code.
+
+- [ ] G8.1 — `Presenca` ganha `modo`: `daemon`, `ponte` ou `em-processo`. A ponte regrava a própria presença, sob a trava que já segura, logo depois de decidir. Até decidir, `modo` fica `decidindo`, e o `doctor` mostra assim.
+- [ ] G8.2 — O aviso de duplicidade conta **só gravadores** (`daemon` e `em-processo`) e nomeia os PIDs gravadores extras. Pontes aparecem na lista, sem aviso. Teste com presenças de fixture: um daemon e três pontes não avisam; um daemon e um em processo avisam, com o PID do em processo.
+- [ ] G8.3 — Enumerar processos `gobsidian.exe` do sistema e listar os que não têm presença, com o executável. Código de plataforma atrás de build tag: Windows primeiro; nas outras plataformas a linha diz "não verificado nesta plataforma", em vez de fingir que não há nenhum.
+
+---
+
+## Parte H — nome de cofre acentuado ou não latino
+
+Medido em 2026-09-14. **Os quatro cofres do dono funcionam**: os configs guardam os caminhos em NFC e UTF-8 puro, as pastas existem, e as chaves `gobsidian-jurisprudencia` e `gobsidian-revisao` não colidem. Os 8.015 nomes dos quatro cofres estão todos em NFC. Com um cofre de teste de raiz `Cofre Jurisprudência`, pasta NFD e nota NFD, `index`, `search` e `inspect` funcionaram, e o link `[[Prescrição]]` em NFC resolveu para o arquivo NFD. Os defeitos abaixo aparecem com outros nomes.
+
+### H1. Dois cofres com a mesma chave de host: um some sem aviso
+
+```
+colisao: gobsidian-revisao [serve --vault C:/A/Revisão]
+colisao: gobsidian-revisao [serve --vault C:/B/Revisao]
+mesmo nome, pais diferentes: gobsidian-estudo [serve --vault C:/A/Estudo]
+mesmo nome, pais diferentes: gobsidian-estudo [serve --vault C:/B/Estudo]
+```
+
+`hosts.FundirVarias` grava `servidores[en.Chave] = bruta`: a segunda entrada sobrescreve a primeira. Tirar acento amplia a colisão, mas ela existe sem acento.
+
+- [ ] H1.1 — `instalar.EntradasParaCofres` detecta chave repetida e desempata **só os membros da colisão** com sufixo curto e estável derivado de `config.VaultKey` (`gobsidian-estudo-db03`). Estável porque o mesmo cofre dá sempre o mesmo sufixo. O custo, a registrar: acrescentar um segundo cofre de mesmo nome renomeia a chave do primeiro no config do host.
+- [ ] H1.2 — Teste com os dois pares acima: nenhuma chave repetida na saída, e `FundirVarias` grava as duas entradas.
+
+### H2. Nome sem letra latina vira a chave do cofre único
+
+```
+chave "Ωμέγα"   -> "gobsidian"   igual_a_ChaveDoServidor=true
+chave "日本語"   -> "gobsidian"   igual_a_ChaveDoServidor=true
+chave "Søren"   -> "gobsidian-s-ren"
+chave "Æsir"    -> "gobsidian-sir"
+```
+
+- [ ] H2.1 — Quando o filtro não deixa nenhum caractere, a chave é `gobsidian-` mais o sufixo de H1.1. Nunca `ChaveDoServidor`.
+- [ ] H2.2 — Letras que não se decompõem (`ø`, `ß`, `æ`, `ł`) ganham transliteração de uma tabela curta dentro de `ChaveDeCofre` (`o`, `ss`, `ae`, `l`). É apresentação de chave; não mexe no índice.
+- [ ] H2.3 — Teste com os quatro nomes acima e com os casos em português que já existem.
+
+### H3. `VaultKey` sem NFC
+
+`VaultKey` do caminho de Revisão em NFC dá `eda87fbb16003550`; a mesma grafia em NFD dá `e3569a837c98ee66`. No Windows as duas grafias são **pastas diferentes** (medido no NTFS), então isso não produz dois daemons aqui. No macOS, que trata as duas como a mesma pasta, produziria — **não medido** em macOS.
+
+- [ ] H3.1 — `config.VaultKey` aplica `text.ParaNFC` antes de `caixaEstavel`. `ParaNFC` usa `norm` do x/text, módulo fixado: `check_unicode.ps1` continua verde.
+- [ ] H3.2 — Teste de regressão com chave real medida: o caminho NFC de Revisão continua dando a mesma chave de hoje, e a grafia NFD passa a dar a mesma. Caminho já em NFC não muda de chave, então nenhum cache existente se desloca.
+
+### H4. Moldura desalinhada com nome em NFD
+
+`console.larguraVisivel` conta marca combinante como coluna. Medido na busca: a linha com caminho NFD saiu 4 colunas mais curta que a borda.
+
+- [ ] H4.1 — Marca combinante (`unicode.Mn`, `unicode.Me`) conta zero. Largura dupla de ideograma fica **fora** deste item e registrada como dívida: não medida.
+- [ ] H4.2 — Teste com `Ação Civil/Prescrição.md` em NFD dentro de `console.Moldura`: todas as linhas com a mesma largura visível.
+
+---
+
+## Parte I — testes que gravam no diretório de runtime real
+
+Medido em 2026-09-14: `go test -count=1` sobre `ipc`, `daemon`, `doctor`, `instalar` e `cmd/gobsidian` levou `%LOCALAPPDATA%\gobsidian\run` de **116 para 132** arquivos — 15 travas com chaves aleatórias e um `serve.24100.presenca` —, e nada foi removido. `ipc.RuntimeDir` no Windows lê `os.UserCacheDir`, e `check_test_isolation.ps1` proíbe `Setenv` de `LOCALAPPDATA`, com razão; o que falta é o terceiro caminho, que `instalar` já usa para a raiz do cache (`var raizDoCache = config.RaizDoCache`).
+
+Esta parte vem **antes** de G: sem ela, cada rodada de teste da implementação de G grava no diretório que G está mudando.
+
+- [ ] I1.1 — Variável de pacote para o diretório de runtime e para o de sockets (G2.1), trocada no `TestMain` de cada pacote que abre socket ou trava, apontando para diretório temporário próprio da rodada. Produção nunca troca.
+- [ ] I1.2 — Gate `scripts/check_runtime_limpo.ps1`: `verify.ps1` fotografa o diretório de runtime real antes e depois de `go test` e reprova se aparecer arquivo novo. Critério comportamental, como a medição acima. Três casos em `check_gates.ps1`: arquivo novo reprova, diretório igual passa, arquivo que **sumiu** (processo real encerrando no meio) não reprova.
+- [ ] I1.3 — A limpeza do `instalar` passa a cobrir trava e presença órfãs, cuja chave não tem processo vivo — o que já se acumulou nesta máquina.
+
+---
+
+## Ordem de execução — tudo de uma vez
+
+Um lote, nesta ordem, com `verify.ps1` verde antes de cada commit e `docs/` junto do código que muda comportamento:
+
+1. **Parte I** — isolar os testes. Pré-requisito de G.
+2. **G1** — medições. Custam uma reinicialização do Desktop pelo dono e decidem G2. Fazer cedo, porque o resto de G espera.
+3. **G3, G4, G5, G8** — guarda em `Listen`, ponte e `doctor`, e o `doctor` que conta ponte como gravador. Independem do diretório escolhido.
+4. **G2** — mudar o socket de lugar, com o diretório que G1 aprovou.
+5. **G7** — binário de host desatualizado.
+6. **Parte H** — H3, H1, H2, H4.
+7. **A2**, depois **A1**, **A3** e **A4** (na forma revista pela Parte E).
+8. **A5** e **Parte B** — entram por decisão de fazer tudo, mas **não têm efeito visível no Claude Desktop 1.52386.6**. São os primeiros candidatos a corte se o lote precisar encolher; encolher é decisão do dono.
+9. **Parte C** — contrato e documentação.
+10. **G6** — verificação na máquina do dono, depois do release.
+11. **F1** continua esperando decisão; não entra no lote.
 
 ## Riscos
 
 | Risco | Probabilidade | Impacto | Mitigação |
 |---|---|---|---|
-| Host não pagina `resources/list` e passa a ver 1000 alfabéticas em vez de 200 recentes | Média | Médio | E1 antes de A1; se não paginar, reduzir `PageSize` e ordenar de modo que a primeira página seja útil |
 | `2026-07-28` chega por negociação e exercita caminho novo do SDK sem teste nosso | Baixa | Médio | Testes de `mcpsrv` rodam contra a versão que o SDK negocia por padrão; acrescentar caso explícito fixando a versão |
 | `VaultTree` diverge de `vault.Walk` no conjunto de exclusões | Baixa | Alto | A2.2 obriga derivar do índice, nunca do disco |
 | Ícone `data:` grande demais inflar cada entrada de `resources/list` | Baixa | Baixo | SVG de uma figura, medido antes de entrar; teto declarado no gate de A5 |
+| Daemon novo e daemon antigo servirem o mesmo cofre durante a troca de diretório | Média | Alto | Travas ficam no diretório antigo (G2, condicionado a G1.2); aceitação G2.5 com versões mistas |
+| O diretório escolhido também cair num escopo de virtualização de outro host | Média | Alto | A guarda de G3 e o log de G4 transformam o próximo caso em uma linha WARN com o diretório, em vez de dezenas de quedas silenciosas; `tools/sondahost` mede o host novo |
+| Limpeza de temporários apagar o socket, se G1 empurrar para `Temp` | Não medida | Médio | Preferir `%USERPROFILE%\.gobsidian`; se for `Temp`, o daemon verifica o próprio socket na checagem de ociosidade e sai quando ele some |
+| Sufixo de H1 renomear a chave de um cofre já configurado | Certa quando houver colisão | Baixo | Só acontece com dois cofres de mesmo nome, que hoje já perdem um deles |

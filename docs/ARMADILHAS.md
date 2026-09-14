@@ -367,6 +367,30 @@ diferentes. **O critério de "há daemon vivo" é handshake bem-sucedido**, nunc
 erro do dial. Conectar também não basta: um daemon com o laço de `Accept` morto
 aceita no backlog do SO e nunca responde.
 
+**O processo que o host cria pode não enxergar o socket que a sua shell
+enxerga.** Por três semanas toda sessão do Claude Desktop serviu os cofres em
+processo, com índice próprio, e nenhum teste nem o `doctor` acusou: da shell do
+dono o daemon respondia. O Desktop é um pacote MSIX com
+`FileSystemWriteVirtualization`, e os processos que ele cria não usam socket
+AF_UNIX em `%LOCALAPPDATA%` — `dial 10022`, `lstat 1920`, inclusive no socket
+que o próprio processo acabou de criar —, enquanto arquivo comum no mesmo
+diretório funciona. Medido em 2026-09-14 (`docs/ESTADO.md`, dívidas).
+
+Três lições, cada uma com o erro que custou:
+
+- **Reproduzir no contexto real, não num contexto parecido.** Processo Medium
+  pelo Agendador de Tarefas e `Invoke-CommandInDesktopPackage` com a identidade
+  do pacote pareciam o Desktop e passaram. Só um servidor MCP registrado no
+  config e iniciado **pelo próprio host** reproduziu.
+- **Confira o contexto que você acha que criou.** `runas /trustlevel:0x20000`
+  manteve a integridade **High**; o teste "Medium" que passou não era Medium.
+  O SID `S-1-16-*` no `whoami /groups` é o que separa, e a linha vem localizada
+  — `findstr Mandatory` não acha nada numa máquina em português.
+- **"Ninguém escuta" só vale num diretório onde o próprio socket conecta.**
+  Neste contexto `AlguemEscuta` responde não para daemon vivo, e `Listen`
+  tenta apagar o socket dele. Só não virou o roubo de socket de 2026-08-26
+  porque o `remove` também falha ali.
+
 **Daemon que morre calado é indistinguível de daemon que não nasceu.** Dois
 daemons registraram `"daemon iniciado"` e nada mais; a causa existia
 (`vault.New` recusa caminho inexistente com mensagem específica) e nunca

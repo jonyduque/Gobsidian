@@ -762,18 +762,49 @@ o quarto, que é exatamente o defeito que ela existe para impedir.
   **100 ciclos no CI e passa**. Ele não pega este defeito — a hipótese, **não
   medida**, é que o cofre sintético do cenário é pequeno demais para exercitar
   watcher e índice reais.
-- **O estado de socket que produz `dial 10022` + `remove 1920` não foi
-  reproduzido.** `ipc.cleanupSocketFile` falhou 20+ vezes desde 2026-09-01 no
-  cofre Estudo com `The file cannot be accessed by the system`, e cada falha
-  derrubou toda ponte para o modo em processo. Dois cenários foram medidos em
-  2026-09-08 e **nenhum** produz o par observado: listener fechado limpo dá
-  `10061` e o arquivo já não existe (o `Close` desvincula no Windows); processo
-  morto à força dá `10061` e o `os.Remove` **funciona**.
+- **O estado de socket que produz `dial 10022` + `remove 1920` foi
+  reproduzido em 2026-09-14, e a causa é o Claude Desktop.** O Desktop
+  (`app_version 1.52386.6`, pacote MSIX) declara
+  `virtualization:FileSystemWriteVirtualization` no manifesto, e os processos que
+  ele cria — integridade Medium, em job `LimitFlags=0x3C00`, sem identidade de
+  pacote — não conseguem usar socket AF_UNIX em lugar nenhum de
+  `%LOCALAPPDATA%`: `listen` funciona, `lstat` dá `1920` e `dial` dá `10022`,
+  inclusive no socket que o próprio processo acabou de criar. Em
+  `%LOCALAPPDATA%\Temp`, em `%LOCALAPPDATA%\Claude\logs` (excluída da
+  virtualização no manifesto) e em `%USERPROFILE%\.gobsidian-teste` funciona, e
+  também funciona conectar do processo do Desktop num socket criado por processo
+  High em `Temp`. Arquivo comum em `%LOCALAPPDATA%\gobsidian` grava, renomeia e
+  apaga normalmente. Medido com um servidor MCP de diagnóstico registrado no
+  config e iniciado pelo próprio Desktop; a tabela completa está no plano
+  [`2026-09-11-resources-arvore-e-sdk.md`](superpowers/plans/2026-09-11-resources-arvore-e-sdk.md),
+  Parte G.
 
-  A Task 192 pôs **saída, não diagnóstico**: se o caminho não se apaga, o
-  arquivo sai do caminho por `rename` — permitido no Windows onde apagar não é,
-  medido inclusive sobre executável em uso. E o erro passou a relatar o que
-  havia no caminho, que era o que faltava em campo.
+  **Não reproduz fora do Desktop**, e é isso que escondeu o defeito por três
+  semanas: processo Medium criado pelo Agendador de Tarefas, com e sem a
+  identidade do pacote (`Invoke-CommandInDesktopPackage`), conecta e remove
+  normalmente, e o `doctor` rodado de uma shell diz "daemon respondendo".
+
+  **Efeito medido:** nenhuma linha `conectado ao daemon` nos logs do Desktop dos
+  quatro cofres entre 2026-08-24 e 2026-09-14; em Estudo, 61 tentativas e 53
+  quedas para o modo em processo; `initialize` de 43 s em 2026-09-13. A causa no
+  nível do driver **não** foi provada; o conserto — tirar o socket de
+  `%LOCALAPPDATA%` e parar de confiar em `AlguemEscuta` num diretório onde o
+  próprio socket não conecta — está planejado, não feito.
+
+  A saída de 2026-09-08 (Task 192, `rename` quando `remove` falha) continua no
+  código e não resolve este caso: no processo do Desktop o `rename` também
+  falha.
+- **Testes gravam no diretório de runtime real.** `go test -count=1` sobre
+  `ipc`, `daemon`, `doctor`, `instalar` e `cmd/gobsidian` levou
+  `%LOCALAPPDATA%\gobsidian\run` de 116 para 132 arquivos em 2026-09-14 — 15
+  travas com chave aleatória e um arquivo de presença —, sem remover nenhum.
+  Planejado na Parte I do mesmo plano.
+- **O aviso de duplicidade do `doctor` conta ponte como gravador.** Em
+  2026-09-14 ele avisou quatro processos por cofre e mandou encerrar os
+  extras; entre eles estavam pontes do Antigravity (24 MB cada), que não
+  gravam cache, e ficaram de fora cinco processos v1.5.1 do Claude Code, que
+  não registram presença. A presença grava `papel`, não o modo, e é gravada
+  antes de a ponte decidir. Planejado em G8.
 
 - **O pico de memória da reconstrução do índice não tem requisito, por decisão.**
   Com cache frio o `servindo` fica de 5× a 12× acima do alvo de cache quente —
