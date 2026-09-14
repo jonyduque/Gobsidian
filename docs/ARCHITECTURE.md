@@ -63,7 +63,7 @@ Camada de adaptação sobre `github.com/modelcontextprotocol/go-sdk/mcp`. Regist
 
 Esta camada existe para isolar a instabilidade do SDK. O protocolo MCP evoluiu várias vezes — 2024-11-05, 2025-03-26, 2025-06-18, 2025-11-25, 2026-07-28 — com depreciações reais entre versões. Concentrar o contato com o SDK em um pacote significa que uma quebra de API se resolve em um arquivo, não espalhada pelo código.
 
-**Versão alvo: `2025-11-25`** (RNF-24, D6). É a última revisão estável com suporte pleno no SDK Go oficial, e a que os hosts instalados negociam. O SDK mantém compatibilidade retroativa até 2024-11-05, e a negociação de fallback é dele, não nossa.
+**Versão alvo: `2025-11-25`** (RNF-24, D6), porque é a que os hosts instalados negociam. O SDK fixado — `v1.7.0` desde 2026-09-14 — atende de `2024-11-05` a `2026-07-28`, e a negociação de fallback é dele, não nossa.
 
 A revisão `2026-07-28` é uma mudança estrutural, não incremental: remove o handshake `initialize` e a sessão de protocolo, tornando cada requisição autocontida, e deprecia Roots, Sampling e Logging. Para um servidor stdio local, a statelessness não traz benefício — ela existe para deploys remotos com balanceamento de carga. Migrar cedo custaria compatibilidade com o host instalado em troca de nada.
 
@@ -729,7 +729,7 @@ Lista deliberadamente curta. Cada dependência é uma superfície de falha e de 
 
 | Módulo | Uso | Justificativa |
 |---|---|---|
-| `github.com/modelcontextprotocol/go-sdk` | Protocolo MCP | SDK oficial, mantido com o Google; fixado em `v1.5.0`, que suporta o protocolo `2025-11-25` |
+| `github.com/modelcontextprotocol/go-sdk` | Protocolo MCP | SDK oficial, mantido com o Google; fixado em `v1.7.0` desde 2026-09-14 (antes `v1.5.0`), que atende do protocolo `2024-11-05` ao `2026-07-28` |
 | `github.com/yuin/goldmark` | Parse de Markdown | Conformidade CommonMark; API de extensão |
 | `github.com/fsnotify/fsnotify` | Watch do sistema de arquivos | Padrão de fato; abstrai as APIs de cada SO |
 | `gopkg.in/yaml.v3` | Frontmatter | — |

@@ -390,10 +390,10 @@ Testes de parser comparam contra golden files em JSON, regeneráveis com `go tes
 ```
 module github.com/jonyduque/Gobsidian
 
-go 1.25
+go 1.27.0
 
 require (
-    github.com/modelcontextprotocol/go-sdk v1.5.0
+    github.com/modelcontextprotocol/go-sdk v1.7.0
     github.com/yuin/goldmark            v1.7.8
     github.com/fsnotify/fsnotify         v1.8.0
     github.com/cespare/xxhash/v2         v2.3.0
@@ -404,9 +404,9 @@ require (
 )
 ```
 
-A diretiva `go 1.25` é o piso mínimo, não a versão do toolchain instalado — ela é imposta pelo próprio `go-sdk@v1.5.0`, cujo `go.mod` declara `go 1.25.0`, e as regras de grafo de módulos do Go exigem que o módulo principal declare pelo menos essa versão; não é uma escolha por recurso de linguagem que precisemos.
+A diretiva declara `go 1.27.0` por decisão do dono em 2026-09-09 (plano `docs/superpowers/plans/2026-09-09-go-1-27.md`). O piso que o SDK impõe é menor: `go-sdk@v1.7.0`, como a `v1.5.0` antes dele, declara `go 1.25.0`, e as regras de grafo de módulos do Go exigem que o módulo principal declare pelo menos essa versão.
 
-As versões acima são o ponto de partida; fixe o que `go mod tidy` resolver e não use `latest` em nenhuma delas. O SDK de MCP em particular fica em `v1.5.0`, que é a versão com suporte pleno ao protocolo `2025-11-25` (PRD D6).
+As versões acima são o ponto de partida; fixe cada uma com `go get <pacote>@<versão>` — nunca `go mod tidy`, ver `CLAUDE.md` — e não use `latest` em nenhuma delas. O SDK de MCP em particular fica em `v1.7.0` desde 2026-09-14, antes `v1.5.0` (PRD D6).
 
 Versões das dependências fixadas exatamente. O SDK do MCP em particular: o protocolo evoluiu com quebras (2025-06-18 → 2025-11-25 → 2026-07-28), e uma atualização automática pode quebrar a compatibilidade com o host instalado.
 

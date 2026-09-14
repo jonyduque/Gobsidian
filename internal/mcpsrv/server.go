@@ -104,7 +104,7 @@ func (nopWriteCloser) Close() error { return nil }
 // IOTransport aceita o io.Reader que recebermos, o que permite passar um
 // TeeReader: o transporte le, e a copia espelhada alimenta o lifecycle.
 //
-// mcp.IOTransport pede io.ReadCloser/io.WriteCloser (v1.5.0), nao
+// mcp.IOTransport pede io.ReadCloser/io.WriteCloser (v1.5.0 e v1.7.0), nao
 // io.Reader/io.Writer como o desenho original presumia. stdin e envolvido em
 // io.NopCloser; stdout, em nopWriteCloser — nenhum dos dois adiciona
 // comportamento de fechamento alem do nulo, e a assinatura publica de Serve

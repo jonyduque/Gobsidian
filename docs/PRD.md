@@ -368,11 +368,11 @@ mudar é a estrutura do índice invertido — não o requisito.
 | RNF-21 | Cofres em OneDrive, Dropbox e Google Drive, incluindo arquivos somente-nuvem |
 | RNF-22 | Caminhos acima de 260 caracteres no Windows |
 | RNF-23 | Nomes de arquivo com acentuação e espaços |
-| RNF-24 | Versão de protocolo MCP fixada em `2025-11-25`, com negociação de fallback para `2025-06-18`, `2025-03-26` e `2024-11-05` |
+| RNF-24 | Versão de protocolo MCP: alvo `2025-11-25`, a que os hosts instalados negociam; o SDK fixado atende também `2026-07-28`, `2025-06-18`, `2025-03-26` e `2024-11-05`, e a negociação é dele |
 
 **Sobre RNF-20.** "Primeira classe" e "suportada" são níveis diferentes de garantia, e a distinção é deliberada. Nos três sistemas o código compila, a suíte de testes roda no CI e há binário de release. Apenas no Windows rodam também os testes que dependem de comportamento de plataforma: ciclo de órfãos com `taskkill /F`, `ERROR_SHARING_VIOLATION` no rename, arquivos somente-nuvem do OneDrive, `MAX_PATH` e colisão de casing. Prometer paridade de verificação nos três seria promessa não cumprida.
 
-**Sobre RNF-24.** A versão `2025-11-25` é a última estável com suporte pleno no SDK Go oficial e a que os hosts instalados negociam hoje. A revisão `2026-07-28` remove o handshake `initialize` e a sessão de protocolo, o que é uma mudança estrutural, não incremental — entra em uma versão posterior, atrás da camada de adaptação de `internal/mcpsrv` (ARCHITECTURE §2.3).
+**Sobre RNF-24.** A versão-alvo é `2025-11-25` porque é a que os hosts instalados negociam hoje — não porque o SDK pare nela. Desde 2026-09-14 o SDK fixado é `go-sdk v1.7.0`, cujo `latestProtocolVersion` é `2026-07-28`. Como servidor, o SDK responde a versão que o cliente pediu, se a suporta: subir o SDK não empurrou a revisão nova para host nenhum, deu a capacidade de atendê-la quando um host a pedir. A revisão `2026-07-28` remove o handshake `initialize` e a sessão de protocolo, o que é uma mudança estrutural, não incremental; o que ela exigir de nós fica atrás da camada de adaptação de `internal/mcpsrv` (ARCHITECTURE §2.3). A troca de `v1.5.0` para `v1.7.0` compilou, passou no `go vet` e nos testes de `mcpsrv`, `daemon` e `boot` sem mudança de código no produto (medido em 2026-09-11; plano `docs/superpowers/plans/2026-09-11-resources-arvore-e-sdk.md`, Parte 0).
 
 ### 6.4 Segurança
 
@@ -497,7 +497,7 @@ Suíte de benchmark no CI com verificação de regressão. Teste de 100 ciclos d
 | D3 | Escrita em lote transacional | Fora de escopo. Não há transação entre arquivos no sistema de arquivos, e prometer uma seria mentira. Reavaliar pós-1.0 |
 | D4 | Múltiplos cofres por instância | Um cofre por instância. Cofres separados viram entradas separadas no `claude_desktop_config.json` |
 | D5 | Nome do produto | `gobsidian`. Módulo `github.com/jonyduque/Gobsidian`, binário `gobsidian.exe` |
-| D6 | Versão de protocolo MCP | `2025-11-25` fixada, com fallback negociado. Migração para `2026-07-28` atrás de `internal/mcpsrv`, pós-1.0 |
+| D6 | Versão de protocolo MCP | Alvo `2025-11-25`, com fallback negociado pelo SDK. O SDK fica em versão exata, que muda por decisão e nunca por `go mod tidy`: `v1.5.0` até 2026-09-14, `v1.7.0` desde então, que já atende `2026-07-28`. Adotar o que a `2026-07-28` traz fica atrás de `internal/mcpsrv` |
 | D7 | Garantia de ausência de rede | Análise estática sobre `internal/` e `cmd/`, não sobre o fechamento transitivo. RF-54 fora da v1. Ver §6.4 |
 | D8 | Referência de paridade com o Obsidian | Plugin descartável em `tools/parity-dumper/` serializa `app.metadataCache` uma vez para `testdata/parity/` |
 | D9 | Redução morfológica na busca | Indexação dupla: forma crua normalizada e forma reduzida conservadora, na mesma posting list. Ver §5.3 |
@@ -510,7 +510,7 @@ Suíte de benchmark no CI com verificação de regressão. Teste de 100 ciclos d
 
 **Q1.** Busca semântica (RF-26) justifica embutir um modelo de embeddings, com o custo em tamanho de binário e em tempo de indexação? *Reavaliar após a v1.0, com dados de uso real de `vault_search`. O critério é concreto: se as consultas que falham em `vault_search` forem majoritariamente de paráfrase, sim; se forem de sintaxe de consulta, não.*
 
-**Q2.** Quando migrar para o protocolo `2026-07-28`? A revisão remove o `initialize` e a sessão, e deprecia Roots, Sampling e Logging. *Gatilho: quando o Claude Desktop instalado passar a negociá-la e o SDK Go marcá-la como estável. A janela de depreciação anunciada é de 12 meses, o que dá folga.*
+**Q2.** Quando migrar para o protocolo `2026-07-28`? A revisão remove o `initialize` e a sessão, e deprecia Roots, Sampling e Logging. *Gatilho: quando o Claude Desktop instalado passar a negociá-la e o SDK Go marcá-la como estável. A janela de depreciação anunciada é de 12 meses, o que dá folga.* **Estado em 2026-09-14:** a metade do SDK disparou — `go-sdk v1.7.0`, fixado nesse dia, tem `2026-07-28` como versão mais recente. A metade do host não: o Claude Desktop `1.52386.6` pede e recebe `2025-11-25` (medido com servidor de sonda; `docs/ESTADO.md`).
 
 **Q3.** O cache de índice deve guardar também o índice de busca, ou apenas o índice de metadados? **FECHADA em 2026-07-29 na Task 52 com medição real.** Medição em corpus de 500 notas distintas (`idx.NoteCount() == 500`): (a) `LoadInvertedCache` do disco: 26,96 ms; (b) Reconstrução do índice invertido a partir do `index` de metadados já carregado: 106,58 ms. **Decisão:** Persistir ambos os caches (`index_cache.gob` e `inverted_cache.gob`). O carregamento do cache invertido do disco é ~4x mais rápido do que a reconstrução em memória (26,96 ms vs 106,58 ms), economizando ~80 ms no boot frio e mantendo o RNF-02 (≤ 300 ms) com ampla folga.
 

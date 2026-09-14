@@ -450,6 +450,48 @@ usava `LastIndexAny` com dois separadores e não converte.
 
 ---
 
+## Claude Desktop como host MCP — o que foi medido
+
+O plano é [`docs/superpowers/plans/2026-09-11-resources-arvore-e-sdk.md`](superpowers/plans/2026-09-11-resources-arvore-e-sdk.md),
+Parte E. Aqui ficam só os fatos.
+
+**Como se mediu.** O log do Desktop (`%LOCALAPPDATA%\Claude\Logs\mcp-server-*.log`)
+grava o nome do método e **omite os parâmetros** (`params { metadata: undefined }`),
+então ele não responde nada que dependa de cursor, versão ou argumento. Em
+2026-09-14 um servidor de sonda sobre `go-sdk v1.7.0` foi registrado no
+`claude_desktop_config.json`, gravando cada requisição **com** parâmetros. Ele
+publicava um cofre sintético no formato proposto pelo plano: 2.500 notas e 125
+pastas (resource com `/` final e `mimeType: inode/directory`), `Name` com o
+caminho, `Title` com a folha, ícone `data:` SVG diferente para nota e pasta,
+`completions` declarado e `Instructions` preenchido. A entrada foi removida do
+config no mesmo dia.
+
+**Host medido:** Claude Desktop `app_version 1.52386.6`, Windows. Dois clientes
+conectaram: `claude-ai 0.1.0` e `local-agent-mode-gobsidian-sonda 1.0.0` — o
+segundo inicializou e desconectou sem listar nada.
+
+| Pergunta | Resposta medida |
+|---|---|
+| Versão de protocolo negociada | **`2025-11-25`**, pedida pelos dois clientes. A metade da Q2 do PRD que depende do host **não** disparou |
+| Segue `nextCursor` em `resources/list`? | **Sim, e na hora.** Três chamadas, a 2ª e a 3ª com o cursor da anterior; as 2.625 entradas carregadas em 2,5 s depois do `initialized` |
+| Desenha `Resource.Icons`? | **Não.** Nota e pasta aparecem com o mesmo ícone genérico de documento |
+| Mostra o quê de cada resource? | **Só o `Title`**, em lista plana, na ordem do servidor. `Pasta 01`, `Sub A`, `Nota 001` ficam lado a lado, indistinguíveis |
+| A caixa "Procurar" filtra por quê? | Por texto que **não** está no `Title`: `Sub B/Nota 01` devolveu `Nota 010`…`Nota 018`. Casa pelo `Name` ou pela URI decodificada — a sonda não separa os dois |
+| Emite `completion/complete`? | **Não.** Nenhuma chamada, mesmo com `completions` declarado e busca digitada. A busca é do cliente |
+| Pede `resources/templates/list` ou `resources/read`? | **Não**, nem na sonda nem nos 23 inícios de sessão registrados no log de `gobsidian-estudo` entre 2026-08-24 e 2026-09-13 |
+| Capabilities que o cliente declara | `roots` e a extensão `io.modelcontextprotocol/ui` (MCP Apps, `text/html;profile=mcp-app`) |
+
+**Não medido:** se o `Instructions` chega ao modelo — nada na interface o mostra.
+
+**Um número que não se explicou.** Na primeira execução, a sonda levou **12,1 s**
+entre `inicio` e `publicados` (registrar os 2.625 resources); na segunda, 13 s
+depois, **0,12 s**. O benchmark em processo do plano mede 7,5 ms para 3.421
+resources. A diferença não se reproduziu e a causa não foi determinada — a
+hipótese de varredura do executável recém-criado por antivírus não foi
+testada. Não serve de estimativa para o `gobsidian` real.
+
+---
+
 ## Formato de cache
 
 **O formato do cache de busca é o 6, e não é `gob`** (formato 5 em 2026-08-03/04;

@@ -341,10 +341,11 @@ Há trabalho não commitado neste repositório o tempo todo, e um subagente já
 destruiu trabalho exatamente assim.
 
 **Nunca `go mod tidy`.** Várias deps estão fixadas sem importador ainda —
-`goldmark`, `yaml.v3`, `x/text`. `tidy` removeria todas, junto com o pin do SDK
-MCP, que é decisão fechada (PRD D6). Se faltar entrada em `go.sum`, use
+`goldmark`, `yaml.v3`, `x/text`. `tidy` removeria todas. O SDK MCP também fica em
+versão exata (PRD D6): o número muda por decisão — `v1.5.0` para `v1.7.0` em
+2026-09-14 —, nunca por `tidy`. Se faltar entrada em `go.sum`, use
 `go get <caminho-do-pacote>@<versão-fixada>` — caminho do **pacote**, não do
-módulo. O piso que `go-sdk@v1.5.0` força é `go 1.25.0`; a diretiva declara
+módulo. O piso que `go-sdk@v1.7.0` força é `go 1.25.0`; a diretiva declara
 `go 1.27.0` por decisão do dono em 2026-09-09, e o que ela compra está no plano
 [`docs/superpowers/plans/2026-09-09-go-1-27.md`](docs/superpowers/plans/2026-09-09-go-1-27.md):
 rótulos de goroutine no traceback e o perfil `goroutineleak`, que são o que
