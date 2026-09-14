@@ -267,7 +267,7 @@ conferir, e as duas versões anteriores diziam.
 ## Comandos
 
 ```bash
-pwsh -File scripts/verify.ps1              # o gate: 22 etapas, para no primeiro erro
+pwsh -File scripts/verify.ps1              # o gate: 23 etapas, para no primeiro erro
 pwsh -File scripts/build.ps1               # build com versão via ldflags
 pwsh -File scripts/test_orphans.ps1        # os quatro cenários de encerramento
 pwsh -File scripts/mutate.ps1 ...          # prova de mutação — ver papeis/testador.md
@@ -281,7 +281,7 @@ pwsh -File scripts/gen_vault.ps1 -Notes 5000 -Seed 42 -Out <x>   # cofre de benc
 
 **`verify.ps1` verde é obrigatório antes de qualquer commit.** Ele existe porque
 a lista solta convida a rodar três dos cinco: cobre build, `go test -race`, a
-contagem de testes pulados, tetos de latência, `go vet` nos três GOOS, `gofmt`,
+contagem de testes pulados, tetos de latência, `check_runtime_limpo`, `go vet` nos três GOOS, `gofmt`,
 `golangci-lint` (Windows e Linux), `check_net`, `check_tool_params`,
 `check_doc_refs`, `check_readme_anchors`, `check_gates`, `check_graph`,
 `check_pins`, `check_test_isolation`, `check_partida`, `check_prompt` e

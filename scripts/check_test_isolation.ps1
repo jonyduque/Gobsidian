@@ -84,6 +84,30 @@ foreach ($arq in $Arquivos) {
     }
 }
 
+# Segunda regra: o desvio do diretorio de runtime so pode ser armado por teste.
+#
+# ipc.RodarComRuntimeIsolado troca o diretorio de runtime de TODO o processo por
+# um temporario. Existe para o TestMain dos pacotes que abrem socket e trava
+# (medido em 2026-09-14: a suite deixava 15 travas, `instalacao.lock` e uma
+# presenca no %LOCALAPPDATA% do usuario por rodada). Chamado em codigo de
+# producao, poria a ponte e o daemon em diretorios temporarios diferentes --
+# dois processos servindo um cofre sem se enxergar, o incidente de 2026-09-08.
+$ProblemasDesvio = @()
+$Producao = @(Get-ChildItem -Path $Raiz -Recurse -Filter '*.go' -File -ErrorAction SilentlyContinue |
+        Where-Object { $_.Name -notlike '*_test.go' })
+foreach ($arq in $Producao) {
+    $texto = Get-Content -Path $arq.FullName -Raw -Encoding UTF8
+    if (-not $texto -or $texto -notmatch 'RodarComRuntimeIsolado') { continue }
+    $codigo = [regex]::Replace($texto, '(?m)//.*$', '')
+    # A definicao nao e chamada.
+    $codigo = [regex]::Replace($codigo, 'func\s+RodarComRuntimeIsolado\s*\(', 'func _(')
+    foreach ($m in [regex]::Matches($codigo, '\bRodarComRuntimeIsolado\s*\(')) {
+        $n = ($codigo.Substring(0, $m.Index) -split "`n").Count
+        $rel = $arq.FullName.Substring($Raiz.Length).TrimStart('\', '/')
+        $ProblemasDesvio += "${rel}:${n}: RodarComRuntimeIsolado fora de arquivo _test.go"
+    }
+}
+
 if ($Problemas.Count -gt 0) {
     Write-Output "[!] teste redirecionando caminho de maquina por variavel de ambiente:"
     $Problemas | ForEach-Object { Write-Output "     $_" }
@@ -91,10 +115,17 @@ if ($Problemas.Count -gt 0) {
     Write-Output "     Variavel de ambiente nao isola: os.UserCacheDir ignora LOCALAPPDATA e"
     Write-Output "     XDG_CACHE_HOME no macOS. Injete a raiz ou a funcao por variavel de"
     Write-Output "     pacote e troque-a no teste -- ver docs/ARMADILHAS.md."
-    exit 1
 }
+if ($ProblemasDesvio.Count -gt 0) {
+    Write-Output "[!] desvio do diretorio de runtime armado fora de teste:"
+    $ProblemasDesvio | ForEach-Object { Write-Output "     $_" }
+    Write-Output ""
+    Write-Output "     ipc.RodarComRuntimeIsolado e so para TestMain. Em producao ele poria"
+    Write-Output "     ponte e daemon em diretorios de runtime diferentes."
+}
+if ($Problemas.Count -gt 0 -or $ProblemasDesvio.Count -gt 0) { exit 1 }
 
 if (-not $Silencioso) {
-    Write-Output "[OK] nenhum dos $($Arquivos.Count) arquivos _test.go redireciona caminho de maquina"
+    Write-Output "[OK] nenhum dos $($Arquivos.Count) arquivos _test.go redireciona caminho de maquina, e o desvio de runtime so e armado por teste"
 }
 exit 0

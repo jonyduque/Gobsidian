@@ -167,6 +167,7 @@ gobsidian/
 │   │   ├── ipc.go                transporte local: socket, saudação, handshake
 │   │   ├── desconexao.go         EhDesconexaoLimpa: erro de loop de transporte que
 │   │   │                         so significa "o outro lado foi embora"
+│   │   ├── desvio.go             RuntimeDir, e o desvio que só o TestMain arma
 │   │   ├── ipc_windows.go        diretório de runtime e permissão (build tag windows)
 │   │   └── ipc_unix.go           diretório de runtime e permissão 0600 (build tag !windows)
 │   │
@@ -264,7 +265,8 @@ gobsidian/
 │   ├── check_gates.ps1           prova que cada gate recusa o bypass conhecido
 │   ├── check_graph.ps1           grafo do CLAUDE.md contra `go list` de produção
 │   ├── check_pins.ps1            versões fixadas concordando entre si
-│   ├── check_test_isolation.ps1  teste desviando caminho de máquina por env
+│   ├── check_test_isolation.ps1  teste desviando caminho de máquina por env; desvio de runtime fora de teste
+│   ├── check_runtime_limpo.ps1   teste que escreveu no runtime ou no cache do usuário (isca)
 │   ├── check_partida.ps1         nada roda antes de o encerramento estar armado
 │   ├── check_prompt.ps1          docs/PROMPT.md contra os enums de internal/service
 │   ├── check_unicode.ps1         chave derivada contra tabela Unicode movel

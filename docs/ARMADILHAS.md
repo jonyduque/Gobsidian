@@ -899,3 +899,24 @@ entrada acima: `raizDoCache` e `caminhoDoLogFn` viraram variáveis de pacote que
 o teste troca. `scripts/check_test_isolation.ps1` recusa `t.Setenv`/`os.Setenv`
 das variáveis que a stdlib consulta para resolver casa, cache, config e runtime
 do usuário; ele só enxerga o nome escrito como literal na chamada.
+
+**Teste que não desvia nada escreve no perfil do usuário sem nenhuma linha
+suspeita.** Em 2026-09-14 a suite levava `%LOCALAPPDATA%\gobsidian\run` de 116
+para 132 arquivos por rodada: cada teste que abre socket num cofre de
+`t.TempDir()` nomeia socket, trava e log pela chave do cofre, e o diretório que
+resolvia esses caminhos era o de produção. Rodando a suite inteira contra uma
+isca caíram 15 travas, `instalacao.lock` e uma presença. O `check_test_isolation`
+não via nada, porque não havia `Setenv` para ver.
+
+A correção cruza pacotes, então não cabe numa variável não exportada:
+`ipc.RodarComRuntimeIsolado` arma um diretório temporário para o processo
+inteiro, e cada diretório de pacote que chega ao runtime tem
+`func TestMain(m *testing.M) { os.Exit(ipc.RodarComRuntimeIsolado(m)) }` — um
+por diretório, porque `X` e `X_test` compilam no mesmo binário. O
+`check_test_isolation` recusa a chamada fora de arquivo de teste. E o
+`verify.ps1` roda `go test` com `LOCALAPPDATA`, `XDG_RUNTIME_DIR` e
+`XDG_CACHE_HOME` apontando para uma isca vazia: variáveis do **processo**, não
+do teste, que não isolam nada — só fazem o vazamento cair onde
+`check_runtime_limpo.ps1` lê. Fotografar o diretório real antes e depois foi
+descartado: numa máquina com o produto no ar, host e daemon criam trava e
+presença a qualquer momento, e o gate reprovaria sem defeito.

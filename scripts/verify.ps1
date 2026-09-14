@@ -79,6 +79,45 @@ Invoke-Step "go build" { go build @Alvos }
 # rodada deixaria um log de dezenas de milhares de linhas no TEMP para sempre.
 $LogTestes = Join-Path ([System.IO.Path]::GetTempPath()) "gobsidian-verify-testes-$PID.txt"
 
+# Isca do diretorio do usuario para as etapas de teste.
+#
+# Medido em 2026-09-14: a suite levava %LOCALAPPDATA%\gobsidian\run de 116 para
+# 132 arquivos por rodada -- travas e presenca de cofres de t.TempDir(), porque
+# o diretorio de runtime de producao era o do usuario. As duas etapas de
+# `go test` rodam com LOCALAPPDATA, XDG_RUNTIME_DIR e XDG_CACHE_HOME apontando
+# para diretorios vazios deste processo, e check_runtime_limpo.ps1 reprova se
+# algum teste tiver escrito sob <isca>/*/gobsidian.
+#
+# Sao variaveis do PROCESSO `go test`, definidas aqui fora -- nao dentro de um
+# teste, que e o que check_test_isolation.ps1 recusa, e com razao: dentro do
+# teste a variavel finge isolar. Aqui ela nao isola nada; ela so garante que o
+# vazamento, se houver, caia num lugar que o gate le e que nao e o perfil do
+# dono.
+#
+# GOCACHE e fixado ANTES: o cache de build do Go tambem sai de
+# os.UserCacheDir(), e sem isto a etapa recompilaria o modulo inteiro na isca.
+$GoCacheReal = (go env GOCACHE)
+$Isca = Join-Path ([System.IO.Path]::GetTempPath()) "gobsidian-verify-isca-$PID"
+$VariaveisDaIsca = @('LOCALAPPDATA', 'XDG_RUNTIME_DIR', 'XDG_CACHE_HOME', 'GOCACHE')
+$AmbienteAntesDaIsca = @{}
+
+function Enter-Isca {
+    foreach ($v in $VariaveisDaIsca) { $script:AmbienteAntesDaIsca[$v] = [Environment]::GetEnvironmentVariable($v) }
+    foreach ($sub in 'local', 'runtime', 'cache') {
+        New-Item -ItemType Directory -Force -Path (Join-Path $Isca $sub) | Out-Null
+    }
+    $env:GOCACHE = $GoCacheReal
+    $env:LOCALAPPDATA = Join-Path $Isca 'local'
+    $env:XDG_RUNTIME_DIR = Join-Path $Isca 'runtime'
+    $env:XDG_CACHE_HOME = Join-Path $Isca 'cache'
+}
+
+function Exit-Isca {
+    foreach ($v in $VariaveisDaIsca) { [Environment]::SetEnvironmentVariable($v, $script:AmbienteAntesDaIsca[$v]) }
+}
+
+Enter-Isca
+
 Invoke-Step "go test -race" {
     go test -race -v @Alvos 2>&1 | Set-Content -LiteralPath $LogTestes -Encoding utf8
     if ($LASTEXITCODE -ne 0) {
@@ -158,6 +197,12 @@ Invoke-Step "go test (tetos de latencia, sem -race)" {
     if ($LASTEXITCODE -ne 0) { return }
     go test -count=1 -run "TestBM25KernelLatency" ./internal/search/
 }
+
+Exit-Isca
+
+# Logo depois das etapas de teste, e nao no fim: um vazamento e da suite, e
+# a etapa que o acusa tem de ficar ao lado das que o produziram.
+Invoke-Step "check_runtime_limpo" { & (Join-Path $PSScriptRoot "check_runtime_limpo.ps1") -Isca $Isca }
 
 Invoke-Step "go vet (windows)" { go vet @Alvos }
 
@@ -311,6 +356,7 @@ Pop-Location
 # SilentlyContinue porque uma etapa que reprovou antes de grava-lo deixa o
 # arquivo sem existir, e falhar na limpeza mascararia a falha de verdade.
 Remove-Item -LiteralPath $LogTestes -ErrorAction SilentlyContinue
+Remove-Item -LiteralPath $Isca -Recurse -Force -ErrorAction SilentlyContinue
 
 Write-Output ""
 if ($Failed.Count -gt 0) {

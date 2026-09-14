@@ -394,9 +394,9 @@ Medido em 2026-09-14: `go test -count=1` sobre `ipc`, `daemon`, `doctor`, `insta
 
 Esta parte vem **antes** de G: sem ela, cada rodada de teste da implementação de G grava no diretório que G está mudando.
 
-- [ ] I1.1 — Variável de pacote para o diretório de runtime e para o de sockets (G2.1), trocada no `TestMain` de cada pacote que abre socket ou trava, apontando para diretório temporário próprio da rodada. Produção nunca troca.
-- [ ] I1.2 — Gate `scripts/check_runtime_limpo.ps1`: `verify.ps1` fotografa o diretório de runtime real antes e depois de `go test` e reprova se aparecer arquivo novo. Critério comportamental, como a medição acima. Três casos em `check_gates.ps1`: arquivo novo reprova, diretório igual passa, arquivo que **sumiu** (processo real encerrando no meio) não reprova.
-- [ ] I1.3 — A limpeza do `instalar` passa a cobrir trava e presença órfãs, cuja chave não tem processo vivo — o que já se acumulou nesta máquina.
+- [x] I1.1 — Variável de pacote para o diretório de runtime, trocada no `TestMain` de cada pacote que abre socket ou trava, apontando para diretório temporário próprio da rodada. Produção nunca troca. **Feito em 2026-09-14:** `ipc.RodarComRuntimeIsolado` (em `internal/ipc/desvio.go`) e um `TestMain` em `ipc`, `daemon`, `doctor`, `instalar` e `cmd/gobsidian`. O diretório de sockets de G2.1 ainda não existe; quando existir, precisa seguir o mesmo desvio. `check_test_isolation.ps1` recusa a chamada fora de `_test.go`.
+- [x] I1.2 — Gate `scripts/check_runtime_limpo.ps1`. **A execução divergiu do texto, com motivo:** fotografar o diretório real antes e depois reprovaria sem defeito numa máquina com o produto no ar, porque host e daemon criam trava e presença a qualquer momento. O `verify.ps1` passou a rodar os `go test` com `LOCALAPPDATA`, `XDG_RUNTIME_DIR` e `XDG_CACHE_HOME` apontando para uma isca vazia, e o gate reprova o que cair sob `<isca>/*/gobsidian`. Três casos em `check_gates.ps1`: isca intacta passa, trava de teste reprova, arquivo de outra ferramenta na isca passa.
+- [x] I1.3 — A limpeza do `instalar` passa a cobrir trava e presença órfãs, cuja chave não tem processo vivo — o que já se acumulou nesta máquina. **Já coberto, sem código novo:** `instalar.Limpar` remove presença sem trava e trava fora de uso cuja chave não é de cofre vivo. Medido em 2026-09-14: com 62 arquivos no diretório, `doctor` listou 16 travas e 1 presença removíveis.
 
 ---
 

@@ -124,6 +124,13 @@ macOS**. Verde nas três plataformas, escrevendo no cache real numa.
 `scripts/check_test_isolation.ps1` recusa `t.Setenv`/`os.Setenv` das variáveis
 que resolvem casa, cache, config e runtime do usuário.
 
+**Pacote de teste que chega ao diretório de runtime precisa de `TestMain`.** A
+linha é `func TestMain(m *testing.M) { os.Exit(ipc.RodarComRuntimeIsolado(m)) }`,
+uma por diretório. Sem ela, qualquer teste que abra socket, trava ou presença
+escreve no `%LOCALAPPDATA%` do usuário — medido em 2026-09-14, 16 arquivos por
+rodada. O `verify.ps1` pega: roda os testes contra uma isca e
+`check_runtime_limpo.ps1` reprova nomeando os arquivos.
+
 O que isola é **injeção**: a função que age, ou a raiz onde ela escreve, vira
 variável de pacote, e o teste a troca por um gravador. Onde a decisão é o que
 se quer provar — *se* instala, não *como* —, provar a decisão é o teste

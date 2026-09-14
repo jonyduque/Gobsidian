@@ -702,6 +702,16 @@ reprova pelo motivo errado.
 | `check_test_isolation.ps1` | teste não escreve fora do `t.TempDir()` | `t.Setenv("XDG_CACHE_HOME")` desviava `os.UserCacheDir` no Linux e em nenhuma outra plataforma |
 | `check_partida.ps1` | "nada roda antes de os mecanismos de encerramento estarem armados" | I/O antes de `boot.VigiarHost`: 2 de 100 ciclos sem `reason=`, nas duas rodadas do CI |
 
+**Mais um em 2026-09-14: `check_runtime_limpo.ps1`, e `verify.ps1` passou a 23
+etapas.** A afirmação era a mesma do `check_test_isolation` — teste não escreve
+fora do `t.TempDir()` — e o defeito que a derrubou foi o teste que não desvia
+nada: a suite deixava 15 travas, `instalacao.lock` e uma presença em
+`%LOCALAPPDATA%\gobsidian\run` por rodada (116 → 132 arquivos, medido). Os
+`go test` do gate rodam contra uma isca, e o gate reprova o que cair nela;
+`check_gates.ps1` foi a 58 casos. A limpeza do instalador já cobria o lixo
+acumulado: com 62 arquivos no diretório, `doctor` listou 16 travas e 1 presença
+removíveis.
+
 **Um órfão sem diagnóstico custou 200 ciclos para ser classificado.** Em
 2026-09-09 o CI deu `1 orfao(s) em 100 ciclos` no `parent-death`, com
 `parent-gone: 100x` — a decisão de encerrar estava certa nos 100 —, e o
@@ -794,11 +804,6 @@ o quarto, que é exatamente o defeito que ela existe para impedir.
   A saída de 2026-09-08 (Task 192, `rename` quando `remove` falha) continua no
   código e não resolve este caso: no processo do Desktop o `rename` também
   falha.
-- **Testes gravam no diretório de runtime real.** `go test -count=1` sobre
-  `ipc`, `daemon`, `doctor`, `instalar` e `cmd/gobsidian` levou
-  `%LOCALAPPDATA%\gobsidian\run` de 116 para 132 arquivos em 2026-09-14 — 15
-  travas com chave aleatória e um arquivo de presença —, sem remover nenhum.
-  Planejado na Parte I do mesmo plano.
 - **O aviso de duplicidade do `doctor` conta ponte como gravador.** Em
   2026-09-14 ele avisou quatro processos por cofre e mandou encerrar os
   extras; entre eles estavam pontes do Antigravity (24 MB cada), que não

@@ -531,6 +531,40 @@ try {
         -Esperado 'aceito' -Obtido (Isol-Resultado $i2)
     Remove-Item $i2 -Recurse -Force -ErrorAction SilentlyContinue
 
+    # A segunda regra: o desvio de runtime armado em codigo de producao. Raiz
+    # propria com a definicao viva (desvio.go) e, conforme o caso, um arquivo
+    # de producao ou de teste chamando.
+    function Desvio-Raiz {
+        param([hashtable]$Extras)
+        $tmp = Join-Path ([IO.Path]::GetTempPath()) ("desv_" + [guid]::NewGuid().ToString('N'))
+        $alvoDef = Join-Path $tmp 'internal/ipc/desvio.go'
+        New-Item -ItemType Directory -Path (Split-Path -Parent $alvoDef) -Force | Out-Null
+        Copy-Item -LiteralPath (Join-Path $ProjectRoot 'internal/ipc/desvio.go') -Destination $alvoDef
+        foreach ($rel in $Extras.Keys) {
+            $alvo = Join-Path $tmp $rel
+            New-Item -ItemType Directory -Path (Split-Path -Parent $alvo) -Force | Out-Null
+            [IO.File]::WriteAllText($alvo, $Extras[$rel], (New-Object Text.UTF8Encoding($false)))
+        }
+        return $tmp
+    }
+
+    $d1 = Desvio-Raiz @{ 'cmd/gobsidian/serve_extra.go' = "package main`n`nfunc init() { ipc.RodarComRuntimeIsolado(nil) }`n" }
+    Caso -Nome 'desvio de runtime armado em codigo de producao -> recusado' `
+        -Esperado 'recusado' -Obtido (Isol-Resultado $d1)
+    Remove-Item $d1 -Recurse -Force -ErrorAction SilentlyContinue
+
+    # O inverso: a propria definicao, sozinha, nao e chamada.
+    $d2 = Desvio-Raiz @{}
+    Caso -Nome 'so a definicao do desvio -> aceito' `
+        -Esperado 'aceito' -Obtido (Isol-Resultado $d2)
+    Remove-Item $d2 -Recurse -Force -ErrorAction SilentlyContinue
+
+    # E o uso legitimo: TestMain chamando, em arquivo _test.go.
+    $d3 = Desvio-Raiz @{ 'cmd/gobsidian/testmain_test.go' = "package main`n`nfunc TestMain(m *testing.M) { os.Exit(ipc.RodarComRuntimeIsolado(m)) }`n" }
+    Caso -Nome 'TestMain chamando o desvio -> aceito' `
+        -Esperado 'aceito' -Obtido (Isol-Resultado $d3)
+    Remove-Item $d3 -Recurse -Force -ErrorAction SilentlyContinue
+
     # ------------------------------------------------------------------
     # check_partida: nada roda antes de o encerramento estar armado
     #
@@ -717,6 +751,57 @@ try {
         Caso -Nome 'versao do analisador sem a geracao Unicode -> recusado' `
             -Esperado 'recusado' -Obtido 'mutante-nao-aplicou'
     }
+
+    # ------------------------------------------------------------------
+    # check_runtime_limpo: teste nao escreve no diretorio do usuario
+    #
+    # O defeito real: a suite criava travas e presenca em
+    # %LOCALAPPDATA%\gobsidian\run a cada rodada (116 -> 132, medido em
+    # 2026-09-14). A isca e o que o verify.ps1 aponta para LOCALAPPDATA,
+    # XDG_RUNTIME_DIR e XDG_CACHE_HOME durante `go test`.
+    # ------------------------------------------------------------------
+    $LimpoScript = Join-Path $PSScriptRoot 'check_runtime_limpo.ps1'
+
+    function Limpo-Resultado {
+        param([string]$IscaAlvo)
+        & $LimpoScript -Isca $IscaAlvo -Silencioso *> $null
+        if ($LASTEXITCODE -eq 0) { return 'aceito' }
+        return 'recusado'
+    }
+
+    function Limpo-Isca {
+        param([string[]]$Arquivos)
+        $tmp = Join-Path ([IO.Path]::GetTempPath()) ("isca_" + [guid]::NewGuid().ToString('N'))
+        foreach ($sub in 'local', 'runtime', 'cache') {
+            New-Item -ItemType Directory -Path (Join-Path $tmp $sub) -Force | Out-Null
+        }
+        foreach ($rel in $Arquivos) {
+            $alvo = Join-Path $tmp $rel
+            New-Item -ItemType Directory -Path (Split-Path -Parent $alvo) -Force | Out-Null
+            [IO.File]::WriteAllText($alvo, 'x')
+        }
+        return $tmp
+    }
+
+    $l1 = Limpo-Isca @()
+    Caso -Nome 'isca intacta depois dos testes -> aceito' `
+        -Esperado 'aceito' -Obtido (Limpo-Resultado $l1)
+    Remove-Item $l1 -Recurse -Force -ErrorAction SilentlyContinue
+
+    # A forma exata do vazamento medido: trava de cofre de t.TempDir().
+    $l2 = Limpo-Isca @('local/gobsidian/run/0123456789abcdef.sock.lock')
+    Caso -Nome 'trava de teste no runtime do usuario -> recusado' `
+        -Esperado 'recusado' -Obtido (Limpo-Resultado $l2)
+    Remove-Item $l2 -Recurse -Force -ErrorAction SilentlyContinue
+
+    # O inverso: outra ferramenta escrevendo no LOCALAPPDATA falso, inclusive
+    # com "gobsidian" no NOME do arquivo, nao e defeito deste projeto. Sem este
+    # caso, o anterior nao distingue "pegou a subarvore" de "reprova qualquer
+    # arquivo na isca".
+    $l3 = Limpo-Isca @('local/go-build/ab/cache-entry', 'cache/outra/gobsidian.txt')
+    Caso -Nome 'arquivo de outra ferramenta na isca -> aceito' `
+        -Esperado 'aceito' -Obtido (Limpo-Resultado $l3)
+    Remove-Item $l3 -Recurse -Force -ErrorAction SilentlyContinue
 }
 finally {
     Pop-Location

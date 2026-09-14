@@ -321,10 +321,10 @@ func TestDialAndHandshakeRespeitaContext(t *testing.T) {
 // TestListenRestringePermissaoUnix prova a garantia 4 da Task 91 em Unix:
 // 0600, so o dono le e escreve. Em Windows a garantia vem da ACL herdada do
 // diretorio (ipc_windows.go), nao de chmod -- ver
-// TestListenSocketEmDiretorioDoPerfilNoWindows para o que da para provar la.
+// TestRuntimeDirDoSistemaFicaNoPerfilNoWindows para o que da para provar la.
 func TestListenRestringePermissaoUnix(t *testing.T) {
 	if runtime.GOOS == "windows" {
-		t.Skip("permissao unix (0600) nao se aplica no Windows -- ver TestListenSocketEmDiretorioDoPerfilNoWindows")
+		t.Skip("permissao unix (0600) nao se aplica no Windows -- ver TestRuntimeDirDoSistemaFicaNoPerfilNoWindows")
 	}
 
 	vault := t.TempDir()
@@ -340,34 +340,5 @@ func TestListenRestringePermissaoUnix(t *testing.T) {
 	}
 	if mode := info.Mode().Perm(); mode != 0o600 {
 		t.Fatalf("socket %s tem permissao %04o, esperado 0600", path, mode)
-	}
-}
-
-// TestListenSocketEmDiretorioDoPerfilNoWindows verifica o que da para provar
-// sem privilegio administrativo neste ambiente: o socket fica dentro do
-// perfil do usuario corrente (%LocalAppData%), cuja ACL padrao do Windows ja
-// nega acesso a outros usuarios locais. Isto NAO E o mesmo que abrir uma
-// segunda conta de usuario e tentar conectar -- essa prova exigiria criar
-// uma conta local, o que requer privilegio administrativo que este ambiente
-// de teste nao concede. Ver o relatorio da Task 91 para o registro explicito
-// dessa lacuna.
-func TestListenSocketEmDiretorioDoPerfilNoWindows(t *testing.T) {
-	if runtime.GOOS != "windows" {
-		t.Skip("especifico de Windows -- ver TestListenRestringePermissaoUnix para a garantia equivalente em Unix")
-	}
-
-	vault := t.TempDir()
-	ln, path, err := ipc.Listen(vault)
-	if err != nil {
-		t.Fatalf("Listen() error = %v", err)
-	}
-	t.Cleanup(func() { _ = ln.Close() })
-
-	base, err := os.UserCacheDir()
-	if err != nil {
-		t.Fatalf("UserCacheDir() error = %v", err)
-	}
-	if !strings.HasPrefix(path, base) {
-		t.Fatalf("socket %s nao esta dentro do perfil do usuario %s", path, base)
 	}
 }
