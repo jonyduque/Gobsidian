@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"time"
 
+	"github.com/jonyduque/Gobsidian/internal/config"
 	"github.com/jonyduque/Gobsidian/internal/hosts"
 	"github.com/jonyduque/Gobsidian/internal/text"
 	"sort"
@@ -491,7 +492,28 @@ func EntradasParaCofres(binario string, cofres []string, somenteLeitura bool) []
 			Entrada: hosts.Entrada{Command: binario, Args: args},
 		})
 	}
+	desempatarChaves(saida, cofres)
 	return saida
+}
+
+// desempatarChaves acrescenta o sufixo do cofre so as entradas cuja chave se
+// repete.
+//
+// Medido em 2026-09-14: "C:/A/Revisão" e "C:/B/Revisao", ou dois "Estudo" em
+// pastas diferentes, davam a mesma chave, e hosts.FundirVarias grava
+// servidores[chave]: o segundo cofre sobrescrevia o primeiro sem aviso. O
+// custo do desempate, registrado no plano: acrescentar um segundo cofre de
+// mesmo nome renomeia a chave do primeiro no config do host.
+func desempatarChaves(entradas []hosts.EntradaNomeada, cofres []string) {
+	contagem := map[string]int{}
+	for _, e := range entradas {
+		contagem[e.Chave]++
+	}
+	for i := range entradas {
+		if contagem[entradas[i].Chave] > 1 {
+			entradas[i].Chave += "-" + sufixoDeCofre(cofres[i])
+		}
+	}
 }
 
 // ConfiguracaoAtual devolve os cofres que JA estao configurados, lendo os
@@ -536,7 +558,7 @@ func ConfiguracaoAtual(amb hosts.Ambiente) []string {
 // Mora aqui, e nao em internal/hosts, porque `hosts` e folha: ele recebe a
 // chave pronta e nao sabe derivar nome. Ver o grafo no CLAUDE.md.
 func ChaveDeCofre(caminhoDoCofre string) string {
-	base := text.RemoveAccents(filepath.Base(filepath.Clean(caminhoDoCofre)))
+	base := text.RemoveAccents(transliteracaoDeChave.Replace(filepath.Base(filepath.Clean(caminhoDoCofre))))
 	var b strings.Builder
 	b.WriteString(hosts.PrefixoDeCofre)
 	ultimoHifen := true
@@ -550,7 +572,34 @@ func ChaveDeCofre(caminhoDoCofre string) string {
 			ultimoHifen = true
 		}
 	}
-	return strings.TrimRight(b.String(), "-")
+	chave := strings.TrimRight(b.String(), "-")
+	// Nome sem nenhuma letra latina. Medido em 2026-09-14: "Ωμέγα" e "日本語"
+	// viravam "gobsidian" -- a chave do cofre UNICO, e a mesma para os dois.
+	if chave == hosts.ChaveDoServidor {
+		return hosts.PrefixoDeCofre + sufixoDeCofre(caminhoDoCofre)
+	}
+	return chave
+}
+
+// transliteracaoDeChave cobre as letras que NFD nao decompoe e que o filtro
+// de ChaveDeCofre apagaria. Medido em 2026-09-14: "Søren" virava
+// gobsidian-s-ren, "Straße" gobsidian-stra-e e "Æsir" gobsidian-sir. E so
+// apresentacao da chave do host; nao toca no indice.
+var transliteracaoDeChave = strings.NewReplacer(
+	"ø", "o", "Ø", "o", "ß", "ss", "ẞ", "ss", "æ", "ae", "Æ", "ae",
+	"œ", "oe", "Œ", "oe", "ł", "l", "Ł", "l", "đ", "d", "Đ", "d",
+	"ð", "d", "Ð", "d", "þ", "th", "Þ", "th", "ı", "i",
+)
+
+// sufixoDeCofre sao os quatro primeiros caracteres de config.VaultKey do
+// caminho canonico: estavel -- o mesmo cofre da sempre o mesmo sufixo -- e
+// diferente entre dois cofres com o mesmo nome.
+func sufixoDeCofre(caminhoDoCofre string) string {
+	k := config.VaultKey(CaminhoCanonicoDeCofre(caminhoDoCofre))
+	if len(k) > 4 {
+		return k[:4]
+	}
+	return k
 }
 
 // CaminhoCanonicoDeCofre poe um caminho de cofre na grafia que o resto do

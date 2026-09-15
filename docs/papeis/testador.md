@@ -251,3 +251,11 @@ que é `package vault` (interno) e não pode importar `vaulttest` sem ciclo.
 
 A skill `preventing-false-pass-and-offset-bugs` cobre offset e falso-PASS em
 detalhe.
+
+**Não meça o resultado com a função que você está testando.** Em 2026-09-14
+o teste da moldura com caminho em NFD comparava a largura das linhas usando
+`larguraVisivel` — a mesma função que monta a moldura. Com a contagem de marca
+combinante quebrada, as linhas saíam curtas **e** medidas curtas, então
+"iguais", e o teste passou com a mutação aplicada. Só a prova de mutação
+mostrou. A régua do teste precisa ser independente da conta sob teste: ali,
+uma contagem de colunas escrita no próprio teste.

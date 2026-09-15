@@ -64,4 +64,10 @@ Os itens do plano não usam o número global de Task: são identificados pela pa
 - Doc: ESTRUTURA ganhou tambem os arquivos de G3 (sonda_diretorio.go) e G8 (processos*.go), que os commits c1f97a8 e 5e77c27 deixaram fora da arvore.
 - G2.5: pendente, vai para G6 (instalar o binario novo e reiniciar os hosts).
 - verify de G2: EXIT=0, 23 etapas, Bateria completa (check_runtime_limpo com a isca do perfil verde).
-- G2 (G2.1-G2.4): complete - commit `fix(ipc): move the Windows runtime directory to %USERPROFILE%\.gobsidianun`. G2.5 vai para G6. Proximo: Parte H.
+- G2 (G2.1-G2.4): complete - commit `fix(ipc): move the Windows runtime directory to %USERPROFILE%\.gobsidian
+un`. G2.5 vai para G6. Proximo: Parte H.
+- Parte H (H1-H4): executada pelo orquestrador, preparada fora do repositorio durante o gate do G2. RED contra o codigo de hoje: TestVaultKeyIgualEmNFCeNFD FAIL (NFD = e3569a837c98ee66), TestEntradasParaCofresNuncaRepeteChave FAIL, TestChaveDeCofreComNomeNaoLatino FAIL, TestLarguraVisivelNaoContaMarcaCombinante FAIL. GREEN depois das edicoes; vet nos tres GOOS, golangci-lint 0 issues, check_unicode verde.
+- Ruling R7 (H3.1): config e folha; VaultKey usa norm.NFC do x/text direto, nao text.ParaNFC.
+- Mutacoes (restauracao conferida com cmp): H3 sem NFC -> NFD e3569a837c98ee66; H1 sem desempate -> duas entradas gobsidian-revisao; H2a sem fallback -> `gobsidian`; H2b sem transliteracao -> Aesir, Lodz, Soren, Strasse perdem letra; H4 marca combinante contada -> TestLarguraVisivelNaoContaMarcaCombinante FAIL (6, esperado 4).
+- Achado: TestMolduraFechaComCaminhoEmNFD era INERTE -- media as linhas com larguraVisivel, a funcao sob teste, e passou com a mutacao H4. Reescrito com contagem propria de colunas; com a mutacao reprova "linha 1 com 36 colunas na tela, a borda tem 40"; restaurado, passa. Licao registrada em docs/papeis/testador.md.
+- Gate da Parte H (2026-09-14): duas rodadas completas de verify.ps1 com 22 etapas verdes e so "tetos de latencia" vermelho (TestRNF04SnippetConcurrencyLimit200, p95 48.7 ms e 29.3 ms, teto 22 ms). Isolado, 3 de 3 FAIL (82.6, 72.0, 40.0 ms). A/B alternado contra worktree em e0fcbc8 (sem a Parte H): HEAD 31.9 / 29.4 / 77.6 ms, TRABALHO 32.3 / 39.2 / 51.2 ms -- reprova dos dois lados. 29 processos gobsidian.exe vivos na maquina. Parte H NAO commitada: gate verde e obrigatorio; aguarda carga baixar.

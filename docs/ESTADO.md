@@ -832,6 +832,10 @@ o quarto, que é exatamente o defeito que ela existe para impedir.
   plano, G2. Não medido: trava em `%USERPROFILE%`
   entre os contextos.
 
+- **A moldura do console não trata largura dupla.** Desde 2026-09-14 marca
+  combinante (NFD) conta zero em `console.larguraVisivel`, mas ideograma
+  CJK ocupa duas colunas e é contado como uma: um cofre com nome em japonês
+  desalinha a borda. Não medido em terminal real; custa desalinho, não lixo.
 - **O pico de memória da reconstrução do índice não tem requisito, por decisão.**
   Com cache frio o `servindo` fica de 5× a 12× acima do alvo de cache quente —
   Estudo 58 → 706 MB, TJSP 127 → 1.180 MB. O RNF-07 passou a nomear "com cache

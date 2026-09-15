@@ -14,6 +14,7 @@ import (
 	"github.com/cespare/xxhash/v2"
 	"golang.org/x/text/cases"
 	"golang.org/x/text/language"
+	"golang.org/x/text/unicode/norm"
 )
 
 // Flags espelha exatamente o que a CLI aceita. cobra preenche esta struct
@@ -234,7 +235,14 @@ func validateMaxResults(n int) error {
 // byAlias em CLAUDE.md): enquanto os dois calculos concordam por coincidencia
 // eles nunca divergem, ate que um dos dois lados mude sozinho.
 func VaultKey(vaultPath string) string {
-	sum := xxhash.Sum64String(caixaEstavel(vaultPath))
+	// NFC antes da caixa. Medido em 2026-09-14: o caminho de Revisao em NFC
+	// dava eda87fbb16003550 e a mesma grafia em NFD dava e3569a837c98ee66. No
+	// NTFS as duas sao pastas diferentes; no macOS, que as trata como a mesma,
+	// seriam dois caches e dois sockets para um cofre (nao medido em macOS).
+	//
+	// norm vem do x/text, modulo fixado, e nao de internal/text: config e folha
+	// e folha nao ganha import. Caminho ja em NFC nao muda de chave.
+	sum := xxhash.Sum64String(caixaEstavel(norm.NFC.String(vaultPath)))
 	return strconv.FormatUint(sum, 16)
 }
 

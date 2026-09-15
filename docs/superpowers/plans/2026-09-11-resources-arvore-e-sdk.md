@@ -362,8 +362,8 @@ mesmo nome, pais diferentes: gobsidian-estudo [serve --vault C:/B/Estudo]
 
 `hosts.FundirVarias` grava `servidores[en.Chave] = bruta`: a segunda entrada sobrescreve a primeira. Tirar acento amplia a colisão, mas ela existe sem acento.
 
-- [ ] H1.1 — `instalar.EntradasParaCofres` detecta chave repetida e desempata **só os membros da colisão** com sufixo curto e estável derivado de `config.VaultKey` (`gobsidian-estudo-db03`). Estável porque o mesmo cofre dá sempre o mesmo sufixo. O custo, a registrar: acrescentar um segundo cofre de mesmo nome renomeia a chave do primeiro no config do host.
-- [ ] H1.2 — Teste com os dois pares acima: nenhuma chave repetida na saída, e `FundirVarias` grava as duas entradas.
+- [x] H1.1 — `instalar.EntradasParaCofres` detecta chave repetida e desempata **só os membros da colisão** com sufixo curto e estável derivado de `config.VaultKey` (`gobsidian-estudo-db03`). Estável porque o mesmo cofre dá sempre o mesmo sufixo. O custo, a registrar: acrescentar um segundo cofre de mesmo nome renomeia a chave do primeiro no config do host. **Feito em 2026-09-14:** `desempatarChaves` em `EntradasParaCofres`, sufixo `sufixoDeCofre` = 4 primeiros caracteres de `config.VaultKey` do caminho canônico. Mutação: sem o desempate, o teste reprova com as duas entradas em `gobsidian-revisao`.
+- [x] H1.2 — Teste com os dois pares acima: nenhuma chave repetida na saída, e `FundirVarias` grava as duas entradas. **Feito:** `TestEntradasParaCofresNuncaRepeteChave` — os dois pares medidos, `FundirVarias` gravando as duas entradas, e o inverso (nomes diferentes não ganham sufixo).
 
 ### H2. Nome sem letra latina vira a chave do cofre único
 
@@ -374,23 +374,23 @@ chave "Søren"   -> "gobsidian-s-ren"
 chave "Æsir"    -> "gobsidian-sir"
 ```
 
-- [ ] H2.1 — Quando o filtro não deixa nenhum caractere, a chave é `gobsidian-` mais o sufixo de H1.1. Nunca `ChaveDoServidor`.
-- [ ] H2.2 — Letras que não se decompõem (`ø`, `ß`, `æ`, `ł`) ganham transliteração de uma tabela curta dentro de `ChaveDeCofre` (`o`, `ss`, `ae`, `l`). É apresentação de chave; não mexe no índice.
-- [ ] H2.3 — Teste com os quatro nomes acima e com os casos em português que já existem.
+- [x] H2.1 — Quando o filtro não deixa nenhum caractere, a chave é `gobsidian-` mais o sufixo de H1.1. Nunca `ChaveDoServidor`. **Feito:** chave vazia depois do filtro vira `gobsidian-` + sufixo. Mutação: sem o desvio, `Ωμέγα` volta a `gobsidian`.
+- [x] H2.2 — Letras que não se decompõem (`ø`, `ß`, `æ`, `ł`) ganham transliteração de uma tabela curta dentro de `ChaveDeCofre` (`o`, `ss`, `ae`, `l`). É apresentação de chave; não mexe no índice. **Feito:** `transliteracaoDeChave` (`ø`, `ß`, `æ`, `œ`, `ł`, `đ`, `ð`, `þ`, `ı`, maiúsculas incluídas). Mutação: sem ela, Søren, Straße, Æsir e Łodz voltam a perder letra.
+- [x] H2.3 — Teste com os quatro nomes acima e com os casos em português que já existem. **Feito:** `TestChaveDeCofreComNomeNaoLatino`; os casos em português antigos seguem verdes.
 
 ### H3. `VaultKey` sem NFC
 
 `VaultKey` do caminho de Revisão em NFC dá `eda87fbb16003550`; a mesma grafia em NFD dá `e3569a837c98ee66`. No Windows as duas grafias são **pastas diferentes** (medido no NTFS), então isso não produz dois daemons aqui. No macOS, que trata as duas como a mesma pasta, produziria — **não medido** em macOS.
 
-- [ ] H3.1 — `config.VaultKey` aplica `text.ParaNFC` antes de `caixaEstavel`. `ParaNFC` usa `norm` do x/text, módulo fixado: `check_unicode.ps1` continua verde.
-- [ ] H3.2 — Teste de regressão com chave real medida: o caminho NFC de Revisão continua dando a mesma chave de hoje, e a grafia NFD passa a dar a mesma. Caminho já em NFC não muda de chave, então nenhum cache existente se desloca.
+- [x] H3.1 — `config.VaultKey` aplica `text.ParaNFC` antes de `caixaEstavel`. `ParaNFC` usa `norm` do x/text, módulo fixado: `check_unicode.ps1` continua verde. **Feito, com um desvio:** `config` é folha e não pode importar `internal/text`, então `VaultKey` chama `norm.NFC` do x/text diretamente, antes de `caixaEstavel`. `check_unicode.ps1` verde.
+- [x] H3.2 — Teste de regressão com chave real medida: o caminho NFC de Revisão continua dando a mesma chave de hoje, e a grafia NFD passa a dar a mesma. Caminho já em NFC não muda de chave, então nenhum cache existente se desloca. **Feito:** `TestVaultKeyIgualEmNFCeNFD` trava `eda87fbb16003550` para a grafia NFC (medida antes) e exige o mesmo valor em NFD; o golden antigo `1f3bc9ee1596843f` também segue. Mutação: sem NFC, NFD volta a `e3569a837c98ee66`.
 
 ### H4. Moldura desalinhada com nome em NFD
 
 `console.larguraVisivel` conta marca combinante como coluna. Medido na busca: a linha com caminho NFD saiu 4 colunas mais curta que a borda.
 
-- [ ] H4.1 — Marca combinante (`unicode.Mn`, `unicode.Me`) conta zero. Largura dupla de ideograma fica **fora** deste item e registrada como dívida: não medida.
-- [ ] H4.2 — Teste com `Ação Civil/Prescrição.md` em NFD dentro de `console.Moldura`: todas as linhas com a mesma largura visível.
+- [x] H4.1 — Marca combinante (`unicode.Mn`, `unicode.Me`) conta zero. Largura dupla de ideograma fica **fora** deste item e registrada como dívida: não medida. **Feito:** marca combinante (`Mn`, `Me`) conta zero em `larguraVisivel`. Largura dupla CJK continua fora e está nas dívidas do `ESTADO.md`.
+- [x] H4.2 — Teste com `Ação Civil/Prescrição.md` em NFD dentro de `console.Moldura`: todas as linhas com a mesma largura visível. **Feito, depois de um teste inerte:** a primeira redação de `TestMolduraFechaComCaminhoEmNFD` media as linhas com `larguraVisivel`, a própria função sob teste, e passou com a mutação aplicada. Reescrito com uma contagem própria de colunas; com a mutação, reprova com "linha 1 com 36 colunas na tela, a borda tem 40".
 
 ---
 

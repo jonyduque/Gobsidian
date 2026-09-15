@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 	"strings"
+	"unicode"
 )
 
 // Opcao e um item de uma lista de selecao.
@@ -199,6 +200,10 @@ func larguraVisivel(s string) int {
 			}
 		case r == 0x1b:
 			dentroDeEscape = true
+		case unicode.In(r, unicode.Mn, unicode.Me):
+			// Marca combinante nao ocupa coluna: "ç" em NFD e "c" mais
+			// U+0327. Medido em 2026-09-14: um caminho em NFD saia 4 colunas
+			// mais curto que a borda da moldura.
 		default:
 			largura++
 		}
