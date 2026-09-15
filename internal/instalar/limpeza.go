@@ -84,6 +84,13 @@ func Limpar(runtimeDir, cacheRaiz string, aplicar bool) (Relatorio, error) {
 	if err := limparRuntime(runtimeDir, cofrePorChave, aplicar, &r); err != nil {
 		return r, err
 	}
+	// O diretorio de runtime mudou em 2026-09-14 (ver ipc.DiretorioDeRuntimeAntigo):
+	// o lixo do antigo continua sendo lixo, e so esta limpeza o alcanca.
+	if antigo := diretorioAntigoFn(); antigo != "" && !mesmoDiretorio(antigo, runtimeDir) {
+		if err := limparRuntime(antigo, cofrePorChave, aplicar, &r); err != nil {
+			return r, err
+		}
+	}
 	if err := limparCaches(cacheRaiz, cofrePorChave, aplicar, &r); err != nil {
 		return r, err
 	}

@@ -28,6 +28,11 @@ func runtimeDirDoSistema() (string, error) {
 	return filepath.Join(os.TempDir(), fmt.Sprintf("gobsidian-%d", os.Getuid())), nil
 }
 
+// runtimeDirAntigoDoSistema devolve vazio: no Unix o diretorio de runtime nao
+// mudou em 2026-09-14 -- o defeito que a mudanca conserta e do Windows -- e nao
+// ha transicao a fazer.
+func runtimeDirAntigoDoSistema() string { return "" }
+
 // restrictPermission aplica 0600 ao arquivo do socket: so o dono le e
 // escreve. E a garantia que substitui a antiga (RNF-30 reformulado pela
 // Task 90) — um socket legivel por qualquer um, para um daemon que le o

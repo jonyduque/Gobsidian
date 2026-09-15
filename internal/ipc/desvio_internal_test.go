@@ -2,6 +2,7 @@ package ipc
 
 import (
 	"os"
+	"path/filepath"
 	"runtime"
 	"strings"
 	"testing"
@@ -9,7 +10,7 @@ import (
 
 // TestRuntimeDirDoSistemaFicaNoPerfilNoWindows verifica o que da para provar
 // sem privilegio administrativo neste ambiente: o diretorio de runtime de
-// producao fica dentro do perfil do usuario corrente (%LocalAppData%), cuja
+// producao fica dentro do perfil do usuario corrente (%USERPROFILE%), cuja
 // ACL padrao do Windows ja nega acesso a outros usuarios locais. Isto NAO E o
 // mesmo que abrir uma segunda conta de usuario e tentar conectar -- essa prova
 // exigiria criar uma conta local, o que requer privilegio administrativo que
@@ -30,12 +31,30 @@ func TestRuntimeDirDoSistemaFicaNoPerfilNoWindows(t *testing.T) {
 	if err != nil {
 		t.Fatalf("runtimeDirDoSistema() error = %v", err)
 	}
-	base, err := os.UserCacheDir()
+	perfil, err := os.UserHomeDir()
+	if err != nil {
+		t.Fatalf("UserHomeDir() error = %v", err)
+	}
+	if quer := filepath.Join(perfil, ".gobsidian", "run"); dir != quer {
+		t.Fatalf("diretorio de runtime = %s, esperado %s -- fora de %%LOCALAPPDATA%%, onde o processo do Claude Desktop nao usa socket (2026-09-14)", dir, quer)
+	}
+	local, err := os.UserCacheDir()
 	if err != nil {
 		t.Fatalf("UserCacheDir() error = %v", err)
 	}
-	if !strings.HasPrefix(dir, base) {
-		t.Fatalf("diretorio de runtime %s nao esta dentro do perfil do usuario %s", dir, base)
+	if strings.HasPrefix(strings.ToLower(dir), strings.ToLower(local)) {
+		t.Fatalf("diretorio de runtime %s voltou para dentro de %s", dir, local)
+	}
+}
+
+// TestDiretorioAntigoSomeComODesvio: com o desvio armado, a transicao nao pode
+// apontar para o diretorio real do usuario.
+func TestDiretorioAntigoSomeComODesvio(t *testing.T) {
+	if desvioDoRuntime == "" {
+		t.Fatal("a suite de ipc roda sem desvio do diretorio de runtime")
+	}
+	if antigo := DiretorioDeRuntimeAntigo(); antigo != "" {
+		t.Fatalf("DiretorioDeRuntimeAntigo() = %q com o desvio armado, esperado vazio", antigo)
 	}
 }
 

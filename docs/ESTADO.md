@@ -801,9 +801,12 @@ o quarto, que é exatamente o defeito que ela existe para impedir.
   `AlguemEscuta` num diretório onde o próprio socket não conecta está feita desde
   2026-09-14: `ipc.Listen` sonda o diretório antes de limpar, a ponte não sobe
   daemon quando a sonda reprova (`motivo=diretorio-sem-socket`) e o `doctor`
-  relata. A outra metade — o diretório de runtime sair de `%LOCALAPPDATA%` —
-  está planejada (G2), não feita. Até lá o Desktop continua servindo em
-  processo, agora sem subir daemon inútil a cada partida.
+  relata. A outra metade também está feita desde 2026-09-14: o diretório de
+  runtime do Windows é `%USERPROFILE%\.gobsidian\run` (socket, travas, log,
+  presença e `instalacao.lock`), com transição para daemon de versão anterior
+  vivo no diretório antigo e limpeza dos dois. **Não verificado ainda na máquina
+  do dono:** a linha `conectado ao daemon` no log do Desktop depende de
+  instalar o binário novo e reiniciar os hosts (plano, G2.5 e G6).
 
   A saída de 2026-09-08 (Task 192, `rename` quando `remove` falha) continua no
   código e não resolve este caso: no processo do Desktop o `rename` também

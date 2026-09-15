@@ -772,7 +772,7 @@ try {
     function Limpo-Isca {
         param([string[]]$Arquivos)
         $tmp = Join-Path ([IO.Path]::GetTempPath()) ("isca_" + [guid]::NewGuid().ToString('N'))
-        foreach ($sub in 'local', 'runtime', 'cache') {
+        foreach ($sub in 'local', 'runtime', 'cache', 'perfil') {
             New-Item -ItemType Directory -Path (Join-Path $tmp $sub) -Force | Out-Null
         }
         foreach ($rel in $Arquivos) {
@@ -793,6 +793,12 @@ try {
     Caso -Nome 'trava de teste no runtime do usuario -> recusado' `
         -Esperado 'recusado' -Obtido (Limpo-Resultado $l2)
     Remove-Item $l2 -Recurse -Force -ErrorAction SilentlyContinue
+
+    # O diretorio de runtime do Windows desde 2026-09-14: no perfil, com ponto.
+    $l4 = Limpo-Isca @('perfil/.gobsidian/run/0123456789abcdef.sock.lock')
+    Caso -Nome 'trava de teste no runtime do perfil -> recusado' `
+        -Esperado 'recusado' -Obtido (Limpo-Resultado $l4)
+    Remove-Item $l4 -Recurse -Force -ErrorAction SilentlyContinue
 
     # O inverso: outra ferramenta escrevendo no LOCALAPPDATA falso, inclusive
     # com "gobsidian" no NOME do arquivo, nao e defeito deste projeto. Sem este

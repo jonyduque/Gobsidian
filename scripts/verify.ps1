@@ -97,16 +97,27 @@ $LogTestes = Join-Path ([System.IO.Path]::GetTempPath()) "gobsidian-verify-teste
 # GOCACHE e fixado ANTES: o cache de build do Go tambem sai de
 # os.UserCacheDir(), e sem isto a etapa recompilaria o modulo inteiro na isca.
 $GoCacheReal = (go env GOCACHE)
+# GOPATH e GOMODCACHE tambem saem do perfil: sem fixa-los, apontar USERPROFILE
+# e HOME para a isca faria o `go` baixar o cache de modulos inteiro nela.
+$GoPathReal = (go env GOPATH)
+$GoModCacheReal = (go env GOMODCACHE)
 $Isca = Join-Path ([System.IO.Path]::GetTempPath()) "gobsidian-verify-isca-$PID"
-$VariaveisDaIsca = @('LOCALAPPDATA', 'XDG_RUNTIME_DIR', 'XDG_CACHE_HOME', 'GOCACHE')
+$VariaveisDaIsca = @('LOCALAPPDATA', 'XDG_RUNTIME_DIR', 'XDG_CACHE_HOME', 'USERPROFILE', 'HOME', 'GOCACHE', 'GOPATH', 'GOMODCACHE')
 $AmbienteAntesDaIsca = @{}
 
 function Enter-Isca {
     foreach ($v in $VariaveisDaIsca) { $script:AmbienteAntesDaIsca[$v] = [Environment]::GetEnvironmentVariable($v) }
-    foreach ($sub in 'local', 'runtime', 'cache') {
+    foreach ($sub in 'local', 'runtime', 'cache', 'perfil') {
         New-Item -ItemType Directory -Force -Path (Join-Path $Isca $sub) | Out-Null
     }
     $env:GOCACHE = $GoCacheReal
+    $env:GOPATH = $GoPathReal
+    $env:GOMODCACHE = $GoModCacheReal
+    # Desde 2026-09-14 o diretorio de runtime do Windows mora no perfil
+    # (%USERPROFILE%\.gobsidian\run). Sem desviar o perfil, um teste que
+    # escapasse do isolamento escreveria no perfil real e a isca nao veria.
+    $env:USERPROFILE = Join-Path $Isca 'perfil'
+    $env:HOME = Join-Path $Isca 'perfil'
     $env:LOCALAPPDATA = Join-Path $Isca 'local'
     $env:XDG_RUNTIME_DIR = Join-Path $Isca 'runtime'
     $env:XDG_CACHE_HOME = Join-Path $Isca 'cache'

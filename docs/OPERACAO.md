@@ -191,7 +191,8 @@ Hoje a queda é `WARN` e diz por quê:
 | `config-divergente` | idem, com `--read-only` ou `--max-results` diferentes | alinhar as flags entre as sessões |
 | `daemon-nao-subiu` | o daemon não existe e não conseguiu nascer | ler `<socket>.sock.log` |
 | `daemon-mudo` | o daemon nasceu e não respondeu | ler `<socket>.sock.log` |
-| `diretorio-sem-socket` | nenhum socket conecta **a partir deste processo** no diretório de sockets, nem o que ele acabou de criar; a ponte não sobe daemon. É o processo que o Claude Desktop cria, medido em 2026-09-14 | `gobsidian doctor` na shell não reproduz — o processo do host é outro contexto. O conserto é o diretório de runtime sair de `%LOCALAPPDATA%` (plano 2026-09-11, G2) |
+| `diretorio-sem-socket` | nenhum socket conecta **a partir deste processo** no diretório de sockets, nem o que ele acabou de criar; a ponte não sobe daemon. É o processo que o Claude Desktop cria, medido em 2026-09-14 | `gobsidian doctor` na shell não reproduz — o processo do host é outro contexto. Desde 2026-09-14 o diretório de runtime do Windows é `%USERPROFILE%\.gobsidian\run`, onde o processo do Desktop conecta; se o motivo voltar a aparecer, o host novo tem outro escopo — medir com `tools/sondahost` |
+| `daemon-de-versao-anterior` | um daemon de versão anterior, vivo no diretório de runtime de antes de 2026-09-14 (`%LOCALAPPDATA%\gobsidian\run`), serve este cofre; subir outro poria dois gravadores no mesmo cache | transitório: some quando o anterior sai por ociosidade, ou no `gobsidian update`, que encerra todos |
 
 A classificação olha **todos** os erros do caminho, não só o último: com um
 daemon de outra versão no socket, o primeiro *dial* devolve versão incompatível

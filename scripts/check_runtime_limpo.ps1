@@ -56,26 +56,30 @@ $ErrorActionPreference = 'Stop'
 # Cada subdiretorio da isca e a variavel que aponta para ele. So a subarvore
 # `gobsidian` conta: outras ferramentas podem escrever no LOCALAPPDATA falso, e
 # isso nao e defeito deste projeto.
-$Alvos = [ordered]@{
-    'local'   = 'LOCALAPPDATA (runtime e cache no Windows)'
-    'runtime' = 'XDG_RUNTIME_DIR (runtime no Unix)'
-    'cache'   = 'XDG_CACHE_HOME (cache no Linux)'
-}
+#
+# O subdiretorio do produto nao tem o mesmo nome nos quatro: no perfil ele e
+# `.gobsidian`, onde o runtime do Windows mora desde 2026-09-14.
+$Alvos = @(
+    [pscustomobject]@{ Sub = 'local';   Nome = 'gobsidian';  Via = 'LOCALAPPDATA (cache no Windows; runtime ate 2026-09-14)' }
+    [pscustomobject]@{ Sub = 'perfil';  Nome = '.gobsidian'; Via = 'USERPROFILE/HOME (runtime no Windows desde 2026-09-14)' }
+    [pscustomobject]@{ Sub = 'runtime'; Nome = 'gobsidian';  Via = 'XDG_RUNTIME_DIR (runtime no Unix)' }
+    [pscustomobject]@{ Sub = 'cache';   Nome = 'gobsidian';  Via = 'XDG_CACHE_HOME (cache no Linux)' }
+)
 
 $Achados = @()
-foreach ($sub in $Alvos.Keys) {
-    $raiz = Join-Path (Join-Path $Isca $sub) 'gobsidian'
+foreach ($alvo in $Alvos) {
+    $raiz = Join-Path (Join-Path $Isca $alvo.Sub) $alvo.Nome
     if (-not (Test-Path -LiteralPath $raiz)) { continue }
     # O diretorio existir ja e o vazamento: Listen e Registrar criam o
     # diretorio antes de criar o arquivo. Lista o conteudo para dizer quem.
     $itens = @(Get-ChildItem -LiteralPath $raiz -Recurse -Force -ErrorAction SilentlyContinue)
     if ($itens.Count -eq 0) {
-        $Achados += "$sub/gobsidian/ (diretorio vazio) -- via $($Alvos[$sub])"
+        $Achados += "$($alvo.Sub)/$($alvo.Nome)/ (diretorio vazio) -- via $($alvo.Via)"
         continue
     }
     foreach ($i in $itens) {
         $rel = $i.FullName.Substring($Isca.Length).TrimStart('\', '/') -replace '\\', '/'
-        $Achados += "$rel -- via $($Alvos[$sub])"
+        $Achados += "$rel -- via $($alvo.Via)"
     }
 }
 

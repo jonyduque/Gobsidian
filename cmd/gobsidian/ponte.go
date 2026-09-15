@@ -51,6 +51,10 @@ var daemonStartTimeout = 10 * time.Second
 // mesmo padrao de iniciarDaemonFn.
 var sondarSocketFn = ipc.SondarSocketDoCofre
 
+// daemonAnteriorFn e instalar.DaemonAnteriorDoCofre numa variavel, para o teste
+// simular um daemon de versao anterior vivo. Producao nunca a troca.
+var daemonAnteriorFn = instalar.DaemonAnteriorDoCofre
+
 // iniciarDaemonFn e a implementacao real de "iniciar" que EnsureStarted
 // chama quando esta ponte vence a corrida (internal/daemon.EnsureStarted,
 // decisao 2 da Task 92). Indireto via variavel de pacote para os testes
@@ -107,6 +111,17 @@ func servePonte(ctx context.Context, cfg config.Config, log *slog.Logger) error 
 		log.Warn("diretorio de sockets nao aceita conexao neste processo; servindo em processo sem iniciar o daemon",
 			"motivo", motivoDaQueda("diretorio-sem-socket", sondaErr),
 			"err", sondaErr, "errno", errnoDe(sondaErr))
+		return serveEmProcesso(ctx, cfg, log)
+	}
+
+	// Um daemon de versao anterior, vivo no diretorio de runtime de antes de
+	// 2026-09-14, continua gravando o cache deste cofre. Subir outro no
+	// diretorio novo poria dois gravadores no mesmo cache, o incidente de
+	// 2026-09-08. A ponte serve em processo ate o anterior sair -- por
+	// ociosidade, ou pelo `gobsidian update`, que encerra todos.
+	if pid, vivo := daemonAnteriorFn(cfg.VaultPath); vivo {
+		log.Warn("ha um daemon de versao anterior servindo este cofre; servindo em processo sem iniciar outro",
+			"motivo", "daemon-de-versao-anterior", "pid", pid)
 		return serveEmProcesso(ctx, cfg, log)
 	}
 

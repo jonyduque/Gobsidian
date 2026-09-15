@@ -28,6 +28,19 @@ func RuntimeDir() (string, error) {
 	return runtimeDirDoSistema()
 }
 
+// DiretorioDeRuntimeAntigo devolve onde versoes ate 2026-09-14 guardavam o
+// runtime, ou vazio quando nao ha transicao nesta plataforma.
+//
+// Com o desvio dos testes armado, devolve vazio: o diretorio antigo e o do
+// usuario, e um teste que o lesse ou varresse sairia do isolamento que
+// RodarComRuntimeIsolado existe para garantir.
+func DiretorioDeRuntimeAntigo() string {
+	if desvioDoRuntime != "" {
+		return ""
+	}
+	return runtimeDirAntigoDoSistema()
+}
+
 // executorDeTestes e a parte de *testing.M que importa aqui. Receber a
 // interface, e nao *testing.M, mantem o pacote testing fora do binario.
 type executorDeTestes interface{ Run() int }
