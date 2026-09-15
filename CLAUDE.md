@@ -21,7 +21,7 @@ fato divergem e a menos consultada é a que fica errada.
 | [`docs/ESTRUTURA.md`](docs/ESTRUTURA.md) | Árvore autoritativa de arquivos e convenções |
 | [`docs/WINDOWS.md`](docs/WINDOWS.md) | OneDrive, MAX_PATH, casing, fsnotify |
 | [`docs/OPERACAO.md`](docs/OPERACAO.md) | Como operar, medições publicadas e limites conhecidos |
-| [`docs/PROMPT.md`](docs/PROMPT.md) | O prompt padrão para quem usa o cofre, e por que ele precisa existir |
+| [`docs/PROMPT.md`](docs/PROMPT.md) | As instruções que o servidor manda ao modelo no `initialize`, e por que elas precisam existir |
 
 ### Por papel — leia o do trabalho que você vai fazer
 

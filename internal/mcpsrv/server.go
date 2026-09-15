@@ -35,7 +35,8 @@ type Server struct {
 // rodada desperdicada (PRD RF-55).
 func New(ctx context.Context, svc *service.Service, cfg config.Config, log *slog.Logger) *Server {
 	s := &Server{
-		mcp: mcp.NewServer(&mcp.Implementation{Name: "gobsidian", Version: Version}, nil),
+		mcp: mcp.NewServer(&mcp.Implementation{Name: "gobsidian", Version: Version},
+			&mcp.ServerOptions{Instructions: montarInstrucoes(cfg)}),
 		svc: svc,
 		log: log,
 	}

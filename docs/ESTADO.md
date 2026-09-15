@@ -13,6 +13,35 @@ pwsh -File scripts/sdd.ps1 status
 
 ## Marcos
 
+**Daemon alcançável pelo Claude Desktop, `doctor` que vê versões misturadas,
+nomes de cofre e instruções do servidor — código completo, 2026-09-14/15.**
+O plano é
+[`superpowers/plans/2026-09-11-resources-arvore-e-sdk.md`](superpowers/plans/2026-09-11-resources-arvore-e-sdk.md);
+`verify.ps1` verde antes de cada commit.
+
+*Daemon:* o socket saiu de `%LOCALAPPDATA%`, onde nenhum processo filho do
+Claude Desktop (MSIX) consegue usar AF_UNIX, para `%USERPROFILE%\.gobsidian\run`
+(Parte G). `ipc.Listen` não limpa socket onde nem o próprio socket conecta, a
+ponte não sobe daemon inalcançável, e o `doctor` testa o diretório. Na máquina
+do dono, **não verificado** ainda: é o G6, depois de instalar o binário novo e
+reiniciar os hosts.
+
+*`doctor`:* conta como gravador só daemon e servidor em processo (G8), lista os
+`gobsidian.exe` sem presença, aponta entrada de host que roda outro binário (G7)
+e lê as presenças do diretório de runtime antigo (G2.6) — sem isso, os 28
+processos v1.8.1 vivos saíam todos "sem presença", e `install` não os
+encerraria antes de trocar o executável.
+
+*Cofres:* nomes com acento ou sem letra latina deixam de colidir na chave do
+host, e `config.VaultKey` é a mesma em NFC e NFD (Parte H).
+
+*Instruções:* o servidor manda `instructions` no `initialize` (F1). O texto que
+o usuário colava de `docs/PROMPT.md` agora chega sozinho; se o Claude Desktop o
+mostra ao modelo, **não medido**.
+
+*Testes:* a suíte deixou de escrever no diretório de runtime do usuário
+(Parte I), e `verify.ps1` foi a 23 etapas.
+
 **Go 1.27, e o que a troca de toolchain já tinha mudado — completo, 2026-09-09.**
 Dez commits, `verify.ps1` verde em cada um, CI verde nos catorze jobs. O plano é
 [`superpowers/plans/2026-09-09-go-1-27.md`](superpowers/plans/2026-09-09-go-1-27.md),

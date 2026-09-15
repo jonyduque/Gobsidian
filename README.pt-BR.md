@@ -157,9 +157,10 @@ Acrescente ao arquivo de configuração MCP do seu cliente:
 > **No Windows:** escape as barras invertidas no JSON (`"C:\\Users\\nome\\Cofre"`) ou use barras normais (`"C:/Users/nome/Cofre"`).
 
 > **Para tirar o melhor das tools:** o schema MCP não consegue transmitir
-> enumerações nem valores padrão ao modelo ([por quê](docs/TOOLS.md)), então há
-> um prompt pronto em [`docs/PROMPT.md`](docs/PROMPT.md). Cole-o nas instruções
-> do seu cliente.
+> enumerações nem valores padrão ao modelo ([por quê](docs/TOOLS.md)), então o
+> servidor manda instruções de uso na resposta do `initialize` — não há nada a
+> colar. Se você colou o prompt antigo de [`docs/PROMPT.md`](docs/PROMPT.md) no
+> seu cliente, pode apagá-lo.
 
 ---
 
@@ -300,7 +301,7 @@ que já custou caro aqui estão em [`CLAUDE.md`](CLAUDE.md) e em
 * [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) — Arquitetura, concorrência e cache.
 * [`docs/ESTRUTURA.md`](docs/ESTRUTURA.md) — Estrutura do código e responsabilidade de cada pacote.
 * [`docs/TOOLS.md`](docs/TOOLS.md) — Schemas, entradas e matriz de erros de cada tool MCP.
-* [`docs/PROMPT.md`](docs/PROMPT.md) — Prompt pronto para clientes MCP, e por que ele é necessário.
+* [`docs/PROMPT.md`](docs/PROMPT.md) — As instruções que o servidor manda ao modelo, e por que elas são necessárias.
 * [`docs/WINDOWS.md`](docs/WINDOWS.md) — Peculiaridades do Windows (OneDrive, fsnotify, caminho longo).
 * [`docs/OPERACAO.md`](docs/OPERACAO.md) — Diagnóstico, medições de latência e limites operacionais.
 

@@ -134,6 +134,8 @@ gobsidian/
 │   │
 │   ├── mcpsrv/
 │   │   ├── server.go             construção do servidor, registro de tools
+│   │   ├── instrucoes.go         `instructions` do initialize: nome do cofre, aviso de somente-leitura
+│   │   ├── instrucoes.txt        o texto das instruções, embutido — cópia única (ver docs/PROMPT.md)
 │   │   ├── tools_read.go         handlers e schemas das tools de leitura
 │   │   ├── alvo_note_read.go     item de paths: string ou objeto, e o schema com oneOf
 │   │   ├── tools_write.go        handlers e schemas das tools de escrita
@@ -275,7 +277,7 @@ gobsidian/
 │   ├── check_test_isolation.ps1  teste desviando caminho de máquina por env; desvio de runtime fora de teste
 │   ├── check_runtime_limpo.ps1   teste que escreveu no runtime ou no cache do usuário (isca)
 │   ├── check_partida.ps1         nada roda antes de o encerramento estar armado
-│   ├── check_prompt.ps1          docs/PROMPT.md contra os enums de internal/service
+│   ├── check_prompt.ps1          internal/mcpsrv/instrucoes.txt contra os enums de internal/service
 │   ├── check_unicode.ps1         chave derivada contra tabela Unicode movel
 │   ├── pre_commit_docs.ps1       hook: `.go` de produção sem documentação
 │   ├── audit_reports.ps1         as quatro seções obrigatórias de um relatório

@@ -156,9 +156,10 @@ Add to your client's MCP configuration file:
 > **Windows Tip:** Escape backslashes in JSON configuration files (`"C:\\Users\\name\\Vault"`) or use forward slashes (`"C:/Users/name/Vault"`).
 
 > **Getting the best out of the tools:** the MCP schema cannot carry enumerations
-> or defaults to the model ([why](docs/TOOLS.md)), so a ready-made prompt is
-> provided in [`docs/PROMPT.md`](docs/PROMPT.md). Paste it into your client's
-> instructions.
+> or defaults to the model ([why](docs/TOOLS.md)), so the server sends usage
+> instructions in the `initialize` response — nothing to paste. If you pasted
+> the old prompt from [`docs/PROMPT.md`](docs/PROMPT.md) into your client, you
+> can remove it.
 
 ---
 
@@ -300,7 +301,7 @@ Detailed documentation (written in Portuguese):
 * [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) — System architecture, concurrency, and caching.
 * [`docs/ESTRUTURA.md`](docs/ESTRUTURA.md) — Codebase structure and package responsibilities.
 * [`docs/TOOLS.md`](docs/TOOLS.md) — Complete schemas, inputs, and error matrices for MCP tools.
-* [`docs/PROMPT.md`](docs/PROMPT.md) — Ready-made prompt for MCP clients, and why it is needed.
+* [`docs/PROMPT.md`](docs/PROMPT.md) — The instructions the server sends to the model, and why they are needed.
 * [`docs/WINDOWS.md`](docs/WINDOWS.md) — Windows edge cases (OneDrive, fsnotify, long paths).
 * [`docs/OPERACAO.md`](docs/OPERACAO.md) — Diagnostics, latency benchmarks, and operational limits.
 

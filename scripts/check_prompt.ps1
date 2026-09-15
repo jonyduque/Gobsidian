@@ -1,14 +1,17 @@
 #Requires -Version 7.0
 <#
 .SYNOPSIS
-    Prova que os conjuntos fechados citados em docs/PROMPT.md sao os que o
-    codigo cobra.
+    Prova que os conjuntos fechados citados nas instrucoes do servidor
+    (internal/mcpsrv/instrucoes.txt) sao os que o codigo cobra.
 
 .DESCRIPTION
-    docs/PROMPT.md existe por causa de um buraco documentado em TOOLS.md: o
+    As instrucoes existem por causa de um buraco documentado em TOOLS.md: o
     host recebe so `type` e `description` de cada tool, entao NENHUM enum
     chega ao modelo. O servidor cobra os conjuntos assim mesmo, com
-    INVALID_ARGUMENT. O prompt e o unico lugar de onde o modelo pode aprende-los.
+    INVALID_ARGUMENT. O texto que vai em `instructions` no initialize e o unico
+    lugar de onde o modelo pode aprende-los. Ate 2026-09-15 ele morava em
+    docs/PROMPT.md e era colado a mao; hoje o binario o embute, e docs/PROMPT.md
+    so aponta para ele.
 
     Isso faz do prompt uma SEGUNDA copia de um fato que ja mora em
     internal/service -- exatamente o que o CLAUDE.md proibe, porque "duas
@@ -46,7 +49,7 @@ $ErrorActionPreference = 'Stop'
 
 if (-not $Raiz) { $Raiz = Split-Path -Parent $PSScriptRoot }
 
-$Prompt = Join-Path $Raiz 'docs/PROMPT.md'
+$Prompt = Join-Path $Raiz 'internal/mcpsrv/instrucoes.txt'
 $DirServico = Join-Path $Raiz 'internal/service'
 
 foreach ($alvo in @($Prompt, $DirServico)) {
@@ -112,7 +115,7 @@ foreach ($linha in (Get-Content -Path $Prompt -Encoding UTF8)) {
 }
 
 if ($NoPrompt.Count -eq 0) {
-    Write-Output "[!] docs/PROMPT.md nao lista nenhum conjunto fechado -- o bloco sumiu ou mudou de forma"
+    Write-Output "[!] internal/mcpsrv/instrucoes.txt nao lista nenhum conjunto fechado -- o bloco sumiu ou mudou de forma"
     exit 1
 }
 
@@ -133,7 +136,7 @@ foreach ($k in ($NoPrompt.Keys | Sort-Object)) {
 }
 
 if ($Problemas.Count -gt 0) {
-    Write-Output "[!] docs/PROMPT.md e internal/service discordam:"
+    Write-Output "[!] internal/mcpsrv/instrucoes.txt e internal/service discordam:"
     $Problemas | ForEach-Object { Write-Output "     $_" }
     Write-Output ""
     Write-Output "     O host nao transmite enum nenhum (TOOLS.md, 'Schemas servidos'): o que"

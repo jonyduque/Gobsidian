@@ -623,9 +623,10 @@ try {
     }
 
     # ------------------------------------------------------------------
-    # check_prompt: o prompt do usuario e os enums que o codigo cobra
+    # check_prompt: as instrucoes do servidor e os enums que o codigo cobra
     #
-    # docs/PROMPT.md e uma SEGUNDA copia de um fato que mora em
+    # internal/mcpsrv/instrucoes.txt (ate 2026-09-15, docs/PROMPT.md) e uma
+    # SEGUNDA copia de um fato que mora em
     # internal/service, e e a copia menos consultada: ninguem abre o prompt ao
     # acrescentar um valor a um ValidarEnum. A copia e inevitavel -- o host nao
     # transmite enum nenhum, e o modelo tem de ler os valores em algum lugar --,
@@ -643,9 +644,9 @@ try {
     function Prompt-Raiz {
         param([string]$Arquivo, [string]$De, [string]$Para)
         $tmp = Join-Path ([IO.Path]::GetTempPath()) ("prompt_" + [guid]::NewGuid().ToString('N'))
-        New-Item -ItemType Directory -Path (Join-Path $tmp 'docs') -Force | Out-Null
+        New-Item -ItemType Directory -Path (Join-Path $tmp 'internal/mcpsrv') -Force | Out-Null
         New-Item -ItemType Directory -Path (Join-Path $tmp 'internal/service') -Force | Out-Null
-        Copy-Item (Join-Path $ProjectRoot 'docs/PROMPT.md') (Join-Path $tmp 'docs/PROMPT.md')
+        Copy-Item (Join-Path $ProjectRoot 'internal/mcpsrv/instrucoes.txt') (Join-Path $tmp 'internal/mcpsrv/instrucoes.txt')
         Copy-Item (Join-Path $ProjectRoot 'internal/service/*.go') (Join-Path $tmp 'internal/service')
         $alvo = Join-Path $tmp $Arquivo
         $texto = Get-Content -Path $alvo -Raw -Encoding UTF8
@@ -676,7 +677,7 @@ try {
     # Trocar um pelo outro deixa os dois nomes presentes dos dois lados -- um
     # gate que casasse por nome aceitaria, e o prompt estaria ensinando ao
     # modelo os valores da tool errada.
-    $r2 = Prompt-Raiz 'docs/PROMPT.md' `
+    $r2 = Prompt-Raiz 'internal/mcpsrv/instrucoes.txt' `
         '- tag_list.sort: name, count' '- tag_list.sort: path, modified, size, title'
     if ($r2) {
         Caso -Nome 'conjunto de uma tool atribuido a outra -> recusado' `

@@ -231,7 +231,7 @@ Existe desde v1.5.0 (`server.go:62`) e nunca foi usado: `mcp.NewServer` recebe `
 
 Não entra junto com o resto: é mudança de contrato de conteúdo, não de protocolo, e merece decisão própria do dono. Fica registrado porque a Parte B já vai abrir `ServerOptions`, e o campo está ao lado.
 
-- [ ] F1 — Levar a proposta ao dono, com o texto exato que iria em `Instructions` e o que ficaria em `docs/PROMPT.md`. **Não implementar sem decisão.**
+- [x] F1 — Levar a proposta ao dono, com o texto exato que iria em `Instructions` e o que ficaria em `docs/PROMPT.md`. **Não implementar sem decisão.** **Decidido em 2026-09-15:** o dono aprovou o bloco inteiro, com uma cópia só e as partes montadas por sessão, **sem** medir no Desktop antes, porque usa bastante outros hosts e o ganho vale de todo modo. **Feito:** `internal/mcpsrv/instrucoes.txt` (embutido) e `instrucoes.go` (`Cofre: <nome>` e aviso de somente-leitura só quando vale); `docs/PROMPT.md` aponta para o arquivo; `check_prompt.ps1` confere contra ele. Mutações: sem `Instructions`, sem o nome, aviso sempre, aviso nunca e aviso depois das regras — cada uma reprova um dos dois testes novos com a mensagem que a nomeia. Se o Desktop mostra o campo ao modelo: não medido.
 
 ---
 
