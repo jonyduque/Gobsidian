@@ -217,6 +217,35 @@ func TestInstalarEncerraQuandoAutorizado(t *testing.T) {
 	}
 }
 
+// TestInstalarEncerraProcessoDoDiretorioAntigo: um install feito pelo binario
+// novo precisa encerrar os processos de versao anterior, que registram
+// presenca no diretorio de runtime de antes de 2026-09-14. Sem isso eles
+// seguem com o executavel aberto enquanto a instalacao tenta troca-lo.
+func TestInstalarEncerraProcessoDoDiretorioAntigo(t *testing.T) {
+	m := novoMundo(t)
+	antigo := filepath.Join(t.TempDir(), "run-antigo")
+	original := diretorioAntigoFn
+	diretorioAntigoFn = func() string { return antigo }
+	t.Cleanup(func() { diretorioAntigoFn = original })
+
+	liberar, err := Registrar(antigo, `C:\Outro`, "serve", ModoEmProcesso, "v1.8.1")
+	if err != nil {
+		t.Fatalf("Registrar() error = %v", err)
+	}
+	defer liberar()
+
+	r, err := Instalar(context.Background(), m.sistema(), m.opcoes())
+	if err != nil {
+		t.Fatalf("Instalar() error = %v", err)
+	}
+	if len(m.mortos) != 1 || m.mortos[0] != os.Getpid() {
+		t.Fatalf("encerrou %v, esperado o PID registrado no diretorio antigo (%d)", m.mortos, os.Getpid())
+	}
+	if len(r.Encerrados) != 1 || r.Encerrados[0].Versao != "v1.8.1" {
+		t.Errorf("o resultado nao registrou o processo antigo: %+v", r.Encerrados)
+	}
+}
+
 // TestInstalarSemPathNaoTocaNoPath: `--no-path` e uma promessa, e uma promessa
 // sem teste e uma flag decorativa.
 func TestInstalarSemPathNaoTocaNoPath(t *testing.T) {

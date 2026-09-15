@@ -259,7 +259,10 @@ func (s Sistema) agora() time.Time {
 // como saber que foi o instalador (docs/OPERACAO.md). A lista traz PID e cofre
 // porque "3 processos" nao permite discordar de nenhum deles.
 func encerrarProcessos(sis Sistema, runtimeDir string, r *Resultado) error {
-	vivos, err := Vivos(runtimeDir)
+	// Com o diretorio antigo: um install feito pelo binario novo precisa
+	// encerrar os processos de versao anterior, que registram presenca la, antes
+	// de trocar o executavel que eles mantem aberto.
+	vivos, err := VivosComAnterior(runtimeDir)
 	if err != nil {
 		return fmt.Errorf("listando processos: %w", err)
 	}

@@ -8,6 +8,7 @@ import (
 	"github.com/jonyduque/Gobsidian/internal/config"
 	"github.com/jonyduque/Gobsidian/internal/console"
 	"github.com/jonyduque/Gobsidian/internal/doctor"
+	"github.com/jonyduque/Gobsidian/internal/hosts"
 	"github.com/jonyduque/Gobsidian/internal/instalar"
 	"github.com/spf13/cobra"
 	"sort"
@@ -107,7 +108,7 @@ func relatarProcessosELixo(con *console.Stream, aplicar bool) {
 		return
 	}
 
-	vivos, err := instalar.Vivos(runtimeDir)
+	vivos, err := instalar.VivosComAnterior(runtimeDir)
 	switch {
 	case err != nil:
 		con.Warn("processos do gobsidian: %v", err)
@@ -141,6 +142,7 @@ func relatarProcessosELixo(con *console.Stream, aplicar bool) {
 	}
 
 	relatarProcessosSemPresenca(con, vivos)
+	relatarHostsDeOutroBinario(con, vivos)
 
 	// Chaves de cache que ficaram para tras da conta de config.VaultKey.
 	//
@@ -266,4 +268,46 @@ func relatarProcessosSemPresenca(con *console.Stream, vivos []instalar.Presenca)
 		linhas = append(linhas, fmt.Sprintf("  pid %-7d %s", p.PID, p.Executavel))
 	}
 	con.Bloco("", linhas, "binario anterior a presenca, ou de outra instalacao -- o doctor nao sabe o modo nem o cofre deles")
+}
+
+// relatarHostsDeOutroBinario mostra as entradas de host que nao rodam o binario
+// instalado (G7).
+//
+// Medido em 2026-09-14: o Claude Code rodava v1.5.1 de C:\Program Files\gobsidian
+// enquanto o instalado era v1.8.1, e nada no `doctor` dizia. So relata: quem
+// reconfigura e `install`.
+func relatarHostsDeOutroBinario(con *console.Stream, vivos []instalar.Presenca) {
+	m, err := instalar.LerManifesto()
+	switch {
+	case errors.Is(err, instalar.ErrSemManifesto) || (err == nil && m.Binario == ""):
+		con.Detail("binario dos hosts: sem instalacao registrada, nada a comparar")
+		return
+	case err != nil:
+		con.Warn("binario dos hosts: %v", err)
+		return
+	}
+
+	outros := instalar.EntradasDeOutroBinario(hosts.AmbienteReal(), m.Binario)
+	if len(outros) == 0 {
+		con.OK("binario dos hosts")
+		con.Detail("toda entrada do gobsidian nos configs de arquivo roda %s", m.Binario)
+		return
+	}
+
+	// Erro na listagem so tira a versao; a entrada continua sendo relatada.
+	processos, _ := instalar.ProcessosDoSistema()
+	con.Warn("%d entrada(s) de host rodam outro binario", len(outros))
+	linhas := make([]string, 0, len(outros))
+	for _, o := range outros {
+		versao := "versao nao medida"
+		if o.Executavel == "" {
+			versao = "comando nao encontrado"
+		} else if v := instalar.VersaoDoExecutavel(o.Executavel, vivos, processos); v != "" {
+			versao = v
+		}
+		linhas = append(linhas, fmt.Sprintf("  %-16s %-24s %-22s %s", o.Host, o.Chave, versao, o.Comando))
+	}
+	con.Bloco("", linhas, fmt.Sprintf(
+		"o instalado e %s (%s); `gobsidian install` reconfigura. Claude Code, Gemini CLI, Codex e VS Code guardam a config no proprio CLI e nao entram aqui",
+		m.Binario, m.Versao))
 }

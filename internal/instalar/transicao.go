@@ -27,6 +27,30 @@ func DaemonAnteriorDoCofre(cofre string) (pid int, ok bool) {
 	return daemonNoDiretorio(antigo, cofre)
 }
 
+// VivosComAnterior devolve as presencas vivas do diretorio de runtime e, na
+// transicao, tambem as do diretorio antigo.
+//
+// Medido em 2026-09-14, com o `doctor` do binario novo: os processos v1.8.1 em
+// execucao registram presenca no diretorio antigo, e o `doctor` listava todos
+// como "sem presenca" -- sem cofre, sem modo, sem versao, e sem entrar no aviso
+// de gravadores duplicados. Quem pergunta "quem esta rodando?" precisa olhar
+// os dois lugares enquanto houver processo de versao anterior.
+//
+// Erro ao ler o diretorio antigo volta junto com o que foi lido do novo: quem
+// chama decide se relata; nao ler um lugar nao apaga o outro.
+func VivosComAnterior(runtimeDir string) ([]Presenca, error) {
+	vivos, err := Vivos(runtimeDir)
+	if err != nil {
+		return nil, err
+	}
+	antigo := diretorioAntigoFn()
+	if antigo == "" || mesmoDiretorio(antigo, runtimeDir) {
+		return vivos, nil
+	}
+	anteriores, err := Vivos(antigo)
+	return append(vivos, anteriores...), err
+}
+
 func daemonNoDiretorio(dir, cofre string) (pid int, ok bool) {
 	vivos, err := Vivos(dir)
 	if err != nil {

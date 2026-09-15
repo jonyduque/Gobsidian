@@ -210,8 +210,9 @@ gobsidian/
 │   │   │                         enumerar processos e sem código de plataforma
 │   │   ├── trava_global.go       enquanto instala, nenhum serve ou daemon sobe
 │   │   ├── limpeza.go            só o lixo comprovadamente órfão (D-05)
-│   │   ├── transicao.go          daemon de versão anterior no diretório de runtime antigo
+│   │   ├── transicao.go          daemon e presenças de versão anterior no diretório de runtime antigo
 │   │   ├── processos.go          modos da presença; quem grava cache; processos sem presença
+│   │   ├── binario_de_host.go    entradas de host que não rodam o binário instalado (diagnóstico)
 │   │   ├── processos_windows.go  gobsidian.exe do sistema, via Toolhelp32 (diagnóstico)
 │   │   ├── manifesto.go          o que a instalação fez; responde "estou instalado?"
 │   │   ├── instalar.go           a sequência de sete passos, com as operações
