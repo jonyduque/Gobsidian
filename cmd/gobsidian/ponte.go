@@ -23,6 +23,7 @@ import (
 	"github.com/jonyduque/Gobsidian/internal/boot"
 	"github.com/jonyduque/Gobsidian/internal/config"
 	"github.com/jonyduque/Gobsidian/internal/daemon"
+	"github.com/jonyduque/Gobsidian/internal/instalar"
 	"github.com/jonyduque/Gobsidian/internal/ipc"
 	"github.com/jonyduque/Gobsidian/internal/lifecycle"
 )
@@ -227,7 +228,7 @@ func servePonteRemota(parent context.Context, cofre string, conn ipc.Conn, stdin
 	defer lifecycle.ArmarGuardaChuva(ctx, log, lifecycle.OrcamentoDeEncerramento)()
 
 	// DEPOIS de VigiarHost, nunca antes: ver prepararProcesso (serve.go).
-	if prepararProcesso(log, "serve", cofre) {
+	if prepararProcesso(log, "serve", instalar.ModoPonte, cofre) {
 		return nil
 	}
 

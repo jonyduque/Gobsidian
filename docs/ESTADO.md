@@ -828,12 +828,6 @@ o quarto, que é exatamente o defeito que ela existe para impedir.
   de runtime inteiro vai para `%USERPROFILE%\.gobsidian\run`, e o cache fica —
   plano, G2. Não medido: trava em `%USERPROFILE%`
   entre os contextos.
-- **O aviso de duplicidade do `doctor` conta ponte como gravador.** Em
-  2026-09-14 ele avisou quatro processos por cofre e mandou encerrar os
-  extras; entre eles estavam pontes do Antigravity (24 MB cada), que não
-  gravam cache, e ficaram de fora cinco processos v1.5.1 do Claude Code, que
-  não registram presença. A presença grava `papel`, não o modo, e é gravada
-  antes de a ponte decidir. Planejado em G8.
 
 - **O pico de memória da reconstrução do índice não tem requisito, por decisão.**
   Com cache frio o `servindo` fica de 5× a 12× acima do alvo de cache quente —

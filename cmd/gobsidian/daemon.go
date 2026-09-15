@@ -231,7 +231,7 @@ func runDaemon(parent context.Context, cfg config.Config, ociosidade time.Durati
 	//
 	// runDaemon retorna normalmente, entao o defer roda; em serve.go, que
 	// termina em os.Exit, a liberacao e explicita.
-	if prepararProcesso(log, "daemon", cfg.VaultPath) {
+	if prepararProcesso(log, "daemon", instalar.ModoDaemon, cfg.VaultPath) {
 		_ = ln.Close()
 		return nil
 	}

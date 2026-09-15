@@ -3,12 +3,15 @@ package main
 import (
 	"os"
 
+	"errors"
 	"fmt"
 	"github.com/jonyduque/Gobsidian/internal/config"
 	"github.com/jonyduque/Gobsidian/internal/console"
 	"github.com/jonyduque/Gobsidian/internal/doctor"
 	"github.com/jonyduque/Gobsidian/internal/instalar"
 	"github.com/spf13/cobra"
+	"sort"
+	"strings"
 )
 
 func newDoctorCmd() *cobra.Command {
@@ -115,19 +118,29 @@ func relatarProcessosELixo(con *console.Stream, aplicar bool) {
 		con.OK("processos do gobsidian")
 		linhas := make([]string, 0, len(vivos))
 		for _, p := range vivos {
-			linhas = append(linhas, fmt.Sprintf("  pid %-7d %-8s %-12s %s", p.PID, p.Papel, p.Versao, p.Cofre))
+			modo := p.Modo
+			if modo == "" {
+				modo = "?"
+			}
+			linhas = append(linhas, fmt.Sprintf("  pid %-7d %-8s %-11s %-12s %s", p.PID, p.Papel, modo, p.Versao, p.Cofre))
 		}
 		con.Bloco("", linhas, "")
-		// Dois processos servindo o MESMO cofre gravam o mesmo cache de busca.
-		// E o estado medido em 2026-09-08, e ate hoje ele so aparecia por
-		// comparacao de milissegundos entre linhas de log.
-		for cofre, n := range contarPorCofre(vivos) {
-			if n > 1 {
-				con.Warn("%d processos servem o mesmo cofre", n)
-				con.Detail("%s -- eles gravam o MESMO cache de busca; encerre os extras", cofre)
+		// Dois GRAVADORES do mesmo cofre gravam o mesmo cache de busca: o estado
+		// medido em 2026-09-08. Ponte nao grava, e ate 2026-09-14 este aviso a
+		// contava -- mandava encerrar as pontes do Antigravity, que estavam
+		// certas. Ver instalar.GravaCache.
+		for _, s := range analisarGravadores(vivos) {
+			if len(s.Gravadores) > 1 {
+				con.Warn("%d processos gravam o cache do mesmo cofre", len(s.Gravadores))
+				con.Detail("%s -- gravadores: %s; encerre os extras. Pontes nao gravam e ficam fora desta conta", s.Cofre, listarPIDs(s.Gravadores))
+			}
+			if len(s.SemModo) > 0 {
+				con.Detail("%s -- %s sem modo registrado (versao anterior): nao da para saber se gravam", s.Cofre, listarPIDs(s.SemModo))
 			}
 		}
 	}
+
+	relatarProcessosSemPresenca(con, vivos)
 
 	// Chaves de cache que ficaram para tras da conta de config.VaultKey.
 	//
@@ -178,16 +191,79 @@ func relatarProcessosELixo(con *console.Stream, aplicar bool) {
 	}
 }
 
-// contarPorCofre agrupa presencas por cofre. Chave e o caminho como o processo
+// situacaoDoCofre separa, para um cofre, quem grava o cache de quem nao se
+// sabe.
+type situacaoDoCofre struct {
+	Cofre      string
+	Gravadores []instalar.Presenca
+	SemModo    []instalar.Presenca
+}
+
+// analisarGravadores agrupa as presencas por cofre, em ordem de cofre para a
+// saida nao mudar de uma rodada para outra. Chave e o caminho como o processo
 // o registrou; comparacao de caminho nao entra aqui porque quem escreveu os
 // dois lados foi o mesmo produto, na mesma maquina.
-func contarPorCofre(vivos []instalar.Presenca) map[string]int {
-	porCofre := map[string]int{}
+func analisarGravadores(vivos []instalar.Presenca) []situacaoDoCofre {
+	porCofre := map[string]*situacaoDoCofre{}
+	var ordem []string
 	for _, p := range vivos {
 		if p.Cofre == "" {
 			continue
 		}
-		porCofre[p.Cofre]++
+		s, ok := porCofre[p.Cofre]
+		if !ok {
+			s = &situacaoDoCofre{Cofre: p.Cofre}
+			porCofre[p.Cofre] = s
+			ordem = append(ordem, p.Cofre)
+		}
+		switch {
+		case p.Modo == "":
+			s.SemModo = append(s.SemModo, p)
+		case instalar.GravaCache(p.Modo):
+			s.Gravadores = append(s.Gravadores, p)
+		}
 	}
-	return porCofre
+	sort.Strings(ordem)
+	saida := make([]situacaoDoCofre, 0, len(ordem))
+	for _, c := range ordem {
+		saida = append(saida, *porCofre[c])
+	}
+	return saida
+}
+
+func listarPIDs(ps []instalar.Presenca) string {
+	partes := make([]string, 0, len(ps))
+	for _, p := range ps {
+		partes = append(partes, fmt.Sprintf("pid %d", p.PID))
+	}
+	return strings.Join(partes, ", ")
+}
+
+// relatarProcessosSemPresenca mostra os gobsidian.exe que a presenca nao ve.
+//
+// Medido em 2026-09-14: cinco processos v1.5.1 do Claude Code serviam cofres
+// fora da lista acima, porque a presenca entrou depois deles. A listagem nao
+// decide nada; ela so torna visivel quem a presenca nao registra.
+func relatarProcessosSemPresenca(con *console.Stream, vivos []instalar.Presenca) {
+	processos, err := instalar.ProcessosDoSistema()
+	switch {
+	case errors.Is(err, instalar.ErrProcessosNaoVerificados):
+		con.Detail("processos do gobsidian sem presenca: nao verificado nesta plataforma")
+		return
+	case err != nil:
+		con.Warn("processos do gobsidian sem presenca: %v", err)
+		return
+	}
+	sem := instalar.SemPresenca(processos, vivos, os.Getpid())
+	if len(sem) == 0 {
+		con.OK("processos do gobsidian sem presenca")
+		con.Detail("nenhum")
+		return
+	}
+	con.Warn("%d processo(s) do gobsidian sem presenca", len(sem))
+	linhas := make([]string, 0, len(sem))
+	for _, p := range sem {
+		linhas = append(linhas, fmt.Sprintf("  pid %-7d %s", p.PID, p.Executavel))
+	}
+	con.Bloco("", linhas, "binario anterior a presenca, ou de outra instalacao -- o doctor nao sabe o modo nem o cofre deles")
 }

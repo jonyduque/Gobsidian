@@ -35,9 +35,12 @@ const SufixoDePresenca = ".presenca"
 // gravar o proprio caminho dentro do arquivo seria uma segunda conta do mesmo
 // fato -- que diverge no dia em que o diretorio de runtime mudar.
 type Presenca struct {
-	PID     int    `json:"pid"`
-	Cofre   string `json:"cofre"`
-	Papel   string `json:"papel"`
+	PID   int    `json:"pid"`
+	Cofre string `json:"cofre"`
+	Papel string `json:"papel"`
+	// Modo e ModoDaemon, ModoPonte ou ModoEmProcesso. Vazio e processo de
+	// versao anterior a 2026-09-14, que nao o registrava.
+	Modo    string `json:"modo,omitempty"`
 	Versao  string `json:"versao"`
 	Arquivo string `json:"-"`
 }
@@ -65,7 +68,7 @@ type Presenca struct {
 // O nome leva o PID porque um processo serve um cofre: dois processos nunca
 // disputam o mesmo arquivo, e um PID reciclado apenas reaproveita o arquivo de
 // um morto, que e o comportamento desejado.
-func Registrar(runtimeDir, cofre, papel, versao string) (liberar func(), err error) {
+func Registrar(runtimeDir, cofre, papel, modo, versao string) (liberar func(), err error) {
 	if err := os.MkdirAll(runtimeDir, 0o700); err != nil {
 		return nil, fmt.Errorf("criando diretorio de runtime: %w", err)
 	}
@@ -86,6 +89,7 @@ func Registrar(runtimeDir, cofre, papel, versao string) (liberar func(), err err
 		PID:    os.Getpid(),
 		Cofre:  cofre,
 		Papel:  papel,
+		Modo:   modo,
 		Versao: versao,
 	})
 	if err != nil {
@@ -144,8 +148,8 @@ var presencaViva func()
 //
 // Erro nao e propagado de proposito: presenca e diagnostico. Um diretorio de
 // runtime inacessivel nao pode impedir o produto de servir um cofre.
-func RegistrarAteMorrer(runtimeDir, cofre, papel, versao string) error {
-	liberar, err := Registrar(runtimeDir, cofre, papel, versao)
+func RegistrarAteMorrer(runtimeDir, cofre, papel, modo, versao string) error {
+	liberar, err := Registrar(runtimeDir, cofre, papel, modo, versao)
 	if err != nil {
 		return err
 	}

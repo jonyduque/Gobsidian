@@ -116,7 +116,7 @@ func runServe(parent context.Context, cfg config.Config) error {
 // A invariante, que vale para qualquer coisa que venha depois: NADA roda antes
 // de os mecanismos de encerramento estarem armados. Quem precisa de I/O na
 // partida faz depois de VigiarHost.
-func prepararProcesso(log *slog.Logger, papel, cofre string) (sair bool) {
+func prepararProcesso(log *slog.Logger, papel, modo, cofre string) (sair bool) {
 	if recusarDuranteInstalacao(log, papel) {
 		return true
 	}
@@ -130,7 +130,7 @@ func prepararProcesso(log *slog.Logger, papel, cofre string) (sair bool) {
 	// Falha ao registrar NAO impede servir: presenca e diagnostico, e um
 	// diretorio de runtime inacessivel nao pode derrubar o servidor.
 	if dir, err := instalar.DiretorioDeRuntime(); err == nil {
-		if err := instalar.RegistrarAteMorrer(dir, cofre, papel, version); err != nil {
+		if err := instalar.RegistrarAteMorrer(dir, cofre, papel, modo, version); err != nil {
 			log.Debug("nao foi possivel registrar presenca", "err", err)
 		}
 	}
@@ -186,7 +186,7 @@ func serveEmProcesso(parent context.Context, cfg config.Config, log *slog.Logger
 	// saida do processo, inclusive nos que ainda nao falharam.
 	defer lifecycle.ArmarGuardaChuva(ctx, log, lifecycle.OrcamentoDeEncerramento)()
 
-	if prepararProcesso(log, "serve", cfg.VaultPath) {
+	if prepararProcesso(log, "serve", instalar.ModoEmProcesso, cfg.VaultPath) {
 		return nil
 	}
 

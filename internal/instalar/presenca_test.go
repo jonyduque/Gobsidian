@@ -21,7 +21,7 @@ import (
 func TestPresencaVivoApareceEMortoNao(t *testing.T) {
 	dir := t.TempDir()
 
-	liberar, err := Registrar(dir, `C:\Cofre`, "serve", "v9.9.9")
+	liberar, err := Registrar(dir, `C:\Cofre`, "serve", ModoPonte, "v9.9.9")
 	if err != nil {
 		t.Fatalf("Registrar() error = %v", err)
 	}
@@ -112,7 +112,7 @@ func TestPresencaIgnoraOutrosArquivos(t *testing.T) {
 		}
 	}
 
-	liberar, err := Registrar(dir, `C:\Cofre`, "daemon", "v1")
+	liberar, err := Registrar(dir, `C:\Cofre`, "daemon", ModoDaemon, "v1")
 	if err != nil {
 		t.Fatalf("Registrar() error = %v", err)
 	}
@@ -143,7 +143,7 @@ func TestRegistrarAteMorrerMantemAPresencaViva(t *testing.T) {
 	dir := t.TempDir()
 	t.Cleanup(LiberarPresenca)
 
-	if err := RegistrarAteMorrer(dir, `C:\Cofre`, "serve", "v1.2.3"); err != nil {
+	if err := RegistrarAteMorrer(dir, `C:\Cofre`, "serve", ModoPonte, "v1.2.3"); err != nil {
 		t.Fatalf("RegistrarAteMorrer() error = %v", err)
 	}
 
@@ -183,7 +183,7 @@ func TestRegistrarAteMorrerMantemAPresencaViva(t *testing.T) {
 func TestPresencaSomeNoEncerramentoLimpo(t *testing.T) {
 	dir := t.TempDir()
 
-	liberar, err := Registrar(dir, `C:\Cofre`, "serve", "v1")
+	liberar, err := Registrar(dir, `C:\Cofre`, "serve", ModoPonte, "v1")
 	if err != nil {
 		t.Fatalf("Registrar() error = %v", err)
 	}

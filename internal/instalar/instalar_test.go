@@ -164,7 +164,7 @@ func TestInstalarPerguntaAntesDeEncerrarERecusaAborta(t *testing.T) {
 	m := novoMundo(t)
 
 	// Um processo "vivo" de verdade: presenca com a trava tomada.
-	liberar, err := Registrar(m.runtimeDir, `C:\Outro`, "serve", "v1")
+	liberar, err := Registrar(m.runtimeDir, `C:\Outro`, "serve", ModoPonte, "v1")
 	if err != nil {
 		t.Fatalf("Registrar() error = %v", err)
 	}
@@ -199,7 +199,7 @@ func TestInstalarPerguntaAntesDeEncerrarERecusaAborta(t *testing.T) {
 // que NUNCA encerrasse passaria no teste acima.
 func TestInstalarEncerraQuandoAutorizado(t *testing.T) {
 	m := novoMundo(t)
-	liberar, err := Registrar(m.runtimeDir, `C:\Outro`, "daemon", "v1")
+	liberar, err := Registrar(m.runtimeDir, `C:\Outro`, "daemon", ModoDaemon, "v1")
 	if err != nil {
 		t.Fatalf("Registrar() error = %v", err)
 	}
