@@ -249,6 +249,8 @@ gobsidian/
 ├── tools/
 │   ├── parity-dumper/            plugin de dev do Obsidian; serializa app.metadataCache
 │   │                             não é parte do produto, não é distribuído
+│   ├── sondahost/                sonda de host MCP: socket, trava e diretório novo no
+│   │                             contexto do processo que o host cria (plano G1); não é produto
 │   └── netcheck/                 analisador go/analysis: proíbe rede em internal/ e cmd/,
 │                                 com as DUAS exceções nomeadas da RNF-30 —
 │                                 net.Dial/Listen com "unix" literal, e net/http

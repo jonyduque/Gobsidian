@@ -33,3 +33,10 @@ Os itens do plano não usam o número global de Task: são identificados pela pa
 - verify.ps1 da Parte I, 2ª rodada: disparado depois do conserto da corrida.
 - verify.ps1 da Parte I, 2ª rodada: EXIT=0, 23 etapas, "Bateria completa. Pode commitar." (inclui `go test -race`, o teto de latência e `check_runtime_limpo` verdes; 6 testes pulados, informativo).
 - Parte I (I1.1, I1.2, I1.3): complete — commit abaixo, `test: the suite stops writing into the user's runtime directory`. Próximo item da ordem: G1 (medições; precisa de uma reinicialização do Claude Desktop pelo dono).
+- G1 (G1.0-G1.4): executado pelo orquestrador. `tools/sondahost` escrito, vet nos três GOOS e golangci-lint ok; smoke pela shell elevada: tudo ok. Registrado no config do Desktop (backup em %LOCALAPPDATA%\Temp\gobsidian-g1), dono reiniciou o Desktop, três processos da sonda rodaram; entrada removida do config e `sondahost limpar` apagou tudo, inclusive as três cópias em LocalCache.
+  - G1.1: `%USERPROFILE%\.gobsidian-sondahost\run` ok (próprio e cruzado) nos três; Temp ok; controle em LOCALAPPDATA\gobsidian\run 1920/10022.
+  - G1.2: trava da shell recusada nos três, trava livre tomada nos três.
+  - G1.3: diretório novo na raiz de LOCALAPPDATA DESVIADO para Packages\Claude_pzs8sxrjxfjjc\LocalCache\Local nos três.
+  - Consequência: G2 "só o socket" não é seguro por si; três caminhos escritos no plano, decisão do dono pendente. G2 fica BLOCKED nessa decisão; G3/G4/G5/G8 não dependem dela.
+- Decisão do dono (2026-09-14, pergunta direta): G2 caminho 1 — diretório de runtime inteiro (socket, travas, log, presença, instalacao.lock) em %USERPROFILE%\.gobsidian\run; cache fica em %LOCALAPPDATA%\gobsidian. G2 desbloqueado; G2.3 (ponte nova recusa subir daemon com a trava antiga tomada) passa a ser obrigatório.
+- verify.ps1 do G1, 1ª rodada: EXIT=1, só o teto de latência. Rodado sozinho em seguida: ok na 1ª, FAIL p95 23,8 ms contra 22 ms na 2ª — o mesmo ruído de carga medido em A/B na Parte I; esta mudança só toca tools/sondahost e docs. Refazer o verify antes do commit.

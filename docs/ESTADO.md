@@ -804,6 +804,26 @@ o quarto, que é exatamente o defeito que ela existe para impedir.
   A saída de 2026-09-08 (Task 192, `rename` quando `remove` falha) continua no
   código e não resolve este caso: no processo do Desktop o `rename` também
   falha.
+- **Para onde o socket pode ir: medido em 2026-09-14 com `tools/sondahost`.**
+  Três processos criados pelo Claude Desktop `1.52386.6` (Medium, job
+  `LimitFlags=0x3C00`, sem identidade de pacote), com uma shell elevada segurando
+  o outro lado de cada medição:
+
+  | Pergunta | Resultado |
+  |---|---|
+  | Socket em `%USERPROFILE%\.gobsidian-sondahost\run`, próprio e criado pela shell | `listen`, `lstat` e `dial` ok nos três |
+  | Socket em `%LOCALAPPDATA%\Temp\...`, próprio e criado pela shell | ok nos três |
+  | Socket em `%LOCALAPPDATA%\gobsidian\run` (controle) | `lstat 1920`, `dial 10022` nos três |
+  | Trava de kernel tomada pela shell em `%LOCALAPPDATA%\gobsidian\run` | recusada nos três: a exclusão mútua vale entre os contextos |
+  | Trava livre no mesmo diretório (inverso) | tomada nos três: a primitiva funciona |
+  | Diretório novo na raiz de `%LOCALAPPDATA%` | **desviado** nos três: ausente no caminho real, presente em `Packages\Claude_pzs8sxrjxfjjc\LocalCache\Local\` |
+
+  A última linha é a que pesa: numa máquina onde o Desktop cria
+  `%LOCALAPPDATA%\gobsidian` antes de qualquer outro host, travas, log, presença
+  e cache vão para uma cópia privada. Decisão do dono em 2026-09-14: o diretório
+  de runtime inteiro vai para `%USERPROFILE%\.gobsidian\run`, e o cache fica —
+  plano, G2. Não medido: trava em `%USERPROFILE%`
+  entre os contextos.
 - **O aviso de duplicidade do `doctor` conta ponte como gravador.** Em
   2026-09-14 ele avisou quatro processos por cofre e mandou encerrar os
   extras; entre eles estavam pontes do Antigravity (24 MB cada), que não
