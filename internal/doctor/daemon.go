@@ -95,6 +95,28 @@ func checkSocketPath(_ context.Context, cfg config.Config) Result {
 	return Result{Name: name, Status: StatusWarn, Detail: detalhe}
 }
 
+// sondarSocketDoCofre e ipc.SondarSocketDoCofre numa variavel, para o teste
+// simular um diretorio onde nenhum socket conecta. Producao nunca a troca.
+var sondarSocketDoCofre = ipc.SondarSocketDoCofre
+
+// checkDiretorioDeSockets diz se um socket criado no diretorio do cofre
+// aceita conexao DESTE processo.
+//
+// O texto do resultado e parte da checagem. Em 2026-09-14 o `doctor` rodado da
+// shell dizia "daemon respondendo" enquanto nenhuma ponte aberta pelo Claude
+// Desktop alcancava o daemon havia tres semanas: o processo do host nao usa
+// socket em %LOCALAPPDATA%, e a shell usa. Passar aqui nao prova nada sobre
+// o host, e a linha precisa dizer onde esta a prova.
+//
+// Nao recebe ctx util: criar e conectar num socket local nao e espera real.
+func checkDiretorioDeSockets(_ context.Context, cfg config.Config) Result {
+	const name = "diretorio de sockets aceita conexao"
+	if err := sondarSocketDoCofre(cfg.VaultPath); err != nil {
+		return Result{Name: name, Status: StatusWarn, Detail: fmt.Sprintf("%v -- a ponte deste contexto vai servir em processo em vez de usar o daemon", err)}
+	}
+	return Result{Name: name, Status: StatusOK, Detail: "neste processo; um host pode rodar o servidor noutro contexto -- a prova no host e a linha `conectado ao daemon` no log dele"}
+}
+
 // checkDaemonVivo tenta o handshake, que é o ÚNICO critério de "há daemon
 // servindo aqui".
 //

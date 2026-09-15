@@ -302,17 +302,17 @@ O diagnóstico que achou a causa vira ferramenta de desenvolvimento versionada, 
 
 Critério **comportamental**, como o comentário de `Listen` já exige, nunca o errno: antes de acreditar em `AlguemEscuta`, o processo cria um socket descartável no mesmo diretório e tenta conectar nele. Se nem o próprio socket aceita conexão, "ninguém escuta" não significa nada, e `cleanupSocketFile` não roda.
 
-- [ ] G3.1 — `ipc.SondarDiretorioDeSockets(dir) error`, uma conta só, usada por `Listen`, pela ponte (G4) e pelo `doctor` (G5). Erro tipado `ErrDiretorioSemSocket`, com o diretório no texto.
-- [ ] G3.2 — Teste com a sonda injetável reprovando: `Listen` devolve `ErrDiretorioSemSocket` e **não** chama a limpeza. Prova de mutação: tirar a guarda, rodar, colar a saída do teste que nomeia a limpeza indevida.
+- [x] G3.1 — `ipc.SondarDiretorioDeSockets(dir) error`, uma conta só, usada por `Listen`, pela ponte (G4) e pelo `doctor` (G5). Erro tipado `ErrDiretorioSemSocket`, com o diretório no texto. **Feito em 2026-09-14:** `internal/ipc/sonda_diretorio.go` — `SondarDiretorioDeSockets(dir)` e `SondarSocketDoCofre(vault)`, com `ErrDiretorioSemSocket`. O nome do socket da sonda tem o mesmo comprimento do socket de um cofre: a primeira redação tinha nome mais longo e reprovou por limite de caminho AF_UNIX no próprio teste.
+- [x] G3.2 — Teste com a sonda injetável reprovando: `Listen` devolve `ErrDiretorioSemSocket` e **não** chama a limpeza. Prova de mutação: tirar a guarda, rodar, colar a saída do teste que nomeia a limpeza indevida. **Feito:** `TestListenNaoLimpaSocketOndeOProprioSocketNaoConecta`. Mutação: sem a guarda em `Listen`, o teste reprova; restaurado, passa.
 
 ### G4. A ponte não sobe daemon que ninguém vai alcançar
 
-- [ ] G4.1 — Quando o primeiro `DialAndHandshake` falha, a ponte roda a sonda de G3 antes de `EnsureStarted`. Se reprovar: não inicia daemon, loga **uma** linha WARN `motivo=diretorio-sem-socket` com o diretório e o erro, e serve em processo. Hoje ela sobe um daemon por partida, que morre logando `daemon nao pode abrir o socket` no log do cofre — 53 quedas só em Estudo.
-- [ ] G4.2 — `motivoDaQueda` ganha o caso novo. Teste: `iniciarDaemonFn` **não** é chamado quando a sonda reprova.
+- [x] G4.1 — Quando o primeiro `DialAndHandshake` falha, a ponte roda a sonda de G3 antes de `EnsureStarted`. Se reprovar: não inicia daemon, loga **uma** linha WARN `motivo=diretorio-sem-socket` com o diretório e o erro, e serve em processo. Hoje ela sobe um daemon por partida, que morre logando `daemon nao pode abrir o socket` no log do cofre — 53 quedas só em Estudo. **Feito:** `cmd/gobsidian/ponte.go`, `sondarSocketFn`. Mutação: com a sonda desligada, `TestPonteNaoIniciaDaemonOndeOSocketNaoConecta` reprova com "a ponte iniciou um daemon num diretorio onde nem o proprio socket conecta"; restaurado, passa.
+- [x] G4.2 — `motivoDaQueda` ganha o caso novo. Teste: `iniciarDaemonFn` **não** é chamado quando a sonda reprova. **Feito, com um desvio:** `motivoDaQueda` não ganhou um caso de `errors.Is` — seria código morto, porque o erro de `EnsureStarted` nunca carrega `ErrDiretorioSemSocket`. A ponte passa `diretorio-sem-socket` como motivo padrão, na mesma função, e o teste confere a linha WARN com esse motivo.
 
 ### G5. `doctor` diz se o diretório de sockets funciona
 
-- [ ] G5.1 — Linha nova: diretório de sockets e resultado da sonda de G3 **neste processo**. Com o texto honesto: o `doctor` roda da shell do usuário, não de dentro do host, então passar aqui não prova que passa no Desktop. O que prova é a linha `conectado ao daemon` no log do host.
+- [x] G5.1 — Linha nova: diretório de sockets e resultado da sonda de G3 **neste processo**. Com o texto honesto: o `doctor` roda da shell do usuário, não de dentro do host, então passar aqui não prova que passa no Desktop. O que prova é a linha `conectado ao daemon` no log do host. **Feito:** `checkDiretorioDeSockets` no `doctor`, com o texto dizendo que vale para este processo e que a prova no host é `conectado ao daemon`. Mutação: com a sonda ignorada, `TestCheckDiretorioDeSocketsAvisaOndeOSocketNaoConecta` reprova (status OK onde era Warn); restaurado, passa.
 
 ### G6. Verificar na máquina do dono
 

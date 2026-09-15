@@ -45,6 +45,11 @@ const ipcDialTimeout = 300 * time.Millisecond
 // esperar segundos por um daemon que o teste nunca deixa subir de verdade.
 var daemonStartTimeout = 10 * time.Second
 
+// sondarSocketFn e ipc.SondarSocketDoCofre numa variavel, para o teste simular
+// o contexto do Claude Desktop sem precisar dele. Producao nunca a troca -- o
+// mesmo padrao de iniciarDaemonFn.
+var sondarSocketFn = ipc.SondarSocketDoCofre
+
 // iniciarDaemonFn e a implementacao real de "iniciar" que EnsureStarted
 // chama quando esta ponte vence a corrida (internal/daemon.EnsureStarted,
 // decisao 2 da Task 92). Indireto via variavel de pacote para os testes
@@ -88,6 +93,21 @@ func servePonte(ctx context.Context, cfg config.Config, log *slog.Logger) error 
 	}
 	log.Info("socket do daemon indisponivel; tentando iniciar o daemon",
 		"err", err, "errno", errnoDe(err))
+
+	// Antes de iniciar um daemon, saber se algum socket conecta daqui.
+	//
+	// Medido em 2026-09-14: no processo que o Claude Desktop cria, nenhum socket
+	// em %LOCALAPPDATA% conecta, nem o que o proprio processo acabou de criar.
+	// A ponte subia um daemon por partida, que morria logando `daemon nao pode
+	// abrir o socket` -- 53 quedas so no cofre Estudo, cada uma com seu
+	// processo inutil. Aqui a ponte cai direto, com um motivo que diz o que
+	// aconteceu.
+	if sondaErr := sondarSocketFn(cfg.VaultPath); sondaErr != nil {
+		log.Warn("diretorio de sockets nao aceita conexao neste processo; servindo em processo sem iniciar o daemon",
+			"motivo", motivoDaQueda("diretorio-sem-socket", sondaErr),
+			"err", sondaErr, "errno", errnoDe(sondaErr))
+		return serveEmProcesso(ctx, cfg, log)
+	}
 
 	iniciar := func() error { return iniciarDaemonFn(cfg) }
 	if startErr := daemon.EnsureStarted(ctx, cfg, daemonStartTimeout, iniciar); startErr != nil {

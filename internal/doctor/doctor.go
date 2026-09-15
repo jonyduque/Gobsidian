@@ -72,6 +72,7 @@ func Run(ctx context.Context, cfg config.Config) []Result {
 		// plataforma porque sao as que alguem consulta quando o servidor
 		// "sumiu do host" -- o sintoma que trouxe estas linhas para ca.
 		checkSocketPath(ctx, cfg),
+		checkDiretorioDeSockets(ctx, cfg),
 		checkDaemonVivo(ctx, cfg),
 		checkDaemonLog(ctx, cfg),
 		checkLocksDeDaemon(ctx, cfg),

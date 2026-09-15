@@ -797,9 +797,13 @@ o quarto, que é exatamente o defeito que ela existe para impedir.
   **Efeito medido:** nenhuma linha `conectado ao daemon` nos logs do Desktop dos
   quatro cofres entre 2026-08-24 e 2026-09-14; em Estudo, 61 tentativas e 53
   quedas para o modo em processo; `initialize` de 43 s em 2026-09-13. A causa no
-  nível do driver **não** foi provada; o conserto — tirar o socket de
-  `%LOCALAPPDATA%` e parar de confiar em `AlguemEscuta` num diretório onde o
-  próprio socket não conecta — está planejado, não feito.
+  nível do driver **não** foi provada; a metade que para de confiar em
+  `AlguemEscuta` num diretório onde o próprio socket não conecta está feita desde
+  2026-09-14: `ipc.Listen` sonda o diretório antes de limpar, a ponte não sobe
+  daemon quando a sonda reprova (`motivo=diretorio-sem-socket`) e o `doctor`
+  relata. A outra metade — o diretório de runtime sair de `%LOCALAPPDATA%` —
+  está planejada (G2), não feita. Até lá o Desktop continua servindo em
+  processo, agora sem subir daemon inútil a cada partida.
 
   A saída de 2026-09-08 (Task 192, `rename` quando `remove` falha) continua no
   código e não resolve este caso: no processo do Desktop o `rename` também

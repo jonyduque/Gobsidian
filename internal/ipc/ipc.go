@@ -130,6 +130,15 @@ func Listen(vaultPath string) (net.Listener, string, error) {
 	// O handshake carrega checagem de versao e de config, e recusaria um
 	// daemon vivo de outra versao — que e justamente o caso em que NAO se pode
 	// roubar o socket dele.
+	// "Ninguem escuta" so significa algo onde o proprio processo consegue
+	// conectar. Medido em 2026-09-14: no processo que o Claude Desktop cria,
+	// AlguemEscuta responde falso para um daemon VIVO, e a limpeza abaixo
+	// tentava apagar o socket dele -- o roubo de socket de 2026-08-26, que so
+	// nao aconteceu porque o remove tambem falhava ali. Ver
+	// ErrDiretorioSemSocket.
+	if err := sondaDeDiretorio(filepath.Dir(path)); err != nil {
+		return nil, "", err
+	}
 	if AlguemEscuta(path) {
 		return nil, "", fmt.Errorf("ja ha um daemon ativo em %s", path)
 	}
