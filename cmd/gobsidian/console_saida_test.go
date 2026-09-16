@@ -73,6 +73,11 @@ func TestAjudaRedirecionadaNaoSaiFormatada(t *testing.T) {
 
 // TestSaidaDeErroRedirecionadaNaoSaiFormatada cobre `gobsidian ... 2> erro.txt`.
 func TestSaidaDeErroRedirecionadaNaoSaiFormatada(t *testing.T) {
+	// Conjunto escrito, fixado: a asserção é sobre o marcador "[!]", que só
+	// existe no console que não aguenta emoji. Sem fixar, o teste lê a code
+	// page (Windows) ou o locale (Linux) e muda de resposta com a máquina.
+	t.Setenv(console.VarDeEstilo, "0")
+
 	var buf bytes.Buffer
 	console.New(&buf).Err("cofre inacessivel: %s", "raiz nao existe")
 

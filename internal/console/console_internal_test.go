@@ -88,6 +88,12 @@ func TestEhTerminal(t *testing.T) {
 // entao o Stream e construido com a cor ja ligada, que e exatamente o estado
 // em que SupportsColor o deixaria.
 func TestSequenciasEmitidas(t *testing.T) {
+	// O modo e FIXADO no conjunto escrito: este teste trava a sequencia ANSI
+	// EXATA em volta do marcador, e o marcador depende da medicao do console --
+	// emoji onde ele aguenta. Sem isto o teste afirmaria o ambiente da maquina,
+	// e foi assim que ele passou aqui e reprovou no CI em 2026-09-16.
+	t.Setenv(VarDeEstilo, "0")
+
 	var buf bytes.Buffer
 	s := &Stream{w: &buf, color: true}
 

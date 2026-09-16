@@ -18,6 +18,15 @@ import (
 // mostra e a ESTRUTURA; as cores estao em console.go, nomeadas por papel.
 func previa(t *testing.T, g Glifos) string {
 	t.Helper()
+	// O modo de saida acompanha os glifos que o caso pede: com a moldura em
+	// ASCII, o texto tambem sai sem acento e os marcadores saem escritos. Sem
+	// isto a previa misturaria caixa ASCII com emoji, que e uma tela que nao
+	// existe em maquina nenhuma.
+	if g.CantoSupEsq == glifosASCII.CantoSupEsq {
+		t.Setenv(VarDeEstilo, "0")
+	} else {
+		t.Setenv(VarDeEstilo, "1")
+	}
 	forcarGlifos = &g
 	defer func() { forcarGlifos = nil }()
 

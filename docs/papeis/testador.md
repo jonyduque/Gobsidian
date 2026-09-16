@@ -252,6 +252,15 @@ que é `package vault` (interno) e não pode importar `vaulttest` sem ciclo.
 A skill `preventing-false-pass-and-offset-bugs` cobre offset e falso-PASS em
 detalhe.
 
+**Teste que afirma DESENHO fixa o modo de saída.** Desde 2026-09-16 o console
+decide sozinho, por medição, se o texto sai com acento e se o marcador sai em
+emoji ou escrito — a code page no Windows, o locale no Linux. Um teste que
+afirma `"[!] ..."`, `"Nao"` ou a sequência ANSI em volta do marcador sem chamar
+`t.Setenv(console.VarDeEstilo, "0"|"1")` está afirmando **a máquina onde ele
+roda**: três testes assim passaram no Windows do dono e reprovaram o gate de
+release no CI, onde `LANG=C.UTF-8`. Antes de empurrar mudança de saída, rode a
+bateria dos dois jeitos — `go test ./...` e `GOBSIDIAN_UNICODE=1 go test ./...`.
+
 **Não meça o resultado com a função que você está testando.** Em 2026-09-14
 o teste da moldura com caminho em NFD comparava a largura das linhas usando
 `larguraVisivel` — a mesma função que monta a moldura. Com a contagem de marca
