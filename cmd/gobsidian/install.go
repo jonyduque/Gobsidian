@@ -396,9 +396,18 @@ func resumoEmLinhas(con *console.Stream, r instalar.Resultado, cofres []string) 
 		add("%-16s FALHOU: %s", chave, erro)
 	}
 	if !r.Limpeza.Vazio() {
-		add("limpeza  %d trava(s), %d socket(s), %d presença(s), %d cache(s), %d KB",
-			len(r.Limpeza.Locks), len(r.Limpeza.Sockets), len(r.Limpeza.Presencas),
-			len(r.Limpeza.Caches), r.Limpeza.Bytes/1024)
+		// O que foi removido ganha cor; o que era zero fica apagado. Mesma
+		// regra do bloco de lixo do `doctor`: num resumo em que quase tudo é
+		// zero, pintar todos os números não destaca nenhum.
+		n := func(q int) string {
+			if q == 0 {
+				return con.Dim("0")
+			}
+			return con.Amarelo(fmt.Sprintf("%d", q))
+		}
+		add("limpeza  %s trava(s), %s socket(s), %s presença(s), %s cache(s), %d KB",
+			n(len(r.Limpeza.Locks)), n(len(r.Limpeza.Sockets)), n(len(r.Limpeza.Presencas)),
+			n(len(r.Limpeza.Caches)), r.Limpeza.Bytes/1024)
 	}
 	return l
 }

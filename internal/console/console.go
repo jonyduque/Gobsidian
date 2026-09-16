@@ -8,7 +8,8 @@
 //
 // # Os marcadores continuam em ASCII
 //
-// [OK], [!], [i], [*] e [...] sao os mesmos de antes. A cor SOMA a eles, nunca
+// Os marcadores saem em emoji onde o console aguenta e escritos onde nao
+// aguenta -- ver Marcadores em estilo.go. A cor SOMA a eles, nunca
 // os substitui: um console PowerShell em CP-850 renderiza qualquer coisa fora
 // do ASCII como lixo, e `doctor` e justamente o comando que alguem roda quando
 // ja esta confuso. Se a cor for descartada -- por redirecionamento, por
@@ -110,6 +111,14 @@ func NewPlain(w io.Writer) *Stream {
 	return &Stream{w: w, color: false}
 }
 
+// NewComCor devolve um Stream que SEMPRE colore. E o par de NewPlain, e existe
+// pelo motivo simetrico: a decisao automatica olha o destino, e um buffer de
+// teste nunca e terminal -- entao sem isto nao ha como provar que a cor sai
+// onde ela deve sair. Producao usa New.
+func NewComCor(w io.Writer) *Stream {
+	return &Stream{w: w, color: true}
+}
+
 // Colored informa se este Stream esta emitindo sequencias ANSI.
 func (s *Stream) Colored() bool { return s.color }
 
@@ -125,6 +134,21 @@ func (s *Stream) Bold(text string) string { return s.style(text, codeBold) }
 
 // Dim apaga um trecho DENTRO de uma linha, para informacao secundaria.
 func (s *Stream) Dim(text string) string { return s.style(text, codeDim) }
+
+// Verde pinta um trecho com a cor do estado OK -- o mesmo codigo do marcador.
+//
+// Esta e as duas irmas existem para quem monta uma linha com varios numeros de
+// estados diferentes -- o resumo do `doctor`, a conta de lixo -- poder pintar
+// cada numero sem conhecer os codigos ANSI, que sao privados deste pacote.
+// Nomeadas pela COR, e nao pelo papel, porque quem chama ja sabe o papel: "o
+// numero de falhas sai em vermelho" e a frase inteira.
+func (s *Stream) Verde(text string) string { return s.style(text, codeBold, codeGreen) }
+
+// Amarelo pinta um trecho com a cor de aviso. Ver Verde.
+func (s *Stream) Amarelo(text string) string { return s.style(text, codeBold, codeYellow) }
+
+// Vermelho pinta um trecho com a cor de falha. Ver Verde.
+func (s *Stream) Vermelho(text string) string { return s.style(text, codeBold, codeRed) }
 
 // Italic aplica italico a um trecho DENTRO de uma linha.
 //
@@ -143,34 +167,36 @@ func (s *Stream) printf(marker string, codes []string, format string, a ...any) 
 
 // OK marca sucesso.
 func (s *Stream) OK(format string, a ...any) {
-	s.printf("[OK]", []string{codeBold, codeGreen}, format, a...)
+	s.printf(MarcadoresDaSaida().OK, []string{codeBold, codeGreen}, format, a...)
 }
 
-// Warn marca aviso e falha. Os dois usam [!], como antes deste pacote: o
-// marcador nao distingue os dois casos, a cor distingue, e um terminal sem
-// cor volta ao comportamento que o projeto sempre teve.
+// Warn marca aviso.
+//
+// No conjunto de texto o marcador de aviso e o de falha sao os dois "[!]", e
+// so a cor os separa -- era assim antes deste pacote, e num terminal sem cor
+// continua sendo. No conjunto de emoji eles se distinguem pelo simbolo.
 func (s *Stream) Warn(format string, a ...any) {
-	s.printf("[!]", []string{codeBold, codeYellow}, format, a...)
+	s.printf(MarcadoresDaSaida().Aviso, []string{codeBold, codeYellow}, format, a...)
 }
 
 // Err marca falha.
 func (s *Stream) Err(format string, a ...any) {
-	s.printf("[!]", []string{codeBold, codeRed}, format, a...)
+	s.printf(MarcadoresDaSaida().Erro, []string{codeBold, codeRed}, format, a...)
 }
 
 // Info marca informacao secundaria.
 func (s *Stream) Info(format string, a ...any) {
-	s.printf("[i]", []string{codeDim}, format, a...)
+	s.printf(MarcadoresDaSaida().Info, []string{codeDim}, format, a...)
 }
 
 // Item marca um item de listagem ou um numero medido.
 func (s *Stream) Item(format string, a ...any) {
-	s.printf("[*]", []string{codeCyan}, format, a...)
+	s.printf(MarcadoresDaSaida().Item, []string{codeCyan}, format, a...)
 }
 
 // Step marca etapa em andamento.
 func (s *Stream) Step(format string, a ...any) {
-	s.printf("[...]", []string{codeBlue}, format, a...)
+	s.printf(MarcadoresDaSaida().Passo, []string{codeBlue}, format, a...)
 }
 
 // Line imprime sem marcador nenhum, respeitando o destino do Stream.

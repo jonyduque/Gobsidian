@@ -53,8 +53,43 @@ func TestRelatarVerificacoesAgrupaEResume(t *testing.T) {
 	}
 
 	// O resumo e o que responde "e isso tudo esta bem?" sem recontar as linhas.
-	if !strings.Contains(saida, "4 verificações: 2 ok, 1 aviso(s), 1 falha(s)") {
+	if !strings.Contains(saida, "4 verificações: 2 ok, 1 aviso, 1 falha") {
 		t.Errorf("resumo ausente ou errado:\n%s", saida)
+	}
+}
+
+// TestResumoPintaSoOQueExiste: numa linha em que quase tudo e zero, pintar
+// todo numero nao destaca nada. O numero que existe ganha a cor do estado; o
+// zero sai apagado.
+func TestResumoPintaSoOQueExiste(t *testing.T) {
+	t.Setenv(console.VarDeEstilo, "1")
+
+	var buf bytes.Buffer
+	// NewComCor porque a decisao automatica olha o destino, e um buffer nunca e
+	// terminal: sem isto nao haveria como provar que a cor sai.
+	relatarVerificacoes(console.NewComCor(&buf), []doctor.Result{
+		{Name: "raiz do cofre existe", Status: doctor.StatusOK, Grupo: doctor.GrupoCofre},
+		{Name: "contagem de notas", Status: doctor.StatusOK, Grupo: doctor.GrupoCofre},
+		{Name: "espaço em disco", Status: doctor.StatusFail, Detail: "8 MB livres", Grupo: doctor.GrupoCache},
+	})
+	saida := buf.String()
+
+	const (
+		verde    = "\x1b[1;32m"
+		vermelho = "\x1b[1;31m"
+		apagado  = "\x1b[2m"
+	)
+	if !strings.Contains(saida, verde+"2 ok") {
+		t.Errorf("a contagem de ok nao saiu em verde:\n%q", saida)
+	}
+	if !strings.Contains(saida, vermelho+"1 falha") {
+		t.Errorf("a contagem de falhas nao saiu em vermelho:\n%q", saida)
+	}
+	if !strings.Contains(saida, apagado+"0 avisos") {
+		t.Errorf("o zero de avisos nao saiu apagado:\n%q", saida)
+	}
+	if strings.Contains(saida, verde+"0 avisos") || strings.Contains(saida, "\x1b[1;33m0 avisos") {
+		t.Errorf("o zero ganhou cor de estado:\n%q", saida)
 	}
 }
 
@@ -89,6 +124,33 @@ func TestLinhasPorCofreResumeOsProcessos(t *testing.T) {
 	}
 	if !strings.Contains(oral, "1 servidor em processo") || !strings.Contains(oral, "1 modo não registrado") {
 		t.Errorf("a linha do Oral nao separa o processo de versao anterior: %q", oral)
+	}
+}
+
+// TestTabelaDeProcessosPintaMaisDeUm: dois processos do mesmo modo no mesmo
+// cofre é o que se procura nessa tabela -- dois gravadores gravam o mesmo
+// cache. Um só é o estado normal, e pintar os dois casos não destacaria nada.
+func TestTabelaDeProcessosPintaMaisDeUm(t *testing.T) {
+	t.Setenv(console.VarDeEstilo, "1")
+
+	var buf bytes.Buffer
+	con := console.NewComCor(&buf)
+	p := func(pid int, modo string) instalar.Presenca {
+		return instalar.Presenca{PID: pid, Cofre: `C:\Obsidian\Estudo`, Papel: "serve", Modo: modo, Versao: "v1.11.0"}
+	}
+	linhas := linhasPorCofre(con, []instalar.Presenca{
+		p(1, instalar.ModoDaemon),
+		p(2, instalar.ModoPonte),
+		p(3, instalar.ModoPonte),
+	})
+
+	const amarelo = "\x1b[1;33m"
+	linha := strings.Join(linhas, "\n")
+	if !strings.Contains(linha, amarelo+"2") {
+		t.Errorf("as duas pontes nao ganharam cor:\n%q", linha)
+	}
+	if strings.Contains(linha, amarelo+"1") {
+		t.Errorf("o processo unico ganhou cor; so mais de um se destaca:\n%q", linha)
 	}
 }
 

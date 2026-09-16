@@ -40,10 +40,74 @@ func TestBufferNuncaRecebeANSI(t *testing.T) {
 	}
 }
 
+// TestMarcadoresEmEmojiOndeOConsoleAguenta e o outro modo: o estado aparece
+// antes de a palavra ser lida, e AVISO deixa de ser o mesmo simbolo de FALHA
+// -- no conjunto escrito os dois sao "[!]" e so a cor os separa.
+func TestMarcadoresEmEmojiOndeOConsoleAguenta(t *testing.T) {
+	t.Setenv(console.VarDeEstilo, "1")
+
+	var buf bytes.Buffer
+	con := console.NewPlain(&buf)
+	con.OK("a")
+	con.Warn("b")
+	con.Err("c")
+	con.Info("d")
+	con.Item("e")
+	con.Step("f")
+	con.Detail("g")
+
+	got := buf.String()
+	for _, quer := range []string{"✅", "⚠️", "❌", "ℹ️", "🔹", "⏳"} {
+		if !strings.Contains(got, quer) {
+			t.Errorf("marcador %q ausente da saida:\n%s", quer, got)
+		}
+	}
+	if strings.Contains(got, "[OK]") || strings.Contains(got, "[!]") {
+		t.Errorf("marcador escrito sobreviveu no console que aguenta emoji:\n%s", got)
+	}
+
+	// Todo marcador de emoji ocupa as MESMAS quatro colunas, que somadas ao
+	// espaco que printf poe fazem o texto comecar na coluna 5 -- a mesma de
+	// "[OK] ", e a mesma que a indentacao de Detail assume. Sem isso a linha de
+	// detalhe deixa de ficar sob o item a que pertence.
+	//
+	// A conta e sobre o CONJUNTO, e nao sobre a saida: contar coluna numa
+	// string ja impressa exigiria adivinhar a largura que o terminal da a cada
+	// emoji, e o que este teste pode afirmar e o que o codigo controla.
+	m := console.MarcadoresDaSaida()
+	for _, marcador := range []string{m.OK, m.Aviso, m.Erro, m.Info, m.Item, m.Passo} {
+		if c := colunas(marcador); c != 4 {
+			t.Errorf("o marcador %q ocupa %d colunas, esperado 4", marcador, c)
+		}
+	}
+}
+
+// colunas conta as colunas de um marcador: o seletor de apresentacao (U+FE0F)
+// nao ocupa nenhuma, um emoji ocupa duas, e o resto ocupa uma.
+func colunas(s string) int {
+	n := 0
+	for _, r := range s {
+		switch {
+		case r == 0xFE0F:
+		case r > 0x2000:
+			n += 2
+		default:
+			n++
+		}
+	}
+	return n
+}
+
 func TestMarcadoresContinuamEmASCII(t *testing.T) {
-	// A regra do projeto: [OK], [!], [i], [*], [...] em ASCII puro, porque um
-	// console PowerShell em CP-850 renderiza o resto como lixo. A cor SOMA ao
-	// marcador; se ela for descartada, a informacao tem de sobreviver.
+	// A regra vale para o console que NAO aguenta UTF-8, e por isso o modo e
+	// fixado: [OK], [!], [i], [*], [...] em ASCII puro, porque um PowerShell em
+	// CP-850 renderiza o resto como lixo. A cor SOMA ao marcador; se ela for
+	// descartada, a informacao tem de sobreviver.
+	//
+	// Sem o t.Setenv este teste afirmaria o ambiente da maquina -- foi assim
+	// que o teste dos botoes passou aqui e reprovou no CI em 2026-09-16.
+	t.Setenv(console.VarDeEstilo, "0")
+
 	var buf bytes.Buffer
 	con := console.New(&buf)
 

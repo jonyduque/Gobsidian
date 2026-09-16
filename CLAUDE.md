@@ -341,7 +341,12 @@ de formato passa por **uma** função — inclusive nos pontos que já estavam c
 **Código de plataforma atrás de build tag, em arquivo separado.** Nunca
 `if runtime.GOOS ==` dentro de lógica compartilhada.
 
-**Marcadores de console em ASCII puro:** `[OK]`, `[*]`, `[!]`, `[i]`, `[...]`.
+**Marcador de console decidido pela mesma medição do texto.** Onde o console
+aguenta UTF-8, o estado sai em emoji (✅ ⚠️ ❌ ℹ️ 🔹 ⏳); onde não aguenta, sai
+escrito — `[OK]`, `[!]`, `[i]`, `[*]`, `[...]` —, que é o que sobrevive a
+CP-850. A cor **soma** ao marcador nos dois conjuntos e nunca o substitui: num
+terminal sem cor o símbolo ainda distingue os estados. Uma conta só:
+`console.MarcadoresDaSaida`, irmã de `GlifosDaSaida` e de `adaptarTexto`.
 O **texto** sai com acento, e quem decide é a medição: `console.adaptarTexto`
 tira o acento quando a code page do console não aguenta UTF-8 — a mesma decisão
 que escolhe os glifos da moldura. Escrever "permissao" no código para agradar

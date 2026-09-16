@@ -157,13 +157,22 @@ func relatarProcessosELixo(con *console.Stream, aplicar bool) {
 	if aplicar {
 		verbo = "removido"
 	}
+	// O número pintado é o que EXISTE; zero fica apagado. Num bloco em que
+	// quase tudo é zero, pintar todos os números esconderia o único que
+	// importa.
+	numero := func(n int) string {
+		if n == 0 {
+			return con.Dim("0")
+		}
+		return con.Amarelo(fmt.Sprintf("%d", n))
+	}
 	con.Warn("lixo de execuções anteriores")
 	con.Campos("", []console.Campo{
-		console.Campof("travas", "%d", len(r.Locks)),
-		console.Campof("sockets", "%d", len(r.Sockets)),
-		console.Campof("presenças", "%d", len(r.Presencas)),
-		{Chave: "caches", Valor: fmt.Sprintf("%d", len(r.Caches)), Nota: "de cofre inexistente"},
-		console.Campof("logs rotacionados", "%d", len(r.LogsRotacionados)),
+		{Chave: "travas", Valor: numero(len(r.Locks))},
+		{Chave: "sockets", Valor: numero(len(r.Sockets))},
+		{Chave: "presenças", Valor: numero(len(r.Presencas))},
+		{Chave: "caches", Valor: numero(len(r.Caches)), Nota: "de cofre inexistente"},
+		{Chave: "logs rotacionados", Valor: numero(len(r.LogsRotacionados))},
 		{Chave: "total", Valor: fmt.Sprintf("%d KB", r.Bytes/1024), Nota: verbo},
 	})
 	if !aplicar {
@@ -262,7 +271,26 @@ func relatarVerificacoes(con *console.Stream, results []doctor.Result) {
 	}
 
 	con.Line("")
-	con.Info("%d verificações: %d ok, %d aviso(s), %d falha(s)", ok+avisos+falhas, ok, avisos, falhas)
+	con.Info("%d verificações: %s, %s, %s", ok+avisos+falhas,
+		contagem(con, ok, "ok", "ok", con.Verde),
+		contagem(con, avisos, "aviso", "avisos", con.Amarelo),
+		contagem(con, falhas, "falha", "falhas", con.Vermelho))
+}
+
+// contagem escreve "N rótulo" e PINTA o número quando ele não é zero.
+//
+// Zero é a resposta boa para aviso e falha, e uma linha em que todo número tem
+// cor não destaca nada: o que precisa saltar aos olhos é o que existe. Zero sai
+// apagado, e o singular e o plural saem certos.
+func contagem(con *console.Stream, n int, singular, plural string, cor func(string) string) string {
+	texto := fmt.Sprintf("%d %s", n, plural)
+	if n == 1 {
+		texto = fmt.Sprintf("%d %s", n, singular)
+	}
+	if n == 0 {
+		return con.Dim(texto)
+	}
+	return cor(texto)
 }
 
 // cabeNaLinha decide se um detalhe pode ser colado ao nome da verificação. Uma
@@ -321,9 +349,17 @@ func linhasPorCofre(con *console.Stream, vivos []instalar.Presenca) []string {
 			modos = append(modos, m)
 		}
 		sort.Strings(modos)
+		// Mais de um processo do mesmo modo no mesmo cofre é o que se procura
+		// aqui -- dois gravadores gravam o mesmo cache --, então é esse número
+		// que ganha cor. Um só é o estado normal e sai sem destaque.
 		partes := make([]string, 0, len(modos))
 		for _, m := range modos {
-			partes = append(partes, fmt.Sprintf("%d %s", r.porModo[m], rotuloDeModo(m, r.porModo[m])))
+			n := r.porModo[m]
+			contador := fmt.Sprintf("%d", n)
+			if n > 1 {
+				contador = con.Amarelo(contador)
+			}
+			partes = append(partes, contador+" "+rotuloDeModo(m, n))
 		}
 		versoes := make([]string, 0, len(r.versoes))
 		for v := range r.versoes {

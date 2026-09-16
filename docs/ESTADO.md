@@ -32,6 +32,19 @@ relatório fecha com "N verificações: X ok, Y avisos, Z falhas". Os 28 process
 viraram uma linha por cofre, com quantos são de cada modo e a versão — a
 listagem de 28 pids não respondia "quantos servem este cofre".
 
+*Marcadores:* `[OK]`, `[!]`, `[i]`, `[*]` e `[...]` viraram ✅ ⚠️ ❌ ℹ️ 🔹 ⏳ onde
+o console aguenta, pela mesma medição do acento e dos glifos
+(`console.MarcadoresDaSaida`); onde não aguenta, continuam escritos e
+coloridos. O conjunto de emoji distingue **aviso de falha**, que o escrito não
+distingue — lá os dois são `[!]` e só a cor os separa. Cada marcador de emoji
+ocupa quatro colunas, para o texto começar onde começava com `[OK] ` e a linha
+de detalhe continuar alinhada.
+
+*Contagens:* no resumo do `doctor` o número que **não é zero** sai na cor do
+estado (verde, amarelo, vermelho) e o zero fica apagado; na tabela de processos
+e nos blocos de lixo, o número sai colorido quando há **mais de um**, que é o
+caso que se procura ali. Pintar todo número não destacaria nenhum.
+
 *Pergunta:* sim ou não virou modal de botões (`console.Confirmar`), com a
 resposta corrente sempre visível. Sem terminal — pipe, IDE, CI — cai na mesma
 pergunta digitada, que é o caminho do bootstrap.

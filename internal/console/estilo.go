@@ -18,10 +18,10 @@ import "os"
 // Entao a escolha e MEDIDA (ver suportaUnicode), e nao adivinhada: consulta a
 // code page real do console no Windows e o locale no resto.
 //
-// Os marcadores de estado ([OK], [!], [i]) continuam ASCII em qualquer caso.
-// Eles aparecem em log, em redirecionamento e em `doctor`, que sao os lugares
-// onde a regra vale sem exececao. O que ganha desenho e SO a lista
-// interativa, que por definicao so aparece quando ha um terminal de verdade.
+// Os marcadores de estado seguem a MESMA medicao desde 2026-09-16 (ver
+// Marcadores, mais abaixo): emoji onde o console aguenta, escritos onde nao
+// aguenta. A regra antiga -- ASCII em qualquer caso -- valia porque a medicao
+// nao existia ainda.
 type Glifos struct {
 	CantoSupEsq string
 	CantoSupDir string
@@ -89,6 +89,69 @@ var glifosASCII = Glifos{
 // forcarGlifos existe SO para o teste de previa mostrar os dois conjuntos sem
 // depender da code page da maquina onde ele roda. Nulo em producao.
 var forcarGlifos *Glifos
+
+// Marcadores e o conjunto de simbolos de estado que abrem cada linha.
+//
+// # Por que ha dois conjuntos
+//
+// A mesma razao dos glifos da moldura: onde o console aguenta UTF-8, um
+// emoji diz o estado antes de a palavra ser lida; onde nao aguenta, ele sai
+// como lixo e o marcador escrito e o que resta. A escolha e a MESMA medicao
+// (modoUnicode), e nao uma segunda.
+//
+// A cor SOMA ao marcador nos dois conjuntos, e nunca o substitui: um terminal
+// sem cor -- NO_COLOR, redirecionamento -- continua distinguindo OK de aviso
+// pelo simbolo.
+//
+// # Largura
+//
+// Um emoji ocupa DUAS colunas, e "[OK] " ocupa cinco. Os marcadores de emoji
+// carregam o enchimento que falta para o texto comecar na mesma coluna nos
+// dois modos -- e o que mantem alinhada a linha de Detail, que indenta cinco
+// espacos, e as continuacoes que o proprio detalhe traz.
+type Marcadores struct {
+	OK    string
+	Aviso string
+	Erro  string
+	Info  string
+	Item  string
+	Passo string
+}
+
+// marcadoresTexto e o conjunto de sempre, o que sobrevive a qualquer code page.
+var marcadoresTexto = Marcadores{
+	OK:    "[OK]",
+	Aviso: "[!]",
+	Erro:  "[!]",
+	Info:  "[i]",
+	Item:  "[*]",
+	Passo: "[...]",
+}
+
+// marcadoresEmoji distingue AVISO de ERRO, que o conjunto de texto nao
+// distingue -- os dois sao "[!]" la, e so a cor os separa.
+var marcadoresEmoji = Marcadores{
+	OK:    "✅  ",
+	Aviso: "⚠️  ",
+	Erro:  "❌  ",
+	Info:  "ℹ️  ",
+	Item:  "🔹  ",
+	Passo: "⏳  ",
+}
+
+// forcarMarcadores existe SO para teste, como forcarGlifos.
+var forcarMarcadores *Marcadores
+
+// MarcadoresDaSaida escolhe o conjunto pela mesma medicao dos glifos.
+func MarcadoresDaSaida() Marcadores {
+	if forcarMarcadores != nil {
+		return *forcarMarcadores
+	}
+	if modoUnicode() {
+		return marcadoresEmoji
+	}
+	return marcadoresTexto
+}
 
 // VarDeEstilo permite decidir na mao quando a deteccao erra.
 //
