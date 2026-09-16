@@ -37,6 +37,11 @@ type Glifos struct {
 	Separador string
 	Enter     string
 	Setas     string
+	// SetasLado e o par horizontal, para a pergunta de dois botoes. A lista de
+	// selecao anda para cima e para baixo e o modal anda para os lados: mostrar
+	// o par errado ensina a tecla errada, que foi o que a previa de 2026-09-16
+	// mostrou.
+	SetasLado string
 
 	// Os glifos da conversa: pergunta em aberto, resposta ja dada, e o
 	// marcador de secao.
@@ -57,7 +62,7 @@ var glifosUnicode = Glifos{
 
 	Cursor: "▸", Marcada: "◉", Desmarcada: "○",
 
-	Separador: "·", Enter: "⏎", Setas: "↑↓",
+	Separador: "·", Enter: "⏎", Setas: "↑↓", SetasLado: "←→",
 
 	Pergunta: "◆", Resposta: "✓", Secao: "▪",
 
@@ -74,7 +79,7 @@ var glifosASCII = Glifos{
 
 	Cursor: ">", Marcada: "x", Desmarcada: " ",
 
-	Separador: "|", Enter: "enter", Setas: "setas",
+	Separador: "|", Enter: "enter", Setas: "setas", SetasLado: "setas",
 
 	Pergunta: "?", Resposta: ">", Secao: "*",
 

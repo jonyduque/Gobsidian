@@ -82,6 +82,32 @@ func TestBotoesMostramOsDoisEstados(t *testing.T) {
 	}
 }
 
+// TestRodapeDoModalEnsinaAsTeclasCertas: a primeira redação mostrava o par
+// vertical de setas, que é o da lista de seleção -- o modal anda para os lados.
+// Um rodapé que ensina a tecla errada é pior que rodapé nenhum: quem aperta
+// para cima acha que a pergunta travou.
+func TestRodapeDoModalEnsinaAsTeclasCertas(t *testing.T) {
+	t.Setenv(VarDeEstilo, "1")
+	forcarGlifos = &glifosUnicode
+	defer func() { forcarGlifos = nil }()
+
+	var buf bytes.Buffer
+	desenharBotoes(NewPlain(&buf), "Encerrar?", nil, true, false)
+	saida := buf.String()
+
+	if !strings.Contains(saida, glifosUnicode.SetasLado) {
+		t.Errorf("o rodapé não mostra as setas de lado (%q):\n%s", glifosUnicode.SetasLado, saida)
+	}
+	if strings.Contains(saida, glifosUnicode.Setas) {
+		t.Errorf("o rodapé mostra o par vertical (%q), que é o da lista de seleção:\n%s", glifosUnicode.Setas, saida)
+	}
+	// O rótulo do botão é português: ele passa por adaptarTexto como o resto, e
+	// só perde o acento onde o console não aguenta.
+	if !strings.Contains(saida, "Não") {
+		t.Errorf("o botão perdeu o acento num console que aguenta UTF-8:\n%s", saida)
+	}
+}
+
 // TestConfirmarSemTerminalDevolveErrSemTerminal: com a entrada vinda de um
 // cano ou de um arquivo, o modal nao existe e quem chama cai na pergunta
 // digitada. O padrao volta junto para o chamador nao ter de inventar um.

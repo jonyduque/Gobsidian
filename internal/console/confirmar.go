@@ -140,9 +140,9 @@ func desenharBotoes(s *Stream, pergunta string, itens []string, sim, redesenhar 
 		}
 		return s.style("[   "+rotulo+" ]", corNota...)
 	}
-	corpos = append(corpos, "  "+botao("Sim", sim)+"   "+botao("Nao", !sim))
+	corpos = append(corpos, "  "+botao("Sim", sim)+"   "+botao("Não", !sim))
 
-	rodape := g.Setas + " mover " + g.Separador + " s/n responder " + g.Separador + " " + g.Enter + " confirmar"
+	rodape := g.SetasLado + " mover " + g.Separador + " s/n responder " + g.Separador + " " + g.Enter + " confirmar"
 
 	linhas := s.Moldura(pergunta, corpos, rodape)
 	if redesenhar && s.Colored() {
