@@ -13,6 +13,33 @@ pwsh -File scripts/sdd.ps1 status
 
 ## Marcos
 
+**Saída de console em português, `doctor` em seções e pergunta em botões —
+completo, 2026-09-16.** Pedido do dono depois de ler a saída do `doctor` da
+v1.9.0.
+
+*Acento:* a regra "saída em ASCII puro" valia para o texto inteiro, e o motivo
+dela era a code page: um console em CP-850 renderiza "permissão" como lixo. A
+decisão passou a ser **medida**, como já era a dos glifos da moldura —
+`console.adaptarTexto` devolve o texto como foi escrito onde o console aguenta
+UTF-8, e sem acento onde não aguenta. Os marcadores (`[OK]`, `[!]`) continuam
+ASCII em qualquer caso. `console` deixou de ser folha: tirar acento é
+`text.RemoveAccents`, a conta que o índice já usa.
+
+*`doctor`:* as dezesseis verificações saíam numa lista única, cada uma com o
+detalhe numa segunda linha. Agora saem em quatro seções (Cofre, Cache e disco,
+Daemon, Windows), o detalhe curto de um `[OK]` fica na própria linha, e o
+relatório fecha com "N verificações: X ok, Y avisos, Z falhas". Os 28 processos
+viraram uma linha por cofre, com quantos são de cada modo e a versão — a
+listagem de 28 pids não respondia "quantos servem este cofre".
+
+*Pergunta:* sim ou não virou modal de botões (`console.Confirmar`), com a
+resposta corrente sempre visível. Sem terminal — pipe, IDE, CI — cai na mesma
+pergunta digitada, que é o caminho do bootstrap.
+
+*Limpeza:* `install` e `update` já removiam o lixo órfão (passo 4 da sequência),
+e agora há teste da SEQUÊNCIA, não só de `Limpar`. O `doctor` passou a dizer
+que `gobsidian update` limpa, em vez de só oferecer `--fix`.
+
 **Daemon alcançável pelo Claude Desktop, `doctor` que vê versões misturadas,
 nomes de cofre e instruções do servidor — código completo, 2026-09-14/15.**
 O plano é

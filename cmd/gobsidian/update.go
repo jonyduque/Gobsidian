@@ -51,7 +51,7 @@ func rodarUpdate(ctx context.Context, cmd *cobra.Command, apenasConferir, sim bo
 	con := console.New(cmd.OutOrStdout())
 	entrada := bufio.NewReader(cmd.InOrStdin())
 
-	con.Step("Consultando a ultima versao publicada")
+	con.Step("Consultando a última versão publicada")
 	transporte := selfupdate.TransporteHTTP{}
 	release, err := selfupdate.UltimaVersao(ctx, transporte, repositorio)
 	if err != nil {
@@ -67,11 +67,11 @@ func rodarUpdate(ctx context.Context, cmd *cobra.Command, apenasConferir, sim bo
 	// em relacao a v1.5.1, e `update` faria downgrade. Encontrado rodando
 	// `update --check` de verdade em 2026-09-09.
 	if !selfupdate.PrecisaAtualizar(version, release.Tag) {
-		con.OK("Ja esta na ultima versao")
+		con.OK("Já está na última versão")
 		return nil
 	}
 	if apenasConferir {
-		con.Warn("Ha versao nova: %s", release.Tag)
+		con.Warn("Há versão nova: %s", release.Tag)
 		con.Detail("rode `gobsidian update` para instalar")
 		return nil
 	}
@@ -98,8 +98,8 @@ func rodarUpdate(ctx context.Context, cmd *cobra.Command, apenasConferir, sim bo
 	con.Step("Baixando %s e conferindo o SHA-256", ativo)
 	if err := selfupdate.Baixar(ctx, transporte, release, ativo, baixado); err != nil {
 		if errors.Is(err, selfupdate.ErrHashDivergente) {
-			con.Err("O binario baixado NAO confere com a soma publicada")
-			con.Detail("nada foi instalado; sua instalacao continua intacta")
+			con.Err("O binário baixado NÃO confere com a soma publicada")
+			con.Detail("nada foi instalado; sua instalação continua intacta")
 		}
 		return err
 	}
@@ -119,7 +119,7 @@ func rodarUpdate(ctx context.Context, cmd *cobra.Command, apenasConferir, sim bo
 		return fmt.Errorf("%w -- rode `gobsidian install` primeiro", err)
 	}
 
-	con.Step("Trocando o binario")
+	con.Step("Trocando o binário")
 	r, err := instalar.Instalar(ctx, sis, instalar.Opcoes{
 		Origem:  baixado,
 		Destino: filepath.Dir(m.Binario),
@@ -129,7 +129,7 @@ func rodarUpdate(ctx context.Context, cmd *cobra.Command, apenasConferir, sim bo
 		SemPath: m.PathAdicionado == "",
 	})
 	if errors.Is(err, instalar.ErrRecusado) {
-		con.Warn("Atualizacao cancelada; nada foi alterado")
+		con.Warn("Atualização cancelada; nada foi alterado")
 		return nil
 	}
 	if err != nil {
@@ -138,7 +138,7 @@ func rodarUpdate(ctx context.Context, cmd *cobra.Command, apenasConferir, sim bo
 
 	con.OK("Atualizado para %s", release.Tag)
 	imprimirResumo(con, r, cofresDoManifesto(m))
-	con.Detail("os hosts reiniciam o servidor sozinhos; nao ha o que fazer a mao")
+	con.Detail("os hosts reiniciam o servidor sozinhos; não há o que fazer à mão")
 	return nil
 }
 

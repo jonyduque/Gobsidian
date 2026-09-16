@@ -54,18 +54,18 @@ func classeDoCaminhoDoSocket(path string) string {
 		if os.IsNotExist(err) {
 			return "ausente"
 		}
-		return fmt.Sprintf("inacessivel (%v)", err)
+		return fmt.Sprintf("inacessível (%v)", err)
 	}
 	modo := fi.Mode()
 	switch {
 	case modo&os.ModeSocket != 0:
 		return "socket"
 	case modo.IsDir():
-		return "DIRETORIO (nenhum daemon consegue usar este caminho)"
+		return "DIRETÓRIO (nenhum daemon consegue usar este caminho)"
 	case modo&os.ModeSymlink != 0:
 		return "symlink"
 	case modo.IsRegular():
-		return fmt.Sprintf("arquivo comum de %d bytes (residuo; nenhum daemon escuta aqui)", fi.Size())
+		return fmt.Sprintf("arquivo comum de %d bytes (resíduo; nenhum daemon escuta aqui)", fi.Size())
 	default:
 		return fmt.Sprintf("outro (modo=%v)", modo)
 	}
@@ -110,11 +110,11 @@ var sondarSocketDoCofre = ipc.SondarSocketDoCofre
 //
 // Nao recebe ctx util: criar e conectar num socket local nao e espera real.
 func checkDiretorioDeSockets(_ context.Context, cfg config.Config) Result {
-	const name = "diretorio de sockets aceita conexao"
+	const name = "diretório de sockets aceita conexão"
 	if err := sondarSocketDoCofre(cfg.VaultPath); err != nil {
 		return Result{Name: name, Status: StatusWarn, Detail: fmt.Sprintf("%v -- a ponte deste contexto vai servir em processo em vez de usar o daemon", err)}
 	}
-	return Result{Name: name, Status: StatusOK, Detail: "neste processo; um host pode rodar o servidor noutro contexto -- a prova no host e a linha `conectado ao daemon` no log dele"}
+	return Result{Name: name, Status: StatusOK, Detail: "vale neste processo; num host o servidor roda noutro contexto, e a prova lá é a linha `conectado ao daemon` no log dele"}
 }
 
 // checkDaemonVivo tenta o handshake, que é o ÚNICO critério de "há daemon
@@ -137,7 +137,7 @@ func checkDaemonVivo(ctx context.Context, cfg config.Config) Result {
 
 	path, perr := ipc.SocketPath(cfg.VaultPath)
 	if perr != nil {
-		path = "(caminho indisponivel)"
+		path = "(caminho indisponível)"
 	}
 	// Sem daemon nao e falha: o modo em processo e um caminho suportado, e a
 	// ponte cai nele de proposito quando nao ha daemon.
@@ -145,7 +145,7 @@ func checkDaemonVivo(ctx context.Context, cfg config.Config) Result {
 		return Result{
 			Name:   name,
 			Status: StatusOK,
-			Detail: "nenhum daemon rodando (a ponte servira em processo)",
+			Detail: "nenhum daemon rodando (a ponte servirá em processo)",
 		}
 	}
 	return Result{
@@ -171,7 +171,7 @@ func checkDaemonLog(_ context.Context, cfg config.Config) Result {
 	fi, err := os.Stat(path)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return Result{Name: name, Status: StatusOK, Detail: "ainda nao existe (nenhum daemon rodou para este cofre)"}
+			return Result{Name: name, Status: StatusOK, Detail: "ainda não existe (nenhum daemon rodou para este cofre)"}
 		}
 		return Result{Name: name, Status: StatusWarn, Detail: fmt.Sprintf("%s: %v", path, err)}
 	}
@@ -180,7 +180,7 @@ func checkDaemonLog(_ context.Context, cfg config.Config) Result {
 
 	idade := time.Since(fi.ModTime()).Round(time.Minute)
 	var b strings.Builder
-	fmt.Fprintf(&b, "%s (%d bytes, ultima escrita ha %s)", path, fi.Size(), idade)
+	fmt.Fprintf(&b, "%s (%d bytes, última escrita há %s)", path, fi.Size(), idade)
 	for _, l := range linhas {
 		b.WriteString("\n      | ")
 		b.WriteString(l)
@@ -214,7 +214,7 @@ func checkLocksDeDaemon(_ context.Context, cfg config.Config) Result {
 	entradas, err := os.ReadDir(dir)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return Result{Name: name, Status: StatusOK, Detail: "diretorio de runtime ainda nao existe"}
+			return Result{Name: name, Status: StatusOK, Detail: "diretório de runtime ainda não existe"}
 		}
 		return Result{Name: name, Status: StatusWarn, Detail: fmt.Sprintf("%s: %v", dir, err)}
 	}
@@ -227,7 +227,7 @@ func checkLocksDeDaemon(_ context.Context, cfg config.Config) Result {
 		caminho := filepath.Join(dir, e.Name())
 		ocupada, err := daemon.TravaEmUso(caminho)
 		if err != nil {
-			emUso = append(emUso, fmt.Sprintf("%s (nao foi possivel consultar: %v)", e.Name(), err))
+			emUso = append(emUso, fmt.Sprintf("%s (não foi possível consultar: %v)", e.Name(), err))
 			continue
 		}
 		if !ocupada {

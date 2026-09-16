@@ -28,6 +28,13 @@ func (s *Stream) Moldura(titulo string, corpos []string, rodape string) []string
 	const teto = 78
 	const margem = 2
 
+	// Adaptar ANTES de montar e de MEDIR, e nao na hora de imprimir:
+	// "permissão" e "permissao" tem larguras diferentes, e medir uma para
+	// escrever a outra deixa a borda torta. A primeira redacao adaptava depois
+	// de montar as bordas, e o ineffassign do golangci-lint achou: o titulo
+	// acentuado continuava indo para a tela de um console que nao o aguenta.
+	titulo, rodape = adaptarTexto(titulo), adaptarTexto(rodape)
+
 	tituloDeco := ""
 	if titulo != "" {
 		tituloDeco = g.Horizontal + " " + s.style(titulo, corTitulo...) + " "
@@ -43,7 +50,7 @@ func (s *Stream) Moldura(titulo string, corpos []string, rodape string) []string
 	// primeira vez que ele passou por aqui. Achatar mora AQUI e nao em cada
 	// chamador: quem monta um bloco nao deveria precisar saber disso.
 	for i, c := range corpos {
-		corpos[i] = achatar(c)
+		corpos[i] = adaptarTexto(achatar(c))
 	}
 
 	interno := larguraVisivel(tituloDeco)

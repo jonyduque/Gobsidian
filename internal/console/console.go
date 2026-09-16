@@ -138,7 +138,7 @@ func (s *Stream) Italic(text string) string { return s.style(text, codeItalic) }
 // o texto vai como veio: colorir a mensagem inteira de vermelho torna
 // ilegivel um caminho longo, e o que precisa saltar aos olhos e o estado.
 func (s *Stream) printf(marker string, codes []string, format string, a ...any) {
-	_, _ = fmt.Fprintf(s.w, "%s %s\n", s.style(marker, codes...), fmt.Sprintf(format, a...))
+	_, _ = fmt.Fprintf(s.w, "%s %s\n", s.style(marker, codes...), adaptarTexto(fmt.Sprintf(format, a...)))
 }
 
 // OK marca sucesso.
@@ -175,13 +175,13 @@ func (s *Stream) Step(format string, a ...any) {
 
 // Line imprime sem marcador nenhum, respeitando o destino do Stream.
 func (s *Stream) Line(format string, a ...any) {
-	_, _ = fmt.Fprintf(s.w, format+"\n", a...)
+	_, _ = fmt.Fprintln(s.w, adaptarTexto(fmt.Sprintf(format, a...)))
 }
 
 // Detail imprime uma linha de detalhe indentada sob o item anterior, em tom
 // apagado. E o segundo nivel do relatorio do doctor.
 func (s *Stream) Detail(format string, a ...any) {
-	_, _ = fmt.Fprintf(s.w, "     %s\n", s.Dim(fmt.Sprintf(format, a...)))
+	_, _ = fmt.Fprintf(s.w, "     %s\n", s.Dim(adaptarTexto(fmt.Sprintf(format, a...))))
 }
 
 // SupportsColor decide se w aceita sequencias ANSI.

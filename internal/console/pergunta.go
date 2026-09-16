@@ -22,7 +22,7 @@ import "fmt"
 // concordando.
 func (s *Stream) Pergunta(pergunta, padrao string) {
 	g := GlifosDaSaida()
-	linha := s.style(g.Pergunta, corPergunta...) + " " + s.style(pergunta, corTitulo...)
+	linha := s.style(g.Pergunta, corPergunta...) + " " + s.style(adaptarTexto(pergunta), corTitulo...)
 	if padrao != "" {
 		linha += " " + s.style("("+padrao+")", corNota...)
 	}

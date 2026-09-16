@@ -70,7 +70,7 @@ func checkRootExists(ctx context.Context, cfg config.Config) Result {
 		return Result{
 			Name:   name,
 			Status: StatusFail,
-			Detail: fmt.Sprintf("%q existe mas nao e um diretorio", cfg.VaultPath),
+			Detail: fmt.Sprintf("%q existe mas não é um diretório", cfg.VaultPath),
 		}
 	}
 	return Result{Name: name, Status: StatusOK}
@@ -78,7 +78,7 @@ func checkRootExists(ctx context.Context, cfg config.Config) Result {
 
 // checkReadable verifica que o processo consegue listar a raiz do cofre.
 func checkReadable(ctx context.Context, cfg config.Config) Result {
-	const name = "permissao de leitura"
+	const name = "permissão de leitura"
 
 	if err := ctx.Err(); err != nil {
 		return Result{Name: name, Status: StatusWarn, Detail: fmt.Sprintf("varredura interrompida: %v", err)}
@@ -89,7 +89,7 @@ func checkReadable(ctx context.Context, cfg config.Config) Result {
 		return Result{
 			Name:   name,
 			Status: StatusFail,
-			Detail: fmt.Sprintf("nao foi possivel listar %q: %v", cfg.VaultPath, err),
+			Detail: fmt.Sprintf("não foi possível listar %q: %v", cfg.VaultPath, err),
 		}
 	}
 	return Result{Name: name, Status: StatusOK, Detail: fmt.Sprintf("%d entradas na raiz", len(entries))}
@@ -101,7 +101,7 @@ func checkReadable(ctx context.Context, cfg config.Config) Result {
 // bloqueante quando o produto precisa escrever, aviso quando o usuario ja
 // pediu para nao escrever e portanto a resposta nao importa para o exit code.
 func checkWritable(ctx context.Context, cfg config.Config) Result {
-	const name = "permissao de escrita"
+	const name = "permissão de escrita"
 
 	if err := ctx.Err(); err != nil {
 		return Result{Name: name, Status: StatusWarn, Detail: fmt.Sprintf("varredura interrompida: %v", err)}
@@ -122,7 +122,7 @@ func checkWritable(ctx context.Context, cfg config.Config) Result {
 	}
 
 	if err != nil {
-		detail := fmt.Sprintf("nao foi possivel escrever em %q: %v", cfg.VaultPath, err)
+		detail := fmt.Sprintf("não foi possível escrever em %q: %v", cfg.VaultPath, err)
 		if cfg.ReadOnly {
 			return Result{Name: name, Status: StatusWarn, Detail: detail}
 		}
@@ -151,19 +151,19 @@ func checkObsidianDir(ctx context.Context, cfg config.Config) Result {
 		return Result{
 			Name:   name,
 			Status: StatusWarn,
-			Detail: "pasta .obsidian ausente: configuracoes, temas e plugins do Obsidian nao serao detectados",
+			Detail: "pasta .obsidian ausente: configurações, temas e plugins do Obsidian não serão detectados",
 		}
 	case err != nil:
 		return Result{
 			Name:   name,
 			Status: StatusWarn,
-			Detail: fmt.Sprintf("nao foi possivel verificar %q: %v", path, err),
+			Detail: fmt.Sprintf("não foi possível verificar %q: %v", path, err),
 		}
 	case !info.IsDir():
 		return Result{
 			Name:   name,
 			Status: StatusWarn,
-			Detail: fmt.Sprintf("%q existe mas nao e um diretorio", path),
+			Detail: fmt.Sprintf("%q existe mas não é um diretório", path),
 		}
 	default:
 		return Result{Name: name, Status: StatusOK}
@@ -210,7 +210,7 @@ func checkLongestPath(scan vaultScan) Result {
 // checkCacheDir verifica que o diretorio de cache pode ser criado. Nunca
 // falha: sem cache o produto reindexação do zero, mais lento, mas funcional.
 func checkCacheDir(ctx context.Context, cfg config.Config) Result {
-	const name = "diretorio de cache"
+	const name = "diretório de cache"
 
 	if err := ctx.Err(); err != nil {
 		return Result{Name: name, Status: StatusWarn, Detail: fmt.Sprintf("varredura interrompida: %v", err)}
@@ -220,14 +220,14 @@ func checkCacheDir(ctx context.Context, cfg config.Config) Result {
 		// So acontece quando o chamador monta Config fora de config.Load
 		// (por exemplo, um teste que usa config.Defaults() direto). Em uso
 		// real config.Load sempre preenche um default fora do cofre.
-		return Result{Name: name, Status: StatusOK, Detail: "nenhum diretorio de cache configurado"}
+		return Result{Name: name, Status: StatusOK, Detail: "nenhum diretório de cache configurado"}
 	}
 
 	if err := os.MkdirAll(vault.LongPath(cfg.CacheDir), 0o755); err != nil {
 		return Result{
 			Name:   name,
 			Status: StatusWarn,
-			Detail: fmt.Sprintf("nao foi possivel criar %q: %v", cfg.CacheDir, err),
+			Detail: fmt.Sprintf("não foi possível criar %q: %v", cfg.CacheDir, err),
 		}
 	}
 	return Result{Name: name, Status: StatusOK, Detail: cfg.CacheDir}
@@ -237,7 +237,7 @@ func checkCacheDir(ctx context.Context, cfg config.Config) Result {
 // cofre. Falha (bloqueante) abaixo de 10 MB, porque escritas atomicas podem
 // comecar a falhar; aviso abaixo de 100 MB.
 func checkFreeSpace(ctx context.Context, cfg config.Config) Result {
-	const name = "espaco em disco"
+	const name = "espaço em disco"
 
 	if err := ctx.Err(); err != nil {
 		return Result{Name: name, Status: StatusWarn, Detail: fmt.Sprintf("varredura interrompida: %v", err)}
@@ -245,7 +245,7 @@ func checkFreeSpace(ctx context.Context, cfg config.Config) Result {
 
 	free, err := diskFreeBytes(cfg.VaultPath)
 	if err != nil {
-		return Result{Name: name, Status: StatusWarn, Detail: fmt.Sprintf("nao foi possivel medir espaco livre: %v", err)}
+		return Result{Name: name, Status: StatusWarn, Detail: fmt.Sprintf("não foi possível medir espaço livre: %v", err)}
 	}
 
 	detail := fmt.Sprintf("%d MB livres", free/(1<<20))
@@ -313,7 +313,7 @@ func scanStatus(scan vaultScan, name string) (Result, bool) {
 	return Result{
 		Name:   name,
 		Status: StatusFail,
-		Detail: fmt.Sprintf("cofre inacessivel durante a varredura: %v", scan.err),
+		Detail: fmt.Sprintf("cofre inacessível durante a varredura: %v", scan.err),
 	}, true
 }
 

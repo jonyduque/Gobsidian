@@ -84,7 +84,7 @@ func rodarInstalacao(ctx context.Context, cmd *cobra.Command, o *opcoesDeInstala
 	// unica pergunta segura aqui e "ha alguem do outro lado?", e a resposta e
 	// TerminalInterativo.
 	if !o.sim && !terminalInterativoFn() {
-		con.Warn("a entrada nao e um terminal: usando as respostas padrao")
+		con.Warn("a entrada não é um terminal: usando as respostas padrão")
 		con.Detail("para escolher os cofres, rode `gobsidian install` num terminal")
 		o.sim = true
 	}
@@ -121,7 +121,7 @@ func rodarInstalacao(ctx context.Context, cmd *cobra.Command, o *opcoesDeInstala
 		SemPath:     o.semPath,
 	})
 	if errors.Is(err, instalar.ErrRecusado) {
-		con.Warn("Instalacao cancelada; nada foi alterado")
+		con.Warn("Instalação cancelada; nada foi alterado")
 		return nil
 	}
 	if err != nil {
@@ -180,18 +180,18 @@ func escolherCofres(con *console.Stream, entrada *bufio.Reader, o *opcoesDeInsta
 		for _, c := range jaConfigurados {
 			corpos = append(corpos, "  "+c)
 		}
-		con.Bloco("Configuracao atual", corpos, "")
+		con.Bloco("Configuração atual", corpos, "")
 		if o.sim {
 			return jaConfigurados, nil
 		}
-		if simOuNao(con, entrada, "Manter esta configuracao?", true) {
+		if simOuNao(con, entrada, "Manter esta configuração?", true) {
 			return jaConfigurados, nil
 		}
 	}
 
 	doObsidian, err := instalar.CofresDoObsidian(instalar.CaminhoDoRegistroDoObsidian())
 	if err != nil {
-		con.Warn("nao foi possivel ler o registro de cofres do Obsidian: %v", err)
+		con.Warn("não foi possível ler o registro de cofres do Obsidian: %v", err)
 	}
 
 	// A lista soma os cofres do Obsidian com os que JA estao configurados e nao
@@ -257,7 +257,7 @@ func escolherCofres(con *console.Stream, entrada *bufio.Reader, o *opcoesDeInsta
 		for i, it := range itens {
 			con.Detail("%d) %s  %s", i+1, it.caminho, it.nota)
 		}
-		resposta := perguntar(con, entrada, "Numeros separados por espaco, * para todos, vazio para nenhum", "")
+		resposta := perguntar(con, entrada, "Números separados por espaço, * para todos, vazio para nenhum", "")
 		indices, err = console.SelecionarDigitando(resposta, opcoes)
 		if err != nil {
 			return nil, err
@@ -343,7 +343,7 @@ func escolherHosts(con *console.Stream, entrada *bufio.Reader, o *opcoesDeInstal
 		for i, h := range detectados {
 			con.Detail("%d) %s  (%s)", i+1, h.Nome, h.Chave)
 		}
-		resposta := perguntar(con, entrada, "Numeros separados por espaco, * para todos, vazio para nenhum", "*")
+		resposta := perguntar(con, entrada, "Números separados por espaço, * para todos, vazio para nenhum", "*")
 		indices, err = console.SelecionarDigitando(resposta, opcoes)
 		if err != nil {
 			return nil, err
@@ -396,7 +396,7 @@ func resumoEmLinhas(con *console.Stream, r instalar.Resultado, cofres []string) 
 		add("%-16s FALHOU: %s", chave, erro)
 	}
 	if !r.Limpeza.Vazio() {
-		add("limpeza  %d trava(s), %d socket(s), %d presenca(s), %d cache(s), %d KB",
+		add("limpeza  %d trava(s), %d socket(s), %d presença(s), %d cache(s), %d KB",
 			len(r.Limpeza.Locks), len(r.Limpeza.Sockets), len(r.Limpeza.Presencas),
 			len(r.Limpeza.Caches), r.Limpeza.Bytes/1024)
 	}
@@ -431,7 +431,7 @@ func newPathCmd() *cobra.Command {
 				return err
 			}
 			if !mudou {
-				con.OK("PATH ja estava como voce pediu")
+				con.OK("PATH já estava como você pediu")
 				con.Detail("%s", dir)
 				return nil
 			}
@@ -482,7 +482,7 @@ func newVaultsCmd() *cobra.Command {
 				con.Detail("%-16s %s", chave, aviso)
 			}
 			for chave, erro := range falhos {
-				con.Warn("%s nao pode ser configurado", chave)
+				con.Warn("%s não pode ser configurado", chave)
 				con.Detail("%s", erro)
 			}
 			return nil
@@ -519,7 +519,38 @@ func perguntar(con *console.Stream, entrada *bufio.Reader, pergunta, padrao stri
 // tela, e o eco resolveria isso -- mas o eco util diz o SIGNIFICADO da
 // escolha, e so quem chama sabe traduzir "S/n" em "sim". Ver simOuNao.
 
+// simOuNao pergunta com os BOTOES de console.Confirmar e, sem terminal, com a
+// mesma pergunta digitada.
+//
+// Ate 2026-09-16 so existia a forma digitada: o usuario lia "S/n" e apertava
+// Enter sem ver o que estava escolhendo. O modal mostra a resposta corrente na
+// tela, que e o que se confirma.
 func simOuNao(con *console.Stream, entrada *bufio.Reader, pergunta string, padrao bool) bool {
+	return decidir(con, entrada, pergunta, nil, padrao)
+}
+
+// decidir e a conta unica das duas formas da mesma pergunta. Cancelar (Esc, q,
+// Ctrl-C) e NAO: desistir de uma pergunta nunca autoriza o lado que muda o
+// sistema.
+func decidir(con *console.Stream, entrada *bufio.Reader, pergunta string, itens []string, padrao bool) bool {
+	resposta, err := console.Confirmar(con, arquivoDaEntrada(), pergunta, itens, padrao)
+	switch {
+	case err == nil:
+		return resposta
+	case errors.Is(err, console.ErrCancelado):
+		con.Resposta("cancelado")
+		return false
+	case errors.Is(err, console.ErrSemTerminal):
+		for _, i := range itens {
+			con.Detail("%s", i)
+		}
+		return simOuNaoDigitado(con, entrada, pergunta, padrao)
+	default:
+		return false
+	}
+}
+
+func simOuNaoDigitado(con *console.Stream, entrada *bufio.Reader, pergunta string, padrao bool) bool {
 	sufixo := "s/N"
 	if padrao {
 		sufixo = "S/n"
@@ -545,15 +576,18 @@ func simOuNao(con *console.Stream, entrada *bufio.Reader, pergunta string, padra
 // aparece inteira -- PID e cofre -- porque "3 processos" nao permite discordar
 // de nenhum deles.
 func confirmar(con *console.Stream, entrada *bufio.Reader, sim bool, pergunta string, itens []string) bool {
-	con.Warn("%s", pergunta)
-	for _, i := range itens {
-		con.Detail("%s", i)
-	}
 	if sim {
+		con.Warn("%s", pergunta)
+		for _, i := range itens {
+			con.Detail("%s", i)
+		}
 		con.Detail("--yes: encerrando sem perguntar")
 		return true
 	}
-	return simOuNao(con, entrada, "Encerrar?", false)
+	// Os itens vao DENTRO da moldura da pergunta, e nao impressos antes dela:
+	// a lista de processos e o que se esta decidindo, e uma lista que rolou
+	// para fora da tela nao permite discordar de nenhum deles.
+	return decidir(con, entrada, pergunta, itens, false)
 }
 
 // arquivoDaEntrada devolve a entrada padrao como *os.File, que e o que o modo

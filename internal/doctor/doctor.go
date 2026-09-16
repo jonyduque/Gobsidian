@@ -29,7 +29,23 @@ type Result struct {
 	Name   string
 	Status Status
 	Detail string
+	// Grupo e a secao do relatorio a que esta linha pertence.
+	//
+	// Existe desde 2026-09-16: as dezesseis linhas saiam numa lista unica, e
+	// quem abre o `doctor` esta procurando UMA coisa -- o cofre nao abre, ou o
+	// daemon nao responde. Sem secao, achar qual das dezesseis responde a
+	// pergunta exigia ler todas. Quem agrupa e o comando; o que o pacote faz e
+	// dizer a que grupo cada verificacao pertence, porque e ele que sabe.
+	Grupo string
 }
+
+// Os grupos do relatorio, na ordem em que o comando os mostra.
+const (
+	GrupoCofre  = "Cofre"
+	GrupoCache  = "Cache e disco"
+	GrupoDaemon = "Daemon"
+	GrupoSO     = "Windows"
+)
 
 type check func(context.Context, config.Config) Result
 
@@ -45,7 +61,7 @@ func Run(ctx context.Context, cfg config.Config) []Result {
 
 	out := make([]Result, 0, 16)
 	for _, fn := range checks {
-		res := fn(ctx, cfg)
+		res := comGrupo(GrupoCofre, fn(ctx, cfg))
 		out = append(out, res)
 		if res.Status == StatusFail {
 			return out
@@ -61,25 +77,38 @@ func Run(ctx context.Context, cfg config.Config) []Result {
 	scan := scanVault(ctx, cfg)
 
 	out = append(out,
-		checkWritable(ctx, cfg),
-		checkObsidianDir(ctx, cfg),
-		checkNoteCount(scan),
-		checkLongestPath(scan),
-		checkCacheDir(ctx, cfg),
-		checkFreeSpace(ctx, cfg),
+		comGrupo(GrupoCofre, checkWritable(ctx, cfg)),
+		comGrupo(GrupoCofre, checkObsidianDir(ctx, cfg)),
+		comGrupo(GrupoCofre, checkNoteCount(scan)),
+		comGrupo(GrupoCofre, checkLongestPath(scan)),
+		comGrupo(GrupoCache, checkCacheDir(ctx, cfg)),
+		comGrupo(GrupoCache, checkFreeSpace(ctx, cfg)),
 		// Runtime do daemon (daemon.go). Vem depois das checagens de cofre
 		// porque so fazem sentido com a raiz ja validada, e antes das de
 		// plataforma porque sao as que alguem consulta quando o servidor
 		// "sumiu do host" -- o sintoma que trouxe estas linhas para ca.
-		checkSocketPath(ctx, cfg),
-		checkDiretorioDeSockets(ctx, cfg),
-		checkDaemonVivo(ctx, cfg),
-		checkDaemonLog(ctx, cfg),
-		checkLocksDeDaemon(ctx, cfg),
+		comGrupo(GrupoDaemon, checkSocketPath(ctx, cfg)),
+		comGrupo(GrupoDaemon, checkDiretorioDeSockets(ctx, cfg)),
+		comGrupo(GrupoDaemon, checkDaemonVivo(ctx, cfg)),
+		comGrupo(GrupoDaemon, checkDaemonLog(ctx, cfg)),
+		comGrupo(GrupoDaemon, checkLocksDeDaemon(ctx, cfg)),
 	)
-	out = append(out, platformChecks(scan)...)
+	for _, r := range platformChecks(scan) {
+		out = append(out, comGrupo(GrupoSO, r))
+	}
 
 	return out
+}
+
+// comGrupo marca a secao de um resultado.
+//
+// O grupo e posto AQUI, no ponto onde a ordem das verificacoes ja esta
+// decidida, e nao dentro de cada check: quem sabe que "espaco em disco" e do
+// mesmo grupo que "diretorio de cache" e esta lista, e espalhar a resposta
+// por doze funcoes faria a proxima nascer sem grupo nenhum.
+func comGrupo(g string, r Result) Result {
+	r.Grupo = g
+	return r
 }
 
 // ExitCode e zero quando nao ha falha bloqueante. Avisos nao alteram o codigo:

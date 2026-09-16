@@ -99,14 +99,24 @@ func GlifosDaSaida() Glifos {
 	if forcarGlifos != nil {
 		return *forcarGlifos
 	}
-	switch os.Getenv(VarDeEstilo) {
-	case "1", "true", "sim":
-		return glifosUnicode
-	case "0", "false", "nao":
-		return glifosASCII
-	}
-	if suportaUnicode() {
+	if modoUnicode() {
 		return glifosUnicode
 	}
 	return glifosASCII
+}
+
+// modoUnicode e a decisao unica sobre o que esta saida aguenta fora do ASCII.
+//
+// Os glifos da moldura e o ACENTO do texto respondem a mesma pergunta, e antes
+// de 2026-09-16 so os glifos a faziam: o desenho era medido e o texto era
+// escrito sem acento sempre, ate no Windows Terminal. Duas respostas para a
+// mesma pergunta divergem; esta e a conta unica. Ver adaptarTexto.
+func modoUnicode() bool {
+	switch os.Getenv(VarDeEstilo) {
+	case "1", "true", "sim":
+		return true
+	case "0", "false", "nao":
+		return false
+	}
+	return suportaUnicode()
 }

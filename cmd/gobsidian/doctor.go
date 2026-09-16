@@ -11,6 +11,7 @@ import (
 	"github.com/jonyduque/Gobsidian/internal/hosts"
 	"github.com/jonyduque/Gobsidian/internal/instalar"
 	"github.com/spf13/cobra"
+	"path/filepath"
 	"sort"
 	"strings"
 )
@@ -45,26 +46,14 @@ func newDoctorCmd() *cobra.Command {
 			// A cor sai do writer do comando, nao de os.Stdout: quem faz
 			// `gobsidian doctor > relatorio.txt` recebe um arquivo limpo.
 			con := console.New(cmd.OutOrStdout())
-			con.Titulo("Diagnostico do ambiente")
-			for _, r := range results {
-				switch r.Status {
-				case doctor.StatusOK:
-					con.OK("%s", r.Name)
-				case doctor.StatusWarn:
-					con.Warn("%s", r.Name)
-				default:
-					con.Err("%s", r.Name)
-				}
-				if r.Detail != "" {
-					con.Detail("%s", r.Detail)
-				}
-			}
+			con.Titulo("Diagnóstico do ambiente")
+			relatarVerificacoes(con, results)
 
 			relatarProcessosELixo(con, corrigir)
 
 			code := doctor.ExitCode(results)
 			if code != 0 {
-				con.Err("Ha falhas bloqueantes acima")
+				con.Err("Há falhas bloqueantes acima")
 				os.Exit(code)
 			}
 			con.OK("Ambiente apto")
@@ -104,7 +93,7 @@ var corrigir bool
 func relatarProcessosELixo(con *console.Stream, aplicar bool) {
 	runtimeDir, err := instalar.DiretorioDeRuntime()
 	if err != nil {
-		con.Warn("processos e lixo: diretorio de runtime indisponivel (%v)", err)
+		con.Warn("processos e lixo: diretório de runtime indisponível (%v)", err)
 		return
 	}
 
@@ -116,16 +105,8 @@ func relatarProcessosELixo(con *console.Stream, aplicar bool) {
 		con.OK("processos do gobsidian")
 		con.Detail("nenhum rodando")
 	default:
-		con.OK("processos do gobsidian")
-		linhas := make([]string, 0, len(vivos))
-		for _, p := range vivos {
-			modo := p.Modo
-			if modo == "" {
-				modo = "?"
-			}
-			linhas = append(linhas, fmt.Sprintf("  pid %-7d %-8s %-11s %-12s %s", p.PID, p.Papel, modo, p.Versao, p.Cofre))
-		}
-		con.Bloco("", linhas, "")
+		con.OK("%d processo(s) do gobsidian", len(vivos))
+		con.Bloco("", linhasPorCofre(con, vivos), "um servidor por sessão do host; o daemon é um só por cofre")
 		// Dois GRAVADORES do mesmo cofre gravam o mesmo cache de busca: o estado
 		// medido em 2026-09-08. Ponte nao grava, e ate 2026-09-14 este aviso a
 		// contava -- mandava encerrar as pontes do Antigravity, que estavam
@@ -133,10 +114,10 @@ func relatarProcessosELixo(con *console.Stream, aplicar bool) {
 		for _, s := range analisarGravadores(vivos) {
 			if len(s.Gravadores) > 1 {
 				con.Warn("%d processos gravam o cache do mesmo cofre", len(s.Gravadores))
-				con.Detail("%s -- gravadores: %s; encerre os extras. Pontes nao gravam e ficam fora desta conta", s.Cofre, listarPIDs(s.Gravadores))
+				con.Detail("%s -- gravadores: %s; encerre os extras. Pontes não gravam e ficam fora desta conta", s.Cofre, listarPIDs(s.Gravadores))
 			}
 			if len(s.SemModo) > 0 {
-				con.Detail("%s -- %s sem modo registrado (versao anterior): nao da para saber se gravam", s.Cofre, listarPIDs(s.SemModo))
+				con.Detail("%s -- %s sem modo registrado (versão anterior): não dá para saber se gravam", s.Cofre, listarPIDs(s.SemModo))
 			}
 		}
 	}
@@ -163,33 +144,33 @@ func relatarProcessosELixo(con *console.Stream, aplicar bool) {
 
 	r, err := instalar.Limpar(runtimeDir, instalar.RaizDoCache(), aplicar)
 	if err != nil {
-		con.Warn("lixo do diretorio de runtime: %v", err)
+		con.Warn("lixo do diretório de runtime: %v", err)
 		return
 	}
 	if r.Vazio() {
-		con.OK("lixo de execucoes anteriores")
+		con.OK("lixo de execuções anteriores")
 		con.Detail("nada a remover")
 		return
 	}
 
-	verbo := "removivel"
+	verbo := "removível"
 	if aplicar {
 		verbo = "removido"
 	}
-	con.Warn("lixo de execucoes anteriores")
+	con.Warn("lixo de execuções anteriores")
 	con.Campos("", []console.Campo{
 		console.Campof("travas", "%d", len(r.Locks)),
 		console.Campof("sockets", "%d", len(r.Sockets)),
-		console.Campof("presencas", "%d", len(r.Presencas)),
+		console.Campof("presenças", "%d", len(r.Presencas)),
 		{Chave: "caches", Valor: fmt.Sprintf("%d", len(r.Caches)), Nota: "de cofre inexistente"},
 		console.Campof("logs rotacionados", "%d", len(r.LogsRotacionados)),
 		{Chave: "total", Valor: fmt.Sprintf("%d KB", r.Bytes/1024), Nota: verbo},
 	})
 	if !aplicar {
-		con.Detail("rode `gobsidian doctor --fix` para remover")
+		con.Detail("rode `gobsidian doctor --fix` para remover, ou `gobsidian update`, que já limpa")
 	}
 	for _, falha := range r.NaoRemovidos {
-		con.Detail("nao removido: %s", falha)
+		con.Detail("não removido: %s", falha)
 	}
 }
 
@@ -233,6 +214,164 @@ func analisarGravadores(vivos []instalar.Presenca) []situacaoDoCofre {
 	return saida
 }
 
+// relatarVerificacoes imprime o relatório do `doctor` em SEÇÕES.
+//
+// As dezesseis linhas saíam numa lista única, e quem abre o `doctor` já está
+// procurando uma coisa: o cofre não abre, ou o daemon não responde. A seção diz
+// onde olhar antes de o olho percorrer tudo.
+//
+// O detalhe de uma linha OK entra na PRÓPRIA linha, apagado, quando é curto: um
+// relatório em que cada verificação ocupa duas linhas tem o dobro do tamanho e
+// a mesma informação. Aviso e falha mantêm o detalhe embaixo, com o destaque
+// que a indentação dá -- eles são o que alguém veio ler.
+func relatarVerificacoes(con *console.Stream, results []doctor.Result) {
+	var ok, avisos, falhas int
+	for _, g := range []string{doctor.GrupoCofre, doctor.GrupoCache, doctor.GrupoDaemon, doctor.GrupoSO} {
+		var doGrupo []doctor.Result
+		for _, r := range results {
+			if r.Grupo == g {
+				doGrupo = append(doGrupo, r)
+			}
+		}
+		if len(doGrupo) == 0 {
+			continue
+		}
+		con.Titulo("%s", g)
+		for _, r := range doGrupo {
+			nome := r.Name
+			detalheAbaixo := r.Detail
+			if r.Status == doctor.StatusOK && cabeNaLinha(r.Detail) {
+				nome += "  " + con.Dim(r.Detail)
+				detalheAbaixo = ""
+			}
+			switch r.Status {
+			case doctor.StatusOK:
+				ok++
+				con.OK("%s", nome)
+			case doctor.StatusWarn:
+				avisos++
+				con.Warn("%s", nome)
+			default:
+				falhas++
+				con.Err("%s", nome)
+			}
+			if detalheAbaixo != "" {
+				con.Detail("%s", detalheAbaixo)
+			}
+		}
+	}
+
+	con.Line("")
+	con.Info("%d verificações: %d ok, %d aviso(s), %d falha(s)", ok+avisos+falhas, ok, avisos, falhas)
+}
+
+// cabeNaLinha decide se um detalhe pode ser colado ao nome da verificação. Uma
+// linha só, e curta: o log do daemon traz três linhas próprias, e o caminho de
+// um cache passa da largura da moldura.
+func cabeNaLinha(detalhe string) bool {
+	return detalhe != "" && !strings.Contains(detalhe, "\n") && len([]rune(detalhe)) <= 56
+}
+
+// linhasPorCofre resume os processos vivos: uma linha por cofre, com quantos
+// são de cada modo.
+//
+// Medido em 2026-09-15 na máquina do dono: 28 processos, 28 linhas, quatro
+// cofres. A pergunta que alguém faz olhando isso ("quantos servem o Estudo, e
+// algum grava o cache duas vezes?") exigia contar à mão.
+func linhasPorCofre(con *console.Stream, vivos []instalar.Presenca) []string {
+	type resumo struct {
+		porModo  map[string]int
+		versoes  map[string]bool
+		total    int
+		gravando int
+	}
+	porCofre := map[string]*resumo{}
+	var ordem []string
+	for _, p := range vivos {
+		cofre := p.Cofre
+		if cofre == "" {
+			cofre = "(sem cofre registrado)"
+		}
+		r, ok := porCofre[cofre]
+		if !ok {
+			r = &resumo{porModo: map[string]int{}, versoes: map[string]bool{}}
+			porCofre[cofre] = r
+			ordem = append(ordem, cofre)
+		}
+		modo := p.Modo
+		if modo == "" {
+			modo = "modo não registrado"
+		}
+		r.porModo[modo]++
+		r.total++
+		if p.Versao != "" {
+			r.versoes[p.Versao] = true
+		}
+		if instalar.GravaCache(modo) {
+			r.gravando++
+		}
+	}
+	sort.Strings(ordem)
+
+	linhas := make([]string, 0, len(ordem))
+	for _, cofre := range ordem {
+		r := porCofre[cofre]
+		modos := make([]string, 0, len(r.porModo))
+		for m := range r.porModo {
+			modos = append(modos, m)
+		}
+		sort.Strings(modos)
+		partes := make([]string, 0, len(modos))
+		for _, m := range modos {
+			partes = append(partes, fmt.Sprintf("%d %s", r.porModo[m], rotuloDeModo(m, r.porModo[m])))
+		}
+		versoes := make([]string, 0, len(r.versoes))
+		for v := range r.versoes {
+			versoes = append(versoes, v)
+		}
+		sort.Strings(versoes)
+		linhas = append(linhas,
+			fmt.Sprintf("  %-24s %-34s %s",
+				filepath.Base(cofre), strings.Join(partes, ", "), con.Dim(strings.Join(versoes, " "))))
+	}
+	return linhas
+}
+
+// rotuloDeModo escreve o modo como ele aparece na tela, no singular ou no
+// plural. "2 ponte" era o que a primeira redação mostrava, e a linha existe
+// justamente para ser lida de relance.
+//
+// "em-processo" é a constante que a presença grava; na tela ele vira
+// "servidor em processo", que é o que a palavra significa para quem lê.
+func rotuloDeModo(modo string, n int) string {
+	switch modo {
+	case instalar.ModoDaemon:
+		return plural(n, "daemon", "daemons")
+	case instalar.ModoPonte:
+		return plural(n, "ponte", "pontes")
+	case instalar.ModoEmProcesso:
+		return plural(n, "servidor em processo", "servidores em processo")
+	default:
+		return modo
+	}
+}
+
+func plural(n int, singular, plural string) string {
+	if n == 1 {
+		return singular
+	}
+	return plural
+}
+
+// listarNumeros escreve uma lista de PIDs para caber numa linha de moldura.
+func listarNumeros(pids []int) string {
+	partes := make([]string, 0, len(pids))
+	for _, p := range pids {
+		partes = append(partes, fmt.Sprintf("%d", p))
+	}
+	return "pid " + strings.Join(partes, ", ")
+}
+
 func listarPIDs(ps []instalar.Presenca) string {
 	partes := make([]string, 0, len(ps))
 	for _, p := range ps {
@@ -250,24 +389,39 @@ func relatarProcessosSemPresenca(con *console.Stream, vivos []instalar.Presenca)
 	processos, err := instalar.ProcessosDoSistema()
 	switch {
 	case errors.Is(err, instalar.ErrProcessosNaoVerificados):
-		con.Detail("processos do gobsidian sem presenca: nao verificado nesta plataforma")
+		con.Detail("processos do gobsidian sem presença: não verificado nesta plataforma")
 		return
 	case err != nil:
-		con.Warn("processos do gobsidian sem presenca: %v", err)
+		con.Warn("processos do gobsidian sem presença: %v", err)
 		return
 	}
 	sem := instalar.SemPresenca(processos, vivos, os.Getpid())
 	if len(sem) == 0 {
-		con.OK("processos do gobsidian sem presenca")
+		con.OK("processos do gobsidian sem presença")
 		con.Detail("nenhum")
 		return
 	}
-	con.Warn("%d processo(s) do gobsidian sem presenca", len(sem))
-	linhas := make([]string, 0, len(sem))
+	// Agrupado por EXECUTAVEL: cinco processos do mesmo binario antigo sao uma
+	// linha e um fato ("o Claude Code ainda roda a v1.5.1"), e nao cinco linhas
+	// que o leitor precisa comparar entre si.
+	con.Warn("%d processo(s) do gobsidian sem presença", len(sem))
+	porExecutavel := map[string][]int{}
+	var ordem []string
 	for _, p := range sem {
-		linhas = append(linhas, fmt.Sprintf("  pid %-7d %s", p.PID, p.Executavel))
+		if _, visto := porExecutavel[p.Executavel]; !visto {
+			ordem = append(ordem, p.Executavel)
+		}
+		porExecutavel[p.Executavel] = append(porExecutavel[p.Executavel], p.PID)
 	}
-	con.Bloco("", linhas, "binario anterior a presenca, ou de outra instalacao -- o doctor nao sabe o modo nem o cofre deles")
+	sort.Strings(ordem)
+	linhas := make([]string, 0, len(ordem))
+	for _, exe := range ordem {
+		pids := porExecutavel[exe]
+		sort.Ints(pids)
+		linhas = append(linhas, fmt.Sprintf("  %-3d %s", len(pids), exe))
+		linhas = append(linhas, "      "+con.Dim(listarNumeros(pids)))
+	}
+	con.Bloco("", linhas, "binário anterior à presença, ou de outra instalação -- o doctor não sabe o modo nem o cofre deles")
 }
 
 // relatarHostsDeOutroBinario mostra as entradas de host que nao rodam o binario
@@ -280,34 +434,34 @@ func relatarHostsDeOutroBinario(con *console.Stream, vivos []instalar.Presenca) 
 	m, err := instalar.LerManifesto()
 	switch {
 	case errors.Is(err, instalar.ErrSemManifesto) || (err == nil && m.Binario == ""):
-		con.Detail("binario dos hosts: sem instalacao registrada, nada a comparar")
+		con.Detail("binário dos hosts: sem instalação registrada, nada a comparar")
 		return
 	case err != nil:
-		con.Warn("binario dos hosts: %v", err)
+		con.Warn("binário dos hosts: %v", err)
 		return
 	}
 
 	outros := instalar.EntradasDeOutroBinario(hosts.AmbienteReal(), m.Binario)
 	if len(outros) == 0 {
-		con.OK("binario dos hosts")
+		con.OK("binário dos hosts")
 		con.Detail("toda entrada do gobsidian nos configs de arquivo roda %s", m.Binario)
 		return
 	}
 
 	// Erro na listagem so tira a versao; a entrada continua sendo relatada.
 	processos, _ := instalar.ProcessosDoSistema()
-	con.Warn("%d entrada(s) de host rodam outro binario", len(outros))
+	con.Warn("%d entrada(s) de host rodam outro binário", len(outros))
 	linhas := make([]string, 0, len(outros))
 	for _, o := range outros {
-		versao := "versao nao medida"
+		versao := "versão não medida"
 		if o.Executavel == "" {
-			versao = "comando nao encontrado"
+			versao = "comando não encontrado"
 		} else if v := instalar.VersaoDoExecutavel(o.Executavel, vivos, processos); v != "" {
 			versao = v
 		}
 		linhas = append(linhas, fmt.Sprintf("  %-16s %-24s %-22s %s", o.Host, o.Chave, versao, o.Comando))
 	}
 	con.Bloco("", linhas, fmt.Sprintf(
-		"o instalado e %s (%s); `gobsidian install` reconfigura. Claude Code, Gemini CLI, Codex e VS Code guardam a config no proprio CLI e nao entram aqui",
+		"o instalado é %s (%s); `gobsidian install` reconfigura. Claude Code, Gemini CLI, Codex e VS Code guardam a config no próprio CLI e não entram aqui",
 		m.Binario, m.Versao))
 }

@@ -55,7 +55,7 @@ func TestClasseDoCaminhoDoSocketDistingueOsEstados(t *testing.T) {
 	}{
 		{"ausente", ausente, "ausente"},
 		{"arquivo comum", comum, "arquivo comum"},
-		{"diretorio", diretorio, "DIRETORIO"},
+		{"diretorio", diretorio, "DIRETÓRIO"},
 		{"socket real", socketReal, "socket"},
 	}
 
@@ -154,7 +154,7 @@ func TestCheckDaemonLogUsaACaminhoDoLogDoDaemon(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = os.Remove(esperado) })
 	r := checkDaemonLog(context.Background(), cfg)
-	if strings.Contains(r.Detail, "ainda nao existe") {
+	if strings.Contains(r.Detail, "ainda não existe") {
 		t.Fatalf("o log existe em %q e o doctor nao o achou: %q", esperado, r.Detail)
 	}
 }

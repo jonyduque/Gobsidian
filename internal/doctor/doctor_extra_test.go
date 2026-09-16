@@ -35,7 +35,7 @@ func TestCheckCacheDirCreatable(t *testing.T) {
 
 	results := doctor.Run(context.Background(), cfg)
 
-	if !hasStatus(results, "diretorio de cache", doctor.StatusOK) {
+	if !hasStatus(results, "diretório de cache", doctor.StatusOK) {
 		t.Errorf("esperava [OK] para diretorio de cache criavel: %+v", results)
 	}
 	if _, err := os.Stat(cfg.CacheDir); err != nil {
@@ -64,7 +64,7 @@ func TestCheckCacheDirUncreatable(t *testing.T) {
 
 	results := doctor.Run(context.Background(), cfg)
 
-	if !hasStatus(results, "diretorio de cache", doctor.StatusWarn) {
+	if !hasStatus(results, "diretório de cache", doctor.StatusWarn) {
 		t.Errorf("esperava aviso para diretorio de cache nao-criavel: %+v", results)
 	}
 	if doctor.ExitCode(results) != 0 {

@@ -157,7 +157,7 @@ func Instalar(ctx context.Context, sis Sistema, o Opcoes) (Resultado, error) {
 		cacheRaiz = RaizDoCache()
 	}
 
-	sis.anunciar("tomando a trava de instalacao")
+	sis.anunciar("tomando a trava de instalação")
 	liberarTrava, err := TomarTravaGlobal(runtimeDir)
 	if err != nil {
 		return r, err
@@ -165,7 +165,7 @@ func Instalar(ctx context.Context, sis Sistema, o Opcoes) (Resultado, error) {
 	defer liberarTrava()
 
 	// 2 e 3: quem esta rodando, e o aval para encerrar.
-	sis.anunciar("procurando processos em execucao")
+	sis.anunciar("procurando processos em execução")
 	if err := encerrarProcessos(sis, runtimeDir, &r); err != nil {
 		return r, err
 	}
@@ -173,7 +173,7 @@ func Instalar(ctx context.Context, sis Sistema, o Opcoes) (Resultado, error) {
 	// 4: limpeza. Roda AQUI -- com a trava tomada e ninguem rodando -- e nao
 	// antes: e a unica janela em que remover uma trava livre nao corre com
 	// alguem que esta prestes a toma-la.
-	sis.anunciar("limpando lixo de execucoes anteriores")
+	sis.anunciar("limpando lixo de execuções anteriores")
 	limpeza, err := Limpar(runtimeDir, cacheRaiz, true)
 	if err != nil {
 		return r, fmt.Errorf("limpando: %w", err)
@@ -193,7 +193,7 @@ func Instalar(ctx context.Context, sis Sistema, o Opcoes) (Resultado, error) {
 	r.ChavesMigradas = migradas
 
 	// 5: o binario.
-	sis.anunciar("instalando o binario")
+	sis.anunciar("instalando o binário")
 	binario, hash, err := instalarBinario(o)
 	if err != nil {
 		return r, err

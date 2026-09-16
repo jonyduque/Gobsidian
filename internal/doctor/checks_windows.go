@@ -75,7 +75,7 @@ func checkLongPathsEnabled(scan vaultScan) Result {
 		return Result{
 			Name:   name,
 			Status: StatusWarn,
-			Detail: fmt.Sprintf("LongPathsEnabled != 1 no registro e ha caminho de %d caracteres: %s", scan.longestPathLen, scan.longestPath),
+			Detail: fmt.Sprintf("LongPathsEnabled != 1 no registro e há caminho de %d caracteres: %s", scan.longestPathLen, scan.longestPath),
 		}
 	}
 	return Result{Name: name, Status: StatusOK}
@@ -113,7 +113,7 @@ func checkCloudOnlyFiles(scan vaultScan) Result {
 		return Result{
 			Name:   name,
 			Status: StatusWarn,
-			Detail: fmt.Sprintf("%d nota(s) ainda nao baixada(s) pelo sincronizador de nuvem", scan.platform.cloudOnlyCount),
+			Detail: fmt.Sprintf("%d nota(s) ainda não baixada(s) pelo sincronizador de nuvem", scan.platform.cloudOnlyCount),
 		}
 	}
 	return Result{Name: name, Status: StatusOK}
@@ -124,7 +124,7 @@ func checkCloudOnlyFiles(scan vaultScan) Result {
 // padrao, mas preserva a grafia — duas notas assim colidem de formas sutis em
 // qualquer ferramenta que normalize o caminho antes de usar como chave.
 func checkCasingCollisions(scan vaultScan) Result {
-	const name = "colisoes de casing"
+	const name = "colisões de casing"
 
 	if res, failed := scanStatus(scan, name); failed {
 		return res
@@ -133,7 +133,7 @@ func checkCasingCollisions(scan vaultScan) Result {
 		return Result{
 			Name:   name,
 			Status: StatusWarn,
-			Detail: fmt.Sprintf("%d colisao(oes): %s", len(scan.platform.casingCollisions), strings.Join(scan.platform.casingCollisions, "; ")),
+			Detail: fmt.Sprintf("%d colisão(ões): %s", len(scan.platform.casingCollisions), strings.Join(scan.platform.casingCollisions, "; ")),
 		}
 	}
 	return Result{Name: name, Status: StatusOK}

@@ -124,8 +124,9 @@ a do `boot`, que é nova — e a do `boot` ganhou `lifecycle` no mesmo dia
 As justificativas estão logo abaixo do bloco:
 
 ```
-text  vault  config  console  lifecycle      folhas
+text  vault  config  lifecycle               folhas
 parser   → text
+console  → text
 ipc      → config
 writer   → parser, text, vault
 index    → parser, text, vault
@@ -221,6 +222,14 @@ não importa `index` e não vai importar. `text` continua folha: ganhou
 comparar caminho é `text.ChaveDeCaminho` — a mesma conta do `writer`
 (Task 169) e do `index`. Uma comparação local faria `Sub/` e `sub/` serem
 duas pastas aqui e uma lá. `text` continua folha; o grafo continua acíclico.
+
+`console → text` é de 2026-09-16 e a justificativa é **uma conta por regra**: a
+saída do produto passou a sair **com acento** onde o console aguenta, e a
+decisão de tirar o acento onde ele não aguenta é `text.RemoveAccents` — a mesma
+conta que o índice, a chave de cofre e o `writer` usam. Uma tabela local em
+`console` seria a quarta cópia da mesma regra, e a menos consultada; foi o que
+`instalar` já tentou uma vez, produzindo `a-o-direta`. `console` deixou de ser
+folha por isso, e `text` continua sendo: a aresta é de mão única.
 
 Quatro arestas existem **só em teste**, e ficam fora do grafo acima de
 propósito — teste pode montar o mundo inteiro sem que isso vire acoplamento do
@@ -332,7 +341,12 @@ de formato passa por **uma** função — inclusive nos pontos que já estavam c
 **Código de plataforma atrás de build tag, em arquivo separado.** Nunca
 `if runtime.GOOS ==` dentro de lógica compartilhada.
 
-**Saída de console em ASCII puro:** `[OK]`, `[*]`, `[!]`, `[i]`, `[...]`.
+**Marcadores de console em ASCII puro:** `[OK]`, `[*]`, `[!]`, `[i]`, `[...]`.
+O **texto** sai com acento, e quem decide é a medição: `console.adaptarTexto`
+tira o acento quando a code page do console não aguenta UTF-8 — a mesma decisão
+que escolhe os glifos da moldura. Escrever "permissao" no código para agradar
+um CP-850 que a maioria dos terminais não usa é a regra antiga, e ela custava
+português errado em toda a saída.
 
 **Sem `helpers.go`, `utils.go`, `common.go`.**
 
