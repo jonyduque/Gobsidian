@@ -49,6 +49,11 @@ func TestInterpretarBotao(t *testing.T) {
 // e a razao de existir o modal. Num terminal sem cor ela se distingue pelo
 // GLIFO, a mesma regra das caixas de selecao.
 func TestBotoesMostramOsDoisEstados(t *testing.T) {
+	// O modo é FIXADO, e não herdado do ambiente: sem isto o teste lê a code
+	// page (no Windows) ou o locale (no Linux), e o rótulo sai "Não" numa
+	// máquina e "Nao" na outra. Foi assim que este teste passou aqui e reprovou
+	// no CI em 2026-09-16.
+	t.Setenv(VarDeEstilo, "0")
 	forcarGlifos = &glifosASCII
 	defer func() { forcarGlifos = nil }()
 
