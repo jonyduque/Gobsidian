@@ -176,14 +176,35 @@ foreach ($R in $Reports) {
     # continua visivel. O gate tem de falhar fechado rumo a sinalizar prosa
     # (uma cerca mal formada pode deixar HEDGE/NAO-RESPOSTA verem texto de
     # dentro do bloco), nunca rumo a esconder um cabecalho de verdade.
+    #
+    # 2026-09-22: a cerca FECHA so com o mesmo caractere e comprimento igual
+    # ou maior que o da abertura, como o CommonMark manda. Ate aqui toda
+    # linha ``` ou ~~~ alternava o estado, e um `git diff` colado num bloco
+    # ```` -- que carrega " ```" do arquivo diffado como linha de contexto --
+    # fechava a cerca no meio; o final-fix-report.md de broken-links, com dois
+    # blocos assim, ficou com os quatro cabecalhos reais "dentro de cerca":
+    # 4 SECAO-AUSENTE num relatorio que os tinha. A regra da contagem impar
+    # continua, agora por cerca: abertura que nunca fecha vira texto comum.
+    $reCerca = '^\s{0,3}(`{3,}|~{3,})\s*(.*)$'
     $indicesDeCerca = [System.Collections.Generic.HashSet[int]]::new()
+    $aberta = $null   # @{ Indice; Char; Tamanho } enquanto ha cerca aberta
     for ($i = 0; $i -lt $Lines.Count; $i++) {
-        if ($Lines[$i] -match '^\s*(```|~~~)') { [void]$indicesDeCerca.Add($i) }
+        if (-not ($Lines[$i] -match $reCerca)) { continue }
+        $marca = $Matches[1]
+        if ($null -eq $aberta) {
+            $aberta = @{ Indice = $i; Char = $marca[0]; Tamanho = $marca.Length }
+            continue
+        }
+        # Fecho: mesmo caractere, comprimento >= abertura, nada depois alem de
+        # espaco. Uma cerca de outro caractere ou mais curta e conteudo.
+        if ($marca[0] -eq $aberta.Char -and $marca.Length -ge $aberta.Tamanho -and
+            [string]::IsNullOrWhiteSpace($Matches[2])) {
+            [void]$indicesDeCerca.Add($aberta.Indice)
+            [void]$indicesDeCerca.Add($i)
+            $aberta = $null
+        }
     }
-    if ($indicesDeCerca.Count % 2 -ne 0) {
-        $ultimoIndice = ($indicesDeCerca | Sort-Object -Descending | Select-Object -First 1)
-        [void]$indicesDeCerca.Remove($ultimoIndice)
-    }
+    # $aberta que sobrou e a cerca nunca fechada (N2): fica fora do conjunto.
     $emCerca = $false
     $foraDeCerca = [System.Collections.Generic.List[string]]::new()
     for ($i = 0; $i -lt $Lines.Count; $i++) {

@@ -243,8 +243,20 @@ try {
     Caso -Nome '-Task final-fix acha final-fix-report.md -> 0 SECAO-AUSENTE' `
         -Esperado '0' -Obtido (Secoes-Ausentes 'final-fix')
 
-    Caso -Nome 'sem -Task, todos os cinco *-report.md da fixture sao vistos' `
-        -Esperado '5' -Obtido (Relatorios-Vistos)
+    Caso -Nome 'sem -Task, todos os sete *-report.md da fixture sao vistos' `
+        -Esperado '7' -Obtido (Relatorios-Vistos)
+
+    # 2026-09-22: cerca fecha so com o mesmo caractere e comprimento >= o da
+    # abertura (CommonMark). Um diff colado num bloco ```` traz " ```" como
+    # linha de contexto, e o auditor que alterna em toda linha ``` fechava a
+    # cerca ali e escondia os cabecalhos reais que vinham depois -- foi o que
+    # aconteceu com o final-fix-report.md de broken-links.
+    Caso -Nome 'bloco ```` com ``` dentro nao fecha; cabecalhos depois contam -> 0 SECAO-AUSENTE' `
+        -Esperado '0' -Obtido (Secoes-Ausentes '5')
+
+    # O inverso: ``` dentro de um bloco ~~~ e conteudo, nao fecho.
+    Caso -Nome 'bloco ~~~ com ``` dentro segue aberto; comentarios nao contam -> 4 SECAO-AUSENTE' `
+        -Esperado '4' -Obtido (Secoes-Ausentes '6')
 
     # ------------------------------------------------------------------
     # netcheck: a SEGUNDA excecao da RNF-30 (decisao D-13, 2026-09-08)

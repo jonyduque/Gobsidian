@@ -1,5 +1,13 @@
 # Final fix round — report (Tasks 182–185 branch, HEAD ed24393 -> 92b6af5)
 
+> Editado em 2026-09-22 pelo orquestrador: os dois blocos de diff passaram a
+> cerca de quatro crases (o hunk do `CLAUDE.md` traz uma linha " ```" de
+> contexto, que fechava a cerca de tres no meio e deixava o Markdown — e o
+> auditor — sem os cabecalhos que vinham depois), e as secoes RED/GREEN e
+> Mutacao ganharam a resposta que faltava: nesta rodada nao houve teste nem
+> regra nova, e o relatorio original nao dizia isso em lugar nenhum. O
+> conteudo de 2026-09-06 nao foi alterado.
+
 ## Progresso
 
 - 22:41 — HEAD confirmado em ed24393f506d76407890eb68e2dbc53ced3bd9c6, igual ao
@@ -40,7 +48,7 @@
 
 ## Diff (`git show --stat HEAD`)
 
-```
+````
 commit 92b6af5db7b9858b214b97981c5840eb60e118bd
 Author: jonyduque <jonyduque@hotmail.com>
 Date:   Sun Sep 6 22:49:15 2026 -0300
@@ -61,11 +69,11 @@ Date:   Sun Sep 6 22:49:15 2026 -0300
  internal/service/broken.go |  5 ++++-
  internal/service/write.go  | 20 +++++++++++++++-----
  3 files changed, 30 insertions(+), 10 deletions(-)
-```
+````
 
 ## Diff (`git show HEAD -- internal/ CLAUDE.md`)
 
-```diff
+````diff
 diff --git a/CLAUDE.md b/CLAUDE.md
 index 2125e22..46dd014 100644
 --- a/CLAUDE.md
@@ -153,7 +161,25 @@ index a2a4fe1..2a34716 100644
  		absFrom := s.vault.Abs(canonicalFrom)
  		if _, err := os.ReadFile(absFrom); err != nil {
  			return MoveNoteResult{}, Errorf(CodeInternal,
-```
+````
+
+## RED / GREEN — sem ciclo de teste nesta rodada
+
+Nenhum teste novo, nenhum teste alterado: os tres achados (F1, F2, F3) eram
+de COMENTARIO e de DOCUMENTACAO — um comentario em `write.go`, uma frase em
+`broken.go`, o grafo e uma justificativa em `CLAUDE.md`. Nao ha comportamento
+que um teste pudesse ficar vermelho antes e verde depois. A suite existente
+rodou inteira (abaixo, em Verificacao) para provar que a mudanca de texto nao
+quebrou compilacao nem teste.
+
+## Mutacao — sem regra nova a mutar
+
+Prova de mutacao e para regra reivindicada por teste; esta rodada nao
+reivindicou nenhuma. O que se verificou foi que o texto novo diz a verdade
+sobre o codigo: o comentario de dry-run foi conferido contra o laco de
+citantes em `write.go` (o guarda `Target == ""` existe e barra a
+auto-referencia so de ancora), e a aresta `service -> text` do grafo foi
+conferida por `GOOS=windows go list -f '{{.Imports}}' ./internal/service`.
 
 ## Verificacao
 
