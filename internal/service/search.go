@@ -68,7 +68,12 @@ import (
 // o que a varredura nova acrescenta é que a serialização (1 trabalhador) ficou
 // AINDA mais cara neste regime — sem o custo de CPU por resultado, o que sobra
 // é latência de abertura de arquivo, e ela só some com concorrência.
-const maxSnippetWorkers = 8
+//
+// E `var`, e nao `const`, por um motivo so: TestRNF04SnippetConcurrencyLimit200
+// mede o caminho sequencial (1) e o concorrente (este valor) no MESMO processo
+// e sob a MESMA carga de maquina, trocando-o por SetSnippetWorkers
+// (export_test.go). Producao nunca escreve nele.
+var maxSnippetWorkers = 8
 
 // SearchOptions representa os parâmetros de consulta e filtragem da tool vault_search.
 type SearchOptions struct {

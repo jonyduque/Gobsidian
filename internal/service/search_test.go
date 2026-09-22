@@ -603,62 +603,115 @@ func mediaFormato(t *testing.T, svc *service.Service, nome string, opts service.
 	return duracoes[len(duracoes)/2], duracoes[int(float64(len(duracoes))*0.95)]
 }
 
-// TestRNF04SnippetConcurrencyLimit200 cobra a meta da Task 72: p95 de
-// `limit: 200` abaixo do teto em 500 notas, que é a condição sob a qual a
-// otimização de recorte concorrente está ativa.
+// TestRNF04SnippetConcurrencyLimit200 cobra a meta da Task 72: em 500 notas,
+// `limit: 200` tem de sair MAIS RÁPIDO pelo recorte concorrente do que pelo
+// sequencial — é isso que "a otimização está ativa" quer dizer.
 //
-// O TETO FOI REAPERTADO DE 60 PARA 22 ms EM 2026-08-13, e o motivo não é folga
-// estética: a 60 ms ele tinha deixado de conseguir falhar. O sequencial media
-// 82–113 ms quando 60 foi escolhido; depois da troca Postings -> Positions ele
-// mede 27,6–32,4 ms (5 execuções com maxSnippetWorkers = 1), e **passaria**
-// num teto de 60. O teste continuava verde afirmando uma coisa que ele não
-// verificava mais.
+// A medida é uma RAZÃO, não um teto em milissegundos: mediana concorrente
+// (maxSnippetWorkers = 8) dividida pela mediana sequencial (= 1), as duas
+// colhidas AMOSTRA A AMOSTRA, alternando os dois caminhos a cada consulta, no
+// mesmo processo. O que a máquina estiver fazendo pesa nos dois lados e
+// cancela; o que fica é o código. (A primeira redação media 30 consultas de um
+// caminho e depois 30 do outro: um mutante com um trabalhador só chegou a
+// razão 0,68 numa rodada, porque a carga mudou entre os dois blocos.)
 //
-// A banda que o teto tem de ocupar é estreita e foi medida dos dois lados:
+// HISTÓRICO, porque cada forma anterior falhou de um jeito que vale lembrar:
 //
-//	concorrente   8,39 – 12,73 ms   (12 execuções limpas; pior já visto, 17,87)
-//	sequencial   27,60 – 32,36 ms   (5 execuções, maxSnippetWorkers = 1)
+//   - Teto de 60 ms (Task 72): depois da troca Postings -> Positions o
+//     sequencial passou a medir 27,6–32,4 ms e CABIA no teto. O teste ficou
+//     verde afirmando o que não verificava mais.
+//   - Teto de 22 ms (2026-08-13): escolhido dentro da banda medida —
+//     concorrente 8,39–12,73 ms (pior visto 17,87), sequencial 27,60–32,36 ms
+//     com maxSnippetWorkers = 1 —, 1,2× acima do pior concorrente e 20% abaixo
+//     do melhor sequencial. Discriminava os dois caminhos numa máquina ociosa.
+//   - Em 2026-09-07 ele reprovou três rodadas seguidas (p95 45,3 / 60,8 /
+//     66,2 ms) numa máquina com 42–83% de CPU tomada por svchost e pelo
+//     Defender, sem nenhum processo do projeto rodando; a 19% de CPU o mesmo
+//     binário passou (p95 dentro do teto, rodada única). Teto em milissegundos
+//     mede a máquina quando a máquina está ocupada, e três rodadas não
+//     sobrevivem a uma carga que dura minutos.
 //
-// 22 ms fica 1,2x acima do pior concorrente já observado e 20% abaixo do
-// MELHOR sequencial. Mais alto que isso e o sequencial começa a caber; mais
-// baixo e o teto passa a cobrar ruído. Quem absorve carga transitória é a
-// repetição de mediaFormato, não a altura do teto.
+// A razão nas mesmas cinco execuções de 2026-08-13 ficou entre 0,26 e 0,46
+// (8,39/32,36 e 12,73/27,60); com um trabalhador só ela é ~1,0 por definição.
+// 0,6 fica acima do pior valor medido e longe de 1,0: um recorte desligado
+// (ou serializado por um semáforo de tamanho 1, que é a regressão que a Task 72
+// viu) não cabe. O que a razão NÃO discrimina é 8 trabalhadores de 4 — não
+// medido; não é a regra deste teste.
 //
-// Usa mediaFormato e o mesmo laço de repetição de TestRNF04VaultSearchLatencyP95.
-// Repetir NÃO cria folga — carga passageira não sobrevive a três rodadas,
-// regressão de código sobrevive a todas. Afrouxar o teto apagaria o sinal que
-// ele existe para dar, que foi exatamente o que aconteceu por omissão quando o
-// código ficou rápido e o teto ficou parado.
+// O RNF-04 em si (p95 ≤ 100 ms para `limit: 200`) continua cobrado em
+// milissegundos por TestRNF04VaultSearchLatencyP95, formato "limit maximo do
+// schema". Os números absolutos deste teste vão para o log.
+//
+// Sob -race só se registra: o detector multiplica a latência e, com outros
+// testes do pacote correndo, trocar maxSnippetWorkers seria escrita sem trava.
 func TestRNF04SnippetConcurrencyLimit200(t *testing.T) {
-	const teto = 22 * time.Millisecond
+	const razaoMaxima = 0.6
+	const amostras = 30
 	svc, _, _, _ := createSearchService(t, geraCorpusBusca(500))
 	opts := service.SearchOptions{Query: "prescricao", Limit: 200}
 
-	rodadas := maxRodadas
 	if raceEnabled {
-		rodadas = 1
+		mediana, p95 := mediaFormato(t, svc, "limit: 200 concorrente", opts, amostras)
+		t.Logf("  limit: 200 concorrente   mediana %-12v p95 %-12v (sob -race: so registro)", mediana, p95)
+		return
 	}
 
-	var p95 time.Duration
+	var razao float64
 	coube := false
-	for rodada := 1; rodada <= rodadas; rodada++ {
-		var mediana time.Duration
-		mediana, p95 = mediaFormato(t, svc, "limit: 200", opts, 30)
-		t.Logf("  limit: 200 concorrente   mediana %-12v p95 %-12v teto %v", mediana, p95, teto)
-		if raceEnabled || p95 <= teto {
+	for rodada := 1; rodada <= maxRodadas; rodada++ {
+		conc, concP95, seq, seqP95 := medianasIntercaladas(t, svc, opts, amostras)
+		razao = float64(conc) / float64(seq)
+		t.Logf("  limit: 200   concorrente mediana %-12v p95 %-12v | sequencial mediana %-12v p95 %-12v | razao %.2f (teto %.2f)",
+			conc, concP95, seq, seqP95, razao, razaoMaxima)
+		if razao <= razaoMaxima {
 			coube = true
 			break
 		}
-		if rodada < rodadas {
-			t.Logf("  limit: 200 concorrente   rodada %d/%d estourou (%v > %v); repetindo",
-				rodada, rodadas, p95, teto)
+		if rodada < maxRodadas {
+			t.Logf("  limit: 200   rodada %d/%d estourou (razao %.2f > %.2f); repetindo", rodada, maxRodadas, razao, razaoMaxima)
 		}
 	}
 	if !coube {
-		t.Errorf("p95 de limit: 200 = %v excede o teto de %v em %d rodadas seguidas — "+
-			"carga transitoria nao sobrevive a %d rodadas, entao o recorte concorrente "+
-			"nao esta ativo", p95, teto, rodadas, rodadas)
+		t.Errorf("mediana concorrente / mediana sequencial = %.2f excede %.2f em %d rodadas seguidas — "+
+			"as duas medidas dividem a mesma carga de maquina, entao o recorte concorrente nao esta ativo",
+			razao, razaoMaxima, maxRodadas)
 	}
+}
+
+// medianasIntercaladas roda n pares de consultas — uma pelo caminho
+// concorrente, uma pelo sequencial, nessa ordem, alternando a cada amostra — e
+// devolve mediana e p95 de cada caminho. Alternar por amostra, e não por
+// bloco, é o que faz a carga da máquina cair igual sobre os dois lados.
+func medianasIntercaladas(t *testing.T, svc *service.Service, opts service.SearchOptions, n int) (concMediana, concP95, seqMediana, seqP95 time.Duration) {
+	t.Helper()
+	medir := func(nome string) time.Duration {
+		start := time.Now()
+		res, err := svc.Search(context.Background(), opts)
+		d := time.Since(start)
+		if err != nil {
+			t.Fatalf("%s: %v", nome, err)
+		}
+		if len(res.Results) == 0 {
+			t.Fatalf("%s devolveu zero resultados; a medicao nao mediria nada", nome)
+		}
+		return d
+	}
+	conc := make([]time.Duration, 0, n)
+	seq := make([]time.Duration, 0, n)
+	for i := 0; i < n; i++ {
+		conc = append(conc, medir("limit: 200 concorrente"))
+		restaurar := service.SetSnippetWorkers(1)
+		seq = append(seq, medir("limit: 200 sequencial"))
+		restaurar()
+	}
+	sort.Slice(conc, func(i, j int) bool { return conc[i] < conc[j] })
+	sort.Slice(seq, func(i, j int) bool { return seq[i] < seq[j] })
+	p := func(d []time.Duration) (time.Duration, time.Duration) {
+		return d[len(d)/2], d[int(float64(len(d))*0.95)]
+	}
+	concMediana, concP95 = p(conc)
+	seqMediana, seqP95 = p(seq)
+	return concMediana, concP95, seqMediana, seqP95
 }
 
 // TestRNF04SnippetParity compara o resultado do caminho CONCORRENTE, campo a

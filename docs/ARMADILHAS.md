@@ -427,6 +427,21 @@ descrever a consulta repetida, que nenhum usuário vê na primeira busca. Medido
 desliga o cache por `semCacheDeTrecho`; quem mede repetição é um benchmark com
 "Repetido" no nome.
 
+**Teto em milissegundos mede a máquina; razão entre dois caminhos mede o
+código.** `TestRNF04SnippetConcurrencyLimit200` existia para provar que o
+recorte concorrente está ligado, e fazia isso com um teto de 22 ms escolhido
+entre a banda concorrente (8–13 ms) e a sequencial (28–32 ms). Em 2026-09-07
+ele reprovou três rodadas seguidas (p95 45–66 ms) numa máquina com 42–83 % de
+CPU tomada por `svchost` e Defender, e passou a 19 % — o número que mudou foi
+o da máquina. Desde 2026-09-22 o teste mede **mediana concorrente / mediana
+sequencial**, amostra a amostra, alternando os dois caminhos a cada consulta;
+com a máquina carregada deu 0,45, e com um trabalhador só deu 0,97–1,08. A
+regra: quando o que se quer provar é "A é mais rápido que B", meça A e B sob a
+mesma carga e cobre a razão; teto absoluto fica para requisito absoluto
+(RNF-04, 100 ms), e mesmo esse com três rodadas. E **intercale por amostra,
+não por bloco**: 30 de A e depois 30 de B deixaram um mutante chegar a 0,68
+porque a carga mudou entre os blocos.
+
 **`GOGC` foi testado duas vezes e rejeitado nas duas** — não re-litigar sem dado
 novo. `GOGC=off` deu `~ (p=0,093, n=6)`; `GOGC=400` deu −28,51% no benchmark mas
 não significativo no boot real (12 partidas por braço, U de Mann-Whitney 88
@@ -708,6 +723,18 @@ código é removida antes de procurar cabeçalho. **E o inverso também foi
 medido**: cerca aberta e nunca fechada engolia todos os cabeçalhos reais
 depois dela (fixture `task-4-report.md`) — número ímpar de cercas, a última
 vira texto.
+
+**Cerca de código fecha com o mesmo caractere e comprimento igual ou maior —
+não com qualquer linha de três crases.** Um `git diff` colado num bloco de
+quatro crases carrega " ```" do arquivo diffado como linha de contexto. O
+auditor alternava o estado em toda linha ``` ou ~~~, fechava a cerca ali, e
+os quatro cabeçalhos reais que vinham depois ficaram "dentro de cerca":
+4 `SECAO-AUSENTE` no `final-fix-report.md` de broken-links, que os tinha
+(2026-09-22). Pelo CommonMark, cerca de três crases dentro de uma de quatro é
+conteúdo, e ``` dentro de ~~~ também. Fixtures `task-5` (deve aceitar) e
+`task-6` (deve recusar: comentários de shell num bloco ~~~ que um ``` não
+fecha). A cerca nunca fechada continua virando texto, agora por cerca e não
+por contagem ímpar do arquivo.
 
 **O glob do auditor deixava relatório de fora sem dizer.** `task-*-report.md`
 não casa `final-fix-report.md`; os dois relatórios de rodada de correção

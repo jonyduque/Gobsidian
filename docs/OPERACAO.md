@@ -1828,6 +1828,37 @@ latência com `-race` é 2 a 6× maior e o número deixaria de ser comparável.
 `scripts/mutate.ps1 -NoRace` existe para este caso, e o comentário dele já
 citava a Task 72 pelo mesmo motivo.
 
+**2026-09-22: o teto de 22 ms virou razão.** Em 2026-09-07 o teste reprovou
+três rodadas seguidas (p95 45,3 / 60,8 / 66,2 ms) numa máquina com 42–83 % de
+CPU tomada por `svchost` e pelo Defender, sem processo do projeto rodando; a
+19 % de CPU o mesmo binário passou. Teto em milissegundos mede a máquina
+quando a máquina está ocupada, e três rodadas não sobrevivem a uma carga que
+dura minutos. O teste passou a medir **mediana concorrente / mediana
+sequencial**, as duas colhidas amostra a amostra, alternando os dois caminhos
+a cada consulta (`maxSnippetWorkers` = 8 e = 1, trocado por
+`SetSnippetWorkers` em `export_test.go`): a carga pesa nos dois lados e
+cancela. Teto da razão: **0,6** — a banda de 2026-08-13 dá 0,26–0,46, e um
+trabalhador só dá ~1,0. Medido no dia da troca, com a máquina carregada por
+dois agentes rodando benchmarks:
+
+```
+concorrente mediana 32.2574ms  p95 146.7416ms | sequencial mediana 72.2202ms  p95 203.7974ms | razao 0.45 (teto 0.60)
+--- PASS: TestRNF04SnippetConcurrencyLimit200 (7.63s)
+```
+
+Mutação `var maxSnippetWorkers = 1`, mesma máquina, mesma carga:
+
+```
+razao 1.08 (teto 0.60) ... razao 1.04 ... razao 0.97
+mediana concorrente / mediana sequencial = 0.97 excede 0.60 em 3 rodadas seguidas
+--- FAIL: TestRNF04SnippetConcurrencyLimit200 (19.60s)
+```
+
+Os milissegundos absolutos continuam no log, e o RNF-04 em si (p95 ≤ 100 ms)
+continua cobrado em milissegundos por `TestRNF04VaultSearchLatencyP95`,
+formato "limit maximo do schema". O que a razão não discrimina é 8
+trabalhadores de 4 — não medido; não é a regra deste teste.
+
 ### Custo da guarda de placeholder de nuvem em `Inverted.Update`
 
 A Task 97 pôs `vault.IsCloudOnly(abs)` antes do `os.ReadFile`, e o custo ficou

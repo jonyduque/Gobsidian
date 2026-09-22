@@ -929,7 +929,10 @@ o quarto, que é exatamente o defeito que ela existe para impedir.
   Agora há o job `tetos-de-latencia` no `bench.yml`. O runner foi **medido antes
   de ligar**: pior p95 de 1,64 ms / 1,79 ms / 143 µs contra tetos de 100 ms /
   22 ms / 80 ms — folga de 12× a 550×. Os 107,1 ms que assustavam eram uma
-  medição COM `-race`.
+  medição COM `-race`. Em 2026-09-22 o teto de 22 ms deixou de existir: o
+  teste de concorrência do recorte passou a cobrar a razão mediana
+  concorrente / mediana sequencial ≤ 0,6, medida sob a mesma carga (ver
+  `OPERACAO.md`, "o teto de 22 ms virou razão"); os outros dois tetos seguem.
 - **A folga do RNF-07 em Jurisprudência é de 15%, a mais apertada das cinco.**
   O requisito foi redefinido em 2026-08-30 — heap vivo ≤ 8 MB + 32 KB × notas,
   nos estados `pronto` e `servindo`, decisão do dono — e **os cinco cofres reais
