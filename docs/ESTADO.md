@@ -559,6 +559,17 @@ resources. A diferença não se reproduziu e a causa não foi determinada — a
 hipótese de varredura do executável recém-criado por antivírus não foi
 testada. Não serve de estimativa para o `gobsidian` real.
 
+**`tools/call` não pagina em nenhuma versão do protocolo, inclusive `2026-07-28`.**
+É a pergunta que já foi feita duas vezes. Conferido na especificação em
+2026-09-11: a página `server/utilities/pagination` da `2026-07-28` lista as
+operações que paginam — `resources/list`, `resources/templates/list`,
+`prompts/list` e `tools/list` —, e o único `nextCursor` em `server/tools` é o de
+`tools/list`. O `resultType` de `tools/call` (`complete` | `input_required`) é o <!-- check-doc-refs: ignore input_required -- valor de resultType do protocolo MCP, nome externo -->
+MRTR: pede mais **entrada**, não entrega mais **saída**. Paginar a resposta de
+uma tool é conta do payload, e aqui é: `limit`/`offset` com teto único em
+`service.ComTeto`, e `truncated` em toda resposta que o limite pode cortar
+(`docs/TOOLS.md`, convenções gerais — cumprido por todas desde 2026-09-25).
+
 ---
 
 ## Formato de cache

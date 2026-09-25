@@ -10,7 +10,7 @@ Contrato de cada *tool*. Schemas em JSON Schema, como declarados ao host.
 
 **Casing.** A resolução tenta correspondência exata primeiro, depois insensível a maiúsculas. Se a busca insensível encontrar mais de um candidato, a chamada falha com erro de ambiguidade listando os candidatos — nunca escolhe por conta própria.
 
-**Limites.** Toda tool que devolve lista aceita `limit` e `offset`. Padrão e teto de `limit` variam por tool (`vault_search`: padrão 20, teto embutido 200, mais o teto administrativo de `max_results`; `note_list`, `link_graph` e `vault_broken_links`: padrão 100, teto 500). O clamp é aplicado pelo servidor, não pelo schema — ver "Schemas servidos" abaixo. Respostas truncadas trazem `truncated: true` e `total`.
+**Limites.** Toda tool que devolve lista paginada aceita `limit` e `offset` — `vault_search`, `note_list` e `vault_broken_links`. `link_graph` aceita só `limit`, e `tag_list` nenhum dos dois. Padrão e teto de `limit` variam por tool (`vault_search`: padrão 20, teto embutido 200, mais o teto administrativo de `max_results`; `note_list`, `link_graph` e `vault_broken_links`: padrão 100, teto 500). O clamp é aplicado pelo servidor, não pelo schema — ver "Schemas servidos" abaixo. Toda resposta que o limite pode cortar traz `truncated`, verdadeiro quando ficou algo de fora; as paginadas trazem também `total`, a contagem antes de `offset` e `limit`. `link_graph` traz `truncated` sem `total`: contar o grafo inteiro exigiria percorrer o que o `limit` existe para não percorrer. Até 2026-09-25 só `vault_search`, `note_read` e `note_outline` cumpriam isto — `note_list` e `vault_broken_links` traziam `total` sem `truncated`, e `link_graph` não trazia nenhum dos dois, então um grafo cortado era indistinguível de um completo.
 
 **Dry-run.** Toda tool de escrita aceita `dry_run`. Quando verdadeiro, devolve o diff unificado do que seria feito e não toca o disco.
 
@@ -213,7 +213,7 @@ Lista notas por critérios estruturais. Não toca o índice de texto.
 }
 ```
 
-**Retorno.** Lista com `path`, `title`, `hash`, `modified`, `size`, `tags`, e os campos pedidos em `fields`. `tags` vem com a grafia original da nota, como `note_metadata.tags`: a dobra de caixa e de forma Unicode é da chave de agrupamento de `tag_list`, não do que estas duas tools devolvem.
+**Retorno.** `notes`, uma lista com `path`, `title`, `hash`, `modified`, `size`, `tags` e os campos pedidos em `fields`; `total`, a contagem antes de `offset` e `limit`; e `truncated`, verdadeiro quando há notas depois desta página. `tags` vem com a grafia original da nota, como `note_metadata.tags`: a dobra de caixa e de forma Unicode é da chave de agrupamento de `tag_list`, não do que estas duas tools devolvem.
 
 **Notas.** Servida direto do índice em memória. Latência de microssegundos. É a tool correta para "que notas existem na pasta X", "que notas têm a tag Y" — usar `vault_search` para isso é ordens de grandeza mais caro.
 
@@ -278,7 +278,7 @@ Vizinhança de links de uma nota.
 }
 ```
 
-**Retorno.** `nodes` com `path`, `title` e `distance` (saltos até a nota de origem; a travessia é em largura, então a primeira vez que um nó sai da fila já é pela rota mais curta), e `edges` com `source`, `target`, `kind`, `alias`, `anchor` e `resolved`.
+**Retorno.** `nodes` com `path`, `title` e `distance` (saltos até a nota de origem; a travessia é em largura, então a primeira vez que um nó sai da fila já é pela rota mais curta), e `edges` com `source`, `target`, `kind`, `alias`, `anchor` e `resolved`; `effective_limit`, o `limit` depois do teto; e `truncated`, verdadeiro quando o limite deixou de fora ao menos uma nota alcançável dentro de `depth`.
 
 `alias` e `anchor` fazem parte da IDENTIDADE da aresta: `A→B#Prescrição` e `A→B#Honorários` são referências diferentes e saem como arestas separadas. `resolved` só vem falso com `include_broken`, que é o único caminho que produz aresta sem alvo no cofre.
 
@@ -304,7 +304,7 @@ Todos os links quebrados do cofre: alvo ausente ou âncora ausente, com origem e
 }
 ```
 
-**Retorno.** `links` com `source` (a nota que cita), `target` (a grafia do alvo, sem o `#`), `anchor`, `alias`, `kind` (`wikilink`, `embed` ou `markdown`), `state` e `context` (o texto ao redor da referência, o mesmo campo de `note_metadata.links`); e `total`, a contagem **antes** de `offset` e `limit`, como em `note_list`.
+**Retorno.** `links` com `source` (a nota que cita), `target` (a grafia do alvo, sem o `#`), `anchor`, `alias`, `kind` (`wikilink`, `embed` ou `markdown`), `state` e `context` (o texto ao redor da referência, o mesmo campo de `note_metadata.links`); `total`, a contagem **antes** de `offset` e `limit`, como em `note_list`; e `truncated`, verdadeiro quando há links depois desta página.
 
 `target` vem **vazio** numa auto-âncora quebrada — `[[#Nada]]` ou `[x](#Nada)` numa nota que não tem esse heading. Não há alvo escrito: o link aponta para a própria `source`, e o que falta é o heading, que vem em `anchor`. Uma linha com `"target": ""` e `"state": "anchor_missing"` se lê como "corrija o `anchor` dentro de `source`", não como alvo perdido.
 
@@ -315,7 +315,8 @@ Todos os links quebrados do cofre: alvo ausente ou âncora ausente, com origem e
     { "source": "a.md", "target": "b", "anchor": "Nada", "kind": "wikilink", "state": "anchor_missing", "context": "…[[b#Nada]]…" },
     { "source": "a.md", "target": "", "anchor": "Nada", "kind": "wikilink", "state": "anchor_missing", "context": "…[[#Nada]]…" }
   ],
-  "total": 3
+  "total": 3,
+  "truncated": false
 }
 ```
 

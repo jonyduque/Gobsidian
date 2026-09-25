@@ -39,6 +39,8 @@ type BrokenLink struct {
 type BrokenLinksResult struct {
 	Links []BrokenLink `json:"links"`
 	Total int          `json:"total"`
+	// Truncated diz que ha links depois desta pagina.
+	Truncated bool `json:"truncated"`
 }
 
 // achadoQuebrado carrega o offset da referencia no corpo so ate a ordenacao.
@@ -134,12 +136,13 @@ func (s *Service) BrokenLinks(_ context.Context, req BrokenLinksRequest) (Broken
 	})
 
 	total := len(achados)
+	_, truncou := pagina(offset, limit, total)
 	var pagina []achadoQuebrado
 	if offset < total {
 		pagina = achados[offset:min(offset+limit, total)]
 	}
 
-	res := BrokenLinksResult{Links: make([]BrokenLink, len(pagina)), Total: total}
+	res := BrokenLinksResult{Links: make([]BrokenLink, len(pagina)), Total: total, Truncated: truncou}
 	for i, a := range pagina {
 		res.Links[i] = a.link
 	}

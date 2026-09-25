@@ -36,11 +36,13 @@ CONJUNTOS FECHADOS (o schema não os carrega; estes são os valores válidos)
   não repita a escrita.
 
 LIMITES
-- Toda lista aceita `limit` e `offset`. vault_search: padrão 20, teto 200.
-  note_list, link_graph e vault_broken_links: padrão 100, teto 500.
+- vault_search, note_list e vault_broken_links aceitam `limit` e `offset`;
+  link_graph, só `limit`. vault_search: padrão 20, teto 200. note_list,
+  link_graph e vault_broken_links: padrão 100, teto 500.
 - Valor acima do teto volta CLAMPADO, não recusado; o efetivo aparece em
-  `effective_*`. Resposta cortada traz `truncated: true` e `total` — se vier
-  `truncated`, pagine com `offset` antes de concluir qualquer contagem.
+  `effective_*`. Resposta cortada traz `truncated: true` — se vier, pagine
+  com `offset` (ou, em link_graph, aumente `limit`) antes de concluir
+  qualquer contagem. `total`, quando vem, é a contagem antes da página.
 
 COMO GASTAR MENOS E ACERTAR MAIS
 - Prefira `vault_search` a listar o cofre e filtrar por conta própria: o

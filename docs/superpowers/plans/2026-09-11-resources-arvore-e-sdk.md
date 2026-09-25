@@ -181,9 +181,9 @@ O dono pediu "paginação em respostas, não só de recursos". A página `2026-0
 
 Então paginação de resposta de tool continua sendo conta nossa, no payload, e já é: `limit`/`offset` com teto único em `service.ComTeto`. O que falta não é protocolo, é honestidade de contrato — várias tools cortam sem dizer que cortaram.
 
-- [ ] C1.1 — Varrer `docs/TOOLS.md` e o código: toda tool que aplica `ComTeto` declara `total` e um sinal de "há mais"? Onde não declara, declarar. Um resultado cortado sem sinal é indistinguível de um resultado completo, que é a mesma classe do achado B4.
+- [x] C1.1 — Varrer `docs/TOOLS.md` e o código: toda tool que aplica `ComTeto` declara `total` e um sinal de "há mais"? Onde não declara, declarar. Um resultado cortado sem sinal é indistinguível de um resultado completo, que é a mesma classe do achado B4. **Feito em 2026-09-25:** `note_list` e `vault_broken_links` traziam `total` sem `truncated`, e `link_graph` nenhum dos dois; os três ganharam `truncated` (`link_graph` sem `total`, que exigiria percorrer o grafo inteiro). `docs/TOOLS.md` e `instrucoes.txt` corrigidos: a frase "toda lista aceita `limit` e `offset`" era falsa para `link_graph` e `tag_list`.
 - [x] C1.2 — Corrigir `docs/TOOLS.md:564`, que diz "A listagem de resources é paginada e serve o índice em memória (...) limite fixo de 200 (`resources.go:66`)". Depois da Parte A, as duas metades estão erradas: a paginação é do SDK (`PageSize`, default 1000) e o limite de 200 deixou de existir. Doc que aponta linha de código é doc que envelhece em silêncio — apontar comportamento, não linha. **Feito em 2026-09-25, junto da Parte A.**
-- [ ] C1.3 — Registrar em `docs/ESTADO.md` o fato medido: `tools/call` não pagina em nenhuma versão do protocolo, inclusive `2026-07-28`. É a pergunta que já foi feita duas vezes.
+- [x] C1.3 — Registrar em `docs/ESTADO.md` o fato medido: `tools/call` não pagina em nenhuma versão do protocolo, inclusive `2026-07-28`. É a pergunta que já foi feita duas vezes. **Feito em 2026-09-25**, na seção "Claude Desktop como host MCP".
 
 ---
 

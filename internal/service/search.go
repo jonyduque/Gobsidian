@@ -144,8 +144,10 @@ func resultadoVazio(total int, opts SearchOptions) SearchResult {
 
 // pagina devolve o fim da fatia da pagina e se sobrou resultado de fora.
 //
-// Uma conta so para os dois caminhos que paginam. Exige offset < total, que e o
-// que o chamador ja conferiu para poder devolver resultadoVazio antes.
+// Uma conta so para o "truncated" de toda tool que pagina: os dois caminhos
+// de vault_search, note_list e vault_broken_links. O fim so serve de indice
+// com offset < total, que e o que a busca confere antes; truncou vale para
+// qualquer offset >= 0.
 func pagina(offset, limit, total int) (fim int, truncou bool) {
 	fim = offset + limit
 	if fim < total {

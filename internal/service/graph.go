@@ -92,6 +92,10 @@ type GraphResult struct {
 	Nodes        []GraphNode `json:"nodes"`
 	Edges        []GraphEdge `json:"edges"`
 	LimitEfetivo int         `json:"effective_limit"`
+	// Truncated diz que o limit deixou de fora ao menos uma nota alcancavel
+	// dentro da profundidade pedida. Nao ha total: conta-lo exigiria percorrer
+	// o grafo que o limit existe para nao percorrer.
+	Truncated bool `json:"truncated"`
 }
 
 // LinkGraph percorre o grafo a partir de uma nota, ate a profundidade pedida.
@@ -133,6 +137,10 @@ func (s *Service) LinkGraph(_ context.Context, req GraphRequest) (GraphResult, e
 
 	queue := []queueItem{{Path: startPath, Depth: 0}}
 	visited := make(map[vault.CanonicalPath]bool)
+	// recusados guarda o vizinho que o limit barrou na fila. Recusa nao e
+	// corte por si: o vizinho pode ja estar na fila por outra aresta e entrar
+	// do mesmo jeito. O corte e decidido no fim, contra os nos que entraram.
+	recusados := make(map[vault.CanonicalPath]bool)
 
 	for len(queue) > 0 && len(nodesMap) < limit {
 		curr := queue[0]
@@ -173,8 +181,12 @@ func (s *Service) LinkGraph(_ context.Context, req GraphRequest) (GraphResult, e
 						}
 						edgesMap[deAresta(a)] = a
 
-						if !visited[link.Resolved] && len(nodesMap)+len(queue) < limit {
-							queue = append(queue, queueItem{Path: link.Resolved, Depth: curr.Depth + 1})
+						if !visited[link.Resolved] {
+							if len(nodesMap)+len(queue) < limit {
+								queue = append(queue, queueItem{Path: link.Resolved, Depth: curr.Depth + 1})
+							} else {
+								recusados[link.Resolved] = true
+							}
 						}
 					}
 				} else if link.State == index.LinkTargetMissing && req.IncludeBroken {
@@ -222,10 +234,26 @@ func (s *Service) LinkGraph(_ context.Context, req GraphRequest) (GraphResult, e
 				}
 				edgesMap[deAresta(a)] = a
 
-				if !visited[bl.From] && len(nodesMap)+len(queue) < limit {
-					queue = append(queue, queueItem{Path: bl.From, Depth: curr.Depth + 1})
+				if !visited[bl.From] {
+					if len(nodesMap)+len(queue) < limit {
+						queue = append(queue, queueItem{Path: bl.From, Depth: curr.Depth + 1})
+					} else {
+						recusados[bl.From] = true
+					}
 				}
 			}
+		}
+	}
+
+	// O que sobrou na fila quando o limit parou o laco tambem ficou de fora.
+	for _, q := range queue {
+		recusados[q.Path] = true
+	}
+	truncou := false
+	for p := range recusados {
+		if _, entrou := nodesMap[p]; !entrou {
+			truncou = true
+			break
 		}
 	}
 
@@ -233,6 +261,7 @@ func (s *Service) LinkGraph(_ context.Context, req GraphRequest) (GraphResult, e
 		Nodes:        make([]GraphNode, 0, len(nodesMap)),
 		Edges:        make([]GraphEdge, 0, len(edgesMap)),
 		LimitEfetivo: limit,
+		Truncated:    truncou,
 	}
 
 	for _, v := range nodesMap {
@@ -501,6 +530,8 @@ type ListItem struct {
 type ListResult struct {
 	Notes []ListItem `json:"notes"`
 	Total int        `json:"total"`
+	// Truncated diz que ha notas depois desta pagina.
+	Truncated bool `json:"truncated"`
 }
 
 // ListNotes filtra e ordena notas por metadados, devolvendo a projecao barata
@@ -529,6 +560,7 @@ func (s *Service) ListNotes(_ context.Context, req ListRequest) (ListResult, err
 	}
 
 	notes, total := s.index.List(q)
+	_, truncou := pagina(max(q.Offset, 0), q.Limit, total)
 
 	items := make([]ListItem, 0, len(notes))
 	for _, n := range notes {
@@ -543,7 +575,7 @@ func (s *Service) ListNotes(_ context.Context, req ListRequest) (ListResult, err
 		})
 	}
 
-	return ListResult{Notes: items, Total: total}, nil
+	return ListResult{Notes: items, Total: total, Truncated: truncou}, nil
 }
 
 // selectFields devolve so os campos pedidos.
