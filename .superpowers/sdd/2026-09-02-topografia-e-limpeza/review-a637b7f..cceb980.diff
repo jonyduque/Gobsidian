@@ -1,0 +1,545 @@
+# Review package: a637b7f4ea3d498c9db74daa7e1cd5ed4ca60220..HEAD
+
+## Commits
+cceb980 fix(ipc): one account of a clean disconnect, and serve exits 0 on os.ErrClosed like the bridge does [sem-doc]
+5360a3b fix(doctor): list the listen lock too, deriving both lock suffixes and the log path from daemon [sem-doc]
+
+## Files changed
+ cmd/gobsidian/ponte.go               | 11 ++--------
+ cmd/gobsidian/serve.go               | 20 +++++------------
+ cmd/gobsidian/serve_test.go          |  3 +++
+ internal/daemon/daemon.go            |  9 +-------
+ internal/daemon/lock.go              | 19 ++++++++++++++--
+ internal/daemon/lock_sufixos_test.go | 35 ++++++++++++++++++++++++++++++
+ internal/doctor/daemon.go            |  5 ++---
+ internal/doctor/daemon_test.go       | 42 ++++++++++++++++++++++++++++++++++++
+ internal/ipc/desconexao.go           | 24 +++++++++++++++++++++
+ internal/ipc/desconexao_test.go      | 26 ++++++++++++++++++++++
+ 10 files changed, 157 insertions(+), 37 deletions(-)
+
+## Diff
+diff --git a/cmd/gobsidian/ponte.go b/cmd/gobsidian/ponte.go
+index f9dc7c7..dfe8417 100644
+--- a/cmd/gobsidian/ponte.go
++++ b/cmd/gobsidian/ponte.go
+@@ -235,23 +235,16 @@ func servePonteRemota(parent context.Context, conn ipc.Conn, stdin io.Reader, st
+ 		}},
+ 		lifecycle.Step{Name: "close-conn", Budget: 500 * time.Millisecond, Fn: func(context.Context) error {
+ 			return conn.Close()
+ 		}},
+ 	)
+ 
+ 	lc.Wait()
+ 
+ 	// ctx.Canceled no retorno do loop de copia e encerramento normal — a
+ 	// mesma regra que vale para o serve loop de serveEmProcesso (ver
+-	// shutdownExitCode). Os tres mecanismos cancelam o mesmo context, e uma
+-	// copia interrompida por isso nao e falha; io.EOF/io.ErrClosedPipe/
+-	// os.ErrClosed sao as formas como o fechamento de pw ou conn aparecem
+-	// nos dois lados da copia.
+-	if loopErr != nil &&
+-		!errors.Is(loopErr, context.Canceled) &&
+-		!errors.Is(loopErr, io.EOF) &&
+-		!errors.Is(loopErr, io.ErrClosedPipe) &&
+-		!errors.Is(loopErr, os.ErrClosed) {
++	// ipc.EhDesconexaoLimpa).
++	if !ipc.EhDesconexaoLimpa(loopErr) {
+ 		return loopErr
+ 	}
+ 	return nil
+ }
+diff --git a/cmd/gobsidian/serve.go b/cmd/gobsidian/serve.go
+index 494c6a3..db53bde 100644
+--- a/cmd/gobsidian/serve.go
++++ b/cmd/gobsidian/serve.go
+@@ -4,20 +4,21 @@ import (
+ 	"context"
+ 	"errors"
+ 	"io"
+ 	"log/slog"
+ 	"os"
+ 	"runtime/debug"
+ 	"time"
+ 
+ 	"github.com/jonyd/gobsidian/internal/config"
+ 	"github.com/jonyd/gobsidian/internal/index"
++	"github.com/jonyd/gobsidian/internal/ipc"
+ 	"github.com/jonyd/gobsidian/internal/lifecycle"
+ 	"github.com/jonyd/gobsidian/internal/mcpsrv"
+ 	"github.com/jonyd/gobsidian/internal/search"
+ 	"github.com/jonyd/gobsidian/internal/service"
+ 	"github.com/jonyd/gobsidian/internal/vault"
+ 	"github.com/jonyd/gobsidian/internal/watcher"
+ 	"github.com/spf13/cobra"
+ )
+ 
+ func newServeCmd() *cobra.Command {
+@@ -56,38 +57,27 @@ func newServeCmd() *cobra.Command {
+ 
+ 	return cmd
+ }
+ 
+ // shutdownExitCode traduz o erro final do serve loop em codigo de saida.
+ //
+ // Existe como funcao separada porque e a unica parte de runServe que da para
+ // testar sem levantar um processo: runServe termina em os.Exit por desenho, e
+ // os.Exit nao volta.
+ //
+-// Os tres erros tratados como encerramento normal sao os que aparecem quando
+-// o host simplesmente vai embora. context.Canceled vem do proprio lifecycle,
+-// que cancela o contexto quando o stdin fecha, um sinal chega ou o pai morre.
+-// io.EOF e io.ErrClosedPipe podem vir do SDK, que detecta o fim do stdin por
+-// conta propria — as duas deteccoes correm, e qual delas vence decide qual
+-// valor chega aqui. Tratar qualquer uma como falha faz um host supervisor ver
+-// erro aleatorio a cada desconexao limpa.
++// ipc.EhDesconexaoLimpa e a conta unica de "o outro lado foi embora" — ver
++// esse comentario para o que cada forma significa.
+ func shutdownExitCode(err error) int {
+-	switch {
+-	case err == nil:
+-		return 0
+-	case errors.Is(err, context.Canceled),
+-		errors.Is(err, io.EOF),
+-		errors.Is(err, io.ErrClosedPipe):
++	if ipc.EhDesconexaoLimpa(err) {
+ 		return 0
+-	default:
+-		return 1
+ 	}
++	return 1
+ }
+ 
+ // carregarIndiceDoCache tenta servir o indice de metadados do disco em vez
+ // de varrer e parsear o cofre inteiro — o que fecha docs/PRD.md Q3: o cache
+ // so existia para o indice invertido (busca), e RNF-02 nunca era atingido
+ // porque o indice de metadados sempre reconstruia do zero, mesmo com o
+ // cache de busca quente.
+ //
+ // So aceita o cache quando VerifyFreshness confirma que ele bate com o
+ // disco — mesma contagem de arquivos, mesmo tamanho e mtime por arquivo.
+diff --git a/cmd/gobsidian/serve_test.go b/cmd/gobsidian/serve_test.go
+index f75070a..9389351 100644
+--- a/cmd/gobsidian/serve_test.go
++++ b/cmd/gobsidian/serve_test.go
+@@ -1,18 +1,19 @@
+ package main
+ 
+ import (
+ 	"bytes"
+ 	"context"
+ 	"errors"
+ 	"fmt"
+ 	"io"
++	"os"
+ 	"testing"
+ 	"time"
+ )
+ 
+ // boundedWait e o prazo usado para esperar por um lado do pipe num teste.
+ // Uma regressao real (por exemplo, apagar o CloseWithError que propaga EOF)
+ // nao deve travar o binario de teste ate o timeout padrao de 10 minutos do
+ // "go test ./..." sem -timeout: precisa reprovar em milissegundos, com uma
+ // mensagem que diz o que faltou.
+ const boundedWait = 2 * time.Second
+@@ -238,20 +239,22 @@ func TestShutdownExitCode(t *testing.T) {
+ 		err  error
+ 		want int
+ 	}{
+ 		{"nil", nil, 0},
+ 		{"context.Canceled", context.Canceled, 0},
+ 		{"erro embrulhado com context.Canceled", fmt.Errorf("serve: %w", context.Canceled), 0},
+ 		{"io.EOF", io.EOF, 0},
+ 		{"erro embrulhado com io.EOF", fmt.Errorf("sdk: %w", io.EOF), 0},
+ 		{"io.ErrClosedPipe", io.ErrClosedPipe, 0},
+ 		{"erro embrulhado com io.ErrClosedPipe", fmt.Errorf("sdk: %w", io.ErrClosedPipe), 0},
++		{"os.ErrClosed", os.ErrClosed, 0},
++		{"prazo estourado", context.DeadlineExceeded, 1},
+ 		{"erro real", errors.New("falha real"), 1},
+ 	}
+ 
+ 	for _, tc := range cases {
+ 		t.Run(tc.name, func(t *testing.T) {
+ 			if got := shutdownExitCode(tc.err); got != tc.want {
+ 				t.Fatalf("shutdownExitCode(%v) = %d, esperado %d", tc.err, got, tc.want)
+ 			}
+ 		})
+ 	}
+diff --git a/internal/daemon/daemon.go b/internal/daemon/daemon.go
+index a53295a..e997f58 100644
+--- a/internal/daemon/daemon.go
++++ b/internal/daemon/daemon.go
+@@ -11,25 +11,22 @@
+ // processo que ja saiu (a propria ponte que lancou o daemon), derrubando-o
+ // na hora. O que substitui os dois e a ociosidade: sem nenhum cliente
+ // conectado por Config.OciosidadeMax, o daemon sai -- usando a MESMA
+ // infraestrutura de lifecycle.Lifecycle.Trigger que sinal usa, para o gate
+ // de orfaos continuar conferindo "reason=" do mesmo jeito para os quatro
+ // mecanismos.
+ package daemon
+ 
+ import (
+ 	"context"
+-	"errors"
+-	"io"
+ 	"log/slog"
+ 	"net"
+-	"os"
+ 	"sync"
+ 	"time"
+ 
+ 	"github.com/jonyd/gobsidian/internal/config"
+ 	"github.com/jonyd/gobsidian/internal/ipc"
+ 	"github.com/jonyd/gobsidian/internal/mcpsrv"
+ )
+ 
+ // Config e o que o daemon precisa alem do config.Config do cofre.
+ type Config struct {
+@@ -244,18 +241,14 @@ func (d *Daemon) handleConn(ctx context.Context, conn net.Conn) {
+ 		d.log.Warn("saudacao ao cliente falhou", "err", err)
+ 		return
+ 	}
+ 
+ 	// srv.Serve aceita io.Reader/io.Writer -- passar a MESMA conn duas
+ 	// vezes basta, net.Conn ja separa leitura e escrita internamente.
+ 	// Nenhum tipo do SDK MCP atravessa esta chamada (mcpsrv.Server.Serve
+ 	// ja tinha essa assinatura desde a Task 91; nao precisou mudar para o
+ 	// daemon).
+ 	err := d.srv.Serve(ctx, conn, conn)
+-	if err != nil &&
+-		!errors.Is(err, context.Canceled) &&
+-		!errors.Is(err, io.EOF) &&
+-		!errors.Is(err, io.ErrClosedPipe) &&
+-		!errors.Is(err, os.ErrClosed) {
++	if !ipc.EhDesconexaoLimpa(err) {
+ 		d.log.Warn("sessao de cliente encerrada com erro", "err", err)
+ 	}
+ }
+diff --git a/internal/daemon/lock.go b/internal/daemon/lock.go
+index 7a110f7..a7d2a2a 100644
+--- a/internal/daemon/lock.go
++++ b/internal/daemon/lock.go
+@@ -4,20 +4,21 @@
+ // handshake de novo -- so uma delas ganha o direito de lancar o processo;
+ // as outras esperam e conectam.
+ 
+ package daemon
+ 
+ import (
+ 	"context"
+ 	"errors"
+ 	"fmt"
+ 	"net"
++	"strings"
+ 	"time"
+ 
+ 	"github.com/jonyd/gobsidian/internal/config"
+ 	"github.com/jonyd/gobsidian/internal/ipc"
+ )
+ 
+ // pollInterval e o intervalo entre tentativas de handshake enquanto se
+ // espera o socket aparecer -- tanto para quem perdeu a corrida quanto para
+ // quem venceu e acabou de pedir o lancamento do processo.
+ const pollInterval = 25 * time.Millisecond
+@@ -100,29 +101,43 @@ func adquirirLock(vaultPath string) (adquiriu bool, liberar func(), err error) {
+ 	trava, tomou, err := tentarTravar(path)
+ 	if err != nil {
+ 		return false, nil, err
+ 	}
+ 	if !tomou {
+ 		return false, nil, nil
+ 	}
+ 	return true, trava.Liberar, nil
+ }
+ 
++// Sufixos das duas travas do daemon, derivadas do caminho do socket. O doctor
++// lista as travas pelo mesmo par -- ate 2026-09-02 ele filtrava por ".sock.lock"
++// e a trava de escuta (".sock.listen.lock") era invisivel para ele.
++const (
++	sufixoTrava         = ".lock"
++	sufixoTravaDeEscuta = ".listen.lock"
++)
++
++// EhArquivoDeTrava diz se um nome de arquivo no diretorio de runtime e uma
++// das duas travas de daemon. E a unica conta; o doctor a consome.
++func EhArquivoDeTrava(nome string) bool {
++	return strings.HasSuffix(nome, sufixoTrava) // ".listen.lock" tambem termina em ".lock"
++}
++
+ // lockPath deriva do MESMO caminho que ipc.SocketPath calcula, trocando so
+ // a extensao -- um cofre, um socket, um lock, todos no mesmo diretorio de
+ // runtime.
+ func lockPath(vaultPath string) (string, error) {
+ 	sock, err := ipc.SocketPath(vaultPath)
+ 	if err != nil {
+ 		return "", err
+ 	}
+-	return sock + ".lock", nil
++	return sock + sufixoTrava, nil
+ }
+ 
+ // esperarSocket tenta o handshake completo -- versao E configuracao, ver
+ // internal/ipc.HandshakeConfig -- ate o daemon responder ou o prazo
+ // esgotar. Um erro de versao ou de configuracao divergente e TERMINAL: o
+ // socket respondeu, so nao aceita esta ponte, e insistir no mesmo prazo
+ // nao mudaria isso.
+ func esperarSocket(ctx context.Context, cfg config.Config, prazo time.Duration) error {
+ 	limite := time.Now().Add(prazo)
+ 
+@@ -178,21 +193,21 @@ func esperarSocket(ctx context.Context, cfg config.Config, prazo time.Duration)
+ //
+ // Quem nao consegue o lock NAO espera: outro daemon do mesmo cofre esta subindo
+ // agora, e o certo e sair, nao competir. O erro devolvido diz isso.
+ func ComLockDeEscuta(vaultPath string, fn func() error) error {
+ 	sock, err := ipc.SocketPath(vaultPath)
+ 	if err != nil {
+ 		return err
+ 	}
+ 	// Deriva do MESMO caminho do socket, nunca de uma segunda conta do hash do
+ 	// cofre — a licao do byAlias que config.VaultKey registra.
+-	path := sock + ".listen.lock"
++	path := sock + sufixoTravaDeEscuta
+ 
+ 	trava, tomou, err := tentarTravar(path)
+ 	if err != nil {
+ 		return err
+ 	}
+ 	if !tomou {
+ 		return fmt.Errorf("outro daemon deste cofre esta abrindo o socket agora")
+ 	}
+ 	defer trava.Liberar()
+ 
+diff --git a/internal/daemon/lock_sufixos_test.go b/internal/daemon/lock_sufixos_test.go
+new file mode 100644
+index 0000000..c86a10f
+--- /dev/null
++++ b/internal/daemon/lock_sufixos_test.go
+@@ -0,0 +1,35 @@
++package daemon
++
++import (
++	"path/filepath"
++	"testing"
++)
++
++// lock_sufixos_test.go testa EhArquivoDeTrava e a conta unica que sufixoTrava
++// e sufixoTravaDeEscuta representam. E pacote daemon (nao daemon_test) porque
++// exercita os dois identificadores nao exportados diretamente -- ver
++// lock_test.go para os testes de caixa-preta via EnsureStarted.
++
++func TestEhArquivoDeTravaCobreAsDuasTravas(t *testing.T) {
++	sock := "abc.sock"
++	casos := map[string]bool{
++		sock + sufixoTrava:         true,
++		sock + sufixoTravaDeEscuta: true,
++		sock:                       false,
++		sock + ".log":              false,
++		"abc.lock.txt":             false,
++	}
++	for nome, quer := range casos {
++		if got := EhArquivoDeTrava(nome); got != quer {
++			t.Errorf("EhArquivoDeTrava(%q) = %v, quer %v", nome, got, quer)
++		}
++	}
++	// As constantes sao o que lockPath e ComLockDeEscuta usam de verdade.
++	p, err := lockPath(t.TempDir())
++	if err != nil {
++		t.Fatal(err)
++	}
++	if !EhArquivoDeTrava(filepath.Base(p)) {
++		t.Fatalf("lockPath produz %q, que EhArquivoDeTrava nao reconhece", p)
++	}
++}
+diff --git a/internal/doctor/daemon.go b/internal/doctor/daemon.go
+index ff6d477..a7bd4be 100644
+--- a/internal/doctor/daemon.go
++++ b/internal/doctor/daemon.go
+@@ -134,25 +134,24 @@ func checkDaemonVivo(ctx context.Context, cfg config.Config) Result {
+ }
+ 
+ // checkDaemonLog mostra o fim do log do daemon.
+ //
+ // É onde a causa de morte passou a ser escrita. Antes disso, dois daemons
+ // morreram deixando a linha "daemon iniciado" e mais nada — e um log com uma
+ // linha só continua sendo o sintoma que essa checagem torna visível.
+ func checkDaemonLog(_ context.Context, cfg config.Config) Result {
+ 	const name = "log do daemon"
+ 
+-	sock, err := ipc.SocketPath(cfg.VaultPath)
++	path, err := daemon.CaminhoDoLog(cfg.VaultPath)
+ 	if err != nil {
+ 		return Result{Name: name, Status: StatusWarn, Detail: fmt.Sprintf("nao foi possivel derivar: %v", err)}
+ 	}
+-	path := sock + ".log"
+ 
+ 	fi, err := os.Stat(path)
+ 	if err != nil {
+ 		if os.IsNotExist(err) {
+ 			return Result{Name: name, Status: StatusOK, Detail: "ainda nao existe (nenhum daemon rodou para este cofre)"}
+ 		}
+ 		return Result{Name: name, Status: StatusWarn, Detail: fmt.Sprintf("%s: %v", path, err)}
+ 	}
+ 
+ 	linhas, _ := daemon.UltimasLinhasDoLog(cfg.VaultPath, 3)
+@@ -193,21 +192,21 @@ func checkLocksDeDaemon(_ context.Context, cfg config.Config) Result {
+ 	entradas, err := os.ReadDir(dir)
+ 	if err != nil {
+ 		if os.IsNotExist(err) {
+ 			return Result{Name: name, Status: StatusOK, Detail: "diretorio de runtime ainda nao existe"}
+ 		}
+ 		return Result{Name: name, Status: StatusWarn, Detail: fmt.Sprintf("%s: %v", dir, err)}
+ 	}
+ 
+ 	var emUso []string
+ 	for _, e := range entradas {
+-		if e.IsDir() || !strings.HasSuffix(e.Name(), ".sock.lock") {
++		if e.IsDir() || !daemon.EhArquivoDeTrava(e.Name()) {
+ 			continue
+ 		}
+ 		caminho := filepath.Join(dir, e.Name())
+ 		ocupada, err := daemon.TravaEmUso(caminho)
+ 		if err != nil {
+ 			emUso = append(emUso, fmt.Sprintf("%s (nao foi possivel consultar: %v)", e.Name(), err))
+ 			continue
+ 		}
+ 		if !ocupada {
+ 			continue
+diff --git a/internal/doctor/daemon_test.go b/internal/doctor/daemon_test.go
+index 5296e10..2c5759a 100644
+--- a/internal/doctor/daemon_test.go
++++ b/internal/doctor/daemon_test.go
+@@ -1,20 +1,22 @@
+ package doctor
+ 
+ import (
++	"context"
+ 	"net"
+ 	"os"
+ 	"path/filepath"
+ 	"strings"
+ 	"testing"
+ 
+ 	"github.com/jonyd/gobsidian/internal/config"
++	"github.com/jonyd/gobsidian/internal/daemon"
+ )
+ 
+ // TestClasseDoCaminhoDoSocketDistingueOsEstados e o teste que a investigacao de
+ // 2026-08-26 exigiu.
+ //
+ // A mensagem de erro do dial NAO distingue estes estados: medido no Windows,
+ // arquivo comum, socket orfao de dono morto a forca e caminho inexistente
+ // devolvem os TRES o mesmo 10061, enquanto diretorio devolve 10022. Um
+ // diagnostico que so repetisse o erro do sistema seria inutil exatamente no
+ // caso que apareceu em producao.
+@@ -109,10 +111,50 @@ func TestCheckRootExistsApontaAGrafiaDoDisco(t *testing.T) {
+ 	if r.Status != StatusFail {
+ 		t.Errorf("status = %v, queria StatusFail", r.Status)
+ 	}
+ 	if !strings.Contains(r.Detail, "grafia diferente") {
+ 		t.Errorf("detalhe nao oferece a grafia do disco: %q", r.Detail)
+ 	}
+ 	if !strings.Contains(r.Detail, "Revisão") {
+ 		t.Errorf("detalhe nao nomeia o vizinho real: %q", r.Detail)
+ 	}
+ }
++
++// TestCheckLocksDeDaemonEnxergaListenLock reproduz o defeito de 2026-09-02:
++// checkLocksDeDaemon filtrava por ".sock.lock", e "x.sock.listen.lock" nao
++// termina nesse sufixo -- a trava de escuta, justamente a que um daemon morto
++// sem fechar o listener deixa para tras, era invisivel para o doctor.
++func TestCheckLocksDeDaemonEnxergaListenLock(t *testing.T) {
++	cfg := config.Config{VaultPath: t.TempDir()}
++	err := daemon.ComLockDeEscuta(cfg.VaultPath, func() error {
++		r := checkLocksDeDaemon(context.Background(), cfg)
++		if !strings.Contains(r.Detail, "listen.lock") {
++			t.Errorf("com a trava de escuta tomada, doctor disse: %q", r.Detail)
++		}
++		return nil
++	})
++	if err != nil {
++		t.Fatal(err)
++	}
++}
++
++// TestCheckDaemonLogUsaACaminhoDoLogDoDaemon prova que checkDaemonLog usa a
++// mesma conta que daemon.CaminhoDoLog, e nao uma segunda copia de
++// "sock + \".log\"".
++func TestCheckDaemonLogUsaACaminhoDoLogDoDaemon(t *testing.T) {
++	cfg := config.Config{VaultPath: t.TempDir()}
++	esperado, err := daemon.CaminhoDoLog(cfg.VaultPath)
++	if err != nil {
++		t.Fatal(err)
++	}
++	if err := os.MkdirAll(filepath.Dir(esperado), 0o700); err != nil {
++		t.Fatal(err)
++	}
++	if err := os.WriteFile(esperado, []byte("daemon iniciado\n"), 0o600); err != nil {
++		t.Fatal(err)
++	}
++	t.Cleanup(func() { _ = os.Remove(esperado) })
++	r := checkDaemonLog(context.Background(), cfg)
++	if strings.Contains(r.Detail, "ainda nao existe") {
++		t.Fatalf("o log existe em %q e o doctor nao o achou: %q", esperado, r.Detail)
++	}
++}
+diff --git a/internal/ipc/desconexao.go b/internal/ipc/desconexao.go
+new file mode 100644
+index 0000000..235b9c3
+--- /dev/null
++++ b/internal/ipc/desconexao.go
+@@ -0,0 +1,24 @@
++package ipc
++
++import (
++	"context"
++	"errors"
++	"io"
++	"os"
++)
++
++// EhDesconexaoLimpa diz se um erro devolvido por um loop de transporte
++// significa "o outro lado foi embora", e nao falha.
++//
++// context.Canceled vem do proprio lifecycle; io.EOF e io.ErrClosedPipe sao
++// como o SDK reporta o fim do stdin; os.ErrClosed e como o fechamento de um
++// pipe ou conn aparece do lado que ainda estava copiando. Tres lugares
++// tinham essa lista, e um deles (shutdownExitCode) nao tinha os.ErrClosed —
++// um serve que encerrava por essa via saia com codigo 1.
++func EhDesconexaoLimpa(err error) bool {
++	return err == nil ||
++		errors.Is(err, context.Canceled) ||
++		errors.Is(err, io.EOF) ||
++		errors.Is(err, io.ErrClosedPipe) ||
++		errors.Is(err, os.ErrClosed)
++}
+diff --git a/internal/ipc/desconexao_test.go b/internal/ipc/desconexao_test.go
+new file mode 100644
+index 0000000..ba4c285
+--- /dev/null
++++ b/internal/ipc/desconexao_test.go
+@@ -0,0 +1,26 @@
++package ipc
++
++import (
++	"context"
++	"errors"
++	"fmt"
++	"io"
++	"os"
++	"testing"
++)
++
++func TestEhDesconexaoLimpaReconheceAsQuatroFormas(t *testing.T) {
++	limpos := []error{nil, context.Canceled, io.EOF, io.ErrClosedPipe, os.ErrClosed,
++		fmt.Errorf("copiando: %w", os.ErrClosed)}
++	for _, e := range limpos {
++		if !EhDesconexaoLimpa(e) {
++			t.Errorf("EhDesconexaoLimpa(%v) = false", e)
++		}
++	}
++	sujos := []error{errors.New("falha real"), context.DeadlineExceeded, io.ErrUnexpectedEOF}
++	for _, e := range sujos {
++		if EhDesconexaoLimpa(e) {
++			t.Errorf("EhDesconexaoLimpa(%v) = true", e)
++		}
++	}
++}

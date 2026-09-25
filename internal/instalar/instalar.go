@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"github.com/jonyduque/Gobsidian/internal/textos"
 	"io"
 	"os"
 	"path/filepath"
@@ -157,7 +158,7 @@ func Instalar(ctx context.Context, sis Sistema, o Opcoes) (Resultado, error) {
 		cacheRaiz = RaizDoCache()
 	}
 
-	sis.anunciar("tomando a trava de instalação")
+	sis.anunciar(textos.PassoTrava)
 	liberarTrava, err := TomarTravaGlobal(runtimeDir)
 	if err != nil {
 		return r, err
@@ -165,7 +166,7 @@ func Instalar(ctx context.Context, sis Sistema, o Opcoes) (Resultado, error) {
 	defer liberarTrava()
 
 	// 2 e 3: quem esta rodando, e o aval para encerrar.
-	sis.anunciar("procurando processos em execução")
+	sis.anunciar(textos.PassoProcessos)
 	if err := encerrarProcessos(sis, runtimeDir, &r); err != nil {
 		return r, err
 	}
@@ -173,7 +174,7 @@ func Instalar(ctx context.Context, sis Sistema, o Opcoes) (Resultado, error) {
 	// 4: limpeza. Roda AQUI -- com a trava tomada e ninguem rodando -- e nao
 	// antes: e a unica janela em que remover uma trava livre nao corre com
 	// alguem que esta prestes a toma-la.
-	sis.anunciar("limpando lixo de execuções anteriores")
+	sis.anunciar(textos.PassoLimpeza)
 	limpeza, err := Limpar(runtimeDir, cacheRaiz, true)
 	if err != nil {
 		return r, fmt.Errorf("limpando: %w", err)
@@ -185,7 +186,7 @@ func Instalar(ctx context.Context, sis Sistema, o Opcoes) (Resultado, error) {
 	// mapeando. Ver MigrarChaves para o defeito que a originou -- a conta de
 	// config.VaultKey deixou de depender de tabela Unicode da toolchain, e um
 	// punhado de cofres muda de chave por isso.
-	sis.anunciar("conferindo as chaves de cache")
+	sis.anunciar(textos.PassoChaves)
 	migradas, err := MigrarChaves(cacheRaiz, true)
 	if err != nil {
 		return r, fmt.Errorf("migrando chaves de cache: %w", err)
@@ -193,7 +194,7 @@ func Instalar(ctx context.Context, sis Sistema, o Opcoes) (Resultado, error) {
 	r.ChavesMigradas = migradas
 
 	// 5: o binario.
-	sis.anunciar("instalando o binário")
+	sis.anunciar(textos.PassoBinario)
 	binario, hash, err := instalarBinario(o)
 	if err != nil {
 		return r, err
@@ -203,7 +204,7 @@ func Instalar(ctx context.Context, sis Sistema, o Opcoes) (Resultado, error) {
 
 	// 6: PATH.
 	if !o.SemPath {
-		sis.anunciar("ajustando o PATH")
+		sis.anunciar(textos.PassoPath)
 		mudou, err := sis.ajustarPath(filepath.Dir(binario))
 		if err != nil {
 			return r, fmt.Errorf("ajustando o PATH: %w", err)
@@ -212,7 +213,7 @@ func Instalar(ctx context.Context, sis Sistema, o Opcoes) (Resultado, error) {
 	}
 
 	// 6: hosts.
-	sis.anunciar("configurando os hosts de IA")
+	sis.anunciar(textos.PassoHosts)
 	r.HostsOK, r.HostsFalhos = configurarHosts(o, binario)
 
 	// 7: manifesto.
@@ -230,7 +231,7 @@ func Instalar(ctx context.Context, sis Sistema, o Opcoes) (Resultado, error) {
 	for chave := range r.HostsOK {
 		m.Hosts = append(m.Hosts, chave)
 	}
-	sis.anunciar("gravando o manifesto")
+	sis.anunciar(textos.PassoManifesto)
 	if err := GravarManifesto(m); err != nil {
 		return r, err
 	}

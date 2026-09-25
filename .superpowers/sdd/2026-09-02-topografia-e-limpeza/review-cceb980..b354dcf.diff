@@ -1,0 +1,804 @@
+# Review package: cceb980fe7db9e205add416452474419344ff17b..HEAD
+
+## Commits
+b354dcf docs(wiki): shutdownExitCode delegates to ipc.EhDesconexaoLimpa, os.ErrClosed is a clean disconnect
+b8ed7f6 fix(cli): search honours --max-results; index and inspect stop declaring flags they ignore
+3a1ab3e fix(service): a missing index is VAULT_UNAVAILABLE everywhere, and outline agrees with read
+b1f2cfe fix(search): the cache format version is one constant; magic and codec derive from it [sem-doc]
+7f2ac8d refactor(doctor): drop Status.Marker, the console package owns the markers [sem-doc]
+
+## Files changed
+ README.md                             | 24 ++++++----
+ cmd/gobsidian/cli_subcommands_test.go | 82 ++++++++++++++++++++---------------
+ cmd/gobsidian/index.go                |  7 ---
+ cmd/gobsidian/inspect.go              |  7 ---
+ cmd/gobsidian/search.go               |  6 +--
+ docs/TOOLS.md                         |  4 +-
+ docs/wiki/flows/encerramento.md       | 15 ++++---
+ internal/doctor/doctor.go             | 15 -------
+ internal/doctor/doctor_extra_test.go  | 24 ----------
+ internal/search/persist_codec.go      |  9 +++-
+ internal/search/persist_codec_test.go |  9 ++++
+ internal/service/errors_test.go       | 36 +++++++++++++++
+ internal/service/graph.go             |  8 ++--
+ internal/service/outline.go           |  2 +-
+ 14 files changed, 130 insertions(+), 118 deletions(-)
+
+## Diff
+diff --git a/README.md b/README.md
+index bbeb0a2..12f4792 100644
+--- a/README.md
++++ b/README.md
+@@ -185,32 +185,38 @@ code --add-mcp '{"name":"gobsidian","command":"gobsidian","args":["serve","--vau
+ ```
+ 
+ **Antigravity**, **Antigravity IDE**, **Cursor** and **Windsurf** use the same format as Claude Desktop, in `~/.gemini/antigravity/mcp_config.json`, `~/.gemini/antigravity-ide/mcp_config.json`, `~/.cursor/mcp.json` and `~/.codeium/windsurf/mcp_config.json`.
+ 
+ > [!IMPORTANT]
+ > Three mistakes account for most Windows failures: **single backslashes** (JSON requires `\\`), **extra quotes** around a path with spaces (each `args` entry is already one string), and a **relative path** to the binary (the host does not inherit your shell's `PATH`).
+ 
+ </details>
+ 
+ <details>
+-<summary>🎛️ <b><code>serve</code> options</b></summary>
++<summary>🎛️ <b>CLI flags</b></summary>
+ 
+ <br>
+ 
+-| Flag | Effect |
+-|---|---|
+-| `--vault <path>` | Vault root. Required. |
+-| `--read-only` | Removes the entire write surface. |
+-| `--cache-dir <path>` | Cache directory. Default: a hash of the vault path, always **outside** it. |
+-| `--debounce-ms <n>` | Watcher coalescing window. |
+-| `--log-level <level>` | `debug`, `info`, `warn` or `error`. |
+-| `--eager-search` | Loads the search index at boot. Default: lazy — most sessions read and write without ever searching. |
++A flag declared by a subcommand but never read by it promises a contract the code doesn't keep — `index` and `inspect` used to declare `--read-only`, `--debounce-ms` and `--max-results` this way. The **Subcommands** column is the actual contract: what each subcommand declares.
++
++| Flag | Effect | Subcommands |
++|---|---|---|
++| `--vault <path>` | Vault root. Required. | all |
++| `--read-only` | Removes the entire write surface. | `serve` |
++| `--cache-dir <path>` | Cache directory. Default: a hash of the vault path, always **outside** it. | `serve` |
++| `--debounce-ms <n>` | Watcher coalescing window. | `serve` |
++| `--log-level <level>` | `debug`, `info`, `warn` or `error`. | `serve` |
++| `--eager-search` | Loads the search index at boot. Default: lazy — most sessions read and write without ever searching. | `serve` |
++| `--max-results <n>` | Caps results per query. | `serve`, `search` |
++| `--follow-symlinks` | Follows a symlink inside the vault; the default refuses, because confinement doesn't reach the target. | all |
++| `--json` | Structured JSON output. | `search`, `index`, `inspect` |
++| `--limit <n>` | Maximum results returned. Default: 20. | `search` |
+ 
+ </details>
+ 
+ > [!TIP]
+ > Start with `--read-only` until you trust the configuration. You keep search, reading and the link graph, with no tool able to touch the disk.
+ 
+ ---
+ 
+ ## 🧰 MCP tools
+ 
+diff --git a/cmd/gobsidian/cli_subcommands_test.go b/cmd/gobsidian/cli_subcommands_test.go
+index 75c47c0..a0dacc1 100644
+--- a/cmd/gobsidian/cli_subcommands_test.go
++++ b/cmd/gobsidian/cli_subcommands_test.go
+@@ -1,18 +1,21 @@
+ package main
+ 
+ import (
+ 	"bytes"
+ 	"encoding/json"
++	"fmt"
+ 	"os"
+ 	"path/filepath"
+ 	"testing"
++
++	"github.com/spf13/cobra"
+ )
+ 
+ func createTestVault(t *testing.T) string {
+ 	t.Helper()
+ 	dir := t.TempDir()
+ 
+ 	files := map[string]string{
+ 		"nota1.md": "# Titulo 1\nTexto da nota 1 #tag1\nLink para [[nota2#Secao]]",
+ 		"nota2.md": "# Titulo 2\n## Secao\nTexto da nota 2 #tag2",
+ 	}
+@@ -158,54 +161,61 @@ func TestInspectCmd_StdoutAndJSON(t *testing.T) {
+ 	}
+ 
+ 	if data.Path != "nota2.md" {
+ 		t.Errorf("data.Path = %q; quer nota2.md", data.Path)
+ 	}
+ 	if len(data.Backlinks) != 1 || data.Backlinks[0] != "nota1.md" {
+ 		t.Errorf("data.Backlinks = %v; quer [nota1.md]", data.Backlinks)
+ 	}
+ }
+ 
+-func TestSubcommands_FlagsSetPopulated(t *testing.T) {
+-	vaultDir := createTestVault(t)
+-
+-	// Set env to true, but pass --read-only=false in flags
+-	t.Setenv("GOBSIDIAN_READ_ONLY", "true")
+-
+-	cmd := newIndexCmd()
+-	var stdout, stderr bytes.Buffer
+-	cmd.SetOut(&stdout)
+-	cmd.SetErr(&stderr)
+-	cmd.SetArgs([]string{"--vault", vaultDir, "--read-only=false", "--json"})
+-
++// TestSearchCLIRespeitaMaxResults trava a regressao do achado 1.11:
++// cfg.MaxResults era lido e validado por config.Load mas descartado antes de
++// chegar em service.Options — a flag --max-results de "search" prometia um
++// teto que o servico nunca aplicava.
++func TestSearchCLIRespeitaMaxResults(t *testing.T) {
++	root := t.TempDir()
++	for i := 0; i < 5; i++ {
++		p := filepath.Join(root, fmt.Sprintf("n%d.md", i))
++		if err := os.WriteFile(p, []byte("# Nota\n\npalavra unica aqui\n"), 0644); err != nil {
++			t.Fatalf("WriteFile: %v", err)
++		}
++	}
++	var out bytes.Buffer
++	cmd := newSearchCmd()
++	cmd.SetOut(&out)
++	cmd.SetArgs([]string{"--vault", root, "--json", "--max-results", "2", "palavra"})
+ 	if err := cmd.Execute(); err != nil {
+-		t.Fatalf("index Execute with flags: %v", err)
++		t.Fatal(err)
+ 	}
+-
+-	var data indexSummaryJSON
+-	if err := json.Unmarshal(stdout.Bytes(), &data); err != nil {
+-		t.Fatalf("Unmarshal: %v", err)
++	var res struct {
++		Results []json.RawMessage `json:"results"`
+ 	}
+-
+-	// If ReadOnlySet was not populated, GOBSIDIAN_READ_ONLY=true would override --read-only=false.
+-	// But because ReadOnlySet is true, flag overrides env.
+-	// We verify that executing with --read-only=false succeeds and populates flags.ReadOnlySet.
+-	if data.Notes != 2 {
+-		t.Errorf("data.Notes = %d; quer 2", data.Notes)
++	if err := json.Unmarshal(out.Bytes(), &res); err != nil {
++		t.Fatalf("saida nao e JSON: %v\n%s", err, out.String())
++	}
++	if len(res.Results) != 2 {
++		t.Fatalf("results = %d com --max-results 2: a flag e lida e descartada", len(res.Results))
+ 	}
+ }
+ 
+-func TestIndexCmd_DebounceMSFlagZeroRejected(t *testing.T) {
+-	vaultDir := createTestVault(t)
+-	t.Setenv("GOBSIDIAN_DEBOUNCE_MS", "500")
+-
+-	cmd := newIndexCmd()
+-	var stdout, stderr bytes.Buffer
+-	cmd.SetOut(&stdout)
+-	cmd.SetErr(&stderr)
+-	cmd.SetArgs([]string{"--vault", vaultDir, "--debounce-ms", "0"})
+-
+-	err := cmd.Execute()
+-	if err == nil {
+-		t.Fatal("esperava erro ao passar --debounce-ms=0, mas obteve nil")
++// TestIndexEInspectNaoAceitamFlagsQueIgnoram trava a regressao do achado
++// 5.8: index e inspect declaravam --read-only, --debounce-ms e --max-results
++// sem observar nenhuma delas — nem escrevem, nem observam, nem buscam.
++// "Schema que promete e codigo que ignora e pior que parametro ausente."
++func TestIndexEInspectNaoAceitamFlagsQueIgnoram(t *testing.T) {
++	for _, tc := range []struct {
++		nome string
++		cmd  func() *cobra.Command
++	}{{"index", newIndexCmd}, {"inspect", newInspectCmd}} {
++		for _, flag := range []string{"read-only", "debounce-ms", "max-results"} {
++			if tc.cmd().Flags().Lookup(flag) != nil {
++				t.Errorf("%s declara --%s e nao a usa", tc.nome, flag)
++			}
++		}
++	}
++	for _, flag := range []string{"read-only", "debounce-ms"} {
++		if newSearchCmd().Flags().Lookup(flag) != nil {
++			t.Errorf("search declara --%s e nao a usa", flag)
++		}
+ 	}
+ }
+diff --git a/cmd/gobsidian/index.go b/cmd/gobsidian/index.go
+index bed4505..ce89431 100644
+--- a/cmd/gobsidian/index.go
++++ b/cmd/gobsidian/index.go
+@@ -22,24 +22,20 @@ type indexSummaryJSON struct {
+ }
+ 
+ func newIndexCmd() *cobra.Command {
+ 	var flags config.Flags
+ 	var jsonOutput bool
+ 
+ 	cmd := &cobra.Command{
+ 		Use:   "index",
+ 		Short: "Constroi o indice do cofre e exibe um resumo",
+ 		RunE: func(cmd *cobra.Command, _ []string) error {
+-			flags.ReadOnlySet = cmd.Flags().Changed("read-only")
+-			flags.DebounceMSSet = cmd.Flags().Changed("debounce-ms")
+-			flags.MaxResultsSet = cmd.Flags().Changed("max-results")
+-
+ 			cfg, err := config.Load(flags)
+ 			if err != nil {
+ 				return err
+ 			}
+ 
+ 			v, err := vault.New(cfg.VaultPath, vault.SeguirSymlinks(cfg.FollowSymlinks))
+ 			if err != nil {
+ 				return err
+ 			}
+ 
+@@ -81,18 +77,15 @@ func newIndexCmd() *cobra.Command {
+ 			con.Item("Notas: %d", notes)
+ 			con.Item("Anexos: %d", assets)
+ 			con.Item("Tags: %d", tags)
+ 			con.Item("Tamanho total: %d bytes", size)
+ 			return nil
+ 		},
+ 	}
+ 
+ 	cmd.Flags().StringVar(&flags.VaultPath, "vault", "", "caminho da raiz do cofre (obrigatorio)")
+ 	cmd.Flags().BoolVar(&jsonOutput, "json", false, "saida estruturada em formato JSON")
+-	cmd.Flags().BoolVar(&flags.ReadOnly, "read-only", false, "desabilita verificacoes de escrita")
+-	cmd.Flags().IntVar(&flags.DebounceMS, "debounce-ms", 0, "janela de coalescencia de eventos do watcher")
+-	cmd.Flags().IntVar(&flags.MaxResults, "max-results", 0, "teto de resultados por consulta")
+ 	cmd.Flags().BoolVar(&flags.FollowSymlinks, "follow-symlinks", false,
+ 		"segue symlink dentro do cofre; o padrao recusa, porque o confinamento nao alcanca o alvo")
+ 
+ 	return cmd
+ }
+diff --git a/cmd/gobsidian/inspect.go b/cmd/gobsidian/inspect.go
+index 603bd92..8e0917d 100644
+--- a/cmd/gobsidian/inspect.go
++++ b/cmd/gobsidian/inspect.go
+@@ -27,24 +27,20 @@ type inspectResultJSON struct {
+ 
+ func newInspectCmd() *cobra.Command {
+ 	var flags config.Flags
+ 	var jsonOutput bool
+ 
+ 	cmd := &cobra.Command{
+ 		Use:   "inspect <nota>",
+ 		Short: "Exibe metadados, links e backlinks de uma nota",
+ 		Args:  cobra.ExactArgs(1),
+ 		RunE: func(cmd *cobra.Command, args []string) error {
+-			flags.ReadOnlySet = cmd.Flags().Changed("read-only")
+-			flags.DebounceMSSet = cmd.Flags().Changed("debounce-ms")
+-			flags.MaxResultsSet = cmd.Flags().Changed("max-results")
+-
+ 			cfg, err := config.Load(flags)
+ 			if err != nil {
+ 				return err
+ 			}
+ 
+ 			v, err := vault.New(cfg.VaultPath, vault.SeguirSymlinks(cfg.FollowSymlinks))
+ 			if err != nil {
+ 				return err
+ 			}
+ 
+@@ -119,18 +115,15 @@ func newInspectCmd() *cobra.Command {
+ 			con.Item("Links de saida: %d", len(n.Links))
+ 			if len(backlinks) > 0 {
+ 				con.Item("Backlinks (%d): %s", len(backlinks), strings.Join(backlinks, ", "))
+ 			}
+ 			return nil
+ 		},
+ 	}
+ 
+ 	cmd.Flags().StringVar(&flags.VaultPath, "vault", "", "caminho da raiz do cofre (obrigatorio)")
+ 	cmd.Flags().BoolVar(&jsonOutput, "json", false, "saida estruturada em formato JSON")
+-	cmd.Flags().BoolVar(&flags.ReadOnly, "read-only", false, "desabilita verificacoes de escrita")
+-	cmd.Flags().IntVar(&flags.DebounceMS, "debounce-ms", 0, "janela de coalescencia de eventos do watcher")
+-	cmd.Flags().IntVar(&flags.MaxResults, "max-results", 0, "teto de resultados por consulta")
+ 	cmd.Flags().BoolVar(&flags.FollowSymlinks, "follow-symlinks", false,
+ 		"segue symlink dentro do cofre; o padrao recusa, porque o confinamento nao alcanca o alvo")
+ 
+ 	return cmd
+ }
+diff --git a/cmd/gobsidian/search.go b/cmd/gobsidian/search.go
+index 4bd808a..e0932e2 100644
+--- a/cmd/gobsidian/search.go
++++ b/cmd/gobsidian/search.go
+@@ -16,22 +16,20 @@ import (
+ func newSearchCmd() *cobra.Command {
+ 	var flags config.Flags
+ 	var jsonOutput bool
+ 	var limit int
+ 
+ 	cmd := &cobra.Command{
+ 		Use:   "search <consulta>",
+ 		Short: "Executa busca por texto completo no cofre",
+ 		Args:  cobra.ExactArgs(1),
+ 		RunE: func(cmd *cobra.Command, args []string) error {
+-			flags.ReadOnlySet = cmd.Flags().Changed("read-only")
+-			flags.DebounceMSSet = cmd.Flags().Changed("debounce-ms")
+ 			flags.MaxResultsSet = cmd.Flags().Changed("max-results")
+ 
+ 			cfg, err := config.Load(flags)
+ 			if err != nil {
+ 				return err
+ 			}
+ 
+ 			v, err := vault.New(cfg.VaultPath, vault.SeguirSymlinks(cfg.FollowSymlinks))
+ 			if err != nil {
+ 				return err
+@@ -40,21 +38,21 @@ func newSearchCmd() *cobra.Command {
+ 			idx := index.New()
+ 			if err := idx.Build(cmd.Context(), v); err != nil {
+ 				return err
+ 			}
+ 
+ 			inv := search.NewInverted()
+ 			for _, p := range idx.NotePaths() {
+ 				_ = inv.Update(cmd.Context(), v, p)
+ 			}
+ 
+-			svc := service.New(v, idx, inv, nil, service.Options{ReadOnly: cfg.ReadOnly})
++			svc := service.New(v, idx, inv, nil, service.Options{ReadOnly: cfg.ReadOnly, MaxResults: cfg.MaxResults})
+ 
+ 			res, err := svc.Search(cmd.Context(), service.SearchOptions{
+ 				Query: args[0],
+ 				Limit: limit,
+ 			})
+ 			if err != nil {
+ 				return err
+ 			}
+ 
+ 			// search e um subcomando de CLI (nao um servidor MCP JSON-RPC),
+@@ -83,18 +81,16 @@ func newSearchCmd() *cobra.Command {
+ 					con.Detail("... %s ...", m.Snippet)
+ 				}
+ 			}
+ 			return nil
+ 		},
+ 	}
+ 
+ 	cmd.Flags().StringVar(&flags.VaultPath, "vault", "", "caminho da raiz do cofre (obrigatorio)")
+ 	cmd.Flags().BoolVar(&jsonOutput, "json", false, "saida estruturada em formato JSON")
+ 	cmd.Flags().IntVar(&limit, "limit", 20, "limite maximo de resultados")
+-	cmd.Flags().BoolVar(&flags.ReadOnly, "read-only", false, "desabilita verificacoes de escrita")
+-	cmd.Flags().IntVar(&flags.DebounceMS, "debounce-ms", 0, "janela de coalescencia de eventos do watcher")
+ 	cmd.Flags().BoolVar(&flags.FollowSymlinks, "follow-symlinks", false,
+ 		"segue symlink dentro do cofre; o padrao recusa, porque o confinamento nao alcanca o alvo")
+ 	cmd.Flags().IntVar(&flags.MaxResults, "max-results", 0, "teto de resultados por consulta")
+ 
+ 	return cmd
+ }
+diff --git a/docs/TOOLS.md b/docs/TOOLS.md
+index 7d2d2a3..2c95cda 100644
+--- a/docs/TOOLS.md
++++ b/docs/TOOLS.md
+@@ -177,21 +177,21 @@ O mapa de uma nota: os headings Markdown reais **e** os candidatos a título que
+ `note_outline` não conserta nenhuma das quatro. Conserta a pergunta real — *"não sei onde está o que eu quero neste arquivo de 255 KB"* — e faz isso **sem afirmar estrutura que o arquivo não tem**. Candidato nunca entra em `headings`, nem no índice, nem no cache: uma tool que afirma hierarquia inventada é pior que uma que não responde, porque o cliente age sobre a afirmação.
+ 
+ **O encadeamento.** `note_outline` → `start` → `note_read(path, offset=start, max_bytes=end-start)`. Os offsets são absolutos, na mesma coordenada de `note_read(offset=)`, BOM incluído — sem isso a tool devolveria números bonitos e inúteis.
+ 
+ **Notas.** Negrito só conta **sozinho na linha**: ênfase no meio de um parágrafo não é título, e aceitá-la encheria a resposta de ruído. E o texto precisa de **pelo menos 5 caracteres**, piso que saiu de medição: nos cofres reais o ruído tinha um nome só, `**V:**` — marcador de verso de flashcard, sozinho na linha —, e ele respondia por 14.940 dos 14.940 candidatos de um cofre e por 14.961 dos 22.180 de outro. O piso zerou o primeiro, cortou 65% do segundo, e custou 1,6% num terceiro, onde o que caiu foi `Não.`, `SIM.` e `22` — respostas de flashcard também.
+ 
+ Dois filtros foram medidos e **recusados**: "termina com dois-pontos" descartaria `Jurisprudência:` e `Constituição Federal de 1988:`, que são rótulos de subseção legítimos; e "repetido em muitas notas" marcaria `1. Objetividade jurídica` (152 ocorrências) e `3. Sujeito ativo` (127), que são a estrutura que um tratado repete a cada capítulo — repetição ali é sinal de livro estruturado, não de ruído. Detecção acontece **fora de bloco de código cercado**, pela mesma máquina de cercas de `ExtractHeadings` — duas máquinas de cerca divergiriam, e a divergência apareceria como hierarquia falsa dentro de um bloco de código, que é o pior lugar para ela aparecer numa nota que documenta Markdown.
+ 
+ `end` de um candidato é o `start` do próximo candidato de nível menor ou igual, ou o fim do arquivo — a mesma regra de `closeSections`, reusada e não reimplementada. Candidato sem numeração é tratado como o **mais profundo** no cálculo: assim qualquer candidato numerado o fecha, e ele não engole uma seção numerada que venha depois.
+ 
+-**Erros.** `CLOUD_ONLY_FILE` para nota somente-nuvem — esta tool lê o arquivo inteiro, e abrir um placeholder do OneDrive dispara download síncrono. `NOTE_NOT_FOUND` e `PATH_NOT_FOUND` como nas demais.
++**Erros.** `CLOUD_ONLY_FILE` para nota somente-nuvem — esta tool lê o arquivo inteiro, e abrir um placeholder do OneDrive dispara download síncrono. `NOTE_NOT_FOUND` e `PATH_NOT_FOUND` como nas demais. `VAULT_UNAVAILABLE` quando a leitura do arquivo falha (mesmo fato que `note_read` reporta com o mesmo código, não `INTERNAL`).
+ 
+ ---
+ 
+ ## `note_list`
+ 
+ Lista notas por critérios estruturais. Não toca o índice de texto.
+ 
+ ```json
+ {
+   "type": "object",
+@@ -499,12 +499,12 @@ A listagem de resources é paginada e serve o índice em memória. Em cofres gra
+ | `AMBIGUOUS_HEADING` | Mesmo texto em mais de um lugar | Passar `heading_level` |
+ | `BLOCK_NOT_FOUND` | Identificador de bloco inexistente | Verificar com `note_metadata` |
+ | `AMBIGUOUS_BLOCK` | Mesmo identificador de bloco em mais de um lugar | Usar o caminho exato listado na mensagem |
+ | `FOLDER_NOT_FOUND` | Diretório de destino inexistente | Só ocorre com `create_folders: false` em `note_create` e `note_move`; o padrão é `true` e cria os intermediários |
+ | `INDEX_BUILDING` | O índice de busca ainda não cobre o cofre inteiro | Repetir em alguns segundos. **Só `vault_search` devolve isto**; as outras doze tools funcionam desde o primeiro segundo |
+ | `HASH_MISMATCH` | Nota mudou desde a leitura | Reler e repetir |
+ | `FILE_LOCKED` | Arquivo bloqueado após esgotar retries | Fechar a nota no Obsidian e repetir |
+ | `CLOUD_ONLY_FILE` | Arquivo não hidratado pelo OneDrive | Abrir uma vez no Explorer, ou desmarcar "somente online" |
+ | `PATH_TOO_LONG` | Caminho excede o limite do sistema | Encurtar o caminho ou habilitar caminhos longos |
+ | `READ_ONLY_MODE` | Servidor iniciado com `--read-only` | Reiniciar sem a flag |
+-| `VAULT_UNAVAILABLE` | Raiz do cofre inacessível | Verificar com `gobsidian doctor` |
++| `VAULT_UNAVAILABLE` | Raiz do cofre inacessível, **ou** índice em memória indisponível (`link_graph`, `tag_list`, `note_list`, `note_metadata` antes do índice carregar), **ou** falha de leitura ao abrir o arquivo (`note_outline` sobre nota ilegível) | Verificar com `gobsidian doctor`; se for índice, repetir em alguns segundos |
+ | `INTERNAL` | Falha inesperada, já registrada em stderr | Reportar |
+diff --git a/docs/wiki/flows/encerramento.md b/docs/wiki/flows/encerramento.md
+index 689c971..fd08014 100644
+--- a/docs/wiki/flows/encerramento.md
++++ b/docs/wiki/flows/encerramento.md
+@@ -3,24 +3,24 @@ title: Encerramento
+ type: flow
+ status: active
+ description: Os quatro mecanismos que garantem que o processo morre, e o desligamento por etapas.
+ source_paths:
+   - internal/lifecycle/lifecycle.go
+   - internal/lifecycle/stdin.go
+   - internal/lifecycle/signals.go
+   - internal/lifecycle/parent.go
+   - internal/lifecycle/shutdown.go
+   - cmd/gobsidian/serve.go
+-source_commit: c6804e1e
++source_commit: cceb980
+ tags: [lifecycle, shutdown, orfaos]
+ language: pt-BR
+-updated_at: '2026-08-31'
++updated_at: '2026-09-04'
+ ---
+ 
+ # Encerramento
+ 
+ Um servidor MCP é subprocesso de um host que pode fechar de qualquer jeito.
+ Processo órfão segurando um índice de centenas de MB é o pior modo de falha do
+ produto — invisível e cumulativo.
+ 
+ `internal/lifecycle` tem **mecanismos independentes** que cancelam o mesmo
+ context raiz. A redundância é deliberada: cada um falha em cenários diferentes.
+@@ -81,24 +81,27 @@ descritor repartem os bytes e corrompem o JSON-RPC.
+ A saída é `mirrorReader`: o SDK lê do espelho, o lifecycle observa a cópia.
+ **`io.TeeReader` não serve** — ele copia bytes, e EOF não é byte. `mirrorReader`
+ faz `dst.CloseWithError(err)`, que é o que propaga o fim da leitura.
+ 
+ O espelho é **auxiliar**: falha de escrita nele não pode virar erro da leitura
+ principal — mataria uma sessão saudável por um motivo que o cliente não pode
+ resolver.
+ 
+ ## Código de saída
+ 
+-`ctx.Canceled`, `io.EOF` e `io.ErrClosedPipe` no retorno do serve loop são
+-**encerramento normal**, saída 0. Duas detecções de EOF independentes correm — a
+-do SDK e a do lifecycle — e qual vence decide o valor. Tratar qualquer uma como
+-falha faz um host supervisor ver erro aleatório a cada desconexão limpa.
++`shutdownExitCode` (`cmd/gobsidian/serve.go`) delega a `ipc.EhDesconexaoLimpa`
++(`internal/ipc/desconexao.go`) a decisão de o que é desconexão limpa. Ela
++aceita quatro formas no retorno do serve loop — `context.Canceled`, `io.EOF`,
++`io.ErrClosedPipe` e `os.ErrClosed` — como **encerramento normal**, saída 0.
++Duas detecções de EOF independentes correm — a do SDK e a do lifecycle — e
++qual vence decide o valor. Tratar qualquer uma como falha faz um host
++supervisor ver erro aleatório a cada desconexão limpa.
+ 
+ ## O gate
+ 
+ `scripts/test_orphans.ps1 -Cycles 100` roda os quatro cenários, e cada um
+ **reprova se o `reason=` não for o do mecanismo que ele nomeia** — encerrar pelo
+ motivo certo por acidente não conta.
+ 
+ O cenário `parent-death` desconecta o EOF (cadeia keeper → host → servidor);
+ `signal` deixa tudo vivo e só manda CTRL_BREAK; `daemon-idle` usa `--idle-seconds`
+ curto. **O CI hoje roda só três dos quatro** — ver
+diff --git a/internal/doctor/doctor.go b/internal/doctor/doctor.go
+index c71c062..9ba4761 100644
+--- a/internal/doctor/doctor.go
++++ b/internal/doctor/doctor.go
+@@ -15,35 +15,20 @@ type Status int
+ 
+ // Os tres status que uma verificacao pode produzir. StatusWarn existe para o
+ // caso comum de um ambiente que funciona de forma incompleta — cofre sem
+ // .obsidian, arquivo ainda na nuvem — e que nao deve reprovar um setup.
+ const (
+ 	StatusOK Status = iota
+ 	StatusWarn
+ 	StatusFail
+ )
+ 
+-// Marker devolve um marcador DISTINTO por status. Falha e aviso precisam ser
+-// distinguiveis a olho: o relatorio impresso e a unica coisa que a pessoa le,
+-// e ela roda este comando justamente porque ja esta confusa. Devolver o mesmo
+-// marcador para os dois apaga a informacao que o comando existe para dar.
+-func (s Status) Marker() string {
+-	switch s {
+-	case StatusOK:
+-		return "[OK]"
+-	case StatusWarn:
+-		return "[*]"
+-	default:
+-		return "[!]"
+-	}
+-}
+-
+ // Result e uma linha do relatorio. Detail e opcional e carrega o numero ou o
+ // caminho que torna o resultado acionavel; sem ele, "permissao de escrita
+ // [!]" nao diz a ninguem o que fazer em seguida.
+ type Result struct {
+ 	Name   string
+ 	Status Status
+ 	Detail string
+ }
+ 
+ type check func(context.Context, config.Config) Result
+diff --git a/internal/doctor/doctor_extra_test.go b/internal/doctor/doctor_extra_test.go
+index 04da5fa..3a00250 100644
+--- a/internal/doctor/doctor_extra_test.go
++++ b/internal/doctor/doctor_extra_test.go
+@@ -11,44 +11,20 @@ import (
+ 	"os"
+ 	"path/filepath"
+ 	"strconv"
+ 	"strings"
+ 	"testing"
+ 
+ 	"github.com/jonyd/gobsidian/internal/config"
+ 	"github.com/jonyd/gobsidian/internal/doctor"
+ )
+ 
+-// TestStatusMarkerDistinctPerStatus fixa os tres marcadores em valores
+-// distintos. Sem este teste, uma regressao que faca StatusWarn e StatusFail
+-// devolverem a mesma string (o bug original desta revisao) passaria
+-// silenciosamente: nenhum outro teste compara os tres valores de Marker()
+-// entre si, so verifica presenca de substring em Detail/Name.
+-func TestStatusMarkerDistinctPerStatus(t *testing.T) {
+-	ok := doctor.StatusOK.Marker()
+-	warn := doctor.StatusWarn.Marker()
+-	fail := doctor.StatusFail.Marker()
+-
+-	if ok == warn || ok == fail || warn == fail {
+-		t.Fatalf("marcadores devem ser distintos: OK=%q Warn=%q Fail=%q", ok, warn, fail)
+-	}
+-	if ok != "[OK]" {
+-		t.Errorf("StatusOK.Marker() = %q, esperava [OK]", ok)
+-	}
+-	if warn != "[*]" {
+-		t.Errorf("StatusWarn.Marker() = %q, esperava [*]", warn)
+-	}
+-	if fail != "[!]" {
+-		t.Errorf("StatusFail.Marker() = %q, esperava [!]", fail)
+-	}
+-}
+-
+ // TestCheckCacheDirCreatable confirma o ramo real de sucesso: um CacheDir
+ // nao-vazio que pode ser criado reporta [OK]. Sem este teste, todo teste do
+ // pacote monta cfg via config.Defaults(), que deixa CacheDir vazio e so
+ // exercita o retorno defensivo antecipado — os ramos que de fato criam o
+ // diretorio nunca rodam.
+ func TestCheckCacheDirCreatable(t *testing.T) {
+ 	root := t.TempDir()
+ 	if err := os.WriteFile(filepath.Join(root, "A.md"), []byte("# A\n"), 0o644); err != nil {
+ 		t.Fatalf("WriteFile: %v", err)
+ 	}
+diff --git a/internal/search/persist_codec.go b/internal/search/persist_codec.go
+index 6b6da8a..fc49343 100644
+--- a/internal/search/persist_codec.go
++++ b/internal/search/persist_codec.go
+@@ -37,24 +37,29 @@ import (
+ //	totPos     varint    total de posicoes do arquivo inteiro
+ //	nCaminhos  varint,  seguido de nCaminhos strings
+ //	nDocs      varint,  seguido de nDocs pares (pathID varint, tamanho varint)
+ //	nTermos    varint
+ //	  por termo:  string, nPostings varint
+ //	    por posting: pathID varint, nPos varint
+ //	      por posição: delta(Start) varint, (End-Start) varint
+ //
+ // `string` é sempre: comprimento em varint, seguido dos bytes.
+ const (
+-	cacheMagic     = "GBS6"
+-	cacheCodecVers = 6
++	// Uma conta: CacheFormatVersion e o numero; o magic e o codec derivam dele.
++	// Ate 2026-09-02 eram tres literais, e um bump que esquecesse um deles
++	// produziria um cache que passa pelo cabecalho e falha — ou decodifica
++	// lixo estruturalmente valido — no corpo.
++	cacheCodecVers = CacheFormatVersion
+ )
+ 
++var cacheMagic = fmt.Sprintf("GBS%d", CacheFormatVersion)
++
+ // footerBytes é o tamanho do rodapé fixo escrito no fim do arquivo (Task 89):
+ // 8 bytes de assinatura, 8 bytes de offset da seção fixa de posições, 8 bytes
+ // de contagem de posições — todos little-endian, sem varint. Fixo e no fim
+ // de propósito: quem só quer mapear a arena (ver mmap.go) acha o rodapé sem
+ // decodificar o corpo inteiro em varint.
+ const footerBytes = 24
+ 
+ // footerMagic identifica o rodapé da seção fixa. Um cache do formato anterior
+ // (sem rodapé) quase certamente não termina com estes 8 bytes por acaso, e o
+ // leitor trata a ausência da assinatura como "sem arena para mapear" — nunca
+diff --git a/internal/search/persist_codec_test.go b/internal/search/persist_codec_test.go
+index ecd612b..2f2b41b 100644
+--- a/internal/search/persist_codec_test.go
++++ b/internal/search/persist_codec_test.go
+@@ -268,10 +268,19 @@ func TestCodecRecusaTotaisQueNaoBatem(t *testing.T) {
+ 	if i < 2 {
+ 		t.Fatalf("termo nao encontrado (i=%d)", i)
+ 	}
+ 	b[i-2] = 0 // nTermos = 0
+ 
+ 	_, _, err := leCache(b)
+ 	if !errors.Is(err, ErrCacheCorrupted) {
+ 		t.Fatalf("err = %v, quer ErrCacheCorrupted — totais que nao batem tem de ser recusados", err)
+ 	}
+ }
++
++func TestVersaoDoCacheDeBuscaEUmaConta(t *testing.T) {
++	if cacheCodecVers != CacheFormatVersion {
++		t.Fatalf("cacheCodecVers = %d, CacheFormatVersion = %d: duas contas", cacheCodecVers, CacheFormatVersion)
++	}
++	if quer := fmt.Sprintf("GBS%d", CacheFormatVersion); cacheMagic != quer {
++		t.Fatalf("cacheMagic = %q, quer %q", cacheMagic, quer)
++	}
++}
+diff --git a/internal/service/errors_test.go b/internal/service/errors_test.go
+index 17a3d98..213ce12 100644
+--- a/internal/service/errors_test.go
++++ b/internal/service/errors_test.go
+@@ -1,19 +1,55 @@
+ package service
+ 
+ import (
++	"context"
+ 	"errors"
+ 	"testing"
++
++	"github.com/jonyd/gobsidian/internal/vault"
+ )
+ 
+ // TestErrorIsTypedNilTarget trava a regressao do achado 4: um alvo
+ // error-interface nao-nulo que carrega um *Error nulo nao pode fazer Is
+ // desreferenciar target.Code. Antes da guarda, errors.Is(err, (*Error)(nil))
+ // entrava em panic.
+ func TestErrorIsTypedNilTarget(t *testing.T) {
+ 	err := Errorf(CodeNoteNotFound, "nota nao encontrada")
+ 
+ 	var nilTarget *Error
+ 	if got := errors.Is(err, nilTarget); got {
+ 		t.Fatal("Is deveria devolver false para um alvo *Error nulo, nao panicar nem devolver true")
+ 	}
+ }
++
++// TestServicoSemIndiceDevolveVaultUnavailable trava a regressao do achado
++// 1.13: sem indice, as tools que leem so do indice devolviam um erro cru sem
++// codigo (que o mcpsrv traduzia para INTERNAL) em vez de CodeVaultUnavailable,
++// o codigo que a mesma condicao ja usa em outros pontos do servico (ex.:
++// read.go). VaultStats NAO entra aqui: sem indice ela cai para uma varredura
++// direta do cofre (vault.Walk) e nao e um erro.
++func TestServicoSemIndiceDevolveVaultUnavailable(t *testing.T) {
++	root := t.TempDir()
++	v, err := vault.New(root)
++	if err != nil {
++		t.Fatal(err)
++	}
++	svc := New(v, nil, nil, nil, Options{})
++	ctx := context.Background()
++
++	chamadas := map[string]func() error{
++		"LinkGraph": func() error { _, e := svc.LinkGraph(ctx, GraphRequest{Path: "a.md"}); return e },
++		"TagList":   func() error { _, e := svc.TagList(ctx, TagRequest{}); return e },
++		"ListNotes": func() error { _, e := svc.ListNotes(ctx, ListRequest{}); return e },
++		"Metadata":  func() error { _, e := svc.NoteMetadata(ctx, MetadataRequest{Path: "a.md"}); return e },
++	}
++	for nome, f := range chamadas {
++		err := f()
++		if err == nil {
++			t.Errorf("%s sem indice devolveu nil", nome)
++			continue
++		}
++		if got := CodeOf(err); got != CodeVaultUnavailable {
++			t.Errorf("%s sem indice: codigo = %s, quer %s (%v)", nome, got, CodeVaultUnavailable, err)
++		}
++	}
++}
+diff --git a/internal/service/graph.go b/internal/service/graph.go
+index 2783e5b..aa525df 100644
+--- a/internal/service/graph.go
++++ b/internal/service/graph.go
+@@ -77,21 +77,21 @@ func chaveDaAresta(e GraphEdge) string {
+ // GraphResult e o retorno de link_graph.
+ type GraphResult struct {
+ 	Nodes        []GraphNode `json:"nodes"`
+ 	Edges        []GraphEdge `json:"edges"`
+ 	LimitEfetivo int         `json:"effective_limit"`
+ }
+ 
+ // LinkGraph percorre o grafo a partir de uma nota, ate a profundidade pedida.
+ func (s *Service) LinkGraph(_ context.Context, req GraphRequest) (GraphResult, error) {
+ 	if s.index == nil {
+-		return GraphResult{}, fmt.Errorf("index not available")
++		return GraphResult{}, Errorf(CodeVaultUnavailable, "indice indisponivel")
+ 	}
+ 
+ 	depth := req.Depth
+ 	if depth <= 0 {
+ 		depth = 1
+ 	}
+ 	if depth > 3 {
+ 		depth = 3
+ 	}
+ 
+@@ -293,21 +293,21 @@ func ordenarTags(tags []TagNode, sortMode string) {
+ 			}
+ 		}
+ 	}
+ }
+ 
+ // TagList devolve as tags do cofre com suas contagens.
+ //
+ // Nao recebe ctx util: le so o indice em memoria.
+ func (s *Service) TagList(_ context.Context, req TagRequest) (TagResult, error) {
+ 	if s.index == nil {
+-		return TagResult{}, fmt.Errorf("index not available")
++		return TagResult{}, Errorf(CodeVaultUnavailable, "indice indisponivel")
+ 	}
+ 	sortTags, err := ValidarEnum("sort", req.Sort, "name", "name", "count")
+ 	if err != nil {
+ 		return TagResult{}, err
+ 	}
+ 	req.Sort = sortTags
+ 
+ 	if req.Hierarchical {
+ 		return s.tagListHierarchical(req), nil
+ 	}
+@@ -445,21 +445,21 @@ type ListResult struct {
+ 	Notes []ListItem `json:"notes"`
+ 	Total int        `json:"total"`
+ }
+ 
+ // ListNotes filtra e ordena notas por metadados, devolvendo a projecao barata
+ // ListItem em vez da Note inteira.
+ //
+ // Nao recebe ctx util: le so o indice em memoria.
+ func (s *Service) ListNotes(_ context.Context, req ListRequest) (ListResult, error) {
+ 	if s.index == nil {
+-		return ListResult{}, fmt.Errorf("index not available")
++		return ListResult{}, Errorf(CodeVaultUnavailable, "indice indisponivel")
+ 	}
+ 
+ 	// O teto e os enums são conferidos AQUI, e não no boundary MCP, porque o
+ 	// CLI (`gobsidian index`, `search`) chega pelo mesmo caminho. Validar só na
+ 	// borda deixaria a segunda porta sem guarda (achado B4).
+ 	q := req.Query
+ 	q.Limit = ComTeto(q.Limit)
+ 	var err error
+ 	if q.TagMode, err = ValidarEnum("tag_mode", q.TagMode, "all", "all", "any"); err != nil {
+ 		return ListResult{}, err
+@@ -546,21 +546,21 @@ type MetadataResult struct {
+ 	// aceito pelo schema e descartado pelo codigo (achado M4). Schema que
+ 	// promete e codigo que ignora e pior que parametro ausente: o modelo do
+ 	// outro lado le o schema para decidir o que pedir.
+ 	InlineFields map[string][]string `json:"inline_fields,omitempty"`
+ }
+ 
+ // NoteMetadata devolve tudo o que o indice sabe de uma nota sem abrir o
+ // arquivo.
+ func (s *Service) NoteMetadata(_ context.Context, req MetadataRequest) (MetadataResult, error) {
+ 	if s.index == nil {
+-		return MetadataResult{}, fmt.Errorf("index not available")
++		return MetadataResult{}, Errorf(CodeVaultUnavailable, "indice indisponivel")
+ 	}
+ 	cp, err := s.index.ResolvePath(req.Path)
+ 	if err != nil {
+ 		return MetadataResult{}, ErroDeResolucao(req.Path, err)
+ 	}
+ 	n, ok := s.index.Get(cp)
+ 	if !ok {
+ 		return MetadataResult{}, Wrap(CodeNoteNotFound, nil, "note not found")
+ 	}
+ 
+diff --git a/internal/service/outline.go b/internal/service/outline.go
+index 5da8a6b..57d0f54 100644
+--- a/internal/service/outline.go
++++ b/internal/service/outline.go
+@@ -61,21 +61,21 @@ func (s *Service) Outline(ctx context.Context, req OutlineRequest) (OutlineResul
+ 	// sincrono, e esta tool le o arquivo inteiro.
+ 	if note.CloudOnly {
+ 		return OutlineResult{}, Errorf(CodeCloudOnlyFile, "nota %q e apenas online (CloudOnly)", req.Path)
+ 	}
+ 
+ 	dados, err := s.vault.ReadAll(ctx, canonical)
+ 	if err != nil {
+ 		// Nota ilegivel e nota sem estrutura NAO podem dar a mesma resposta: um
+ 		// outline vazio aqui diria "esta nota nao tem titulos" sobre um arquivo
+ 		// que ninguem conseguiu abrir.
+-		return OutlineResult{}, Errorf(CodeInternal, "lendo nota %q: %v", req.Path, err)
++		return OutlineResult{}, Errorf(CodeVaultUnavailable, "lendo nota %q: %v", req.Path, err)
+ 	}
+ 
+ 	corpo, tinhaBOM := vault.StripBOM(dados)
+ 	var bomOffset int64
+ 	if tinhaBOM {
+ 		bomOffset = int64(vault.BOMLen)
+ 	}
+ 
+ 	// O CORPO, sem o frontmatter — a mesma entrada que ExtractHeadings recebe.
+ 	//

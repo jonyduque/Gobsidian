@@ -1,0 +1,108 @@
+# Review package: 1a2250834d80d7a2ef4fc663dc2257c97b2be104..HEAD
+
+## Commits
+4a06a24 fix(service): heading plus block_id in note_patch is the client's mistake, not the server's
+
+## Files changed
+ docs/TOOLS.md                          |  2 +-
+ internal/service/limites_enums_test.go | 17 +++++++++++++++++
+ internal/service/write.go              |  2 +-
+ 3 files changed, 19 insertions(+), 2 deletions(-)
+
+## Diff
+diff --git a/docs/TOOLS.md b/docs/TOOLS.md
+index 754cf37..ec71f6b 100644
+--- a/docs/TOOLS.md
++++ b/docs/TOOLS.md
+@@ -401,21 +401,21 @@ O retorno traz `hash`, o xxhash do conteúdo **gravado** — é o valor a passar
+     "heading_level": { "type": "integer", "minimum": 1, "maximum": 6 },
+     "block_id": { "type": "string" },
+     "mode":     { "type": "string", "enum": ["replace_section", "replace_heading_and_section", "replace_block"], "default": "replace_section" },
+     "expected_hash": { "type": "string", "description": "Hash da nota obtido em leitura anterior. Se divergir, a chamada falha." },
+     "dry_run":  { "type": "boolean", "default": false }
+   },
+   "required": ["path", "content"]
+ }
+ ```
+ 
+-**Notas.** `replace_section` preserva a linha do heading e substitui apenas o conteúdo abaixo dela, incluindo subseções. `replace_heading_and_section` substitui também a linha do heading.
++**Notas.** `replace_section` preserva a linha do heading e substitui apenas o conteúdo abaixo dela, incluindo subseções. `replace_heading_and_section` substitui também a linha do heading. `heading` e `block_id` juntos são `INVALID_ARGUMENT`.
+ 
+ `expected_hash` implementa concorrência otimista. Obtido de `note_metadata` ou `note_read`, garante que a nota não mudou entre a leitura e a escrita. Recomendado sempre que houver possibilidade de o Obsidian estar aberto na nota.
+ 
+ Sem `expected_hash`, o servidor ainda verifica internamente se o conteúdo mudou desde o último parse e recalcula os offsets antes de aplicar — o que impede corrupção, mas não impede sobrescrever uma edição concorrente que o cliente não viu.
+ 
+ ---
+ 
+ ## `note_move`
+ 
+ ```json
+diff --git a/internal/service/limites_enums_test.go b/internal/service/limites_enums_test.go
+index ef952bc..d1e5f45 100644
+--- a/internal/service/limites_enums_test.go
++++ b/internal/service/limites_enums_test.go
+@@ -41,20 +41,37 @@ func TestNoteListAplicaOTetoDeLimit(t *testing.T) {
+ 	}
+ 
+ 	// E o caminho real: um pedido absurdo não pode chegar ao índice como veio.
+ 	if _, err := svc.ListNotes(context.Background(), ListRequest{
+ 		Query: index.Query{Limit: 100000},
+ 	}); err != nil {
+ 		t.Fatalf("ListNotes com limit absurdo: %v", err)
+ 	}
+ }
+ 
++func TestPatchNoteHeadingEBlockIDEhInvalidArgument(t *testing.T) {
++	root := t.TempDir()
++	writeFile(t, root, "a.md", "# H\n\ntexto ^b1\n")
++	svc := newTestService(t, root)
++
++	_, err := svc.PatchNote(context.Background(), PatchNoteRequest{
++		Path: "a.md", Heading: "H", BlockID: "b1", Content: "x",
++	})
++	if err == nil {
++		t.Fatal("heading e block_id juntos foram aceitos")
++	}
++	if got := CodeOf(err); got != CodeInvalidArgument {
++		t.Errorf("codigo = %s, queria %s: INTERNAL manda o host tentar de novo o mesmo pedido\nerro: %v",
++			got, CodeInvalidArgument, err)
++	}
++}
++
+ // TestEnumInvalidoNaoViraSilencio é a outra metade do B4.
+ //
+ // `tag_mode`, `sort`, `order` e `direction` caíam no `default` de um switch e o
+ // pedido virava outra coisa **sem aviso**. O modelo do outro lado lê o enum do
+ // schema para decidir o que pedir; se um valor inválido responde como se fosse
+ // válido, ele não tem como saber que o pedido não fez o que dizia — é o mesmo
+ // defeito do `fields` de `note_list` que esta base já pagou.
+ func TestEnumInvalidoNaoViraSilencio(t *testing.T) {
+ 	root := t.TempDir()
+ 	writeFile(t, root, "a.md", "---\ntitle: A\ntags: [x]\n---\n\ntexto\n")
+diff --git a/internal/service/write.go b/internal/service/write.go
+index 8103afc..3c412ad 100644
+--- a/internal/service/write.go
++++ b/internal/service/write.go
+@@ -252,21 +252,21 @@ func (s *Service) AppendNote(ctx context.Context, req AppendNoteRequest) (Append
+ 	return AppendNoteResult{Path: req.Path, Diff: "", Appended: true, Hash: hashDoConteudo(proposed)}, nil
+ }
+ 
+ // PatchNote substitui uma secao, cabeçalho ou bloco de uma nota.
+ func (s *Service) PatchNote(ctx context.Context, req PatchNoteRequest) (PatchNoteResult, error) {
+ 	if err := s.checkWritable(); err != nil {
+ 		return PatchNoteResult{}, err
+ 	}
+ 
+ 	if req.Heading != "" && req.BlockID != "" {
+-		return PatchNoteResult{}, Errorf(CodeInternal, "heading e block_id sao mutuamente exclusivos em note_patch")
++		return PatchNoteResult{}, Errorf(CodeInvalidArgument, "heading e block_id sao mutuamente exclusivos em note_patch")
+ 	}
+ 
+ 	canonical, err := s.index.ResolvePath(req.Path)
+ 	if err != nil {
+ 		return PatchNoteResult{}, ErroDeResolucao(req.Path, err)
+ 	}
+ 
+ 	note, ok := s.index.Get(canonical)
+ 	if !ok {
+ 		return PatchNoteResult{}, Errorf(CodeNoteNotFound, "nota %q nao encontrada", req.Path)

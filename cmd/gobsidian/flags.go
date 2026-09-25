@@ -1,6 +1,7 @@
 package main
 
 import (
+	"github.com/jonyduque/Gobsidian/internal/textos"
 	"github.com/spf13/cobra"
 
 	"github.com/jonyduque/Gobsidian/internal/config"
@@ -10,13 +11,13 @@ import (
 // aceita. Seis arquivos registravam --vault e --follow-symlinks com o mesmo
 // texto; quando o texto mudou, mudou em cinco.
 func flagsDeCofre(cmd *cobra.Command, f *config.Flags) {
-	cmd.Flags().StringVar(&f.VaultPath, "vault", "", "caminho da raiz do cofre (obrigatorio)")
+	cmd.Flags().StringVar(&f.VaultPath, "vault", "", textos.FlagVault)
 	cmd.Flags().BoolVar(&f.FollowSymlinks, "follow-symlinks", false,
-		"segue symlink dentro do cofre; o padrao recusa, porque o confinamento nao alcanca o alvo")
+		textos.FlagFollowSymlinks)
 }
 
 // flagsDeCache registra as flags de quem le ou grava o cache de indice.
 func flagsDeCache(cmd *cobra.Command, f *config.Flags) {
-	cmd.Flags().StringVar(&f.CacheDir, "cache-dir", "", "diretorio do cache de indice")
-	cmd.Flags().StringVar(&f.LogLevel, "log-level", "", "debug, info, warn ou error")
+	cmd.Flags().StringVar(&f.CacheDir, "cache-dir", "", textos.FlagCacheDir)
+	cmd.Flags().StringVar(&f.LogLevel, "log-level", "", textos.FlagLogLevel)
 }

@@ -1,0 +1,237 @@
+# Review package: a74b766ebc7e7ba114ce966f1cb5281399c78763..HEAD
+
+## Commits
+1a22508 fix(service): batch note_read carries section_synthetic like the single read does
+
+## Files changed
+ docs/TOOLS.md                          |  2 +-
+ internal/service/lote_por_item_test.go | 40 +++++++++++++++++++++
+ internal/service/read.go               | 64 ++++++++++++++++++----------------
+ 3 files changed, 75 insertions(+), 31 deletions(-)
+
+## Diff
+diff --git a/docs/TOOLS.md b/docs/TOOLS.md
+index d4fd7be..754cf37 100644
+--- a/docs/TOOLS.md
++++ b/docs/TOOLS.md
+@@ -105,21 +105,21 @@ Lê uma nota inteira, uma seção, ou um bloco — ou várias notas numa só cha
+ **`heading` resolve candidato quando não há heading Markdown que case.** Numa nota convertida de PDF, DOCX ou EPUB o título é parágrafo em negrito, e `note_read(heading="13.1 Substituição")` passa a funcionar nela — antes exigia `note_outline` seguido de leitura por offset, duas chamadas para o que o heading resolve em uma.
+ 
+ Três regras, e as três importam:
+ 
+ - **Heading Markdown sempre vence.** O candidato só é consultado depois de nenhum `#` casar. Estrutura de verdade nunca perde para palpite.
+ - **O retorno diz que é palpite.** `section_synthetic: true` acompanha toda seção vinda de candidato. Sem ele a tool afirmaria estrutura que o arquivo não tem, que é o defeito que `note_outline` existe para não cometer. Em `section.level`, zero significa "candidato sem numeração hierárquica", não "nível zero".
+ - **A escrita fica de fora.** `note_patch` e `note_append` não resolvem candidato, e isso é deliberado: os limites de um candidato são heurística — `end` é o próximo candidato de nível menor ou igual —, e ler no lugar errado devolve o parágrafo errado enquanto escrever no lugar errado apaga trabalho sem desfazer.
+ 
+ Candidatos são calculados **na chamada**, sobre os bytes da nota, e só no caminho de fallback: uma leitura por heading que casa no índice não paga por essa leitura. Nada é persistido, e o formato do cache não muda.
+ 
+-**Retorno com `paths`.** `items`, uma lista na mesma ordem e do mesmo tamanho de `paths`. Cada item tem `path` e, ou os campos de sucesso (`content`, `hash`, `total_size`, `next_offset`, `truncated`, `section`), ou `error` com `code` e `message` — uma nota que falha não derruba as demais e não desaparece da lista: o item aparece na posição de origem, com `error` preenchido. Corresponde a `service.ReadBatchResult`.
++**Retorno com `paths`.** `items`, uma lista na mesma ordem e do mesmo tamanho de `paths`. Cada item tem `path` e, ou os campos de sucesso (`content`, `hash`, `total_size`, `next_offset`, `truncated`, `section`, `section_synthetic`), ou `error` com `code` e `message` — uma nota que falha não derruba as demais e não desaparece da lista: o item aparece na posição de origem, com `error` preenchido. `section_synthetic: true` acompanha toda seção vinda de candidato. Corresponde a `service.ReadBatchResult`.
+ 
+ > A linha acima já listou `path` e `total_bytes` no retorno de `path` único. <!-- check-doc-refs: ignore total_bytes -- este bloco existe para dizer que o campo NAO existe no retorno -->
+ > Nenhum dos dois existe como campo do retorno em si: `note_read` devolve
+ > `service.ReadResult`, que tem exatamente `Content`, `Hash`, `Section` e
+ > `Truncated`. Achado por `scripts/check_doc_refs.ps1` na primeira execução
+ > dele.
+ 
+ **Notas.** `block_id` é mutuamente exclusivo com `heading` e `heading_level`; os dois últimos combinam entre si, onde `heading_level` desambigua. A correspondência de heading é feita sobre o slug normalizado, então `## Capítulo 118` casa com `"Capítulo 118"`, `"capitulo 118"` ou `"CAPÍTULO 118"`.
+ 
+ `path` e `paths` são mutuamente exclusivos; os dois preenchidos ao mesmo tempo é erro de validação (`INVALID_ARGUMENT`), não precedência silenciosa de um sobre o outro. `paths` aceita no máximo 50 itens — acima disso, `INVALID_ARGUMENT`.
+diff --git a/internal/service/lote_por_item_test.go b/internal/service/lote_por_item_test.go
+index 15c6374..a9036dd 100644
+--- a/internal/service/lote_por_item_test.go
++++ b/internal/service/lote_por_item_test.go
+@@ -1,14 +1,15 @@
+ package service
+ 
+ import (
+ 	"context"
++	"encoding/json"
+ 	"strings"
+ 	"testing"
+ )
+ 
+ // ptrDe existe porque os campos do objeto por item sao PONTEIROS, e escrever
+ // &valor em literal de struct nao compila para constante.
+ //
+ // Nome com sufixo de proposito: um helper chamado `ptr` no pacote de teste
+ // colide no dia em que a implementacao criar o dela.
+ func ptrDe[T any](v T) *T { return &v }
+@@ -113,10 +114,49 @@ func TestReadNotesFormaAntigaContinuaValendo(t *testing.T) {
+ 	writeFile(t, root, "b.md", "beta\n")
+ 	svc := newTestService(t, root)
+ 
+ 	out := svc.ReadNotes(context.Background(), ReadBatchRequest{
+ 		Alvos: []ReadAlvo{{Path: "a.md"}, {Path: "b.md"}},
+ 	})
+ 	if len(out.Items) != 2 || out.Items[0].Err != nil || out.Items[1].Err != nil {
+ 		t.Fatalf("lote simples quebrou: %+v", out.Items)
+ 	}
+ }
++
++// TestReadNotesLotePropagaSectionSynthetic: o item do lote nasceu sem o campo
++// que a leitura simples ja tinha. Sem ele, seis secoes por candidato numa
++// chamada so chegam como estrutura afirmada.
++func TestReadNotesLotePropagaSectionSynthetic(t *testing.T) {
++	root := t.TempDir()
++	writeFile(t, root, "conv.md",
++		"**13 Registro**\n\ntexto do capitulo\n\n**13.1 Substituicao**\n\no texto da subsecao\n")
++	writeFile(t, root, "real.md",
++		"# 13 Registro\n\ntexto do capitulo\n\n## 13.1 Substituicao\n\no texto da subsecao\n")
++	svc := newTestService(t, root)
++
++	out := svc.ReadNotes(context.Background(), ReadBatchRequest{
++		Heading: "13.1 Substituicao",
++		Alvos:   []ReadAlvo{{Path: "conv.md"}, {Path: "real.md"}},
++	})
++	if len(out.Items) != 2 {
++		t.Fatalf("items = %d, quer 2", len(out.Items))
++	}
++	for i, it := range out.Items {
++		if it.Err != nil {
++			t.Fatalf("item %d: %v", i, it.Err)
++		}
++	}
++	if !out.Items[0].SectionSynthetic {
++		t.Error("conv.md: secao veio de candidato e o item do lote nao diz section_synthetic")
++	}
++	if out.Items[1].SectionSynthetic {
++		t.Error("real.md: heading ATX de verdade marcado como sintetico")
++	}
++
++	b, err := json.Marshal(out.Items[0])
++	if err != nil {
++		t.Fatal(err)
++	}
++	if !strings.Contains(string(b), `"section_synthetic":true`) {
++		t.Errorf("MarshalJSON nao serializa o campo: %s", b)
++	}
++}
+diff --git a/internal/service/read.go b/internal/service/read.go
+index f28db5d..bc4e1f1 100644
+--- a/internal/service/read.go
++++ b/internal/service/read.go
+@@ -139,61 +139,64 @@ func pedidoDoAlvo(padrao ReadBatchRequest, alvo ReadAlvo) ReadRequest {
+ 	return req
+ }
+ 
+ // ReadNoteItem e um item do lote de note_read. Path identifica de qual
+ // entrada de ReadBatchRequest.Paths o item veio, na mesma posicao — e o que
+ // permite ao chamador casar erro com pedido sem depender de ordem estavel.
+ // Err carrega a falha daquele item especificamente: uma nota ausente no meio
+ // de dez nao pode custar as outras nove, mas tambem nao pode desaparecer da
+ // lista sem dizer nada.
+ type ReadNoteItem struct {
+-	Path       string          `json:"path"`
+-	Content    string          `json:"content,omitempty"`
+-	Hash       string          `json:"hash,omitempty"`
+-	Section    *parser.Heading `json:"section,omitempty"`
+-	Truncated  bool            `json:"truncated,omitempty"`
+-	TotalSize  int64           `json:"total_size,omitempty"`
+-	NextOffset *int64          `json:"next_offset,omitempty"`
+-	Err        error           `json:"-"`
++	Path             string          `json:"path"`
++	Content          string          `json:"content,omitempty"`
++	Hash             string          `json:"hash,omitempty"`
++	Section          *parser.Heading `json:"section,omitempty"`
++	SectionSynthetic bool            `json:"section_synthetic,omitempty"`
++	Truncated        bool            `json:"truncated,omitempty"`
++	TotalSize        int64           `json:"total_size,omitempty"`
++	NextOffset       *int64          `json:"next_offset,omitempty"`
++	Err              error           `json:"-"`
+ }
+ 
+ // readNoteItemWire e a forma serializada de ReadNoteItem. Err e um error Go
+ // sem campos exportados: sem este tipo auxiliar, json.Marshal produziria
+ // "error":{} e o codigo/mensagem se perderiam no canal que o cliente le.
+ type readNoteItemWire struct {
+-	Path       string          `json:"path"`
+-	Content    string          `json:"content,omitempty"`
+-	Hash       string          `json:"hash,omitempty"`
+-	Section    *parser.Heading `json:"section,omitempty"`
+-	Truncated  bool            `json:"truncated,omitempty"`
+-	TotalSize  int64           `json:"total_size,omitempty"`
+-	NextOffset *int64          `json:"next_offset,omitempty"`
+-	Error      *itemErrorWire  `json:"error,omitempty"`
++	Path             string          `json:"path"`
++	Content          string          `json:"content,omitempty"`
++	Hash             string          `json:"hash,omitempty"`
++	Section          *parser.Heading `json:"section,omitempty"`
++	SectionSynthetic bool            `json:"section_synthetic,omitempty"`
++	Truncated        bool            `json:"truncated,omitempty"`
++	TotalSize        int64           `json:"total_size,omitempty"`
++	NextOffset       *int64          `json:"next_offset,omitempty"`
++	Error            *itemErrorWire  `json:"error,omitempty"`
+ }
+ 
+ type itemErrorWire struct {
+ 	Code    string `json:"code"`
+ 	Message string `json:"message"`
+ }
+ 
+ // MarshalJSON traduz Err (um error Go) para {"code","message"} — a mesma
+ // forma que toolErr usa no canal de texto, so que endereçavel por campo em
+ // vez de exigir parsear a mensagem.
+ func (i ReadNoteItem) MarshalJSON() ([]byte, error) {
+ 	wire := readNoteItemWire{
+-		Path:       i.Path,
+-		Content:    i.Content,
+-		Hash:       i.Hash,
+-		Section:    i.Section,
+-		Truncated:  i.Truncated,
+-		TotalSize:  i.TotalSize,
+-		NextOffset: i.NextOffset,
++		Path:             i.Path,
++		Content:          i.Content,
++		Hash:             i.Hash,
++		Section:          i.Section,
++		SectionSynthetic: i.SectionSynthetic,
++		Truncated:        i.Truncated,
++		TotalSize:        i.TotalSize,
++		NextOffset:       i.NextOffset,
+ 	}
+ 	if i.Err != nil {
+ 		wire.Error = &itemErrorWire{Code: string(CodeOf(i.Err)), Message: i.Err.Error()}
+ 	}
+ 	return json.Marshal(wire)
+ }
+ 
+ // ReadBatchResult e o retorno de note_read em modo lote: um item por
+ // caminho pedido, na mesma ordem e no mesmo comprimento de Paths.
+ type ReadBatchResult struct {
+@@ -209,27 +212,28 @@ func (s *Service) ReadNotes(ctx context.Context, req ReadBatchRequest) ReadBatch
+ 	for i, alvo := range req.Alvos {
+ 		p := alvo.Path
+ 		res, err := s.ReadNote(ctx, pedidoDoAlvo(req, alvo))
+ 		if err != nil {
+ 			// O indice do item entra na mensagem: "paths invalido" nao ajuda
+ 			// quem mandou seis capitulos numa chamada so (D-R-3).
+ 			out[i] = ReadNoteItem{Path: p, Err: Errorf(CodeOf(err), "item %d de paths (%s): %s", i, p, err.Error())}
+ 			continue
+ 		}
+ 		out[i] = ReadNoteItem{
+-			Path:       p,
+-			Content:    res.Content,
+-			Hash:       res.Hash,
+-			Section:    res.Section,
+-			Truncated:  res.Truncated,
+-			TotalSize:  res.TotalSize,
+-			NextOffset: res.NextOffset,
++			Path:             p,
++			Content:          res.Content,
++			Hash:             res.Hash,
++			Section:          res.Section,
++			SectionSynthetic: res.SectionSynthetic,
++			Truncated:        res.Truncated,
++			TotalSize:        res.TotalSize,
++			NextOffset:       res.NextOffset,
+ 		}
+ 	}
+ 	return ReadBatchResult{Items: out}
+ }
+ 
+ // ReadNote le uma nota, ou um recorte dela por heading ou por bloco.
+ //
+ // Le apenas o intervalo de bytes pedido: e o offset guardado no indice que faz
+ // uma secao de 2 KB numa nota de 500 KB custar 2 KB.
+ func (s *Service) ReadNote(ctx context.Context, req ReadRequest) (ReadResult, error) {

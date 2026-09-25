@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"github.com/jonyduque/Gobsidian/internal/textos"
 	"strings"
 	"time"
 
@@ -31,7 +32,7 @@ func newInspectCmd() *cobra.Command {
 
 	cmd := &cobra.Command{
 		Use:   "inspect <nota>",
-		Short: "Exibe metadados, links e backlinks de uma nota",
+		Short: textos.ResumoInspect,
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			cfg, err := config.Load(flags)
@@ -52,12 +53,12 @@ func newInspectCmd() *cobra.Command {
 
 			canonical, err := idx.ResolvePath(args[0])
 			if err != nil {
-				return fmt.Errorf("resolvendo nota %q: %w", args[0], err)
+				return fmt.Errorf(textos.ErroResolvendoNota, args[0], err)
 			}
 
 			n, ok := idx.Get(canonical)
 			if !ok {
-				return fmt.Errorf("nota %q nao encontrada no indice", canonical)
+				return fmt.Errorf(textos.ErroNotaNaoIndexada, canonical)
 			}
 
 			backlinksRaw := idx.Backlinks(canonical)
@@ -105,25 +106,25 @@ func newInspectCmd() *cobra.Command {
 			// e a regra existe justamente para os comandos de diagnostico.
 			con := console.New(out)
 			campos := []console.Campo{
-				console.Campof("titulo", "%s", n.Title),
-				{Chave: "tamanho", Valor: fmt.Sprintf("%d", n.Size), Nota: "bytes"},
+				console.Campof(textos.CampoTitulo, "%s", n.Title),
+				{Chave: textos.CampoTamanho, Valor: fmt.Sprintf("%d", n.Size), Nota: textos.NotaBytes},
 			}
 			if len(n.Tags) > 0 {
 				campos = append(campos, console.Campo{
-					Chave: "tags", Valor: strings.Join(n.Tags, ", "),
+					Chave: textos.CampoTags, Valor: strings.Join(n.Tags, ", "),
 					Nota: fmt.Sprintf("(%d)", len(n.Tags)),
 				})
 			}
 			if len(headings) > 0 {
 				campos = append(campos, console.Campo{
-					Chave: "headings", Valor: strings.Join(headings, ", "),
+					Chave: textos.CampoHeadings, Valor: strings.Join(headings, ", "),
 					Nota: fmt.Sprintf("(%d)", len(headings)),
 				})
 			}
-			campos = append(campos, console.Campof("links de saida", "%d", len(n.Links)))
+			campos = append(campos, console.Campof(textos.CampoLinksSaida, "%d", len(n.Links)))
 			if len(backlinks) > 0 {
 				campos = append(campos, console.Campo{
-					Chave: "backlinks", Valor: strings.Join(backlinks, ", "),
+					Chave: textos.CampoBacklinks, Valor: strings.Join(backlinks, ", "),
 					Nota: fmt.Sprintf("(%d)", len(backlinks)),
 				})
 			}
@@ -133,7 +134,7 @@ func newInspectCmd() *cobra.Command {
 	}
 
 	flagsDeCofre(cmd, &flags)
-	cmd.Flags().BoolVar(&jsonOutput, "json", false, "saida estruturada em formato JSON")
+	cmd.Flags().BoolVar(&jsonOutput, "json", false, textos.FlagJSON)
 	flagsDeCache(cmd, &flags)
 
 	return cmd

@@ -12,6 +12,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/jonyduque/Gobsidian/internal/textos"
 	"os"
 	"strings"
 
@@ -36,15 +37,15 @@ type opcoesDeInstalacao struct {
 // quem automatiza.
 func registrarFlagsDeInstalacao(cmd *cobra.Command, o *opcoesDeInstalacao) {
 	cmd.Flags().StringVar(&o.vault, "vault", os.Getenv("GOBSIDIAN_VAULT"),
-		"cofre a servir (padrao: perguntar, lendo o registro do Obsidian)")
+		textos.FlagInstallVault)
 	cmd.Flags().StringVar(&o.installDir, "install-dir", os.Getenv("GOBSIDIAN_INSTALL_DIR"),
-		"onde por o binario (padrao: "+instalar.DiretorioPadrao()+")")
+		textos.FlagInstallDir+instalar.DiretorioPadrao()+")")
 	cmd.Flags().StringVar(&o.hostsCSV, "hosts", "",
-		"hosts a configurar, separados por virgula ("+strings.Join(hosts.Chaves(), ", ")+"); 'none' nao configura nenhum")
+		textos.FlagInstallHosts+strings.Join(hosts.Chaves(), ", ")+textos.FlagInstallHostsFim)
 	cmd.Flags().BoolVar(&o.sim, "yes", false,
-		"nao pergunta nada: instala, ajusta o PATH e configura os hosts detectados")
-	cmd.Flags().BoolVar(&o.readOnly, "read-only", false, "registra o servidor com --read-only")
-	cmd.Flags().BoolVar(&o.semPath, "no-path", false, "nao mexe no PATH")
+		textos.FlagInstallYes)
+	cmd.Flags().BoolVar(&o.readOnly, "read-only", false, textos.FlagInstallReadOnly)
+	cmd.Flags().BoolVar(&o.semPath, "no-path", false, textos.FlagInstallNoPath)
 }
 
 func newInstallCmd() *cobra.Command {
@@ -52,10 +53,8 @@ func newInstallCmd() *cobra.Command {
 
 	cmd := &cobra.Command{
 		Use:   "install",
-		Short: "Instala o gobsidian, ajusta o PATH e configura os hosts de IA",
-		Long: "Instala o executavel no perfil do usuario -- nunca pede elevacao --, " +
-			"pergunta se deve acrescentar o diretorio ao PATH e registrar o servidor " +
-			"nos hosts de IA detectados, e limpa lixo comprovadamente orfao de execucoes anteriores.",
+		Short: textos.ResumoInstall,
+		Long:  textos.DescricaoInstall,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			return rodarInstalacao(cmd.Context(), cmd, &o, "")
 		},
@@ -84,8 +83,8 @@ func rodarInstalacao(ctx context.Context, cmd *cobra.Command, o *opcoesDeInstala
 	// unica pergunta segura aqui e "ha alguem do outro lado?", e a resposta e
 	// TerminalInterativo.
 	if !o.sim && !terminalInterativoFn() {
-		con.Warn("a entrada não é um terminal: usando as respostas padrão")
-		con.Detail("para escolher os cofres, rode `gobsidian install` num terminal")
+		con.Warn("%s", textos.InstallSemTerminal)
+		con.Detail("%s", textos.InstallSemTerminalDica)
 		o.sim = true
 	}
 
@@ -109,7 +108,7 @@ func rodarInstalacao(ctx context.Context, cmd *cobra.Command, o *opcoesDeInstala
 		func(nome string) { con.Passo("%s", nome) },
 	)
 
-	con.Titulo("Instalando")
+	con.Titulo("%s", textos.InstallTitulo)
 	r, err := instalar.Instalar(ctx, sis, instalar.Opcoes{
 		Origem:      origem,
 		Destino:     o.installDir,
@@ -121,7 +120,7 @@ func rodarInstalacao(ctx context.Context, cmd *cobra.Command, o *opcoesDeInstala
 		SemPath:     o.semPath,
 	})
 	if errors.Is(err, instalar.ErrRecusado) {
-		con.Warn("Instalação cancelada; nada foi alterado")
+		con.Warn("%s", textos.InstallCancelado)
 		return nil
 	}
 	if err != nil {
@@ -180,18 +179,18 @@ func escolherCofres(con *console.Stream, entrada *bufio.Reader, o *opcoesDeInsta
 		for _, c := range jaConfigurados {
 			corpos = append(corpos, "  "+c)
 		}
-		con.Bloco("Configuração atual", corpos, "")
+		con.Bloco(textos.InstallConfigAtual, corpos, "")
 		if o.sim {
 			return jaConfigurados, nil
 		}
-		if simOuNao(con, entrada, "Manter esta configuração?", true) {
+		if simOuNao(con, entrada, textos.InstallManterConfig, true) {
 			return jaConfigurados, nil
 		}
 	}
 
 	doObsidian, err := instalar.CofresDoObsidian(instalar.CaminhoDoRegistroDoObsidian())
 	if err != nil {
-		con.Warn("não foi possível ler o registro de cofres do Obsidian: %v", err)
+		con.Warn(textos.InstallRegistroIlegivel, err)
 	}
 
 	// A lista soma os cofres do Obsidian com os que JA estao configurados e nao
@@ -230,14 +229,14 @@ func escolherCofres(con *console.Stream, entrada *bufio.Reader, o *opcoesDeInsta
 	}
 
 	if len(itens) == 0 {
-		return nil, errors.New("nenhum cofre encontrado; passe --vault com o caminho do cofre")
+		return nil, errors.New(textos.ErroSemCofre)
 	}
 	if o.sim {
 		// Sem interacao, a escolha e o que ja estava, ou o primeiro cofre.
 		if len(jaConfigurados) > 0 {
 			return jaConfigurados, nil
 		}
-		con.Info("cofre: %s", itens[0].caminho)
+		con.Info(textos.InstallCofreEscolhido, itens[0].caminho)
 		return []string{itens[0].caminho}, nil
 	}
 
@@ -246,18 +245,18 @@ func escolherCofres(con *console.Stream, entrada *bufio.Reader, o *opcoesDeInsta
 		opcoes = append(opcoes, console.Opcao{Rotulo: it.caminho, Nota: it.nota, Marcada: it.marcado})
 	}
 
-	indices, err := console.Selecionar(con, arquivoDaEntrada(), "Quais cofres configurar?", opcoes)
+	indices, err := console.Selecionar(con, arquivoDaEntrada(), textos.InstallQuaisCofres, opcoes)
 	switch {
 	case err == nil:
 	case errors.Is(err, console.ErrCancelado):
-		return nil, errors.New("selecao cancelada; nada foi alterado")
+		return nil, errors.New(textos.ErroSelecaoCancelada)
 	case errors.Is(err, console.ErrSemTerminal):
 		// Sem terminal de verdade (pipe, IDE, CI): a MESMA pergunta, digitada.
-		con.Titulo("Quais cofres configurar?")
+		con.Titulo("%s", textos.InstallQuaisCofres)
 		for i, it := range itens {
-			con.Detail("%d) %s  %s", i+1, it.caminho, it.nota)
+			con.Detail(textos.InstallItemNumerado, i+1, it.caminho, it.nota)
 		}
-		resposta := perguntar(con, entrada, "Números separados por espaço, * para todos, vazio para nenhum", "")
+		resposta := perguntar(con, entrada, textos.InstallEscolhaDigitada, "")
 		indices, err = console.SelecionarDigitando(resposta, opcoes)
 		if err != nil {
 			return nil, err
@@ -299,7 +298,7 @@ func escolherHosts(con *console.Stream, entrada *bufio.Reader, o *opcoesDeInstal
 				continue
 			}
 			if _, ok := hosts.PorChave(c); !ok {
-				return nil, fmt.Errorf("host desconhecido %q; conhecidos: %s", c, strings.Join(hosts.Chaves(), ", "))
+				return nil, fmt.Errorf(textos.ErroHostDesconhecido, c, strings.Join(hosts.Chaves(), ", "))
 			}
 			chaves = append(chaves, c)
 		}
@@ -308,7 +307,7 @@ func escolherHosts(con *console.Stream, entrada *bufio.Reader, o *opcoesDeInstal
 
 	detectados := hosts.Detectar(hosts.AmbienteReal())
 	if len(detectados) == 0 {
-		con.Info("nenhum host de IA conhecido foi detectado")
+		con.Info("%s", textos.InstallSemHosts)
 		return []string{}, nil
 	}
 
@@ -317,7 +316,7 @@ func escolherHosts(con *console.Stream, entrada *bufio.Reader, o *opcoesDeInstal
 		for _, h := range detectados {
 			nomes = append(nomes, "  "+h.Nome)
 		}
-		con.Bloco("Hosts de IA encontrados", nomes, "")
+		con.Bloco(textos.InstallHostsEncontrados, nomes, "")
 		return nil, nil
 	}
 
@@ -333,17 +332,17 @@ func escolherHosts(con *console.Stream, entrada *bufio.Reader, o *opcoesDeInstal
 		opcoes = append(opcoes, console.Opcao{Rotulo: h.Nome, Nota: h.Chave, Marcada: true})
 	}
 
-	indices, err := console.Selecionar(con, arquivoDaEntrada(), "Em quais hosts registrar?", opcoes)
+	indices, err := console.Selecionar(con, arquivoDaEntrada(), textos.InstallQuaisHosts, opcoes)
 	switch {
 	case err == nil:
 	case errors.Is(err, console.ErrCancelado):
-		return nil, errors.New("selecao cancelada; nada foi alterado")
+		return nil, errors.New(textos.ErroSelecaoCancelada)
 	case errors.Is(err, console.ErrSemTerminal):
-		con.Titulo("Em quais hosts registrar?")
+		con.Titulo("%s", textos.InstallQuaisHosts)
 		for i, h := range detectados {
-			con.Detail("%d) %s  (%s)", i+1, h.Nome, h.Chave)
+			con.Detail(textos.InstallItemHost, i+1, h.Nome, h.Chave)
 		}
-		resposta := perguntar(con, entrada, "Números separados por espaço, * para todos, vazio para nenhum", "*")
+		resposta := perguntar(con, entrada, textos.InstallEscolhaDigitada, "*")
 		indices, err = console.SelecionarDigitando(resposta, opcoes)
 		if err != nil {
 			return nil, err
@@ -363,7 +362,7 @@ func escolherHosts(con *console.Stream, entrada *bufio.Reader, o *opcoesDeInstal
 }
 
 func imprimirResumo(con *console.Stream, r instalar.Resultado, cofres []string) {
-	con.OK("Instalado")
+	con.OK("%s", textos.InstallConcluido)
 	con.Bloco("", resumoEmLinhas(con, r, cofres), "")
 }
 
@@ -376,24 +375,24 @@ func resumoEmLinhas(con *console.Stream, r instalar.Resultado, cofres []string) 
 	var l []string
 	add := func(f string, a ...any) { l = append(l, "  "+fmt.Sprintf(f, a...)) }
 	_ = con
-	add("binario  %s", r.Binario)
+	add(textos.ResumoBinario, r.Binario)
 	if len(cofres) == 0 {
-		add("cofres   nenhum configurado")
+		add("%s", textos.ResumoCofres)
 	}
 	for _, c := range cofres {
-		add("cofre    %s", c)
+		add(textos.ResumoCofre, c)
 	}
 	if r.PathMudou {
-		add("PATH     %s", instalar.AvisoDePath())
+		add(textos.ResumoPATH, instalar.AvisoDePath())
 	}
 	for _, p := range r.Encerrados {
-		add("encerrado pid %d (%s)", p.PID, p.Papel)
+		add(textos.ResumoEncerrado, p.PID, p.Papel)
 	}
 	for chave, aviso := range r.HostsOK {
-		add("%-16s %s", chave, aviso)
+		add(textos.ResumoHostOK, chave, aviso)
 	}
 	for chave, erro := range r.HostsFalhos {
-		add("%-16s FALHOU: %s", chave, erro)
+		add(textos.ResumoHostFalha, chave, erro)
 	}
 	if !r.Limpeza.Vazio() {
 		// O que foi removido ganha cor; o que era zero fica apagado. Mesma
@@ -405,7 +404,7 @@ func resumoEmLinhas(con *console.Stream, r instalar.Resultado, cofres []string) 
 			}
 			return con.Amarelo(fmt.Sprintf("%d", q))
 		}
-		add("limpeza  %s trava(s), %s socket(s), %s presença(s), %s cache(s), %d KB",
+		add(textos.ResumoLimpeza,
 			n(len(r.Limpeza.Locks)), n(len(r.Limpeza.Sockets)), n(len(r.Limpeza.Presencas)),
 			n(len(r.Limpeza.Caches)), r.Limpeza.Bytes/1024)
 	}
@@ -417,11 +416,11 @@ func newPathCmd() *cobra.Command {
 
 	cmd := &cobra.Command{
 		Use:   "path",
-		Short: "Acrescenta ou remove o diretorio de instalacao do PATH do usuario",
+		Short: textos.ResumoPath,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			con := console.New(cmd.OutOrStdout())
 			if adicionar == remover {
-				return errors.New("escolha exatamente um: --add ou --remove")
+				return errors.New(textos.ErroAddOuRemove)
 			}
 
 			dir := instalar.DiretorioPadrao()
@@ -440,18 +439,18 @@ func newPathCmd() *cobra.Command {
 				return err
 			}
 			if !mudou {
-				con.OK("PATH já estava como você pediu")
+				con.OK("%s", textos.PathJaEstava)
 				con.Detail("%s", dir)
 				return nil
 			}
-			con.OK("PATH atualizado")
+			con.OK("%s", textos.PathAtualizado)
 			con.Detail("%s", dir)
 			con.Detail("%s", instalar.AvisoDePath())
 			return nil
 		},
 	}
-	cmd.Flags().BoolVar(&adicionar, "add", false, "acrescenta o diretorio ao PATH")
-	cmd.Flags().BoolVar(&remover, "remove", false, "remove o diretorio do PATH")
+	cmd.Flags().BoolVar(&adicionar, "add", false, textos.FlagPathAdd)
+	cmd.Flags().BoolVar(&remover, "remove", false, textos.FlagPathRemove)
 	return cmd
 }
 
@@ -460,14 +459,14 @@ func newVaultsCmd() *cobra.Command {
 
 	cmd := &cobra.Command{
 		Use:   "vaults",
-		Short: "Configura os hosts de IA para um cofre, sem reinstalar o binario",
+		Short: textos.ResumoVaults,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			con := console.New(cmd.OutOrStdout())
 			entrada := bufio.NewReader(cmd.InOrStdin())
 
 			m, err := instalar.LerManifesto()
 			if err != nil {
-				return fmt.Errorf("%w -- rode `gobsidian install` primeiro", err)
+				return fmt.Errorf(textos.ErroSemManifesto, err)
 			}
 
 			cofres, err := escolherCofres(con, entrada, &o)
@@ -480,18 +479,18 @@ func newVaultsCmd() *cobra.Command {
 			}
 
 			ok, falhos := instalar.ConfigurarHosts(m.Binario, cofres, o.readOnly, chaves)
-			con.OK("Hosts configurados")
+			con.OK("%s", textos.InstallHostsConfigurados)
 			if len(cofres) == 0 {
-				con.Detail("cofres   nenhum configurado")
+				con.Detail("%s", textos.InstallSemCofreNaLista)
 			}
 			for _, c := range cofres {
-				con.Detail("cofre    %s", c)
+				con.Detail(textos.InstallCofreNaLista, c)
 			}
 			for chave, aviso := range ok {
-				con.Detail("%-16s %s", chave, aviso)
+				con.Detail(textos.InstallHostNaLista, chave, aviso)
 			}
 			for chave, erro := range falhos {
-				con.Warn("%s não pode ser configurado", chave)
+				con.Warn(textos.InstallHostFalhou, chave)
 				con.Detail("%s", erro)
 			}
 			return nil
@@ -590,7 +589,7 @@ func confirmar(con *console.Stream, entrada *bufio.Reader, sim bool, pergunta st
 		for _, i := range itens {
 			con.Detail("%s", i)
 		}
-		con.Detail("--yes: encerrando sem perguntar")
+		con.Detail("%s", textos.InstallYesEncerrando)
 		return true
 	}
 	// Os itens vao DENTRO da moldura da pergunta, e nao impressos antes dela:

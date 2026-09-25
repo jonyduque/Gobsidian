@@ -1,0 +1,205 @@
+# Review package: 4a06a24ef79d76e0ccbb82226e92e35aeca4007e..HEAD
+
+## Commits
+8cfec55 fix(service): note_patch mode goes through ValidarEnum and the error lists the modes that exist
+
+## Files changed
+ docs/TOOLS.md                          |  4 ++--
+ internal/mcpsrv/tools_write.go         |  2 +-
+ internal/service/limites_enums_test.go | 30 ++++++++++++++++++++++++++++++
+ internal/service/write.go              | 23 +++++++++++------------
+ 4 files changed, 44 insertions(+), 15 deletions(-)
+
+## Diff
+diff --git a/docs/TOOLS.md b/docs/TOOLS.md
+index ec71f6b..c3fe225 100644
+--- a/docs/TOOLS.md
++++ b/docs/TOOLS.md
+@@ -393,29 +393,29 @@ O retorno traz `hash`, o xxhash do conteúdo **gravado** — é o valor a passar
+ 
+ ```json
+ {
+   "type": "object",
+   "properties": {
+     "path":     { "type": "string" },
+     "content":  { "type": "string" },
+     "heading":  { "type": "string" },
+     "heading_level": { "type": "integer", "minimum": 1, "maximum": 6 },
+     "block_id": { "type": "string" },
+-    "mode":     { "type": "string", "enum": ["replace_section", "replace_heading_and_section", "replace_block"], "default": "replace_section" },
++    "mode":     { "type": "string", "enum": ["replace_section", "replace_heading_and_section", "replace_block"], "default": "replace_section (replace_block quando block_id vem)" },
+     "expected_hash": { "type": "string", "description": "Hash da nota obtido em leitura anterior. Se divergir, a chamada falha." },
+     "dry_run":  { "type": "boolean", "default": false }
+   },
+   "required": ["path", "content"]
+ }
+ ```
+ 
+-**Notas.** `replace_section` preserva a linha do heading e substitui apenas o conteúdo abaixo dela, incluindo subseções. `replace_heading_and_section` substitui também a linha do heading. `heading` e `block_id` juntos são `INVALID_ARGUMENT`.
++**Notas.** `replace_section` preserva a linha do heading e substitui apenas o conteúdo abaixo dela, incluindo subseções. `replace_heading_and_section` substitui também a linha do heading. `heading` e `block_id` juntos são `INVALID_ARGUMENT`. Qualquer outro valor de `mode` é `INVALID_ARGUMENT` com a lista dos três.
+ 
+ `expected_hash` implementa concorrência otimista. Obtido de `note_metadata` ou `note_read`, garante que a nota não mudou entre a leitura e a escrita. Recomendado sempre que houver possibilidade de o Obsidian estar aberto na nota.
+ 
+ Sem `expected_hash`, o servidor ainda verifica internamente se o conteúdo mudou desde o último parse e recalcula os offsets antes de aplicar — o que impede corrupção, mas não impede sobrescrever uma edição concorrente que o cliente não viu.
+ 
+ ---
+ 
+ ## `note_move`
+ 
+ ```json
+diff --git a/internal/mcpsrv/tools_write.go b/internal/mcpsrv/tools_write.go
+index 9193092..a12d909 100644
+--- a/internal/mcpsrv/tools_write.go
++++ b/internal/mcpsrv/tools_write.go
+@@ -25,21 +25,21 @@ type appendInput struct {
+ 	ExpectedHash    string `json:"expected_hash,omitempty" jsonschema:"hash xxhash para concorrencia otimista"`
+ 	DryRun          bool   `json:"dry_run,omitempty" jsonschema:"se verdadeiro devolve apenas o diff sem alterar o disco"`
+ }
+ 
+ type patchInput struct {
+ 	Path         string `json:"path" jsonschema:"caminho relativo da nota"`
+ 	Content      string `json:"content" jsonschema:"conteudo de substituicao"`
+ 	Heading      string `json:"heading,omitempty" jsonschema:"heading alvo da substituicao"`
+ 	HeadingLevel int    `json:"heading_level,omitempty" jsonschema:"nivel do heading (1-6)"`
+ 	BlockID      string `json:"block_id,omitempty" jsonschema:"id de bloco (sem o ^) alvo da substituicao"`
+-	Mode         string `json:"mode,omitempty" jsonschema:"replace_section, replace_heading_and_section ou replace_block"`
++	Mode         string `json:"mode,omitempty" jsonschema:"replace_section (padrao), replace_heading_and_section ou replace_block (padrao quando block_id vem)"`
+ 	ExpectedHash string `json:"expected_hash,omitempty" jsonschema:"hash xxhash para concorrencia otimista"`
+ 	DryRun       bool   `json:"dry_run,omitempty" jsonschema:"se verdadeiro devolve apenas o diff sem alterar o disco"`
+ }
+ 
+ type moveInput struct {
+ 	From          string `json:"from" jsonschema:"caminho relativo da nota de origem"`
+ 	To            string `json:"to" jsonschema:"caminho relativo do destino"`
+ 	UpdateLinks   *bool  `json:"update_links,omitempty" jsonschema:"se verdadeiro reescreve links apontando para o antigo caminho (padrao: true)"`
+ 	CreateFolders *bool  `json:"create_folders,omitempty" jsonschema:"cria diretorios intermediarios se nao existirem (padrao: true)"`
+ 	DryRun        bool   `json:"dry_run,omitempty" jsonschema:"se verdadeiro devolve apenas os diffs sem alterar o disco"`
+diff --git a/internal/service/limites_enums_test.go b/internal/service/limites_enums_test.go
+index d1e5f45..2eee8ac 100644
+--- a/internal/service/limites_enums_test.go
++++ b/internal/service/limites_enums_test.go
+@@ -1,14 +1,15 @@
+ package service
+ 
+ import (
+ 	"context"
++	"strings"
+ 	"testing"
+ 
+ 	"github.com/jonyd/gobsidian/internal/index"
+ )
+ 
+ // TestNoteListAplicaOTetoDeLimit é o achado B4.
+ //
+ // `docs/TOOLS.md` declara `"maximum": 500` para o `limit` de `note_list`, e o
+ // código nunca clampava — `link_graph` clampava, com os números mágicos inline,
+ // e `note_list` não. Schema que promete um teto e código que não o aplica é a
+@@ -140,10 +141,39 @@ func TestPatchModeInvalidoNaoEErroInterno(t *testing.T) {
+ 		Path: "a.md", Mode: "modo_que_nao_existe", Content: "x",
+ 	})
+ 	if err == nil {
+ 		t.Fatal("modo invalido foi aceito")
+ 	}
+ 	if got := CodeOf(err); got != CodeInvalidArgument {
+ 		t.Errorf("codigo = %s, queria %s: INTERNAL manda o host tentar de novo\nerro: %v",
+ 			got, CodeInvalidArgument, err)
+ 	}
+ }
++
++// TestPatchNoteModeInvalidoListaOsModosQueExistem fecha o achado: o `default`
++// do switch listava `append_to_heading` e `append_to_note`, que nunca foram
++// `case`, e faltava `replace_section`, que é. A mensagem é o único lugar onde
++// o cliente descobre os modos aceitos.
++func TestPatchNoteModeInvalidoListaOsModosQueExistem(t *testing.T) {
++	root := t.TempDir()
++	writeFile(t, root, "a.md", "# H\n\ntexto\n")
++	svc := newTestService(t, root)
++
++	_, err := svc.PatchNote(context.Background(), PatchNoteRequest{
++		Path: "a.md", Heading: "H", Mode: "append_to_heading", Content: "x",
++	})
++	if err == nil {
++		t.Fatal("append_to_heading foi aceito, e nao existe")
++	}
++	msg := err.Error()
++	for _, real := range []string{"replace_section", "replace_heading_and_section", "replace_block"} {
++		if !strings.Contains(msg, real) {
++			t.Errorf("a mensagem nao lista o modo real %q: %s", real, msg)
++		}
++	}
++	idxAceitos := strings.Index(msg, "aceitos")
++	for _, fantasma := range []string{"append_to_heading", "append_to_note"} {
++		if idxAceitos != -1 && strings.Contains(msg[idxAceitos:], fantasma) {
++			t.Errorf("a mensagem lista o modo fantasma %q como aceito: %s", fantasma, msg)
++		}
++	}
++}
+diff --git a/internal/service/write.go b/internal/service/write.go
+index 3c412ad..dc80cd5 100644
+--- a/internal/service/write.go
++++ b/internal/service/write.go
+@@ -290,27 +290,28 @@ func (s *Service) PatchNote(ctx context.Context, req PatchNoteRequest) (PatchNot
+ 	}
+ 
+ 	cleaned, hadBOM := vault.StripBOM(raw)
+ 	parsed := parser.Parse(cleaned)
+ 	if hadBOM {
+ 		parsed.ShiftOffsets(int64(vault.BOMLen))
+ 	}
+ 
+ 	var proposed []byte
+ 
+-	mode := req.Mode
+-	if mode == "" {
+-		if req.BlockID != "" {
+-			mode = "replace_block"
+-		} else {
+-			mode = "replace_section"
+-		}
++	padrao := "replace_section"
++	if req.BlockID != "" {
++		padrao = "replace_block"
++	}
++	mode, err := ValidarEnum("mode", req.Mode, padrao,
++		"replace_section", "replace_heading_and_section", "replace_block")
++	if err != nil {
++		return PatchNoteResult{}, err
+ 	}
+ 
+ 	switch mode {
+ 	case "replace_block":
+ 		b, err := writer.FindBlock(parsed.Blocks, req.BlockID)
+ 		if err != nil {
+ 			var bnf *writer.BlockNotFoundError
+ 			var amb *writer.AmbiguousBlockError
+ 			if errors.As(err, &amb) {
+ 				return PatchNoteResult{}, Errorf(CodeAmbiguousBlock, "%v", err)
+@@ -356,25 +357,23 @@ func (s *Service) PatchNote(ctx context.Context, req PatchNoteRequest) (PatchNot
+ 				return PatchNoteResult{}, Errorf(CodeAmbiguousHeading, "%v", err)
+ 			}
+ 			if errors.As(err, &hnf) {
+ 				return PatchNoteResult{}, Errorf(CodeHeadingNotFound, "%v", err)
+ 			}
+ 			return PatchNoteResult{}, Errorf(CodeHeadingNotFound, "heading %q nao encontrado", req.Heading)
+ 		}
+ 		proposed = writer.PatchSectionContent(raw, *h, req.Content)
+ 
+ 	default:
+-		// INVALID_ARGUMENT, e nao INTERNAL: o modo veio do cliente, e INTERNAL
+-		// diz a ele que o servidor quebrou — o que faz o host tentar de novo
+-		// em vez de corrigir o pedido (achado B4).
+-		return PatchNoteResult{}, Errorf(CodeInvalidArgument,
+-			"mode = %q invalido; aceitos: replace_heading_and_section, append_to_heading, replace_block, append_to_note", req.Mode)
++		// Inalcancavel: ValidarEnum ja recusou tudo fora dos tres. Fica como
++		// guarda contra um case novo que entre na lista e nao no switch.
++		return PatchNoteResult{}, Errorf(CodeInternal, "mode %q passou por ValidarEnum sem case", mode)
+ 	}
+ 
+ 	if req.DryRun {
+ 		diff := writer.UnifiedDiff(req.Path, req.Path, string(raw), string(proposed), 3)
+ 		return PatchNoteResult{Path: req.Path, Diff: diff, Patched: false, Hash: hashDoConteudo(proposed)}, nil
+ 	}
+ 
+ 	if err := writer.WriteAtomic(ctx, absPath, proposed); err != nil {
+ 		return PatchNoteResult{}, Errorf(CodeInternal, "escrevendo nota %q: %v", req.Path, err)
+ 	}

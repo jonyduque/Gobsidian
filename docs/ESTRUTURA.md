@@ -148,6 +148,9 @@ gobsidian/
 │   │   └── normalize.go          normalização de texto — ÚNICA conta usada por
 │   │                             título, alias e chave de citante
 │   │
+│   ├── textos/                   FOLHA. Tudo o que os comandos escrevem na tela,
+│   │   └── textos.go             num arquivo só e em português correto (UTF-8)
+│   │
 │   ├── console/
 │   │   ├── console.go            marcadores e cores da saída de CLI; decide sobre cor por destino
 │   │   ├── texto.go              acento sai onde o console aguenta; cai para ASCII onde não

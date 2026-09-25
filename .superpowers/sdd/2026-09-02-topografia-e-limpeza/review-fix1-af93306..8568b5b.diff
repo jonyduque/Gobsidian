@@ -1,0 +1,534 @@
+8568b5b test(watcher): cleanup on failed startup wait; drop the reconciliation test its neighbour subsumes; CLAUDE.md lists watcher among vaulttest importers
+4c6da0a test(ranking): the old golden was order-inert, not byte-inert; n0000 stops being the shortest note
+ CLAUDE.md                                          |   8 +-
+ internal/service/ranking_golden_test.go            |  45 +++++++---
+ internal/service/testdata/ranking/com-acento.tsv   |  40 ++++-----
+ internal/service/testdata/ranking/dois-termos.tsv  |  40 ++++-----
+ internal/service/testdata/ranking/frase-exata.tsv  |   2 +-
+ .../service/testdata/ranking/so-em-heading.tsv     |  40 ++++-----
+ internal/service/testdata/ranking/so-no-titulo.tsv |  12 +--
+ internal/service/testdata/ranking/termo-amplo.tsv  | 100 ++++++++++-----------
+ internal/watcher/counters_test.go                  |  29 ++----
+ 9 files changed, 163 insertions(+), 153 deletions(-)
+diff --git a/CLAUDE.md b/CLAUDE.md
+index 717100e..5f68462 100644
+--- a/CLAUDE.md
++++ b/CLAUDE.md
+@@ -126,22 +126,26 @@ daemon  → service, vault      (só em _test)
+ ```
+ 
+ `internal/vaulttest` é o pacote de apoio a teste: ele importa `vault` — e só
+ `vault` —, e essa aresta **é do próprio pacote**, então `go list -f
+ '{{.Imports}}' ./internal/vaulttest` a mostra como importaria qualquer outra.
+ Isso vale **com `GOOS=windows`**: o corpo real mora nos arquivos `_windows.go`,
+ e em `GOOS=linux` o mesmo comando devolve só `[testing time]`, porque os
+ `_other.go` apenas fazem `t.Skip` (medido em 2026-09-05). O
+ que é exclusivo de teste são os imports **de** `vaulttest`: nenhum arquivo de
+ produção o importa, só arquivos `_test.go` de `index`, `search`, `service`,
+-`vault`, `daemon`, `ipc` e `cmd/gobsidian`. Por isso ele fica fora do grafo de
+-produção acima, e por isso não pode ganhar import de `index`, `search`,
++`vault`, `watcher`, `daemon`, `ipc` e `cmd/gobsidian` — a lista saiu de
++`git grep -l "internal/vaulttest" -- '*_test.go' | cut -d/ -f1-2 | sort -u`
++(medido em 2026-09-06; `watcher` entrou na Task 164 e a enumeração ficou um dia
++desatualizada). Que não há aresta de produção também é medido, e é o outro
++comando: `git grep -l "internal/vaulttest" -- '*.go' ':!*_test.go'` volta vazio.
++Por isso ele fica fora do grafo de produção acima, e por isso não pode ganhar import de `index`, `search`,
+ `service` ou `parser`: seria ciclo no teste externo desses pacotes.
+ 
+ ```
+ vaulttest → vault             (pacote só de teste; ninguém em produção o importa)
+ ```
+ 
+ A versão anterior deste bloco somava as duas listas numa só e, com isso,
+ atribuía ao `daemon` um conhecimento de `service` e de `vault` que ele não tem —
+ ele fala com `mcpsrv` e mais nada do domínio. Antes dela, outra omitia `text`
+ inteiro e chamava `parser` de folha quando ele já importava `text`.
+diff --git a/internal/service/ranking_golden_test.go b/internal/service/ranking_golden_test.go
+index 5f9ad64..1169d17 100644
+--- a/internal/service/ranking_golden_test.go
++++ b/internal/service/ranking_golden_test.go
+@@ -77,44 +77,63 @@ func enchimento(n int) string {
+ // TODAS as 300 notas com o mesmo título, o mesmo heading e a mesma frase final,
+ // palavra por palavra, mais duas notas de contraste acrescentadas depois. O
+ // sintoma que se via era "frase-exata.tsv e so-no-titulo.tsv saíram com
+ // exatamente 20 linhas, o teto do Limit padrão", e ele foi diagnosticado como
+ // corte pelo limite — o sintoma certo, a causa errada.
+ //
+ // A causa era o corpus. Com 299 notas idênticas, toda consulta empatava nas
+ // 300; o que sobrava para ordenar era o desempate determinístico por caminho, e
+ // `n0150` — a única cuja frase final tinha três tokens a menos — vencia por ser
+ // a mais curta, inclusive em `so-em-heading`, cujo heading `## Execução fiscal`
+-// era igual nas 300. Os goldens congelavam o desempate, não o ranking: apagar o
+-// peso de heading não mudava um byte de nenhum `.tsv`.
++// era igual nas 300. Os goldens congelavam o desempate, não o ranking — mas
++// congelar o desempate não é o mesmo que ser inerte ao peso de campo, e a
++// primeira versão desta docstring dizia que era: "apagar o peso de heading não
++// mudava um byte de nenhum `.tsv`". É falso, e não tinha sido medido.
++//
++// O que se mede, reproduzindo o corpus antigo com `go test -overlay` contra um
++// `bm25.go` com `return WeightHeadings` trocado por `return WeightBody`: apagar
++// o peso de heading não movia UMA LINHA de lugar em `.tsv` nenhum, e mudava a
++// coluna de score de `so-em-heading` e de `dois-termos` — 40 linhas ao todo. O
++// segundo entrava porque o heading antigo era `## Execução fiscal` e "execucao"
++// é um dos dois termos daquela consulta. A sequência das 20 linhas saía
++// idêntica nas duas execuções, e é só essa parte que o golden congelava.
+ //
+ // Agora cada nota difere das outras em comprimento e em quais termos carrega,
+ // por fórmulas determinísticas — nada de `rand`, que tornaria o golden função
+ // da semente:
+ //
+-//   - enchimento de 20 + (i*7)%60 + i/60 tokens: o comprimento varia, e o BM25
+-//     normaliza por comprimento. O `+ i/60` não é enfeite: `(i*7)%60` tem
+-//     período 60 e o corpus tem 300 notas, então cada comprimento sairia
++//   - enchimento de 20 + ((i*7+29)%60) + i/60 tokens: o comprimento varia, e o
++//     BM25 normaliza por comprimento. O `+ i/60` não é enfeite: `(i*7+29)%60`
++//     tem período 60 e o corpus tem 300 notas, então cada comprimento sairia
+ //     repetido cinco vezes — e como 3, 4 e 5 dividem 60, essas cinco notas
+ //     também concordariam em tf de "nota", em "prescricao" e em "execucao".
+ //     Elas ficavam byte a byte equivalentes para a consulta `termo-amplo`, os
+ //     dois primeiros resultados empatavam, e a verificação abaixo reprovava.
+-//     Medido: com `+ i/60`, os cinco deixam de empatar;
++//     Medido: com `+ i/60`, os cinco deixam de empatar. O `+29` desloca a fase
++//     por outro motivo: sem ele o mínimo caía em `i == 0`, e `n0000` era ao
++//     mesmo tempo a nota unicamente mais curta e membro de TODAS as classes de
++//     congruência (0 % 3 == 0 % 5 == 0 % 7 == 0 % 11 == 0), de modo que vencia
++//     três dos seis goldens por acumular tudo — a forma "a nota mais curta
++//     ganha" que esta tarefa saiu justamente para eliminar;
+ //   - "nota" (consulta `termo-amplo`) aparece 1 + i%4 vezes: a frequência varia;
+ //   - "prescricao" (consulta `dois-termos`) só em i%3 == 0 e "execucao" só em
+ //     i%5 == 0: quem tem os dois pontua acima de quem tem um;
+ //   - o título acentuado "Prescrição" (consulta `com-acento`) só em i%7 == 0:
+ //     a forma crua no título contra a forma reduzida no corpo;
+ //   - o heading "Rito fiscal" (consulta `so-em-heading`) só em i%11 == 0, e
+ //     "fiscal" não aparece no corpo de nota alguma. É o único golden que depende
+ //     do peso de heading, e só depende dele porque o termo não tem outro lugar
+-//     de onde vir.
++//     de onde vir. O que a ORDEM deste golden mede, porém, é o comprimento:
++//     "fiscal" ocorre exatamente uma vez, sempre num heading, em todas as notas
++//     que casam, então `WeightHeadings` é fator comum a elas e aparece na coluna
++//     de score, não na sequência. Mutar aquele peso muda a segunda coluna deste
++//     `.tsv` inteiro e não move nenhuma linha — é assim que ele reprova;
+ //
+ // As duas notas de contraste continuam, e respondem as perguntas que a Task 78
+ // mandava conferir: `tituloComTermo` contra `notaTermoSoNoCorpo` responde "a
+ // nota com o termo no título vem antes da que só tem no corpo?", e
+ // `notaFraseUnica` responde "a frase exata casa uma só?".
+ func corpusGolden(t *testing.T) (*service.Service, string) {
+ 	t.Helper()
+ 	const querNotas = 300
+ 
+ 	// tituloComTermo é o pequeno grupo de notas cujo título leva
+@@ -130,22 +149,22 @@ func corpusGolden(t *testing.T) (*service.Service, string) {
+ 	// pesos". Nas demais, as mesmas palavras aparecem fora de ordem, então o
+ 	// termo isolado ainda é encontrável (não afeta termo-amplo/dois-termos)
+ 	// mas a frase entre aspas não casa.
+ 	const notaFraseUnica = 150
+ 
+ 	root := t.TempDir()
+ 	for i := 0; i < querNotas; i++ {
+ 		titulo := fmt.Sprintf("Registro %04d", i)
+ 		if i%7 == 0 {
+ 			// Acento no título de propósito: é o caminho de Normalize, e é a
+-			// forma CRUA que `com-acento` procura. As demais notas trazem só a
+-			// forma reduzida, no corpo.
++			// forma CRUA que `com-acento` procura. As notas com i%3 == 0 trazem
++			// a forma reduzida no corpo; é o contraste que `com-acento` mede.
+ 			titulo = fmt.Sprintf("Prescrição %04d", i)
+ 		}
+ 		if tituloComTermo[i] {
+ 			titulo += " intercorrente"
+ 		}
+ 
+ 		// "fiscal" só existe aqui, e em nota alguma no corpo: é o que faz
+ 		// `so-em-heading` depender do peso de heading e de mais nada.
+ 		heading := "Andamento"
+ 		if i%11 == 0 {
+@@ -161,21 +180,21 @@ func corpusGolden(t *testing.T) (*service.Service, string) {
+ 		fmt.Fprintf(&corpo, "%04d ", i)
+ 		if i%3 == 0 {
+ 			corpo.WriteString("prescricao ")
+ 		}
+ 		if i%5 == 0 {
+ 			corpo.WriteString("execucao ")
+ 		}
+ 		if i == notaTermoSoNoCorpo {
+ 			corpo.WriteString("intercorrente ")
+ 		}
+-		corpo.WriteString(enchimento(20 + (i*7)%60 + i/60))
++		corpo.WriteString(enchimento(20 + (i*7+29)%60 + i/60))
+ 
+ 		fraseFinal := fmt.Sprintf(
+ 			" O algoritmo de busca usa BM25 e pesos diferentes aqui quando %d.\n", i%13)
+ 		if i == notaFraseUnica {
+ 			fraseFinal = fmt.Sprintf(" O algoritmo BM25 com pesos aparece aqui quando %d.\n", i%13)
+ 		}
+ 		corpo.WriteString(fraseFinal)
+ 
+ 		dir := filepath.Join(root, fmt.Sprintf("pasta%02d", i%10))
+ 		if err := os.MkdirAll(dir, 0755); err != nil {
+@@ -208,23 +227,23 @@ var consultasGolden = []struct {
+ 	{"com-acento", service.SearchOptions{Query: "Prescrição"}},
+ 	{"so-no-titulo", service.SearchOptions{Query: "intercorrente"}},
+ 	{"so-em-heading", service.SearchOptions{Query: "fiscal"}},
+ }
+ 
+ // conferirDiscriminacao reprova um corpus que empata antes de o empate virar
+ // golden.
+ //
+ // Enquanto as 300 notas foram idênticas, todo `.tsv` era uma lista de scores
+ // iguais em que só o desempate determinístico por caminho decidia a ordem:
+-// apagar o peso de heading não mudava um byte de arquivo nenhum, e os seis
+-// subtestes continuavam verdes. Um golden assim é caro de manter e não cobre
+-// ranking. Estas duas afirmações são o que impede a regressão de voltar em
++// apagar o peso de heading não movia UMA LINHA de lugar em arquivo nenhum — só
++// reescrevia a coluna de score de `so-em-heading` e de `dois-termos`. Um golden
++// que congela um desempate por caminho é caro de manter e não cobre ranking. Estas duas afirmações são o que impede a regressão de voltar em
+ // silêncio quando alguém mexer no gerador.
+ func conferirDiscriminacao(t *testing.T, nome string, got []service.SearchHit) {
+ 	t.Helper()
+ 
+ 	// `frase-exata` é a exceção declarada: ela casa UMA nota entre 300, e casar
+ 	// uma só é exatamente a propriedade que aquele golden congela.
+ 	if nome == "frase-exata" {
+ 		if len(got) != 1 {
+ 			t.Fatalf("frase-exata casou %d notas, quer 1: a frase deixou de ser "+
+ 				"unica no corpus e o golden nao prova mais casamento de frase", len(got))
+diff --git a/internal/service/testdata/ranking/com-acento.tsv b/internal/service/testdata/ranking/com-acento.tsv
+index af6547f..a3a3839 100644
+--- a/internal/service/testdata/ranking/com-acento.tsv
++++ b/internal/service/testdata/ranking/com-acento.tsv
+@@ -1,20 +1,20 @@
+-pasta00/n0000.md	1.716162
+-pasta09/n0189.md	1.705403
+-pasta07/n0147.md	1.690566
+-pasta05/n0105.md	1.682203
+-pasta04/n0294.md	1.669812
+-pasta03/n0063.md	1.667764
+-pasta01/n0021.md	1.661652
+-pasta02/n0252.md	1.661652
+-pasta00/n0210.md	1.645570
+-pasta08/n0168.md	1.641598
+-pasta06/n0126.md	1.625900
+-pasta04/n0084.md	1.620090
+-pasta02/n0042.md	1.606694
+-pasta03/n0273.md	1.606694
+-pasta01/n0231.md	1.591654
+-pasta02/n0112.md	1.576504
+-pasta06/n0266.md	1.565616
+-pasta05/n0035.md	1.558441
+-pasta04/n0224.md	1.554878
+-pasta00/n0070.md	1.544286
++pasta08/n0168.md	1.705403
++pasta06/n0126.md	1.688467
++pasta04/n0084.md	1.682203
++pasta02/n0042.md	1.667764
++pasta03/n0273.md	1.667764
++pasta00/n0000.md	1.655585
++pasta01/n0231.md	1.651564
++pasta09/n0189.md	1.645570
++pasta07/n0147.md	1.631751
++pasta05/n0105.md	1.623959
++pasta04/n0294.md	1.612408
++pasta03/n0063.md	1.610499
++pasta01/n0021.md	1.604799
++pasta02/n0252.md	1.604799
++pasta06/n0056.md	1.591258
++pasta00/n0210.md	1.589793
++pasta03/n0133.md	1.583847
++pasta04/n0014.md	1.562020
++pasta01/n0091.md	1.558441
++pasta05/n0245.md	1.558441
+diff --git a/internal/service/testdata/ranking/dois-termos.tsv b/internal/service/testdata/ranking/dois-termos.tsv
+index 04104e4..4be309d 100644
+--- a/internal/service/testdata/ranking/dois-termos.tsv
++++ b/internal/service/testdata/ranking/dois-termos.tsv
+@@ -1,20 +1,20 @@
+-pasta00/n0000.md	3.997986
+-pasta05/n0105.md	3.784420
+-pasta05/n0035.md	3.758047
+-pasta00/n0070.md	3.699517
+-pasta00/n0210.md	3.576778
+-pasta00/n0140.md	3.575008
+-pasta00/n0060.md	3.492348
+-pasta00/n0120.md	3.473799
+-pasta05/n0175.md	3.471923
+-pasta00/n0180.md	3.455446
+-pasta00/n0240.md	3.437285
+-pasta05/n0245.md	3.351994
+-pasta00/n0280.md	3.306553
+-pasta05/n0045.md	3.217459
+-pasta05/n0165.md	3.186111
+-pasta05/n0225.md	3.186111
+-pasta05/n0285.md	3.170665
+-pasta00/n0150.md	3.010143
+-pasta00/n0030.md	2.996352
+-pasta00/n0090.md	2.982687
++pasta05/n0245.md	3.758047
++pasta00/n0280.md	3.699517
++pasta00/n0000.md	3.631440
++pasta05/n0105.md	3.463708
++pasta05/n0035.md	3.375239
++pasta00/n0070.md	3.329102
++pasta00/n0210.md	3.297226
++pasta00/n0140.md	3.230224
++pasta05/n0015.md	3.201709
++pasta05/n0075.md	3.201709
++pasta05/n0135.md	3.186111
++pasta05/n0195.md	3.170665
++pasta05/n0255.md	3.155368
++pasta05/n0175.md	3.147609
++pasta00/n0060.md	3.024061
++pasta00/n0120.md	3.010143
++pasta00/n0180.md	2.996352
++pasta00/n0240.md	2.982687
++pasta05/n0045.md	2.815750
++pasta05/n0165.md	2.791712
+diff --git a/internal/service/testdata/ranking/frase-exata.tsv b/internal/service/testdata/ranking/frase-exata.tsv
+index ba226e7..8a84b71 100644
+--- a/internal/service/testdata/ranking/frase-exata.tsv
++++ b/internal/service/testdata/ranking/frase-exata.tsv
+@@ -1 +1 @@
+-pasta00/n0150.md	6.504890
++pasta00/n0150.md	5.738904
+diff --git a/internal/service/testdata/ranking/so-em-heading.tsv b/internal/service/testdata/ranking/so-em-heading.tsv
+index 52cb89a..05943fd 100644
+--- a/internal/service/testdata/ranking/so-em-heading.tsv
++++ b/internal/service/testdata/ranking/so-em-heading.tsv
+@@ -1,20 +1,20 @@
+-pasta00/n0000.md	4.072235
+-pasta04/n0044.md	3.994505
+-pasta01/n0121.md	3.969250
+-pasta08/n0198.md	3.944312
+-pasta05/n0275.md	3.931960
+-pasta08/n0088.md	3.883318
+-pasta01/n0011.md	3.847618
+-pasta02/n0242.md	3.847618
+-pasta05/n0165.md	3.847618
+-pasta02/n0132.md	3.766819
+-pasta09/n0209.md	3.766819
+-pasta06/n0286.md	3.755552
+-pasta05/n0055.md	3.744353
+-pasta06/n0176.md	3.689343
+-pasta02/n0022.md	3.667789
+-pasta03/n0253.md	3.667789
+-pasta09/n0099.md	3.646485
+-pasta00/n0220.md	3.584034
+-pasta07/n0297.md	3.573832
+-pasta03/n0143.md	3.563689
++pasta06/n0176.md	4.059071
++pasta02/n0022.md	4.032995
++pasta03/n0253.md	4.032995
++pasta09/n0099.md	4.007253
++pasta00/n0220.md	3.931960
++pasta07/n0297.md	3.919686
++pasta03/n0143.md	3.907488
++pasta06/n0066.md	3.907488
++pasta03/n0033.md	3.824181
++pasta04/n0264.md	3.824181
++pasta00/n0110.md	3.812569
++pasta07/n0187.md	3.801028
++pasta07/n0077.md	3.733220
++pasta00/n0000.md	3.722153
++pasta04/n0154.md	3.722153
++pasta01/n0231.md	3.700215
++pasta04/n0044.md	3.657106
++pasta01/n0121.md	3.635926
++pasta08/n0198.md	3.614990
++pasta05/n0275.md	3.604612
+diff --git a/internal/service/testdata/ranking/so-no-titulo.tsv b/internal/service/testdata/ranking/so-no-titulo.tsv
+index f49c867..52d2057 100644
+--- a/internal/service/testdata/ranking/so-no-titulo.tsv
++++ b/internal/service/testdata/ranking/so-no-titulo.tsv
+@@ -1,6 +1,6 @@
+-pasta05/n0035.md	7.022125
+-pasta05/n0045.md	6.880230
+-pasta05/n0005.md	6.598737
+-pasta05/n0015.md	6.419046
+-pasta05/n0025.md	6.326284
+-pasta00/n0250.md	5.049972
++pasta05/n0005.md	7.070732
++pasta05/n0015.md	6.864817
++pasta05/n0025.md	6.758831
++pasta05/n0035.md	6.584558
++pasta05/n0045.md	6.459639
++pasta00/n0250.md	4.416742
+diff --git a/internal/service/testdata/ranking/termo-amplo.tsv b/internal/service/testdata/ranking/termo-amplo.tsv
+index 6950fb2..8a1f708 100644
+--- a/internal/service/testdata/ranking/termo-amplo.tsv
++++ b/internal/service/testdata/ranking/termo-amplo.tsv
+@@ -1,50 +1,50 @@
+-pasta03/n0043.md	0.003212
+-pasta03/n0103.md	0.003206
+-pasta03/n0163.md	0.003200
+-pasta03/n0223.md	0.003194
+-pasta03/n0283.md	0.003189
+-pasta05/n0035.md	0.003177
+-pasta05/n0095.md	0.003177
+-pasta05/n0155.md	0.003171
+-pasta05/n0215.md	0.003166
+-pasta07/n0027.md	0.003160
+-pasta05/n0275.md	0.003155
+-pasta07/n0087.md	0.003155
+-pasta07/n0147.md	0.003149
+-pasta07/n0207.md	0.003143
+-pasta09/n0019.md	0.003143
+-pasta07/n0267.md	0.003138
+-pasta09/n0079.md	0.003138
+-pasta09/n0139.md	0.003132
+-pasta09/n0199.md	0.003127
+-pasta09/n0259.md	0.003121
+-pasta01/n0011.md	0.003116
+-pasta01/n0071.md	0.003116
+-pasta01/n0131.md	0.003110
+-pasta01/n0191.md	0.003105
+-pasta01/n0251.md	0.003099
+-pasta03/n0003.md	0.003094
+-pasta03/n0063.md	0.003089
+-pasta06/n0026.md	0.003086
+-pasta03/n0123.md	0.003083
+-pasta06/n0086.md	0.003079
+-pasta03/n0183.md	0.003078
+-pasta03/n0243.md	0.003072
+-pasta06/n0146.md	0.003072
+-pasta05/n0055.md	0.003067
+-pasta05/n0115.md	0.003067
+-pasta06/n0206.md	0.003065
+-pasta05/n0175.md	0.003062
+-pasta06/n0266.md	0.003058
+-pasta05/n0235.md	0.003057
+-pasta07/n0047.md	0.003057
+-pasta05/n0295.md	0.003051
+-pasta07/n0107.md	0.003051
+-pasta08/n0018.md	0.003051
+-pasta07/n0167.md	0.003046
+-pasta08/n0078.md	0.003044
+-pasta07/n0227.md	0.003041
+-pasta08/n0138.md	0.003037
+-pasta07/n0287.md	0.003036
+-pasta09/n0039.md	0.003030
+-pasta00/n0010.md	0.003023
++pasta09/n0039.md	0.003200
++pasta09/n0099.md	0.003189
++pasta09/n0159.md	0.003189
++pasta01/n0031.md	0.003183
++pasta09/n0219.md	0.003183
++pasta01/n0091.md	0.003177
++pasta09/n0279.md	0.003177
++pasta01/n0151.md	0.003171
++pasta01/n0211.md	0.003166
++pasta01/n0271.md	0.003160
++pasta03/n0023.md	0.003160
++pasta03/n0083.md	0.003155
++pasta03/n0143.md	0.003143
++pasta03/n0203.md	0.003143
++pasta03/n0263.md	0.003138
++pasta05/n0015.md	0.003121
++pasta05/n0075.md	0.003121
++pasta05/n0135.md	0.003116
++pasta07/n0007.md	0.003116
++pasta05/n0195.md	0.003110
++pasta07/n0067.md	0.003110
++pasta05/n0255.md	0.003105
++pasta07/n0127.md	0.003105
++pasta07/n0187.md	0.003094
++pasta07/n0247.md	0.003094
++pasta09/n0059.md	0.003094
++pasta09/n0119.md	0.003089
++pasta09/n0179.md	0.003083
++pasta09/n0239.md	0.003078
++pasta09/n0299.md	0.003072
++pasta02/n0022.md	0.003072
++pasta02/n0082.md	0.003072
++pasta01/n0051.md	0.003067
++pasta02/n0142.md	0.003065
++pasta01/n0111.md	0.003062
++pasta02/n0202.md	0.003058
++pasta01/n0171.md	0.003057
++pasta03/n0043.md	0.003051
++pasta02/n0262.md	0.003051
++pasta04/n0014.md	0.003051
++pasta01/n0231.md	0.003046
++pasta01/n0291.md	0.003046
++pasta03/n0103.md	0.003046
++pasta04/n0074.md	0.003044
++pasta03/n0163.md	0.003041
++pasta04/n0134.md	0.003037
++pasta03/n0223.md	0.003036
++pasta03/n0283.md	0.003030
++pasta04/n0194.md	0.003030
++pasta04/n0254.md	0.003023
+diff --git a/internal/watcher/counters_test.go b/internal/watcher/counters_test.go
+index 14157ba..c6065c3 100644
+--- a/internal/watcher/counters_test.go
++++ b/internal/watcher/counters_test.go
+@@ -83,20 +83,28 @@ func setupTestWatcher(t *testing.T) (*Watcher, context.CancelFunc, string, *inde
+ 
+ 	idx := index.New()
+ 
+ 	w, err := New(v, idx, nil, 10*time.Millisecond, log)
+ 	if err != nil {
+ 		t.Fatalf("watcher.New: %v", err)
+ 	}
+ 
+ 	ctx, cancel := context.WithCancel(context.Background())
+ 	go func() { _ = w.Run(ctx) }()
++	// Registrado ANTES da espera, e nao so devolvido ao chamador: se
++	// EsperarWatcherAtivo reprovar, ela reprova antes do return, o chamador
++	// nunca recebe o cancel para pôr em defer, e a goroutine de Run mais o
++	// handle do fsnotify ficam ate o fim do binario de teste — multiplicado
++	// por 20 sob `-count=20`. O sleep anterior nao tinha esse caminho porque
++	// nao podia falhar. O cancel continua sendo devolvido: chamar duas vezes
++	// um CancelFunc e no-op.
++	t.Cleanup(cancel)
+ 
+ 	EsperarWatcherAtivo(t, w)
+ 
+ 	return w, cancel, dir, idx
+ }
+ 
+ func TestCounters_EventsReceived(t *testing.T) {
+ 	w, cancel, dir, _ := setupTestWatcher(t)
+ 	defer cancel()
+ 
+@@ -152,41 +160,20 @@ func TestCounters_EventsSkipped(t *testing.T) {
+ 	}
+ 
+ 	canon, _ := vault.Canonicalize(dir, notePath)
+ 	w.debounced <- []vault.CanonicalPath{canon}
+ 
+ 	if !EsperarAte(vaulttest.Prazo, func() bool { return w.Stats().EventsSkipped > 0 }) {
+ 		t.Errorf("EventsSkipped = 0 apos %v, want > 0\n%s", vaulttest.Prazo, diagnostico(w))
+ 	}
+ }
+ 
+-// TestCounters_Reconciliations chama handleFSError, que e o corpo que Run
+-// executa ao receber um erro do fsnotify.
+-//
+-// A versao anterior escrevia `fsnotify.ErrEventOverflow` em `w.fsWatcher.Errors`
+-// e esperava 100 ms. As duas metades estavam erradas: escrever no canal do
+-// fsnotify corre com o backend kqueue e o detector reprova em macOS com DATA
+-// RACE — e por isso que TestRun_OverflowSchedulesExactlyOne deixou de fazer isso
+-// (overflow_test.go:138-147) —, e o sleep esperava por um numero em vez de por
+-// um sinal. Chamando o metodo, o contador ja subiu quando ele retorna: nao ha o
+-// que esperar.
+-func TestCounters_Reconciliations(t *testing.T) {
+-	w, cancel, _, _ := setupTestWatcher(t)
+-	defer cancel()
+-
+-	w.handleFSError(fsnotify.ErrEventOverflow)
+-
+-	if got := w.Stats().Reconciliations; got == 0 {
+-		t.Errorf("Reconciliations = %d, want > 0\n%s", got, diagnostico(w))
+-	}
+-}
+-
+ // TestCounters_DropReasons chama emite, que e o corpo que Run executa para cada
+ // evento — o mesmo filtro e os mesmos contadores.
+ //
+ // A versao anterior escrevia os quatro eventos em `w.fsWatcher.Events` e depois
+ // esperava em laco o filtro reagir. Escrever num canal interno do fsnotify e a
+ // corrida que overflow_test.go:138-147 registra; e como emite e sincrona, a
+ // espera some junto.
+ func TestCounters_DropReasons(t *testing.T) {
+ 	w, cancel, dir, _ := setupTestWatcher(t)
+ 	defer cancel()

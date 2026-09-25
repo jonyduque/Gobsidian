@@ -10,6 +10,7 @@ import (
 	"github.com/carapace-sh/carapace"
 	"github.com/jonyduque/Gobsidian/internal/hosts"
 	"github.com/jonyduque/Gobsidian/internal/instalar"
+	"github.com/jonyduque/Gobsidian/internal/textos"
 	"github.com/spf13/cobra"
 )
 
@@ -42,7 +43,7 @@ func instalarCompletion(raiz *cobra.Command) {
 	// instalar sem tocar em host nenhum precisa descobrir isso, e o Tab e onde
 	// se descobre.
 	valoresDeHost := func() carapace.Action {
-		pares := []string{"none", "nao configura nenhum host"}
+		pares := []string{"none", textos.CompletarNenhumHost}
 		for _, h := range hosts.Todos() {
 			pares = append(pares, h.Chave, h.Nome)
 		}
@@ -61,9 +62,9 @@ func instalarCompletion(raiz *cobra.Command) {
 			}
 			var pares []string
 			for _, c := range cofres {
-				nota := "cofre do Obsidian"
+				nota := textos.CompletarCofre
 				if c.Aberto {
-					nota = "aberto agora"
+					nota = textos.CompletarCofreAberto
 				}
 				pares = append(pares, c.Caminho, nota)
 			}
@@ -76,10 +77,10 @@ func instalarCompletion(raiz *cobra.Command) {
 
 	niveisDeLog := func() carapace.Action {
 		return carapace.ActionValuesDescribed(
-			"debug", "tudo, inclusive o que so interessa depurando",
-			"info", "o padrao",
-			"warn", "so o que pede atencao",
-			"error", "so falha",
+			"debug", textos.CompletarLogDebug,
+			"info", textos.CompletarLogInfo,
+			"warn", textos.CompletarLogWarn,
+			"error", textos.CompletarLogError,
 		)
 	}
 

@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"github.com/jonyduque/Gobsidian/internal/textos"
 
 	"github.com/jonyduque/Gobsidian/internal/boot"
 	"github.com/jonyduque/Gobsidian/internal/config"
@@ -20,7 +21,7 @@ func newSearchCmd() *cobra.Command {
 
 	cmd := &cobra.Command{
 		Use:   "search <consulta>",
-		Short: "Executa busca por texto completo no cofre",
+		Short: textos.ResumoSearch,
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			flags.MaxResultsSet = cmd.Flags().Changed("max-results")
@@ -70,7 +71,7 @@ func newSearchCmd() *cobra.Command {
 
 			con := console.New(out)
 			if len(res.Results) == 0 {
-				con.Info("Nenhum resultado para %q", args[0])
+				con.Info(textos.SearchSemResultado, args[0])
 				return nil
 			}
 
@@ -91,9 +92,9 @@ func newSearchCmd() *cobra.Command {
 	}
 
 	flagsDeCofre(cmd, &flags)
-	cmd.Flags().BoolVar(&jsonOutput, "json", false, "saida estruturada em formato JSON")
-	cmd.Flags().IntVar(&limit, "limit", 20, "limite maximo de resultados")
-	cmd.Flags().IntVar(&flags.MaxResults, "max-results", 0, "teto de resultados por consulta")
+	cmd.Flags().BoolVar(&jsonOutput, "json", false, textos.FlagJSON)
+	cmd.Flags().IntVar(&limit, "limit", 20, textos.FlagSearchLimit)
+	cmd.Flags().IntVar(&flags.MaxResults, "max-results", 0, textos.FlagMaxResults)
 	flagsDeCache(cmd, &flags)
 
 	return cmd

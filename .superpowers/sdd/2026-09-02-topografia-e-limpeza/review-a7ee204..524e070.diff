@@ -1,0 +1,747 @@
+524e070 test: counterweights for the accepted limit, the host-to-daemon bridge, the kernel lock offset, alias collisions and read-only handshake
+ cmd/gobsidian/ponte_test.go                  | 109 +++++++++++++++++++++++++
+ internal/daemon/lock_escuta_test.go          |  46 +++++++++++
+ internal/daemon/trava_kernel_other_test.go   |  85 ++++++++++++++++++++
+ internal/daemon/trava_kernel_windows_test.go | 116 +++++++++++++++++++++++++++
+ internal/index/alias_test.go                 |  61 ++++++++++++++
+ internal/ipc/ipc_test.go                     |  66 +++++++++++++++
+ internal/mcpsrv/export_test.go               |   8 ++
+ internal/mcpsrv/tools_read_test.go           |  54 +++++++++++++
+ 8 files changed, 545 insertions(+)
+diff --git a/cmd/gobsidian/ponte_test.go b/cmd/gobsidian/ponte_test.go
+index 3f1f57c..7cf93c6 100644
+--- a/cmd/gobsidian/ponte_test.go
++++ b/cmd/gobsidian/ponte_test.go
+@@ -1,15 +1,16 @@
+ package main
+ 
+ import (
+ 	"bytes"
+ 	"context"
++	"errors"
+ 	"fmt"
+ 	"io"
+ 	"log/slog"
+ 	"path/filepath"
+ 	"strings"
+ 	"sync"
+ 	"testing"
+ 	"time"
+ 
+ 	"github.com/jonyd/gobsidian/internal/config"
+@@ -235,20 +236,128 @@ func TestServePonteRemotaFazProxyDeBytes(t *testing.T) {
+ 		}
+ 	case <-time.After(vaulttest.Prazo):
+ 		t.Fatal("servePonteRemota nao retornou apos o daemon fechar a conexao")
+ 	}
+ 
+ 	if got := stdoutHost.String(); got != resposta {
+ 		t.Errorf("stdout do host = %q, quer %q -- a ponte nao copiou os bytes do daemon", got, resposta)
+ 	}
+ }
+ 
++// TestServePonteRemotaEncaminhaHostParaDaemon e o contrapeso de
++// TestServePonteRemotaFazProxyDeBytes, que so exercita a direcao
++// daemon->host: la o stdin do host e um pipe cujo escritor e DESCARTADO, e
++// por isso nada nunca sobe do host para o daemon. Com so aquele teste,
++// apagar io.Copy(conn, teed) e o passo half-close inteiro deixa a suite
++// verde.
++//
++// Aqui o escritor do stdin e guardado, e o teste afirma as duas metades que
++// faltavam:
++//
++//  1. o que o host escreve chega ao daemon byte a byte;
++//  2. fechado o stdin do host, o daemon ve EOF e AINDA CONSEGUE responder --
++//     que e o meio-fechamento do achado M8. Afirmar so o EOF nao bastaria:
++//     sem o half-close o passo close-conn fecha a conexao inteira e o daemon
++//     ve EOF do mesmo jeito. O que distingue os dois e a resposta em voo: com
++//     o meio-fechamento ela chega ao stdout do host, sem ele a escrita do
++//     daemon morre em pipe fechado.
++func TestServePonteRemotaEncaminhaHostParaDaemon(t *testing.T) {
++	conn, outroLado := newDuplexPipe()
++	t.Cleanup(func() { _ = conn.Close() })
++
++	stdinHost, hostEscreve := io.Pipe()
++	t.Cleanup(func() { _ = stdinHost.Close() })
++
++	stdoutHost := &escritorSeguro{}
++	log := slog.New(slog.NewTextHandler(io.Discard, nil))
++
++	done := make(chan error, 1)
++	go func() {
++		done <- servePonteRemota(context.Background(), conn, stdinHost, stdoutHost, log)
++	}()
++
++	// O lado do daemon le tudo o que a ponte encaminhar, anuncia o pedido
++	// quando ele chega e anuncia o fim da leitura. Duas notificacoes
++	// separadas porque o teste precisa distinguir "nao copiou" de "copiou e
++	// nao propagou o EOF".
++	const pedido = `{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}` + "\n"
++	pedidoChegou := make(chan string, 1)
++	leituraAcabou := make(chan error, 1)
++	go func() {
++		var recebido []byte
++		buf := make([]byte, 512)
++		anunciado := false
++		for {
++			n, err := outroLado.Read(buf)
++			recebido = append(recebido, buf[:n]...)
++			if !anunciado && strings.Contains(string(recebido), `"method":"initialize"`) {
++				anunciado = true
++				pedidoChegou <- string(recebido)
++			}
++			if err != nil {
++				leituraAcabou <- err
++				return
++			}
++		}
++	}()
++
++	if _, err := hostEscreve.Write([]byte(pedido)); err != nil {
++		t.Fatalf("host escrevendo no proprio stdin: %v", err)
++	}
++
++	select {
++	case got := <-pedidoChegou:
++		if got != pedido {
++			t.Errorf("o daemon recebeu %q, quer %q -- a ponte alterou os bytes no caminho", got, pedido)
++		}
++	case <-time.After(vaulttest.Prazo):
++		t.Fatal("o daemon nao recebeu nada em " + vaulttest.Prazo.String() +
++			" -- a direcao host->daemon nao esta sendo copiada")
++	}
++
++	if err := hostEscreve.Close(); err != nil {
++		t.Fatalf("fechando o stdin do host: %v", err)
++	}
++
++	select {
++	case err := <-leituraAcabou:
++		if !errors.Is(err, io.EOF) {
++			t.Fatalf("o daemon terminou a leitura com %v, quer io.EOF -- o fim do stdin do host tem de chegar como fim de arquivo, nao como conexao quebrada", err)
++		}
++	case <-time.After(vaulttest.Prazo):
++		t.Fatal("o daemon nao viu o fim do stdin do host em " + vaulttest.Prazo.String())
++	}
++
++	// A resposta que estava em voo quando o host fechou o stdin. E ela que
++	// separa o meio-fechamento do fechamento inteiro.
++	const tardia = `{"jsonrpc":"2.0","id":1,"result":{}}` + "\n"
++	if _, err := outroLado.Write([]byte(tardia)); err != nil {
++		t.Fatalf("o daemon nao conseguiu responder depois do EOF: %v -- a ponte fechou a conexao INTEIRA em vez de so a direcao de escrita (achado M8)", err)
++	}
++	if err := outroLado.CloseWrite(); err != nil {
++		t.Fatalf("fechando a escrita do lado do daemon: %v", err)
++	}
++
++	select {
++	case err := <-done:
++		if err != nil {
++			t.Fatalf("servePonteRemota() error = %v, esperado nil (encerramento normal por EOF do host)", err)
++		}
++	case <-time.After(vaulttest.Prazo):
++		t.Fatal("servePonteRemota nao retornou apos o EOF do host e o fechamento do daemon")
++	}
++
++	if got := stdoutHost.String(); got != tardia {
++		t.Errorf("stdout do host = %q, quer %q -- a resposta em voo apos o EOF do host se perdeu", got, tardia)
++	}
++}
++
+ // duplexPipe implementa ipc.Conn (Read, Write, Close, CloseWrite) em cima de
+ // dois io.Pipe -- um por sentido -- para os testes deste pacote poderem
+ // simular o lado do daemon sem importar "net". CloseWrite fecha so a
+ // escrita, como o net.UnixConn de verdade faria: o outro lado ainda pode
+ // mandar o resto do que tinha para dizer antes de a leitura tambem acabar.
+ type duplexPipe struct {
+ 	r      *io.PipeReader
+ 	w      *io.PipeWriter
+ 	closeR func() error
+ }
+diff --git a/internal/daemon/lock_escuta_test.go b/internal/daemon/lock_escuta_test.go
+index fc6db94..d740fd9 100644
+--- a/internal/daemon/lock_escuta_test.go
++++ b/internal/daemon/lock_escuta_test.go
+@@ -1,18 +1,21 @@
+ package daemon_test
+ 
+ import (
++	"os"
++	"strings"
+ 	"sync"
+ 	"sync/atomic"
+ 	"testing"
+ 
+ 	"github.com/jonyd/gobsidian/internal/daemon"
++	"github.com/jonyd/gobsidian/internal/ipc"
+ )
+ 
+ // TestLockDeEscutaSerializaSondaEBind fecha o item 4 do brief da Task 126 — a
+ // metade que a prova de órfão NÃO fecha.
+ //
+ // `ipc.Listen` prova que o socket está órfão antes de desvinculá-lo, o que
+ // impede roubar o socket de um daemon vivo. Mas a sonda e o bind **não são
+ // atômicos entre si**: dois daemons lançados no mesmo instante podem ambos
+ // sondar "ninguém escuta" antes de qualquer um dos dois bindar, e aí os dois
+ // desvinculam e bindam — duas instâncias servindo o mesmo cofre, gravando
+@@ -72,20 +75,63 @@ func TestLockDeEscutaSerializaSondaEBind(t *testing.T) {
+ 		t.Fatal("ninguem entrou na regiao critica: o cenario nao exercita nada")
+ 	}
+ 	if entraram.Load()+recusados.Load() != tentativas {
+ 		t.Errorf("entraram=%d recusados=%d, soma != %d: alguem sumiu sem resposta",
+ 			entraram.Load(), recusados.Load(), tentativas)
+ 	}
+ 	t.Logf("entraram=%d recusados=%d simultaneos_max=%d",
+ 		entraram.Load(), recusados.Load(), maxSimultaneos.Load())
+ }
+ 
++// TestEscutarComLockAbreOSocketEUmSoOuvinte cobre EscutarComLock, que estava a
++// 0 % — nenhum teste a chamava, só `cmd/gobsidian/daemon.go`.
++//
++// Ela é o par "ipc.Listen sob o lock de escuta", e as duas metades importam:
++// o socket que ela devolve tem de ser o MESMO que ipc.SocketPath calcula (um
++// cofre, um socket — se as duas contas divergirem, a ponte disca num caminho
++// e o daemon escuta noutro, e nenhuma das duas reclama), e uma segunda
++// chamada com o primeiro ouvinte de pé tem de ser RECUSADA por `ipc.Listen`,
++// que prova o socket órfão antes de desvinculá-lo. Sem a segunda metade, o
++// teste passaria com um EscutarComLock que roubasse o socket do daemon vivo —
++// que é exatamente a regressão de 2026-08-26.
++func TestEscutarComLockAbreOSocketEUmSoOuvinte(t *testing.T) {
++	vault := t.TempDir()
++
++	ln, sock, err := daemon.EscutarComLock(vault)
++	if err != nil {
++		t.Fatalf("EscutarComLock: %v", err)
++	}
++	t.Cleanup(func() { _ = ln.Close() })
++
++	esperado, err := ipc.SocketPath(vault)
++	if err != nil {
++		t.Fatalf("ipc.SocketPath: %v", err)
++	}
++	if sock != esperado {
++		t.Errorf("EscutarComLock escutou em %q, e a ponte disca em %q", sock, esperado)
++	}
++	if _, err := os.Stat(sock); err != nil {
++		t.Errorf("o socket devolvido nao existe no disco: %v", err)
++	}
++
++	segundo, _, err := daemon.EscutarComLock(vault)
++	if err == nil {
++		_ = segundo.Close()
++		t.Fatal("a segunda chamada abriu um ouvinte com o primeiro de pe: " +
++			"duas instancias serviriam o mesmo cofre, gravando no mesmo cache de busca")
++	}
++	if !strings.Contains(err.Error(), "ja ha um daemon ativo") {
++		t.Errorf("a recusa veio como %q; esperado a de ipc.Listen (\"ja ha um daemon ativo\"), "+
++			"que e a que prova que o socket tem dono vivo", err)
++	}
++}
++
+ // TestLockDeEscutaLiberaDepois fixa que o lock não sobrevive à chamada.
+ //
+ // Um lock de escuta que vaza trava TODA partida de daemon daquele cofre até
+ // alguém apagar o arquivo à mão — e o sintoma seria o mesmo defeito de campo de
+ // 2026-08-26, com as sessões caindo no fallback em processo para sempre.
+ func TestLockDeEscutaLiberaDepois(t *testing.T) {
+ 	vault := t.TempDir()
+ 
+ 	for i := range 3 {
+ 		entrou := false
+diff --git a/internal/daemon/trava_kernel_other_test.go b/internal/daemon/trava_kernel_other_test.go
+new file mode 100644
+index 0000000..a70adbd
+--- /dev/null
++++ b/internal/daemon/trava_kernel_other_test.go
+@@ -0,0 +1,85 @@
++//go:build !windows
++
++package daemon
++
++import (
++	"os"
++	"strconv"
++	"strings"
++	"syscall"
++	"testing"
++)
++
++// TestTravaDoKernelEntreProcessos e o irmao de trava_kernel_windows_test.go
++// para flock: sem faixa de bytes, e portanto sem a metade do offset.
++//
++// Prende as duas que valem nos dois sistemas:
++//
++//  1. TravaEmUso responde true enquanto outro processo detem a trava, e false
++//     depois que ele morre — a pergunta que `doctor` faz.
++//  2. Um flock exclusivo de FORA falha enquanto o dono vive. Trocar o flock
++//     por um sync.Mutex passaria em (1) dentro de um processo so; aqui nao,
++//     porque o dono e um processo separado.
++//
++// O byte 0 tambem e lido aqui, mas por outro motivo: no Unix o flock nao
++// bloqueia leitura nenhuma, entao a assercao nao prende o desenho da trava —
++// prende que tentarTravar de fato grava o PID depois de tomar a trava, que e
++// o que `doctor` mostra.
++func TestTravaDoKernelEntreProcessos(t *testing.T) {
++	cofre := t.TempDir()
++	path, err := lockPath(cofre)
++	if err != nil {
++		t.Fatalf("lockPath: %v", err)
++	}
++
++	// lancarAjudante (trava_test.go) so volta depois que o filho confirma que
++	// esta com a trava em maos, e o t.Cleanup dele mata o PID que ELE lancou.
++	cmd := lancarAjudante(t, path)
++
++	emUso, err := TravaEmUso(path)
++	if err != nil {
++		t.Fatalf("TravaEmUso com o dono vivo: %v", err)
++	}
++	if !emUso {
++		t.Fatal("TravaEmUso disse livre com outro processo segurando a trava; " +
++			"doctor reportaria 'nenhuma trava em uso' com o daemon rodando")
++	}
++
++	f, err := os.OpenFile(path, os.O_RDWR, 0)
++	if err != nil {
++		t.Fatalf("abrindo o arquivo de trava de fora: %v", err)
++	}
++	t.Cleanup(func() { _ = f.Close() })
++
++	if err := syscall.Flock(int(f.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err == nil {
++		_ = syscall.Flock(int(f.Fd()), syscall.LOCK_UN)
++		t.Fatal("consegui o flock exclusivo com o dono vivo: a exclusao nao esta no kernel")
++	}
++
++	dados, err := os.ReadFile(path)
++	if err != nil {
++		t.Fatalf("os.ReadFile no arquivo de trava com o dono vivo: %v — "+
++			"e exatamente a leitura que internal/doctor faz para mostrar o PID", err)
++	}
++	pid, err := strconv.Atoi(strings.TrimSpace(string(dados)))
++	if err != nil {
++		t.Fatalf("conteudo do arquivo de trava = %q, esperado o PID do dono: %v", dados, err)
++	}
++	if pid != cmd.Process.Pid {
++		t.Errorf("PID no arquivo de trava = %d, quer %d (o auxiliar que segura)", pid, cmd.Process.Pid)
++	}
++
++	if err := cmd.Process.Kill(); err != nil {
++		t.Fatalf("matando o auxiliar: %v", err)
++	}
++	_, _ = cmd.Process.Wait()
++
++	emUso, err = TravaEmUso(path)
++	if err != nil {
++		t.Fatalf("TravaEmUso depois da morte do dono: %v", err)
++	}
++	if emUso {
++		t.Fatal("TravaEmUso continuou dizendo 'em uso' depois da morte do dono; " +
++			"doctor acusaria um daemon que nao existe, e toda ponte seguinte serviria em processo")
++	}
++}
+diff --git a/internal/daemon/trava_kernel_windows_test.go b/internal/daemon/trava_kernel_windows_test.go
+new file mode 100644
+index 0000000..35c98fc
+--- /dev/null
++++ b/internal/daemon/trava_kernel_windows_test.go
+@@ -0,0 +1,116 @@
++//go:build windows
++
++package daemon
++
++import (
++	"os"
++	"strconv"
++	"strings"
++	"testing"
++
++	"golang.org/x/sys/windows"
++)
++
++// deslocamentoEsperadoDaTrava repete, como LITERAL, o offset que
++// faixaDaTrava calcula em trava_windows.go.
++//
++// A repeticao e o ponto do teste, nao um descuido de "uma conta por regra":
++// se ele chamasse faixaDaTrava(), produto e teste andariam juntos e trocar o
++// offset nao seria detectado por ninguem. Aqui o teste e o CONTRATO, e o
++// contrato tem de ser escrito uma vez de fora.
++//
++// O valor importa porque a trava do Windows e por faixa de bytes e a faixa
++// travada recusa leitura alheia com ERROR_LOCK_VIOLATION. `internal/doctor`
++// (daemon.go:217) faz `os.ReadFile` no arquivo de trava para mostrar o PID de
++// quem a detem; com a faixa no byte 0, essa leitura passaria a falhar em toda
++// maquina Windows com um daemon vivo. 1<<62 e uma regiao que nenhum arquivo
++// real alcanca.
++const deslocamentoEsperadoDaTrava = uint64(1) << 62
++
++// TestTravaDoKernelEntreProcessos prende tres coisas que so um SEGUNDO
++// PROCESSO consegue observar, e que por isso nenhum teste in-process cobria:
++//
++//  1. TravaEmUso responde true enquanto outro processo detem a trava, e false
++//     depois que ele morre — a pergunta que `doctor` faz.
++//  2. A faixa travada e exatamente 1<<62: um LockFileEx de fora nesse offset
++//     TEM de falhar enquanto o dono vive. Trocar o offset no produto faz este
++//     LockFileEx passar, e este teste reprova.
++//  3. O byte 0 continua LEGIVEL de fora — e o PID que `doctor` mostra. E a
++//     metade que explica por que o offset e longe: com a trava no byte 0 a
++//     leitura viria com "another process has locked a portion of the file".
++//
++// Trocar LockFileEx por sync.Mutex passaria em (1) dentro de um processo so;
++// aqui nao passa, porque o dono da trava e um processo separado.
++func TestTravaDoKernelEntreProcessos(t *testing.T) {
++	cofre := t.TempDir()
++	path, err := lockPath(cofre)
++	if err != nil {
++		t.Fatalf("lockPath: %v", err)
++	}
++
++	// lancarAjudante (trava_test.go) so volta depois que o filho confirma que
++	// esta com a trava em maos, e o t.Cleanup dele mata o PID que ELE lancou.
++	cmd := lancarAjudante(t, path)
++
++	emUso, err := TravaEmUso(path)
++	if err != nil {
++		t.Fatalf("TravaEmUso com o dono vivo: %v", err)
++	}
++	if !emUso {
++		t.Fatal("TravaEmUso disse livre com outro processo segurando a trava; " +
++			"doctor reportaria 'nenhuma trava em uso' com o daemon rodando")
++	}
++
++	f, err := os.OpenFile(path, os.O_RDWR, 0)
++	if err != nil {
++		t.Fatalf("abrindo o arquivo de trava de fora: %v", err)
++	}
++	t.Cleanup(func() { _ = f.Close() })
++
++	sobreposto := windows.Overlapped{
++		Offset:     uint32(deslocamentoEsperadoDaTrava & 0xFFFFFFFF),
++		OffsetHigh: uint32(deslocamentoEsperadoDaTrava >> 32),
++	}
++	err = windows.LockFileEx(
++		windows.Handle(f.Fd()),
++		windows.LOCKFILE_EXCLUSIVE_LOCK|windows.LOCKFILE_FAIL_IMMEDIATELY,
++		0, 1, 0, &sobreposto,
++	)
++	if err == nil {
++		_ = windows.UnlockFileEx(windows.Handle(f.Fd()), 0, 1, 0, &sobreposto)
++		t.Fatalf("consegui travar o offset %#x com o dono vivo: o produto nao esta travando essa faixa. "+
++			"Se o offset mudou, confira que a nova faixa nao alcanca o byte 0 — "+
++			"internal/doctor le o PID desse arquivo e uma faixa que cubra o byte 0 quebra essa leitura",
++			deslocamentoEsperadoDaTrava)
++	}
++
++	// A outra metade do offset: o conteudo segue legivel de fora. Sem esta
++	// assercao, mover a trava para o byte 0 continuaria passando em tudo
++	// acima — e quebraria o doctor em producao.
++	dados, err := os.ReadFile(path)
++	if err != nil {
++		t.Fatalf("os.ReadFile no arquivo de trava com o dono vivo: %v — "+
++			"e exatamente a leitura que internal/doctor faz para mostrar o PID", err)
++	}
++	pid, err := strconv.Atoi(strings.TrimSpace(string(dados)))
++	if err != nil {
++		t.Fatalf("conteudo do arquivo de trava = %q, esperado o PID do dono: %v", dados, err)
++	}
++	if pid != cmd.Process.Pid {
++		t.Errorf("PID no arquivo de trava = %d, quer %d (o auxiliar que segura)", pid, cmd.Process.Pid)
++	}
++
++	if err := cmd.Process.Kill(); err != nil {
++		t.Fatalf("matando o auxiliar: %v", err)
++	}
++	_, _ = cmd.Process.Wait()
++
++	emUso, err = TravaEmUso(path)
++	if err != nil {
++		t.Fatalf("TravaEmUso depois da morte do dono: %v", err)
++	}
++	if emUso {
++		t.Fatal("TravaEmUso continuou dizendo 'em uso' depois da morte do dono; " +
++			"doctor acusaria um daemon que nao existe, e toda ponte seguinte serviria em processo")
++	}
++}
+diff --git a/internal/index/alias_test.go b/internal/index/alias_test.go
+index 5376cc2..2b30476 100644
+--- a/internal/index/alias_test.go
++++ b/internal/index/alias_test.go
+@@ -3,20 +3,81 @@ package index_test
+ import (
+ 	"context"
+ 	"os"
+ 	"path/filepath"
+ 	"testing"
+ 
+ 	"github.com/jonyd/gobsidian/internal/index"
+ 	"github.com/jonyd/gobsidian/internal/vault"
+ )
+ 
++// TestAliasCollisions cobre Index.AliasCollisions, que estava a 0 %.
++//
++// O campo alias_collisions de vault_stats era um zero literal no codigo antes
++// de existir esta conta — aparecia na resposta e mentia sempre. Um contador a
++// 0 % de cobertura e a mesma mentira com mais passos, entao o teste afirma o
++// NUMERO, e afirma-o num cofre montado para separar as tres coisas que o
++// contador poderia estar contando por engano:
++//
++//   - aliases duplicados (o certo): STJ em duas notas, TRF em tres -> 2;
++//   - NOTAS envolvidas em colisao: seriam 5;
++//   - aliases declarados: seriam 3, porque STF esta em uma nota so.
++//
++// A nota com alias exclusivo e o controle: sem ela, "conta alias" e "conta
++// alias duplicado" dariam o mesmo numero e o teste nao distinguiria os dois.
++func TestAliasCollisions(t *testing.T) {
++	root := t.TempDir()
++	writeFile(t, root, "a.md", "---\naliases: [STJ]\n---\n# Nota A\n")
++	writeFile(t, root, "b.md", "---\naliases: [STJ]\n---\n# Nota B\n")
++	writeFile(t, root, "c.md", "---\naliases: [TRF]\n---\n# Nota C\n")
++	writeFile(t, root, "d.md", "---\naliases: [TRF]\n---\n# Nota D\n")
++	writeFile(t, root, "e.md", "---\naliases: [TRF]\n---\n# Nota E\n")
++	writeFile(t, root, "so-dela.md", "---\naliases: [STF]\n---\n# Nota sozinha\n")
++
++	v, err := vault.New(root)
++	if err != nil {
++		t.Fatalf("vault.New: %v", err)
++	}
++	idx := index.New()
++	if err := idx.Build(context.Background(), v); err != nil {
++		t.Fatalf("Build: %v", err)
++	}
++
++	if got := idx.AliasCollisions(); got != 2 {
++		t.Errorf("AliasCollisions() = %d, quer 2 (STJ em 2 notas, TRF em 3, STF em 1). "+
++			"5 seria contar notas em colisao; 3 seria contar aliases declarados", got)
++	}
++}
++
++// TestAliasCollisionsZeroSemDuplicata e a outra metade: um contador que
++// devolvesse sempre o numero de aliases passaria no teste acima com o cofre
++// certo e mentiria aqui. Zero e uma resposta que precisa ser possivel.
++func TestAliasCollisionsZeroSemDuplicata(t *testing.T) {
++	root := t.TempDir()
++	writeFile(t, root, "a.md", "---\naliases: [STJ, Tribunal]\n---\n# Nota A\n")
++	writeFile(t, root, "b.md", "---\naliases: [STF]\n---\n# Nota B\n")
++	writeFile(t, root, "c.md", "# Nota C sem alias\n")
++
++	v, err := vault.New(root)
++	if err != nil {
++		t.Fatalf("vault.New: %v", err)
++	}
++	idx := index.New()
++	if err := idx.Build(context.Background(), v); err != nil {
++		t.Fatalf("Build: %v", err)
++	}
++
++	if got := idx.AliasCollisions(); got != 0 {
++		t.Errorf("AliasCollisions() = %d, quer 0 — nenhum alias deste cofre e declarado por duas notas", got)
++	}
++}
++
+ func TestAliasSurvivesReplaceAndRemove(t *testing.T) {
+ 	root := t.TempDir()
+ 	writeFile(t, root, "a.md", "---\naliases: [STJ]\n---\n# Nota A\n")
+ 	writeFile(t, root, "b.md", "# Nota B\n\n[[STJ]]\n")
+ 
+ 	v, err := vault.New(root)
+ 	if err != nil {
+ 		t.Fatalf("vault.New: %v", err)
+ 	}
+ 
+diff --git a/internal/ipc/ipc_test.go b/internal/ipc/ipc_test.go
+index 0963726..4ffc1a4 100644
+--- a/internal/ipc/ipc_test.go
++++ b/internal/ipc/ipc_test.go
+@@ -1,13 +1,14 @@
+ package ipc_test
+ 
+ import (
++	"bytes"
+ 	"context"
+ 	"errors"
+ 	"fmt"
+ 	"io"
+ 	"net"
+ 	"os"
+ 	"path/filepath"
+ 	"runtime"
+ 	"strings"
+ 	"testing"
+@@ -215,20 +216,85 @@ func TestDialAndHandshakeConfigDivergente(t *testing.T) {
+ 	conn, err := ipc.DialAndHandshake(ctx, vault, false, 0, vaulttest.Prazo)
+ 	if err == nil {
+ 		_ = conn.Close()
+ 		t.Fatal("DialAndHandshake() error = nil, esperado ErrConfigMismatch")
+ 	}
+ 	if !errors.Is(err, ipc.ErrConfigMismatch) {
+ 		t.Fatalf("DialAndHandshake() error = %v, esperado embrulhar ipc.ErrConfigMismatch", err)
+ 	}
+ }
+ 
++// TestDialAndHandshakeReadOnlyCombinando e o contrapeso de
++// TestDialAndHandshakeConfigDivergente.
++//
++// Toda ponte dos outros testes deste pacote passa ReadOnly=false, entao o
++// unico lado exercitado do campo era a RECUSA -- e recusa nao prende o campo:
++// forcar ReadOnly=false no `want` de DialAndHandshake deixa o teste da
++// divergencia verde, porque um daemon que oferece ro=1 continua divergindo de
++// um want falso. Foi exatamente assim que o handshake de max_results passou
++// por uma revisao com o campo deixando de ser lido (ver papeis/testador.md).
++//
++// Aqui os dois lados dizem somente-leitura e a conexao TEM de ser aceita. A
++// assercao sobre a linha crua existe pelo mesmo motivo: "aceitou" sozinho nao
++// distingue "o campo viajou como 1" de "os dois lados concordaram em ignorar
++// o campo".
++func TestDialAndHandshakeReadOnlyCombinando(t *testing.T) {
++	vault := t.TempDir()
++
++	ln, _, err := ipc.Listen(vault)
++	if err != nil {
++		t.Fatalf("Listen() error = %v", err)
++	}
++	t.Cleanup(func() { _ = ln.Close() })
++
++	saudacao := ipc.HandshakeConfig{ReadOnly: true, VaultKey: config.VaultKey(vault)}
++
++	var linha bytes.Buffer
++	if err := ipc.Greet(&linha, saudacao); err != nil {
++		t.Fatalf("Greet() error = %v", err)
++	}
++	if !strings.Contains(linha.String(), " ro=1 ") {
++		t.Fatalf("Greet(ReadOnly=true) escreveu %q, esperado conter \" ro=1 \" -- "+
++			"sem isso o aceite abaixo provaria so que os dois lados ignoram o campo", strings.TrimSpace(linha.String()))
++	}
++
++	accepted := make(chan net.Conn, 1)
++	go func() {
++		c, err := ln.Accept()
++		if err != nil {
++			return
++		}
++		if err := ipc.Greet(c, saudacao); err != nil {
++			return
++		}
++		accepted <- c
++	}()
++
++	ctx, cancel := context.WithTimeout(context.Background(), vaulttest.Prazo)
++	defer cancel()
++
++	conn, err := ipc.DialAndHandshake(ctx, vault, true, 0, vaulttest.Prazo)
++	if err != nil {
++		t.Fatalf("DialAndHandshake(readOnly=true) contra um daemon ro=1 error = %v, esperado nil -- "+
++			"duas pontas que pedem a MESMA configuracao tem de se falar; se so a recusa funciona, "+
++			"o modo somente-leitura nunca usa daemon nenhum", err)
++	}
++	defer func() { _ = conn.Close() }()
++
++	select {
++	case serverSide := <-accepted:
++		_ = serverSide.Close()
++	case <-time.After(vaulttest.Prazo):
++		t.Fatal("o servidor nao chegou a entregar a conexao apos o handshake")
++	}
++}
++
+ func TestDialAndHandshakeRespeitaContext(t *testing.T) {
+ 	vault := t.TempDir()
+ 
+ 	ctx, cancel := context.WithCancel(context.Background())
+ 	cancel() // ja cancelado antes de discar
+ 
+ 	start := time.Now()
+ 	conn, err := ipc.DialAndHandshake(ctx, vault, false, 0, vaulttest.Prazo)
+ 	elapsed := time.Since(start)
+ 
+diff --git a/internal/mcpsrv/export_test.go b/internal/mcpsrv/export_test.go
+new file mode 100644
+index 0000000..dec6fe8
+--- /dev/null
++++ b/internal/mcpsrv/export_test.go
+@@ -0,0 +1,8 @@
++package mcpsrv
++
++// MaxPathsPorLote expoe o teto de note_read para os testes de fora do pacote.
++// O par de testes do teto (50 aceito, 51 recusado) tem de ser escrito a partir
++// da MESMA constante que o produto compara: um literal 50 no teste continua
++// verde se alguem mudar o valor do produto, e o par deixa de prender o limite.
++// Arquivo _test.go: nada disso existe no binario.
++const MaxPathsPorLote = maxPathsPorLote
+diff --git a/internal/mcpsrv/tools_read_test.go b/internal/mcpsrv/tools_read_test.go
+index 8a511b1..4ae0644 100644
+--- a/internal/mcpsrv/tools_read_test.go
++++ b/internal/mcpsrv/tools_read_test.go
+@@ -374,20 +374,74 @@ func TestNoteReadRecusaLoteAcimaDoTeto(t *testing.T) {
+ 	}
+ 	msg := firstText(t, res)
+ 	if !strings.HasPrefix(msg, "INVALID_ARGUMENT") {
+ 		t.Errorf("mensagem = %q, quer prefixo INVALID_ARGUMENT", msg)
+ 	}
+ 	if res.StructuredContent == nil {
+ 		t.Errorf("StructuredContent nulo — erro de validacao de lote precisa devolver Out preenchido")
+ 	}
+ }
+ 
++// TestNoteReadAceitaLoteNoTeto e o contrapeso de
++// TestNoteReadRecusaLoteAcimaDoTeto: sozinho, o teste da recusa nao distingue
++// "> teto" de ">= teto", porque 51 itens sao recusados dos dois jeitos. So o
++// lado ACEITO prende o valor — com ">=", exatamente maxPathsPorLote itens
++// passam a ser recusados e este teste reprova.
++func TestNoteReadAceitaLoteNoTeto(t *testing.T) {
++	root := t.TempDir()
++	paths := make([]string, mcpsrv.MaxPathsPorLote)
++	for i := range paths {
++		paths[i] = fmt.Sprintf("N%02d.md", i)
++		writeFile(t, root, paths[i], fmt.Sprintf("# Nota %02d\n", i))
++	}
++
++	srv := newTestServerWithIndex(t, root)
++	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
++	defer cancel()
++	session := connectTestSession(ctx, t, srv)
++
++	res, err := session.CallTool(ctx, &mcp.CallToolParams{
++		Name:      "note_read",
++		Arguments: map[string]any{"paths": paths},
++	})
++	if err != nil {
++		t.Fatalf("CallTool: %v", err)
++	}
++	if res.IsError {
++		t.Fatalf("%d caminhos e o teto, nao acima dele: %s", mcpsrv.MaxPathsPorLote, firstText(t, res))
++	}
++
++	b, err := json.Marshal(res.StructuredContent)
++	if err != nil {
++		t.Fatalf("marshal StructuredContent: %v", err)
++	}
++	var out struct {
++		Items []struct {
++			Path  string `json:"path"`
++			Error *struct {
++				Code string `json:"code"`
++			} `json:"error"`
++		} `json:"items"`
++	}
++	if err := json.Unmarshal(b, &out); err != nil {
++		t.Fatalf("unmarshal StructuredContent: %v", err)
++	}
++	if len(out.Items) != len(paths) {
++		t.Fatalf("len(items) = %d, quer %d", len(out.Items), len(paths))
++	}
++	for i, item := range out.Items {
++		if item.Error != nil {
++			t.Errorf("items[%d] (%s) voltou com erro %s — o lote no teto tem de ser servido inteiro", i, item.Path, item.Error.Code)
++		}
++	}
++}
++
+ // TestNoteReadBatchKeepsFailedItemAtPosition e o teste de ponta a ponta que
+ // o brief exige: dez caminhos, um deles inexistente — os nove voltam, o
+ // decimo volta NA POSICAO CERTA com erro, sem derrubar o lote inteiro.
+ func TestNoteReadBatchKeepsFailedItemAtPosition(t *testing.T) {
+ 	root := t.TempDir()
+ 	var paths []string
+ 	for i := 0; i < 10; i++ {
+ 		name := fmt.Sprintf("N%02d.md", i)
+ 		paths = append(paths, name)
+ 		if i == 5 {

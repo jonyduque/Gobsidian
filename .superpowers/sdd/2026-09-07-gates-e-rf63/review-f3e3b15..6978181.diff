@@ -1,0 +1,425 @@
+6978181 fix(gates): read only the last git commit segment, and ignore fenced code in reports
+
+ docs/ESTADO.md                                    |  5 +-
+ docs/papeis/documentador.md                       |  6 +-
+ scripts/audit_reports.ps1                         | 17 +++++-
+ scripts/check_gates.ps1                           | 69 ++++++++++++++++++++---
+ scripts/pre_commit_docs.ps1                       | 39 ++++++++++++-
+ scripts/testdata/gates/sdd-falso/task-3-report.md | 48 ++++++++++++++++
+ 6 files changed, 171 insertions(+), 13 deletions(-)
+
+diff --git a/docs/ESTADO.md b/docs/ESTADO.md
+index 828a012..87d84bc 100644
+--- a/docs/ESTADO.md
++++ b/docs/ESTADO.md
+@@ -610,22 +610,23 @@ o quarto, que é exatamente o defeito que ela existe para impedir.
+   comando** que o `PreToolUse` recebe, não na mensagem do commit. Um comentário
+   de shell na linha do `git commit` já o satisfazia — foi assim que a Task 182
+   passou por ele, declaradamente. O hook existe para recusar `.go` de produção
+   sem documentação, e qualquer um o desligava sem intenção nenhuma de burlá-lo,
+   porque a escotilha casava antes de o gate olhar o que está em stage. A
+   escotilha `[sem-doc]` em si é decisão fechada e fica — ver
+   `docs/papeis/documentador.md`.
+ - **`scripts/audit_reports.ps1` casa a palavra, não a evidência** (achado do
+   implementador da Task 184, 2026-09-06; **corrigido em 2026-09-07** (Task 188):
+   seção só conta em cabeçalho Markdown; `check_gates.ps1` prova que a prosa que
+-  nega é sinalizada. Efeito medido nos relatórios reais: `79` → `203`
+-  `SECAO-AUSENTE`). As quatro seções obrigatórias de um relatório eram
++  nega é sinalizada. Efeito medido em 2026-09-07 sobre 150 relatórios: `79` →
++  `203` `SECAO-AUSENTE` (o número cresce com o corpus; não o corrija sem
++  re-medir)). As quatro seções obrigatórias de um relatório eram
+   procuradas por regex de palavra solta sobre o corpo inteiro
+   (`audit_reports.ps1:113-118`: `red`, `green`, `muta`, `verifica`). A frase
+   "**não** há ciclo RED/GREEN nem prova de mutação para colar" satisfazia três
+   delas — uma negação explícita passava pelo mesmo portão que uma evidência
+   real, e o achado `SECAO-AUSENTE` desaparecia de um relatório que de fato não
+   tinha nenhuma das três. Era a **mesma classe** do hook acima: checador que
+   casa a palavra em vez do fato não gateia nada. Conserto: exigir um cabeçalho
+   Markdown com o nome da seção, e não a palavra em qualquer lugar. Os outros
+   achados do script (`HEDGE`, `SHA-FANTASMA`, `MUTACAO-CONDICIONAL`) não têm
+   esse defeito e seguem úteis.
+diff --git a/docs/papeis/documentador.md b/docs/papeis/documentador.md
+index c4e695b..b32e979 100644
+--- a/docs/papeis/documentador.md
++++ b/docs/papeis/documentador.md
+@@ -139,22 +139,24 @@ desatualizado.
+ Ao responder algo sobre o projeto a partir do wiki, **cite a página e o caminho
+ de código** (`internal/service/write.go:79`), e verifique no código quando a
+ página estiver `status: stale`. Página defasada é ponto de partida, não resposta.
+ 
+ ---
+ 
+ ## O hook de commit
+ 
+ `.claude/settings.json` instala um hook `PreToolUse` filtrado para
+ `git commit*`, que roda `scripts/pre_commit_docs.ps1`. A escotilha `[sem-doc]`
+-vale na MENSAGEM do commit (`-m` ou o arquivo de `-F`), nunca na linha de
+-comando fora dela.
++vale só no trecho do último `git commit` da linha, e só onde o hook consegue
++ler a mensagem: `-m`/`--message=` (inclusive `-am`) e o arquivo de
++`-F`/`--file=`; comentário de shell e comandos encadeados antes dele não
++contam.
+ 
+ **Ele bloqueia o modelo, não pergunta ao usuário.** A primeira versão devolvia
+ `ask`, e o resultado era o hook interrompendo o *usuário* por causa de um commit
+ que o *modelo* fez — alvo errado, e uma pergunta a cada commit vira ruído que se
+ aprende a aprovar sem ler, o mesmo modo de falha de um gate que reprova
+ aleatoriamente. Hoje devolve `deny`, e o motivo volta para quem esqueceu a
+ documentação, que corrige e tenta de novo.
+ 
+ | Situação | Decisão |
+ |---|---|
+diff --git a/scripts/audit_reports.ps1 b/scripts/audit_reports.ps1
+index 6f06d8b..6198edb 100644
+--- a/scripts/audit_reports.ps1
++++ b/scripts/audit_reports.ps1
+@@ -139,35 +139,50 @@ $Reports = @(Get-ChildItem -Path $SddRoot -Filter $Filter -Recurse -File | Sort-
+ if ($Reports.Count -eq 0) {
+     Write-Output "[!] Nenhum relatorio casou com '$Filter' em $SddRoot"
+     exit 2
+ }
+ 
+ Write-Output "=== Relatorios ($($Reports.Count)) ==="
+ foreach ($R in $Reports) {
+     $Lines = @(Get-Content -Path $R.FullName -Encoding utf8)
+     $Body = $Lines -join "`n"
+ 
++    # Saida de comando colada usa linhas `# comentario`, que casam
++    # `^#{1,6}\s` igual a um cabecalho de verdade. Medido na revisao final
++    # (F5): quatro secoes "presentes" num relatorio cujo unico texto com essa
++    # forma estava dentro de uma cerca ```bash. $BodySemCercas remove todo
++    # bloco cercado (``` ou ~~~) antes de casar SECAO-AUSENTE; os outros
++    # achados (HEDGE, NAO-RESPOSTA, MUTACAO-CONDICIONAL) continuam sobre
++    # $Body -- um hedge dentro de saida colada ainda vale a pena sinalizar.
++    $emCerca = $false
++    $foraDeCerca = [System.Collections.Generic.List[string]]::new()
++    foreach ($L in $Lines) {
++        if ($L -match '^\s*(```|~~~)') { $emCerca = -not $emCerca; continue }
++        if (-not $emCerca) { $foraDeCerca.Add($L) }
++    }
++    $BodySemCercas = $foraDeCerca -join "`n"
++
+     for ($i = 0; $i -lt $Lines.Count; $i++) {
+         $L = $Lines[$i]
+         if ($L -match $HedgePattern) {
+             Add-Finding -File $R.FullName -Line ($i + 1) -Rule 'HEDGE' -Text $L
+         }
+         if ($L -match $NonAnswerPattern) {
+             Add-Finding -File $R.FullName -Line ($i + 1) -Rule 'NAO-RESPOSTA' -Text $L
+         }
+         if ($L -match $ConditionalPattern) {
+             Add-Finding -File $R.FullName -Line ($i + 1) -Rule 'MUTACAO-CONDICIONAL' -Text $L
+         }
+     }
+ 
+     foreach ($Sec in $Required) {
+-        if ($Body -notmatch $Sec.Pattern) {
++        if ($BodySemCercas -notmatch $Sec.Pattern) {
+             Add-Finding -File $R.FullName -Line 1 -Rule 'SECAO-AUSENTE' -Text "sem secao de $($Sec.Name)"
+         }
+     }
+ 
+     # Um relatorio curto demais nao chega a conter evidencia. O piso vem do
+     # menor relatorio deste projeto que continha RED, GREEN e mutacao com saida
+     # colada; abaixo disso ninguem colou nada.
+     if ($R.Length -lt 2000) {
+         Add-Finding -File $R.FullName -Line 1 -Rule 'CURTO' -Text "$($R.Length) bytes — pequeno demais para conter saida de comando colada"
+     }
+diff --git a/scripts/check_gates.ps1 b/scripts/check_gates.ps1
+index e210730..2e04e11 100644
+--- a/scripts/check_gates.ps1
++++ b/scripts/check_gates.ps1
+@@ -40,49 +40,72 @@ function Caso {
+     $script:Total++
+     if ($Esperado -eq $Obtido) {
+         Write-Output "[OK] $Nome"
+     }
+     else {
+         $script:Reprovados++
+         Write-Output "[!] ${Nome}: esperado '$Esperado', obtido '$Obtido'"
+     }
+ }
+ 
+-# Decisao do hook em modo simulado. O hook imprime o JSON de hook em stdout;
+-# so a decisao interessa aqui.
++# Roda o hook em modo simulado e devolve o objeto hookSpecificOutput inteiro
++# (ou $null se o processo falhar). Decisao-Hook e Motivo-Hook leem um campo
++# cada um a partir daqui -- refatorado na revisao final (F6) para nao duplicar
++# a plumbing de -EncodedCommand entre as duas.
+ #
+ # Nao chama "pwsh -File $Hook -EmStage $EmStage" direto: -File repassa os
+ # argumentos como argv cru (medido nesta tarefa), entao um -EmStage com mais
+ # de um elemento vira um parametro posicional sobrando e o hook reprova com
+ # erro de bind -- nao com a decisao do caso. -EncodedCommand roda o mesmo
+ # script, mas o array chega como array de verdade porque quem le a linha e o
+ # parser do PowerShell, nao o passa-argumento do -File.
+-function Decisao-Hook {
++function Invocar-Hook {
+     param([string]$Comando, [string[]]$EmStage)
+     try {
+         $comandoLiteral = "'" + ($Comando -replace "'", "''") + "'"
+         $emStageLiteral = ($EmStage | ForEach-Object { "'" + ($_ -replace "'", "''") + "'" }) -join ','
+         $hookLiteral = "'" + ($Hook -replace "'", "''") + "'"
+         $script = "& $hookLiteral -Simular -Comando $comandoLiteral -EmStage @($emStageLiteral)"
+         $encoded = [Convert]::ToBase64String([System.Text.Encoding]::Unicode.GetBytes($script))
+         $json = & pwsh -NoProfile -EncodedCommand $encoded
+-        if ($LASTEXITCODE -ne 0) { return 'erro' }
+-        return ($json | ConvertFrom-Json).hookSpecificOutput.permissionDecision
++        if ($LASTEXITCODE -ne 0) { return $null }
++        return ($json | ConvertFrom-Json).hookSpecificOutput
+     }
+     catch {
+-        return 'erro'
++        return $null
+     }
+ }
+ 
+-# Conta quantos SECAO-AUSENTE o auditor emite para um relatorio.
++function Decisao-Hook {
++    param([string]$Comando, [string[]]$EmStage)
++    $saida = Invocar-Hook $Comando $EmStage
++    if ($null -eq $saida) { return 'erro' }
++    return $saida.permissionDecision
++}
++
++# F6 da revisao final: hook quebrado responde 'allow' de proposito (catch-all
++# documentado), e um caso que so olha a decisao nao distingue esse allow do
++# allow legitimo da escotilha. Este le o MOTIVO.
++function Motivo-Hook {
++    param([string]$Comando, [string[]]$EmStage)
++    $saida = Invocar-Hook $Comando $EmStage
++    if ($null -eq $saida) { return 'erro' }
++    return $saida.permissionDecisionReason
++}
++
++# Conta quantos SECAO-AUSENTE o auditor emite para um relatorio. F4 da revisao
++# final: um exit 2 precoce (raiz ausente, ou nenhum relatorio casou) tambem
++# emite zero ocorrencias de SECAO-AUSENTE, e um caso que so conta a string nao
++# distingue esse zero vazio do zero legitimo de um relatorio completo.
+ function Secoes-Ausentes([string]$Task) {
+     $saida = & pwsh -NoProfile -File $Audit -Task $Task -SddRoot $SddFalso 2>&1 | Out-String
++    if ($LASTEXITCODE -eq 2) { return 'erro' }
+     return ([regex]::Matches($saida, 'SECAO-AUSENTE')).Count.ToString()
+ }
+ 
+ Push-Location $ProjectRoot
+ try {
+     Write-Output "=== pre_commit_docs.ps1 ==="
+     $go = @('internal/index/resolve.go')
+     $goEDoc = @('internal/index/resolve.go', 'docs/TOOLS.md')
+     $msgSem = 'scripts/testdata/gates/msg-sem-escotilha.txt'
+     $msgCom = 'scripts/testdata/gates/msg-com-sem-doc.txt'
+@@ -109,32 +132,64 @@ try {
+ 
+     Caso -Nome '-m sem escotilha, .go com doc -> allow' `
+         -Esperado 'allow' -Obtido (Decisao-Hook 'git commit -m "fix: x"' $goEDoc)
+ 
+     Caso -Nome '-F arquivo inexistente, escotilha no comando -> deny' `
+         -Esperado 'deny' -Obtido (Decisao-Hook 'git commit -F nao-existe.txt [sem-doc]' $go)
+ 
+     Caso -Nome 'sem -m nem -F (editor), .go sem doc -> deny' `
+         -Esperado 'deny' -Obtido (Decisao-Hook 'git commit' $go)
+ 
++    # F1 da revisao final: -m dentro de um comentario de shell nao e a mensagem.
++    Caso -Nome '-m com escotilha dentro de comentario de shell, -F sem ela -> deny' `
++        -Esperado 'deny' -Obtido (Decisao-Hook "git commit -F $msgSem # was: -m `"wip [sem-doc]`"" $go)
++
++    # F2: dois commits na linha -- vale o ultimo, que nao tem escotilha.
++    Caso -Nome 'dois git commit encadeados, escotilha so no primeiro -> deny' `
++        -Esperado 'deny' -Obtido (Decisao-Hook 'git commit -m "docs: a [sem-doc]" && git commit -m "feat: b"' $go)
++
++    Caso -Nome 'dois git commit encadeados, escotilha so no ultimo -> allow' `
++        -Esperado 'allow' -Obtido (Decisao-Hook 'git commit -m "feat: a" && git commit -m "docs: b [sem-doc]"' $go)
++
++    # F3: flags curtas agrupadas.
++    Caso -Nome '-am com escotilha -> allow' `
++        -Esperado 'allow' -Obtido (Decisao-Hook 'git commit -am "fix: x [sem-doc]"' $go)
++
++    Caso -Nome 'escotilha dentro de aspas com # no texto -> allow' `
++        -Esperado 'allow' -Obtido (Decisao-Hook 'git commit -m "fix: issue #12 [sem-doc]"' $go)
++
++    # F6: o motivo do allow tem de ser a escotilha, nao o catch-all do hook.
++    Caso -Nome 'motivo do allow e a escotilha, nao o catch do hook' `
++        -Esperado 'escotilha [sem-doc] na mensagem do commit' -Obtido (Motivo-Hook 'git commit -m "fix: x [sem-doc]"' $go)
++
+     Write-Output ""
+     Write-Output "=== audit_reports.ps1 ==="
+     $Audit = Join-Path $PSScriptRoot 'audit_reports.ps1'
+     $SddFalso = Join-Path $Fixtures 'sdd-falso'
+ 
+     # O bypass conhecido: prosa que NEGA ter RED/GREEN/mutacao satisfazia
+     # tres das quatro palavras. Com cabecalho exigido, faltam as quatro.
+     Caso -Nome 'prosa que nomeia as secoes sem te-las -> 4 SECAO-AUSENTE' `
+         -Esperado '4' -Obtido (Secoes-Ausentes '1')
+ 
+     Caso -Nome 'quatro secoes em cabecalho -> 0 SECAO-AUSENTE' `
+         -Esperado '0' -Obtido (Secoes-Ausentes '2')
++
++    # F5: secoes que so aparecem em comentario de shell dentro de cerca de
++    # codigo nao contam -- a cerca inteira e removida antes de casar cabecalho.
++    Caso -Nome 'secoes so em comentario de shell dentro de cerca -> 4 SECAO-AUSENTE' `
++        -Esperado '4' -Obtido (Secoes-Ausentes '3')
++
++    # F4: fixture inexistente e o auditor nem chega a varrer -- isso e erro,
++    # nao "zero achados".
++    Caso -Nome 'fixture inexistente -> erro, nao 0' `
++        -Esperado 'erro' -Obtido (Secoes-Ausentes '9999')
+ }
+ finally {
+     Pop-Location
+ }
+ 
+ Write-Output ""
+ if ($script:Reprovados -gt 0) {
+     Write-Output "[!] check_gates: $script:Reprovados de $script:Total casos reprovados"
+     exit 1
+ }
+diff --git a/scripts/pre_commit_docs.ps1 b/scripts/pre_commit_docs.ps1
+index 8faa336..6234864 100644
+--- a/scripts/pre_commit_docs.ps1
++++ b/scripts/pre_commit_docs.ps1
+@@ -56,33 +56,68 @@ function Emitir($decisao, $motivo, $aviso = $null) {
+             hookEventName            = "PreToolUse"
+             permissionDecision       = $decisao
+             permissionDecisionReason = $motivo
+         }
+     }
+     if ($aviso) { $saida.systemMessage = $aviso }
+     $saida | ConvertTo-Json -Depth 5 -Compress
+     exit 0
+ }
+ 
++# Corta a linha de comando ate o SEGMENTO do ultimo `git commit` nela: comeca
++# no ultimo `git commit` que aparecer e termina no primeiro `#`, `&&`, `;` ou
++# `|` que estiver FORA de aspas (percorrido caractere a caractere, com estado
++# de aspas simples/duplas -- um `#` dentro de aspas e texto de mensagem, nao
++# comentario). Existe porque a revisao final da Task 187 mediu dois bypasses
++# na mesma familia:
++#   - um `#` de comentario de shell com `-m "... [sem-doc]"` DEPOIS dele, onde
++#     a mensagem de verdade (via -F) nao tinha a escotilha;
++#   - dois `git commit` encadeados com `&&`, onde a escotilha do primeiro
++#     cobria o segundo, que e o commit que de fato acontece por ultimo.
++# So o ultimo segmento e o que sera de fato commitado; qualquer coisa antes
++# dele -- inclusive um commit anterior na mesma linha -- nao e a mensagem.
++function Segmento-Commit([string]$linha) {
++    $ms = [regex]::Matches($linha, 'git\s+commit')
++    if ($ms.Count -eq 0) { return $linha }
++    $inicio = $ms[$ms.Count - 1].Index
++    $aspaS = $false
++    $aspaD = $false
++    $fim = $linha.Length
++    for ($i = $inicio; $i -lt $linha.Length; $i++) {
++        $c = $linha[$i]
++        if ($c -eq "'" -and -not $aspaD) { $aspaS = -not $aspaS; continue }
++        if ($c -eq '"' -and -not $aspaS) { $aspaD = -not $aspaD; continue }
++        if ($aspaS -or $aspaD) { continue }
++        if ($c -eq '#' -or $c -eq ';' -or $c -eq '|') { $fim = $i; break }
++        if ($c -eq '&' -and ($i + 1) -lt $linha.Length -and $linha[$i + 1] -eq '&') { $fim = $i; break }
++    }
++    return $linha.Substring($inicio, $fim - $inicio)
++}
++
+ # A escotilha vale na MENSAGEM, nunca na linha de comando. Ate 2026-09-07 o
+ # hook procurava [sem-doc] no texto do comando inteiro, e um comentario de
+ # shell (`git commit -F msg.txt # [sem-doc]`) o satisfazia com a mensagem
+ # dizendo outra coisa — foi assim que os commits de 2026-09-06 passaram, por
+ # instrucao do brief, sem que ninguem quisesse burlar nada. Gate que le a
+ # escotilha fora do lugar onde ela fica visivel no historico nao gateia.
+ #
+ # Le -m/--message= (aspas duplas, simples ou sem aspas, repetidos) e o
+ # arquivo de -F/--file=. Sem nenhum dos dois — commit que abriria editor — a
+ # mensagem e desconhecida e a escotilha nao vale.
++#
++# O grupo de -m aceita flags curtas agrupadas (`-am`, `-aem`): o lookbehind
++# barra um `-` precedido de letra/digito/traco, que e o que evita casar o
++# segundo `-` de `--amend` como se fosse um `-m` isolado (revisao final, F3).
+ function Extrair-Mensagem([string]$linha) {
++    $linha = Segmento-Commit $linha
+     $partes = [System.Collections.Generic.List[string]]::new()
+-    $reM = '(?:-m|--message)(?:=|\s+)(?:"([^"]*)"|''([^'']*)''|(\S+))'
++    $reM = '(?:(?<![\w-])-[a-zA-Z]*m|--message)(?:=|\s+)(?:"([^"]*)"|''([^'']*)''|(\S+))'
+     foreach ($m in [regex]::Matches($linha, $reM)) {
+         $texto = @($m.Groups[1].Value, $m.Groups[2].Value, $m.Groups[3].Value) | Where-Object { $_ } | Select-Object -First 1
+         if ($texto) { $partes.Add($texto) }
+     }
+     $reF = '(?:-F|--file)(?:=|\s+)(?:"([^"]*)"|''([^'']*)''|(\S+))'
+     foreach ($m in [regex]::Matches($linha, $reF)) {
+         $arquivo = @($m.Groups[1].Value, $m.Groups[2].Value, $m.Groups[3].Value) | Where-Object { $_ } | Select-Object -First 1
+         if ($arquivo -and (Test-Path -LiteralPath $arquivo -PathType Leaf)) {
+             $partes.Add((Get-Content -LiteralPath $arquivo -Raw -Encoding utf8))
+         }
+@@ -156,18 +191,20 @@ try {
+         "Antes de tentar de novo, decida qual se aplica:",
+         "  - mudou contrato de tool?      -> docs/TOOLS.md",
+         "  - mudou regra ou armadilha?    -> docs/ARMADILHAS.md",
+         "  - mudou camada ou decisao?     -> docs/ARCHITECTURE.md (AD-xx)",
+         "  - mudou requisito ou medicao?  -> docs/OPERACAO.md (numero MEDIDO, nunca estimado)",
+         "  - fechou uma tarefa?           -> o ledger em .superpowers/sdd/<marco>/progress.md",
+         "",
+         "Se documentacao genuinamente NAO se aplica (revert, formatacao, ajuste de",
+         "teste que nao muda contrato), inclua [sem-doc] na MENSAGEM do commit (-m ou",
+         "arquivo de -F). Na linha de comando fora da mensagem ele nao vale.",
++        "O hook so le -m/--message= e o arquivo de -F/--file=; -C, --fixup, heredoc e",
++        "caminho sem aspas nao sao lidos e caem aqui.",
+         "Isso e uma decisao consciente e fica visivel no historico."
+     ) | Where-Object { $null -ne $_ }
+ 
+     Emitir "deny" (($texto | Out-String).TrimEnd())
+ }
+ catch {
+     Emitir "allow" "pre_commit_docs.ps1 falhou: $($_.Exception.Message)"
+ }
+diff --git a/scripts/testdata/gates/sdd-falso/task-3-report.md b/scripts/testdata/gates/sdd-falso/task-3-report.md
+new file mode 100644
+index 0000000..a07be03
+--- /dev/null
++++ b/scripts/testdata/gates/sdd-falso/task-3-report.md
+@@ -0,0 +1,48 @@
++# Task 3 report — fixture: section names only inside a shell-comment fence
++
++## Status
++DONE.
++
++## What I ran
++
++```bash
++# rodei red antes do conserto
++pwsh -File scripts/verify.ps1
++# green depois do conserto
++pwsh -File scripts/verify.ps1
++# mutacao: apaguei a regra e rodei de novo
++# verificacao: saida colada abaixo
++```
++
++This report has no `### RED`, `### GREEN`, `## Mutation proofs` or
++`## Verification` heading anywhere. The only lines starting with `#` besides
++the title and the two headings above are shell comments pasted inside the
++fenced block, naming the four required words the way a real report's pasted
++command output does. The auditor must strip fenced code before matching
++headings, or these four comment lines read as four present sections.
++
++## Filler
++
++This paragraph is neutral padding, written only so the fixture file crosses
++the two thousand byte floor that the auditor uses to flag a report as too
++short to hold pasted command output. Its content carries no signal at all;
++only its length matters here, and the length is measured and pasted into
++the task report rather than assumed.
++
++This paragraph is neutral padding, written only so the fixture file crosses
++the two thousand byte floor that the auditor uses to flag a report as too
++short to hold pasted command output. Its content carries no signal at all;
++only its length matters here, and the length is measured and pasted into
++the task report rather than assumed.
++
++This paragraph is neutral padding, written only so the fixture file crosses
++the two thousand byte floor that the auditor uses to flag a report as too
++short to hold pasted command output. Its content carries no signal at all;
++only its length matters here, and the length is measured and pasted into
++the task report rather than assumed.
++
++This paragraph is neutral padding, written only so the fixture file crosses
++the two thousand byte floor that the auditor uses to flag a report as too
++short to hold pasted command output. Its content carries no signal at all;
++only its length matters here, and the length is measured and pasted into
++the task report rather than assumed.

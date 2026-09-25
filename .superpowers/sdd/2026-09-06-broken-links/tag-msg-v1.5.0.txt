@@ -1,0 +1,16 @@
+v1.5.0 — anchor links resolve, and vault_broken_links lists the rest
+
+Feat: vault_broken_links, a read tool that lists every target_missing and
+anchor_missing link in the vault, filtered by state and path prefix and
+paginated (limit default 100, cap 500). 14 tools now.
+
+Fix: [x](nota.md#h), [x](#h) and [[#h]] counted as target_missing. The
+anchor is split once, before percent-decoding, in the function wikilinks
+already used; an anchor-only link resolves to its own note. Measured on
+four real vaults before the change: no broken target was a URL; the
+false positives were the anchor forms (267 and 372 '#' targets in two of
+them). The metadata cache parser version is bumped, so v1.4.x caches are
+rebuilt on first start.
+
+Fix: note_move failed halfway on a note that cites itself; its own links
+are now rewritten at the new path and the index follows.

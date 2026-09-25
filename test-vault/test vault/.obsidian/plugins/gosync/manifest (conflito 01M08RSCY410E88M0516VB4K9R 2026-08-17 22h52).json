@@ -1,0 +1,16 @@
+---
+gosync-conflito: true
+gosync-conflito-em: 2026-08-17T22:52:32-03:00
+gosync-conflito-origem: ".obsidian/plugins/gosync/manifest.json"
+---
+{
+  "id": "gosync",
+  "name": "gosync",
+  "version": "0.0.2",
+  "minAppVersion": "1.4.0",
+  "description": "Plugin Obsidian que sincroniza vaults com o servidor gosync.",
+  "author": "jonyduque",
+  "authorUrl": "https://github.com/jonyduque/gosync",
+  "isDesktopOnly": false,
+  "main": "main.js"
+}

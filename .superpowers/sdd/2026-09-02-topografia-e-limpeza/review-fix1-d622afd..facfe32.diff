@@ -1,0 +1,244 @@
+diff --git a/CLAUDE.md b/CLAUDE.md
+index f2cc0d0..7428bbb 100644
+--- a/CLAUDE.md
++++ b/CLAUDE.md
+@@ -60,20 +60,22 @@ lugar do seu contexto.
+ ```
+ cmd/gobsidian/     entrypoint fino e subcomandos: serve, doctor, index, search,
+                    inspect, daemon (oculto). ponte.go escolhe daemon vs
+                    em-processo; servico.go monta o Service que serve e daemon
+                    compartilham
+ internal/
+   config/          struct de configuração, flags cobra, defaults, VaultKey
+   lifecycle/       stdin-eof, sinais, vigília do PID pai, shutdown com orçamento
+   vault/           raiz, caminho canônico e confinamento, walk com exclusões,
+                    EOL, detecção de somente-nuvem
++  vaulttest/       apoio a teste: condicoes de ambiente do Windows; so _test.go
++                   importa
+   parser/          goldmark + extensões [[wikilink]], ^blockid, #tag,
+                    campo::inline; headings com offsets de byte; candidatos a
+                    título (negrito, setext) que NUNCA viram Heading
+   index/           Note, RWMutex, build com worker pool, update incremental,
+                    backlinks, resolve, alias, query; chave.go é a conta única
+                    das chaves derivadas (NFC + caixa)
+   search/          analyzer, índice invertido base/delta, BM25, trecho,
+                    cache binário formato 6 + arena mmap
+   watcher/         fsnotify, debounce, filtro de relevância, apply,
+                    rename por hash, reconciliação pós-overflow
+@@ -118,21 +120,24 @@ Quatro arestas existem **só em teste**, e ficam fora do grafo acima de
+ propósito — teste pode montar o mundo inteiro sem que isso vire acoplamento do
+ produto:
+ 
+ ```
+ mcpsrv  → search, watcher     (só em _test)
+ daemon  → service, vault      (só em _test)
+ ```
+ 
+ `internal/vaulttest` é o pacote de apoio a teste: ele importa `vault` — e só
+ `vault` —, e essa aresta **é do próprio pacote**, então `go list -f
+-'{{.Imports}}' ./internal/vaulttest` a mostra como importaria qualquer outra. O
++'{{.Imports}}' ./internal/vaulttest` a mostra como importaria qualquer outra.
++Isso vale **com `GOOS=windows`**: o corpo real mora nos arquivos `_windows.go`,
++e em `GOOS=linux` o mesmo comando devolve só `[testing time]`, porque os
++`_other.go` apenas fazem `t.Skip` (medido em 2026-09-05). O
+ que é exclusivo de teste são os imports **de** `vaulttest`: nenhum arquivo de
+ produção o importa, só arquivos `_test.go` de `index`, `search`, `service`,
+ `vault`, `daemon`, `ipc` e `cmd/gobsidian`. Por isso ele fica fora do grafo de
+ produção acima, e por isso não pode ganhar import de `index`, `search`,
+ `service` ou `parser`: seria ciclo no teste externo desses pacotes.
+ 
+ ```
+ vaulttest → vault             (pacote só de teste; ninguém em produção o importa)
+ ```
+ 
+diff --git a/docs/papeis/testador.md b/docs/papeis/testador.md
+index 8780d03..842aa8e 100644
+--- a/docs/papeis/testador.md
++++ b/docs/papeis/testador.md
+@@ -132,25 +132,32 @@ Fora do Windows os três primeiros fazem `t.Skip` com o motivo — share mode e
+ `FILE_ATTRIBUTE_OFFLINE` são semântica do NTFS.
+ 
+ **A regra que o pacote existe para impor: o helper prova a condição antes de
+ devolver, e por isso a asserção do chamador é incondicional.** `TravarExclusivo`
+ confere que a leitura de fato falha; `MarcarSomenteNuvem` confere que
+ `vault.IsCloudOnly` de fato responde verdadeiro. Nunca escreva
+ `if origemExiste && destinoExiste && err == nil { …asserções… }`: uma guarda
+ assim faz o teste passar em silêncio exatamente quando o cenário não se montou,
+ que é quando ele mais precisava falhar.
+ 
+-Isso veio de um defeito medido: existiam cinco cópias do "handle exclusivo" e
+-**só uma** conferia que a trava travava. Um handle que pede só `GENERIC_READ`
+-não barra o `os.ReadFile` — precisa de `GENERIC_READ|GENERIC_WRITE` com
+-`dwShareMode = 0` —, e as quatro cópias que não conferiam sustentavam duas
+-asserções condicionais em `internal/service`.
++Isso veio de um defeito medido. Na base `86f07e5`,
++`git grep -n 'CreateFile(' -- '*_test.go'` devolvia **oito** sítios: cinco
++helpers nomeados e três blocos inline dentro do próprio teste. Desses oito,
++**quatro** conferiam que a trava travava — três com `t.Fatal`
++(`classify_cloudonly`, `cloudonly_update`, `cloudonly_replace`) e um com
++`t.Skip` (`walk_raiz`, que desistia do cenário em vez de acusar). Entre os
++**cinco helpers nomeados**, só o `travarExclusivo` de `internal/search`
++conferia e falhava; o `travarDiretorioExclusivo` de `internal/vault` conferia e
++pulava, e os outros três não conferiam nada. Um handle que pede só
++`GENERIC_READ` não barra o `os.ReadFile` — precisa de
++`GENERIC_READ|GENERIC_WRITE` com `dwShareMode = 0` —, e os helpers que não
++conferiam sustentavam duas asserções condicionais em `internal/service`.
+ 
+ Cópia local nova de `windows.CreateFile` ou de `SetFileAttributes` em `_test.go`
+ é regressão desta tarefa. A única exceção é `internal/vault/cloudonly_info_windows_test.go`,
+ que é `package vault` (interno) e não pode importar `vaulttest` sem ciclo.
+ 
+ ---
+ 
+ ## Onde os testes moram
+ 
+ - Testes em tabela; golden files com `-update` (**regenerar e olhar são passos
+diff --git a/internal/index/build_descarte_unix_test.go b/internal/index/build_descarte_unix_test.go
+index b1de283..245b6db 100644
+--- a/internal/index/build_descarte_unix_test.go
++++ b/internal/index/build_descarte_unix_test.go
+@@ -9,11 +9,18 @@ import (
+ 
+ // lockFileForTest torna o arquivo ilegivel do jeito que o POSIX permite. Nao ha
+ // share mode aqui — a permissao e a unica alavanca —, e por isso este lado nao
+ // vem de internal/vaulttest, cujo helper e de handle exclusivo do Windows.
+ func lockFileForTest(t *testing.T, path string) {
+ 	t.Helper()
+ 	if err := os.Chmod(path, 0000); err != nil {
+ 		t.Fatal(err)
+ 	}
+ 	t.Cleanup(func() { _ = os.Chmod(path, 0644) })
++
++	// A mesma prova simetrica que vaulttest.TravarExclusivo faz no Windows: a
++	// condicao e conferida antes de devolver. root ignora a permissao, e ai
++	// toda assercao de "arquivo ilegivel" deste teste seria vazia.
++	if _, err := os.ReadFile(path); err == nil {
++		t.Fatalf("chmod 0000 nao barrou a leitura de %s (rodando como root?); a prova de 'arquivo ilegivel' seria vazia", path)
++	}
+ }
+diff --git a/internal/ipc/ipc_test.go b/internal/ipc/ipc_test.go
+index a44d084..0963726 100644
+--- a/internal/ipc/ipc_test.go
++++ b/internal/ipc/ipc_test.go
+@@ -43,33 +43,40 @@ func TestSocketPathDeterministicoEMesmaChaveDoCache(t *testing.T) {
+ 	// diretorio de cache (config.VaultKey) -- e nao um hash calculado de
+ 	// novo aqui, que divergiria do outro do jeito que byAlias divergiu em
+ 	// alias.go/resolve.go (ver CLAUDE.md). O nome do arquivo do socket
+ 	// carrega essa chave, entao ela tem que aparecer literalmente nele.
+ 	chave := config.VaultKey("C:/cofre/um")
+ 	if !strings.Contains(filepath.Base(p1), chave) {
+ 		t.Fatalf("SocketPath(%q) = %q, esperado conter a chave do cofre %q (config.VaultKey)", "C:/cofre/um", p1, chave)
+ 	}
+ }
+ 
++// tetoDesistencia e teto de latencia, nao prazo de espera: e o quanto uma
++// desistencia pode demorar antes de o teste chamar de defeito. Nao usa
++// vaulttest.Prazo de proposito — Prazo e o orcamento de ESPERA de algo
++// assincrono; um teto de latencia frouxo deixa de pegar a regressao que ele
++// existe para pegar.
++const tetoDesistencia = 2 * time.Second
++
+ func TestDialAndHandshakeSocketAusente(t *testing.T) {
+ 	vault := t.TempDir()
+ 
+ 	start := time.Now()
+ 	conn, err := ipc.DialAndHandshake(context.Background(), vault, false, 0, 200*time.Millisecond)
+ 	elapsed := time.Since(start)
+ 
+ 	if err == nil {
+ 		_ = conn.Close()
+ 		t.Fatal("DialAndHandshake() error = nil, esperado erro (nenhum daemon escutando)")
+ 	}
+-	if elapsed > vaulttest.Prazo {
+-		t.Fatalf("DialAndHandshake demorou %s para desistir de um socket ausente, esperado abaixo de %s", elapsed, vaulttest.Prazo)
++	if elapsed > tetoDesistencia {
++		t.Fatalf("DialAndHandshake demorou %s para desistir de um socket ausente, esperado abaixo de %s", elapsed, tetoDesistencia)
+ 	}
+ }
+ 
+ func TestDialAndHandshakeRoundTrip(t *testing.T) {
+ 	vault := t.TempDir()
+ 
+ 	ln, path, err := ipc.Listen(vault)
+ 	if err != nil {
+ 		t.Fatalf("Listen() error = %v", err)
+ 	}
+@@ -225,22 +232,22 @@ func TestDialAndHandshakeRespeitaContext(t *testing.T) {
+ 	conn, err := ipc.DialAndHandshake(ctx, vault, false, 0, vaulttest.Prazo)
+ 	elapsed := time.Since(start)
+ 
+ 	if err == nil {
+ 		_ = conn.Close()
+ 		t.Fatal("DialAndHandshake() error = nil, esperado erro de context ja cancelado")
+ 	}
+ 	if !errors.Is(err, context.Canceled) {
+ 		t.Fatalf("DialAndHandshake() error = %v, esperado embrulhar context.Canceled", err)
+ 	}
+-	if elapsed > vaulttest.Prazo {
+-		t.Fatalf("DialAndHandshake com context ja cancelado demorou %s, esperado retorno imediato", elapsed)
++	if elapsed > tetoDesistencia {
++		t.Fatalf("DialAndHandshake com context ja cancelado demorou %s, esperado retorno imediato (teto %s)", elapsed, tetoDesistencia)
+ 	}
+ }
+ 
+ // TestListenRestringePermissaoUnix prova a garantia 4 da Task 91 em Unix:
+ // 0600, so o dono le e escreve. Em Windows a garantia vem da ACL herdada do
+ // diretorio (ipc_windows.go), nao de chmod -- ver
+ // TestListenSocketEmDiretorioDoPerfilNoWindows para o que da para provar la.
+ func TestListenRestringePermissaoUnix(t *testing.T) {
+ 	if runtime.GOOS == "windows" {
+ 		t.Skip("permissao unix (0600) nao se aplica no Windows -- ver TestListenSocketEmDiretorioDoPerfilNoWindows")
+diff --git a/internal/service/move_atomico_windows_test.go b/internal/service/move_atomico_windows_test.go
+index 7f6c0a4..0d62cd7 100644
+--- a/internal/service/move_atomico_windows_test.go
++++ b/internal/service/move_atomico_windows_test.go
+@@ -71,23 +71,29 @@ func TestMoveNaoReportaSucessoComNotaDuplicada(t *testing.T) {
+ 	_, errDestino := os.Stat(filepath.Join(dir, "destino.md"))
+ 	origemExiste := errOrigem == nil
+ 	destinoExiste := errDestino == nil
+ 
+ 	// Guarda da montagem, e so ela. Medido nesta maquina em 2026-09-04: com o
+ 	// handle aberto, o os.Rename e o os.Remove da origem falham e a copia ja
+ 	// esta no destino, entao os DOIS caminhos existem. Afirmar isso aqui e o
+ 	// que torna a assercao seguinte incondicional — enquanto ela era guardada
+ 	// por `origemExiste && destinoExiste && err == nil`, um cenario que nao se
+ 	// montasse passava sem afirmar coisa nenhuma sobre o A1.
++	//
++	// err vai na mensagem porque esta guarda substituiu a assercao antiga
++	// `err == nil && origemExiste && destinoExiste`: sem ele, uma montagem que
++	// falhasse esconderia justamente o valor que o teste veio julgar.
+ 	if !origemExiste || !destinoExiste {
+ 		t.Fatalf("cenario invalido: com o handle aberto a nota devia ficar nos dois "+
+-			"caminhos; origem existe=%v, destino existe=%v", origemExiste, destinoExiste)
++			"caminhos; origem existe=%v, destino existe=%v, MoveNote err=%v; se err "+
++			"tambem foi nil, o defeito e do MoveNote, nao da montagem",
++			origemExiste, destinoExiste, err)
+ 	}
+ 	if err == nil {
+ 		t.Fatalf("SUCESSO reportado com a nota DUPLICADA: origem e destino existem "+
+ 			"e MoveNote devolveu nil (res=%+v)", res)
+ 	}
+ }
+ 
+ // TestMoveNaoReescreveCitantesAntesDeMoverOCorpo cobre a segunda metade do A1.
+ //
+ // Os citantes eram reescritos ANTES de a nota se mover. Falhando a movimentação,
+diff --git a/internal/vaulttest/doc.go b/internal/vaulttest/doc.go
+index 03a6e5a..f28e5bf 100644
+--- a/internal/vaulttest/doc.go
++++ b/internal/vaulttest/doc.go
+@@ -1,12 +1,13 @@
+ // Package vaulttest oferece aos testes de outros pacotes as condicoes de
+ // ambiente que o produto promete respeitar e que so o sistema operacional
+ // pode criar: um arquivo ou diretorio que NAO pode ser aberto, um arquivo
+ // somente-nuvem, e o prazo unico de espera dos testes.
+ //
+ // Cada helper PROVA a condicao antes de devolver. Um handle exclusivo que nao
+ // barra a leitura tornaria vazia toda assercao de "nao abriu" — foi o que
+-// aconteceu quando cinco copias divergiram e so uma conferia.
++// aconteceu com metade das copias que este pacote substituiu. A contagem
++// medida esta em docs/papeis/testador.md, secao "Handle exclusivo".
+ //
+ // Importado apenas por arquivos _test.go. Importa vault e mais nada do
+ // dominio, para nunca fechar ciclo com quem o usa.
+ package vaulttest

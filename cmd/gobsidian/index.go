@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"github.com/jonyduque/Gobsidian/internal/textos"
 	"time"
 
 	"github.com/jonyduque/Gobsidian/internal/boot"
@@ -28,7 +29,7 @@ func newIndexCmd() *cobra.Command {
 
 	cmd := &cobra.Command{
 		Use:   "index",
-		Short: "Constroi o indice do cofre e exibe um resumo",
+		Short: textos.ResumoIndex,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			cfg, err := config.Load(flags)
 			if err != nil {
@@ -76,20 +77,20 @@ func newIndexCmd() *cobra.Command {
 			}
 
 			con := console.New(out)
-			con.OK("Indexacao concluida em %d ms", dur.Milliseconds())
-			con.Campos("Indice", []console.Campo{
-				console.Campof("origem", "%s", origem),
-				console.Campof("notas", "%d", notes),
-				console.Campof("anexos", "%d", assets),
-				console.Campof("tags", "%d", tags),
-				{Chave: "tamanho", Valor: fmt.Sprintf("%d", size), Nota: "bytes"},
+			con.OK(textos.IndexConcluido, dur.Milliseconds())
+			con.Campos(textos.IndexTitulo, []console.Campo{
+				console.Campof(textos.CampoOrigem, "%s", origem),
+				console.Campof(textos.CampoNotas, "%d", notes),
+				console.Campof(textos.CampoAnexos, "%d", assets),
+				console.Campof(textos.CampoTags, "%d", tags),
+				{Chave: textos.CampoTamanho, Valor: fmt.Sprintf("%d", size), Nota: textos.NotaBytes},
 			})
 			return nil
 		},
 	}
 
 	flagsDeCofre(cmd, &flags)
-	cmd.Flags().BoolVar(&jsonOutput, "json", false, "saida estruturada em formato JSON")
+	cmd.Flags().BoolVar(&jsonOutput, "json", false, textos.FlagJSON)
 	flagsDeCache(cmd, &flags)
 
 	return cmd

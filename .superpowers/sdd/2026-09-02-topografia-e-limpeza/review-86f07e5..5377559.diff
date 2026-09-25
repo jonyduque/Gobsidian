@@ -1,0 +1,2019 @@
+# Review package Task 159: 86f07e5..5377559
+
+5377559 docs(sdd): record the Task 159 commit SHA in the report
+c81b2b8 test(vaulttest): one exclusive-handle helper that proves it locks, and one wait budget
+
+ .../task-159-report.md                             | 404 +++++++++++++++++++++
+ CLAUDE.md                                          |  13 +
+ cmd/gobsidian/boot_indice_busca_windows_test.go    |  20 +-
+ cmd/gobsidian/ponte_test.go                        |   9 +-
+ cmd/gobsidian/serve_test.go                        |  21 +-
+ docs/ESTRUTURA.md                                  |  11 +
+ docs/papeis/testador.md                            |  36 ++
+ internal/daemon/daemon_test.go                     |  12 +-
+ internal/index/build_cloudonly_windows_test.go     |  15 +-
+ internal/index/build_descarte_test.go              |   3 +-
+ internal/index/build_descarte_unix_test.go         |   9 +-
+ internal/index/build_descarte_windows_test.go      |  32 +-
+ internal/index/classify_cloudonly_windows_test.go  |  53 +--
+ internal/index/replace_duas_fases_windows_test.go  |  24 +-
+ internal/ipc/ipc_test.go                           |  28 +-
+ internal/ipc/maxresults_handshake_test.go          |   9 +-
+ internal/search/cloudonly_update_windows_test.go   |  54 +--
+ internal/search/snippet_cache_windows_test.go      |  14 +-
+ internal/service/cloudonly_replace_windows_test.go |  27 +-
+ internal/service/erro_engolido_windows_test.go     |  52 +--
+ internal/service/move_atomico_windows_test.go      |  37 +-
+ internal/vault/walk_raiz_windows_test.go           |  43 +--
+ internal/vaulttest/doc.go                          |  12 +
+ internal/vaulttest/exclusivo_other.go              |  19 +
+ internal/vaulttest/exclusivo_windows.go            |  52 +++
+ internal/vaulttest/exclusivo_windows_test.go       |  46 +++
+ internal/vaulttest/prazo.go                        |   9 +
+ internal/vaulttest/somentenuvem_other.go           |  13 +
+ internal/vaulttest/somentenuvem_windows.go         |  37 ++
+ 29 files changed, 776 insertions(+), 338 deletions(-)
+
+diff --git a/CLAUDE.md b/CLAUDE.md
+index 10ca4de..5bdb048 100644
+--- a/CLAUDE.md
++++ b/CLAUDE.md
+@@ -116,20 +116,33 @@ doctor   → config, daemon, ipc, vault
+ 
+ Quatro arestas existem **só em teste**, e ficam fora do grafo acima de
+ propósito — teste pode montar o mundo inteiro sem que isso vire acoplamento do
+ produto:
+ 
+ ```
+ mcpsrv  → search, watcher     (só em _test)
+ daemon  → service, vault      (só em _test)
+ ```
+ 
++`internal/vaulttest` é o pacote de apoio a teste: ele importa `vault` — e só
++`vault` —, e essa aresta **é do próprio pacote**, então `go list -f
++'{{.Imports}}' ./internal/vaulttest` a mostra como importaria qualquer outra. O
++que é exclusivo de teste são os imports **de** `vaulttest`: nenhum arquivo de
++produção o importa, só arquivos `_test.go` de `index`, `search`, `service`,
++`vault`, `daemon`, `ipc` e `cmd/gobsidian`. Por isso ele fica fora do grafo de
++produção acima, e por isso não pode ganhar import de `index`, `search`,
++`service` ou `parser`: seria ciclo no teste externo desses pacotes.
++
++```
++vaulttest → vault             (pacote só de teste; ninguém em produção o importa)
++```
++
+ A versão anterior deste bloco somava as duas listas numa só e, com isso,
+ atribuía ao `daemon` um conhecimento de `service` e de `vault` que ele não tem —
+ ele fala com `mcpsrv` e mais nada do domínio. Antes dela, outra omitia `text`
+ inteiro e chamava `parser` de folha quando ele já importava `text`.
+ 
+ **Aresta nova precisa de justificativa — folha não ganha import.** E o parágrafo
+ que descreve o grafo não vale mais que os imports: dizer "conferido" não é
+ conferir, e as duas versões anteriores diziam.
+ 
+ ---
+diff --git a/cmd/gobsidian/boot_indice_busca_windows_test.go b/cmd/gobsidian/boot_indice_busca_windows_test.go
+index 4754fe8..c359c55 100644
+--- a/cmd/gobsidian/boot_indice_busca_windows_test.go
++++ b/cmd/gobsidian/boot_indice_busca_windows_test.go
+@@ -3,47 +3,31 @@
+ package main
+ 
+ import (
+ 	"context"
+ 	"io"
+ 	"log/slog"
+ 	"os"
+ 	"path/filepath"
+ 	"testing"
+ 
+-	"golang.org/x/sys/windows"
+-
+ 	"github.com/jonyd/gobsidian/internal/config"
+ 	"github.com/jonyd/gobsidian/internal/index"
+ 	"github.com/jonyd/gobsidian/internal/search"
+ 	"github.com/jonyd/gobsidian/internal/vault"
++	"github.com/jonyd/gobsidian/internal/vaulttest"
+ )
+ 
+ // sondaDeBoot é um termo que não existe em nenhum outro corpus deste pacote.
+ // Se ele chegar ao índice, o arquivo foi aberto — não há outra forma.
+ const sondaDeBoot = "sesquipedaliano"
+ 
+-// marcarOffline põe FILE_ATTRIBUTE_OFFLINE, que vault.IsCloudOnly aceita e que,
+-// ao contrário de FILE_ATTRIBUTE_RECALL_ON_DATA_ACCESS, é gravável por
+-// SetFileAttributes. É como se monta um placeholder de nuvem em teste.
+-func marcarOffline(t *testing.T, abs string) {
+-	t.Helper()
+-	p, err := windows.UTF16PtrFromString(vault.LongPath(abs))
+-	if err != nil {
+-		t.Fatal(err)
+-	}
+-	if err := windows.SetFileAttributes(p, windows.FILE_ATTRIBUTE_OFFLINE); err != nil {
+-		t.Skipf("nao foi possivel marcar FILE_ATTRIBUTE_OFFLINE: %v", err)
+-	}
+-	t.Cleanup(func() { _ = windows.SetFileAttributes(p, windows.FILE_ATTRIBUTE_NORMAL) })
+-}
+-
+ // TestBuildInvertedIndexNaoAbrePlaceholderDeNuvem exercita o BOOT DE PRODUÇÃO.
+ //
+ // Este teste existe porque o que "provava" a regra antes era um dublê: um
+ // helper chamado construirComoOBoot que chamava Inverted.Update num laço,
+ // afirmando em comentário que era "exatamente como buildInvertedIndex faz".
+ // Não era — a produção chamava v.ReadAll (um os.ReadFile puro, sem consulta a
+ // CloudOnly) e inv.Add direto, escapando da guarda inteira. O teste afirmava
+ // sobre a reimplementação, não sobre o código que roda.
+ //
+ // A consequência em uso: num cofre OneDrive sem cache válido — primeira
+@@ -70,21 +54,21 @@ func TestBuildInvertedIndexNaoAbrePlaceholderDeNuvem(t *testing.T) {
+ 	if err != nil {
+ 		t.Fatalf("vault.New: %v", err)
+ 	}
+ 	idx := index.New()
+ 	if err := idx.Build(context.Background(), v); err != nil {
+ 		t.Fatalf("idx.Build: %v", err)
+ 	}
+ 
+ 	// Marcar DEPOIS do Build: o índice de metadados já tem a entrada, e é
+ 	// justamente esse caminho que NotePaths devolve ao boot da busca.
+-	marcarOffline(t, naNuvem)
++	vaulttest.MarcarSomenteNuvem(t, naNuvem)
+ 
+ 	inv := search.NewInverted()
+ 	log := slog.New(slog.NewTextHandler(io.Discard, nil))
+ 	cfg := config.Config{VaultPath: dir, CacheDir: t.TempDir()}
+ 
+ 	buildInvertedIndex(context.Background(), v, idx, inv, cfg, log)
+ 
+ 	// 1. O placeholder NAO pode ter sido aberto.
+ 	if postings := inv.Postings(sondaDeBoot); len(postings) != 0 {
+ 		var onde []string
+diff --git a/cmd/gobsidian/ponte_test.go b/cmd/gobsidian/ponte_test.go
+index ce9050d..3f1f57c 100644
+--- a/cmd/gobsidian/ponte_test.go
++++ b/cmd/gobsidian/ponte_test.go
+@@ -7,20 +7,21 @@ import (
+ 	"io"
+ 	"log/slog"
+ 	"path/filepath"
+ 	"strings"
+ 	"sync"
+ 	"testing"
+ 	"time"
+ 
+ 	"github.com/jonyd/gobsidian/internal/config"
+ 	"github.com/jonyd/gobsidian/internal/ipc"
++	"github.com/jonyd/gobsidian/internal/vaulttest"
+ )
+ 
+ // TestPonteCaiParaModoEmProcesso e o teste nomeado na prova de mutacao da
+ // Task 91: se a chamada "return serveEmProcesso(ctx, cfg, log)" em
+ // servePonte for trocada por "return err", este teste tem de reprovar.
+ //
+ // A distincao nao depende de levantar um servidor MCP de verdade -- isso
+ // bloquearia em os.Stdin, que o processo de teste nao controla. Em vez
+ // disso, o cofre e um caminho que nao existe: serveEmProcesso falha DENTRO
+ // dele, no primeiro passo (vault.New), antes de tocar em stdin nenhum, com
+@@ -54,21 +55,21 @@ func TestPonteCaiParaModoEmProcesso(t *testing.T) {
+ 	log := slog.New(slog.NewTextHandler(&logBuf, nil))
+ 
+ 	vaultInexistente := filepath.Join(t.TempDir(), "nao-existe")
+ 	cfg := config.Config{VaultPath: vaultInexistente}
+ 
+ 	// Nenhum socket existe para este cofre (nenhum daemon rodou nunca para
+ 	// um diretorio temporario recem-criado), entao DialAndHandshake falha
+ 	// de verdade -- sem precisar de um dublê. iniciarDaemonFn acima nao faz
+ 	// nada, entao EnsureStarted tambem falha em esperarSocket, e o
+ 	// fallback obrigatorio e alcancado do mesmo jeito que antes da Task 92.
+-	ctx, cancel := context.WithTimeout(context.Background(), boundedWait)
++	ctx, cancel := context.WithTimeout(context.Background(), vaulttest.Prazo)
+ 	defer cancel()
+ 
+ 	err := servePonte(ctx, cfg, log)
+ 	if err == nil {
+ 		t.Fatal("servePonte() error = nil, esperado erro (cofre inexistente)")
+ 	}
+ 	if !strings.Contains(err.Error(), "raiz do cofre inacessivel") {
+ 		t.Fatalf("servePonte() error = %q, esperado mencionar %q -- essa mensagem so vem de dentro de serveEmProcesso -> vault.New; "+
+ 			"se o texto for outro (por exemplo, o erro de conectar ao socket), o fallback nao foi chamado",
+ 			err, "raiz do cofre inacessivel")
+@@ -105,21 +106,21 @@ func TestServePonteRespeitaGobsidianNoDaemon(t *testing.T) {
+ 	go func() {
+ 		c, err := ln.Accept()
+ 		if err != nil {
+ 			return
+ 		}
+ 		defer func() { _ = c.Close() }()
+ 		_ = ipc.Greet(c, ipc.HandshakeConfig{VaultKey: config.VaultKey(cfg.VaultPath)})
+ 		time.Sleep(200 * time.Millisecond)
+ 	}()
+ 
+-	ctx, cancel := context.WithTimeout(context.Background(), boundedWait)
++	ctx, cancel := context.WithTimeout(context.Background(), vaulttest.Prazo)
+ 	defer cancel()
+ 
+ 	err = servePonte(ctx, cfg, log)
+ 	if err == nil {
+ 		t.Fatal("servePonte() error = nil, esperado erro (cofre inexistente, modo em processo forcado)")
+ 	}
+ 	if !strings.Contains(err.Error(), "raiz do cofre inacessivel") {
+ 		t.Fatalf("servePonte() error = %q, esperado mencionar %q -- essa mensagem so vem de serveEmProcesso -> vault.New; "+
+ 			"se o texto for outro, GOBSIDIAN_NO_DAEMON nao pulou a tentativa de socket",
+ 			err, "raiz do cofre inacessivel")
+@@ -152,21 +153,21 @@ func TestServePonteVersaoDiferenteCaiParaProcesso(t *testing.T) {
+ 	go func() {
+ 		c, err := ln.Accept()
+ 		if err != nil {
+ 			return
+ 		}
+ 		defer func() { _ = c.Close() }()
+ 		_, _ = fmt.Fprint(c, "GOBSIDIAN-IPC 999\n")
+ 		time.Sleep(200 * time.Millisecond)
+ 	}()
+ 
+-	ctx, cancel := context.WithTimeout(context.Background(), boundedWait)
++	ctx, cancel := context.WithTimeout(context.Background(), vaulttest.Prazo)
+ 	defer cancel()
+ 
+ 	err = servePonte(ctx, cfg, log)
+ 	if err == nil {
+ 		t.Fatal("servePonte() error = nil, esperado erro (cofre inexistente, apos o fallback)")
+ 	}
+ 	if !strings.Contains(err.Error(), "raiz do cofre inacessivel") {
+ 		t.Fatalf("servePonte() error = %q, esperado mencionar %q (fallback nao alcancado)", err, "raiz do cofre inacessivel")
+ 	}
+ 	if !strings.Contains(logBuf.String(), "servindo em processo") {
+@@ -225,21 +226,21 @@ func TestServePonteRemotaFazProxyDeBytes(t *testing.T) {
+ 	}
+ 	if err := outroLado.Close(); err != nil {
+ 		t.Fatalf("fechando o lado do daemon: %v", err)
+ 	}
+ 
+ 	select {
+ 	case err := <-done:
+ 		if err != nil {
+ 			t.Fatalf("servePonteRemota() error = %v, esperado nil (fechamento normal)", err)
+ 		}
+-	case <-time.After(boundedWait):
++	case <-time.After(vaulttest.Prazo):
+ 		t.Fatal("servePonteRemota nao retornou apos o daemon fechar a conexao")
+ 	}
+ 
+ 	if got := stdoutHost.String(); got != resposta {
+ 		t.Errorf("stdout do host = %q, quer %q -- a ponte nao copiou os bytes do daemon", got, resposta)
+ 	}
+ }
+ 
+ // duplexPipe implementa ipc.Conn (Read, Write, Close, CloseWrite) em cima de
+ // dois io.Pipe -- um por sentido -- para os testes deste pacote poderem
+diff --git a/cmd/gobsidian/serve_test.go b/cmd/gobsidian/serve_test.go
+index 9389351..01ec1bc 100644
+--- a/cmd/gobsidian/serve_test.go
++++ b/cmd/gobsidian/serve_test.go
+@@ -2,28 +2,23 @@ package main
+ 
+ import (
+ 	"bytes"
+ 	"context"
+ 	"errors"
+ 	"fmt"
+ 	"io"
+ 	"os"
+ 	"testing"
+ 	"time"
+-)
+ 
+-// boundedWait e o prazo usado para esperar por um lado do pipe num teste.
+-// Uma regressao real (por exemplo, apagar o CloseWithError que propaga EOF)
+-// nao deve travar o binario de teste ate o timeout padrao de 10 minutos do
+-// "go test ./..." sem -timeout: precisa reprovar em milissegundos, com uma
+-// mensagem que diz o que faltou.
+-const boundedWait = 2 * time.Second
++	"github.com/jonyd/gobsidian/internal/vaulttest"
++)
+ 
+ // eofReader devolve os bytes de data, em quantas chamadas a Read forem
+ // necessarias para o buffer do chamador, e so entao io.EOF. Ao contrario de
+ // um copy-e-sent-incondicional, ele nao descarta o resto dos dados quando o
+ // buffer do chamador e menor que len(data) — importante porque
+ // TestMirrorReaderBrokenMirrorDoesNotPoisonRead depende de duas leituras
+ // verem, cada uma, um pedaco diferente.
+ type eofReader struct {
+ 	data []byte
+ 	pos  int
+@@ -112,29 +107,29 @@ func TestMirrorReaderCopiesToMirror(t *testing.T) {
+ 	// Acha 1: sem limite de tempo aqui, uma mutacao que apaga o bloco de
+ 	// escrita no espelho pendura o io.ReadFull para sempre e o "go test
+ 	// -race ./..." do projeto (sem -timeout) so reprova depois de 10
+ 	// minutos, derrubando o binario do pacote inteiro com um dump de
+ 	// goroutines em vez de uma falha nomeada.
+ 	select {
+ 	case err := <-mirrorDone:
+ 		if err != nil {
+ 			t.Fatalf("leitura do espelho falhou: %v", err)
+ 		}
+-	case <-time.After(boundedWait):
+-		t.Fatalf("leitura do espelho nao chegou em %s: mirrorReader parou de copiar para o espelho", boundedWait)
++	case <-time.After(vaulttest.Prazo):
++		t.Fatalf("leitura do espelho nao chegou em %s: mirrorReader parou de copiar para o espelho", vaulttest.Prazo)
+ 	}
+ 
+ 	var res readResult
+ 	select {
+ 	case res = <-readDone:
+-	case <-time.After(boundedWait):
+-		t.Fatalf("Read da origem nao retornou em %s", boundedWait)
++	case <-time.After(vaulttest.Prazo):
++		t.Fatalf("Read da origem nao retornou em %s", vaulttest.Prazo)
+ 	}
+ 
+ 	if res.err != nil {
+ 		t.Fatalf("Read da origem devolveu erro inesperado: %v", res.err)
+ 	}
+ 	if got := string(buf[:res.n]); got != "ola mundo" {
+ 		t.Fatalf("Read devolveu %q, esperado %q", got, "ola mundo")
+ 	}
+ 	if !bytes.Equal(mirrored, []byte("ola mundo")) {
+ 		t.Fatalf("espelho recebeu %q, esperado %q", mirrored, "ola mundo")
+@@ -175,22 +170,22 @@ func TestMirrorReaderPropagatesEOF(t *testing.T) {
+ 	go func() {
+ 		n, err := pr.Read(make([]byte, 8))
+ 		rc <- readResult{n, err}
+ 	}()
+ 
+ 	select {
+ 	case res := <-rc:
+ 		if !errors.Is(res.err, io.EOF) {
+ 			t.Fatalf("lado de leitura do pipe devolveu err=%v, esperado io.EOF", res.err)
+ 		}
+-	case <-time.After(boundedWait):
+-		t.Fatalf("lado de leitura do pipe nao recebeu EOF em %s: mirrorReader nao fechou dst", boundedWait)
++	case <-time.After(vaulttest.Prazo):
++		t.Fatalf("lado de leitura do pipe nao recebeu EOF em %s: mirrorReader nao fechou dst", vaulttest.Prazo)
+ 	}
+ }
+ 
+ func TestMirrorReaderBrokenMirrorDoesNotPoisonRead(t *testing.T) {
+ 	// Duas leituras da origem, em dois pedacos: a primeira aciona o latch
+ 	// broken (o espelho falha), a segunda precisa provar que o latch
+ 	// realmente impediu uma nova tentativa de escrita — nao so que o campo
+ 	// ficou true.
+ 	src := &chunkReader{chunks: [][]byte{[]byte("dados"), []byte("mais")}}
+ 	dst := &spyDst{fail: true}
+diff --git a/docs/ESTRUTURA.md b/docs/ESTRUTURA.md
+index d83aa11..c2e9dd2 100644
+--- a/docs/ESTRUTURA.md
++++ b/docs/ESTRUTURA.md
+@@ -39,20 +39,31 @@ gobsidian/
+ │   │   ├── path_windows.go       casing e separadores (build tag windows)
+ │   │   ├── path_other.go         idem (build tag !windows)
+ │   │   ├── walk.go               varredura com exclusões
+ │   │   ├── ignore.go             .gitignore e .gobsidianignore
+ │   │   ├── eol.go                detecção e preservação de CRLF/LF — ÚNICA conta de EOL
+ │   │   ├── longpath_windows.go   prefixo de caminho longo p/ syscall direta (build tag windows)
+ │   │   ├── longpath_other.go     identidade (build tag !windows)
+ │   │   ├── cloud_windows.go      detecção de arquivo somente-nuvem (OneDrive)
+ │   │   └── cloud_other.go        sempre falso (build tag !windows)
+ │   │
++│   ├── vaulttest/                APOIO A TESTE: nenhum arquivo de produção o
++│   │   │                         importa; só _test.go. Importa vault e nada mais
++│   │   │                         do domínio, para não fechar ciclo com quem o usa
++│   │   ├── doc.go                por que o pacote existe e o que cada helper prova
++│   │   ├── exclusivo_windows.go  handle exclusivo sobre arquivo e diretório; PROVA
++│   │   │                         que barra os.ReadFile / os.ReadDir antes de devolver
++│   │   ├── exclusivo_other.go    t.Skip: share mode é semântica do Windows
++│   │   ├── somentenuvem_windows.go  FILE_ATTRIBUTE_OFFLINE; prova vault.IsCloudOnly
++│   │   ├── somentenuvem_other.go    t.Skip: o atributo é do NTFS
++│   │   └── prazo.go              Prazo: o único limite de espera dos testes (5 s)
++│   │
+ │   ├── parser/
+ │   │   ├── parser.go             fachada: []byte → ParsedNote
+ │   │   ├── frontmatter.go        separação e decodificação do bloco YAML
+ │   │   ├── ast.go                travessia da AST do goldmark
+ │   │   ├── ext_wikilink.go       extensão goldmark: [[...]] e ![[...]]
+ │   │   ├── ext_blockid.go        extensão goldmark: ^id em fim de linha
+ │   │   ├── ext_tag.go            extensão goldmark: #tag/aninhada
+ │   │   ├── ext_inline_field.go   extensão goldmark: chave:: valor
+ │   │   ├── headings.go           extração da hierarquia com offsets de seção
+ │   │   ├── slug.go               normalização de heading para casar com âncoras
+diff --git a/docs/papeis/testador.md b/docs/papeis/testador.md
+index e422a02..8780d03 100644
+--- a/docs/papeis/testador.md
++++ b/docs/papeis/testador.md
+@@ -108,20 +108,56 @@ Outras armadilhas de teste que já ocorreram:
+   `TestPastaQueChegaComArquivosDentro` passa isolado em 2,6 s e já estourou 60 s
+   dentro de `go test -race ./...`. Antes de declarar regressão, rode isolado.
+ 
+ Ver também [`../ARMADILHAS.md`](../ARMADILHAS.md), que traz o mecanismo de cada
+ defeito histórico — vários deles só são testáveis se você souber como montar a
+ condição (por exemplo: `FILE_ATTRIBUTE_OFFLINE` é gravável, e é assim que se
+ simula um placeholder de nuvem).
+ 
+ ---
+ 
++## Handle exclusivo e placeholder de nuvem: `internal/vaulttest`
++
++As condições de ambiente que só o sistema operacional cria — um arquivo que
++**não pode ser aberto**, um diretório que **não pode ser listado**, um
++placeholder de nuvem — vêm de `internal/vaulttest`, e de nenhum outro lugar:
++
++| Precisa de… | Chame |
++|---|---|
++| Arquivo que `os.ReadFile` não abre | `vaulttest.TravarExclusivo(t, abs)` |
++| Diretório que `os.ReadDir` não lista | `vaulttest.TravarDiretorioExclusivo(t, abs)` |
++| Placeholder somente-nuvem | `vaulttest.MarcarSomenteNuvem(t, abs)` |
++| Prazo de espera de algo assíncrono | `vaulttest.Prazo` |
++
++Fora do Windows os três primeiros fazem `t.Skip` com o motivo — share mode e
++`FILE_ATTRIBUTE_OFFLINE` são semântica do NTFS.
++
++**A regra que o pacote existe para impor: o helper prova a condição antes de
++devolver, e por isso a asserção do chamador é incondicional.** `TravarExclusivo`
++confere que a leitura de fato falha; `MarcarSomenteNuvem` confere que
++`vault.IsCloudOnly` de fato responde verdadeiro. Nunca escreva
++`if origemExiste && destinoExiste && err == nil { …asserções… }`: uma guarda
++assim faz o teste passar em silêncio exatamente quando o cenário não se montou,
++que é quando ele mais precisava falhar.
++
++Isso veio de um defeito medido: existiam cinco cópias do "handle exclusivo" e
++**só uma** conferia que a trava travava. Um handle que pede só `GENERIC_READ`
++não barra o `os.ReadFile` — precisa de `GENERIC_READ|GENERIC_WRITE` com
++`dwShareMode = 0` —, e as quatro cópias que não conferiam sustentavam duas
++asserções condicionais em `internal/service`.
++
++Cópia local nova de `windows.CreateFile` ou de `SetFileAttributes` em `_test.go`
++é regressão desta tarefa. A única exceção é `internal/vault/cloudonly_info_windows_test.go`,
++que é `package vault` (interno) e não pode importar `vaulttest` sem ciclo.
++
++---
++
+ ## Onde os testes moram
+ 
+ - Testes em tabela; golden files com `-update` (**regenerar e olhar são passos
+   diferentes**).
+ - `testdata/parser/` — 48 golden files do parser e das quatro extensões.
+ - `testdata/parity/` — corpus de paridade contra o `metadataCache` real do
+   Obsidian.
+ - `testdata/vault_small/` — cofre de fixture.
+ - Cofre sintético de benchmark: `scripts/gen_vault.ps1 -Notes 5000 -Seed 42`.
+   Sem cofre, o benchmark **pula**, e o comparador trata benchmark ausente como
+diff --git a/internal/daemon/daemon_test.go b/internal/daemon/daemon_test.go
+index 199e72d..f12cada 100644
+--- a/internal/daemon/daemon_test.go
++++ b/internal/daemon/daemon_test.go
+@@ -7,28 +7,24 @@ import (
+ 	"sync"
+ 	"testing"
+ 	"time"
+ 
+ 	"github.com/jonyd/gobsidian/internal/config"
+ 	"github.com/jonyd/gobsidian/internal/daemon"
+ 	"github.com/jonyd/gobsidian/internal/ipc"
+ 	"github.com/jonyd/gobsidian/internal/mcpsrv"
+ 	"github.com/jonyd/gobsidian/internal/service"
+ 	"github.com/jonyd/gobsidian/internal/vault"
++	"github.com/jonyd/gobsidian/internal/vaulttest"
+ 	"github.com/modelcontextprotocol/go-sdk/mcp"
+ )
+ 
+-// boundedWait e o prazo usado para esperar por algo neste pacote. Um
+-// defeito real (por exemplo, a condicao de ociosidade nunca disparando) nao
+-// pode travar "go test -race ./..." ate o timeout padrao de 10 minutos.
+-const boundedWait = 5 * time.Second
+-
+ // newTestDaemon monta um *daemon.Daemon completo: um *mcpsrv.Server minimo
+ // (o mesmo padrao de internal/mcpsrv/server_test.go — service.New aceita
+ // idx/inv/watchStats nil) sobre um socket Unix real aberto via ipc.Listen,
+ // nunca net.Listen("tcp", ...) direto: tools/netcheck varre os testes deste
+ // pacote tambem, e so aceita net.Dial/net.Listen com a constante "unix".
+ // Devolve tambem o caminho usado como chave do socket, para o teste poder
+ // discar de volta.
+ func newTestDaemon(t *testing.T, ociosidade time.Duration) (*daemon.Daemon, string) {
+ 	t.Helper()
+ 
+@@ -63,21 +59,21 @@ type nopWriteCloser struct{ io.Writer }
+ 
+ func (nopWriteCloser) Close() error { return nil }
+ 
+ // connectMCPClient disca e faz o handshake IPC (ipc.DialAndHandshake), e
+ // entao completa o handshake MCP por cima -- a mesma composicao que a ponte
+ // real faz, so que aqui e o proprio teste quem fala o protocolo, em vez de
+ // so copiar bytes.
+ func connectMCPClient(ctx context.Context, t *testing.T, vaultPath string) (*mcp.ClientSession, ipc.Conn) {
+ 	t.Helper()
+ 
+-	conn, err := ipc.DialAndHandshake(ctx, vaultPath, false, 0, boundedWait)
++	conn, err := ipc.DialAndHandshake(ctx, vaultPath, false, 0, vaulttest.Prazo)
+ 	if err != nil {
+ 		t.Fatalf("DialAndHandshake: %v", err)
+ 	}
+ 
+ 	transport := &mcp.IOTransport{Reader: io.NopCloser(conn), Writer: nopWriteCloser{conn}}
+ 	client := mcp.NewClient(&mcp.Implementation{Name: "test", Version: "0.0.1"}, nil)
+ 	session, err := client.Connect(ctx, transport, nil)
+ 	if err != nil {
+ 		t.Fatalf("client.Connect: %v", err)
+ 	}
+@@ -107,21 +103,21 @@ func TestDaemonSaiPorOciosidade(t *testing.T) {
+ 	}
+ 
+ 	done := make(chan struct{})
+ 	go func() {
+ 		d.Run(ctx, aoOcioso)
+ 		close(done)
+ 	}()
+ 
+ 	select {
+ 	case <-done:
+-	case <-time.After(boundedWait):
++	case <-time.After(vaulttest.Prazo):
+ 		t.Fatal("Run nao retornou apos a ociosidade estourar -- aoOcioso nunca foi chamado")
+ 	}
+ 
+ 	mu.Lock()
+ 	defer mu.Unlock()
+ 	if len(razoes) == 0 {
+ 		t.Fatal("aoOcioso nunca foi chamado")
+ 	}
+ 	if razoes[0] != "idle" {
+ 		t.Fatalf("primeiro motivo = %q, esperado \"idle\"", razoes[0])
+@@ -143,21 +139,21 @@ func TestDaemonNaoSaiComClienteConectado(t *testing.T) {
+ 		select {
+ 		case aoOciosoChamado <- r:
+ 		default:
+ 		}
+ 		cancel()
+ 	})
+ 
+ 	// A conexao fica aberta (handshake IPC completo, nenhuma chamada MCP
+ 	// feita) por mais que OciosidadeMax -- se "ativos" nao fosse conferido,
+ 	// o daemon sairia por ociosidade mesmo com um cliente pendurado.
+-	conn, err := ipc.DialAndHandshake(context.Background(), vaultDir, false, 0, boundedWait)
++	conn, err := ipc.DialAndHandshake(context.Background(), vaultDir, false, 0, vaulttest.Prazo)
+ 	if err != nil {
+ 		t.Fatalf("DialAndHandshake: %v", err)
+ 	}
+ 	defer func() { _ = conn.Close() }()
+ 
+ 	select {
+ 	case r := <-aoOciosoChamado:
+ 		t.Fatalf("aoOcioso(%q) chamado com uma conexao ainda ativa", r)
+ 	case <-time.After(3 * ociosidade):
+ 		// Nenhum encerramento por ociosidade dentro de varios intervalos --
+diff --git a/internal/index/build_cloudonly_windows_test.go b/internal/index/build_cloudonly_windows_test.go
+index eed3608..b189b13 100644
+--- a/internal/index/build_cloudonly_windows_test.go
++++ b/internal/index/build_cloudonly_windows_test.go
+@@ -1,22 +1,22 @@
+ //go:build windows
+ 
+ package index_test
+ 
+ import (
+ 	"context"
++	"path/filepath"
+ 	"testing"
+ 
+-	"golang.org/x/sys/windows"
+-
+ 	"github.com/jonyd/gobsidian/internal/index"
+ 	"github.com/jonyd/gobsidian/internal/vault"
++	"github.com/jonyd/gobsidian/internal/vaulttest"
+ )
+ 
+ // TestBuildNotaSomenteNuvemNaoDerrubaIndexacao cobre o panic que este arquivo
+ // existe para impedir.
+ //
+ // build.go manda placeholder de nuvem para o coletor com `parsed{entry: e}` e
+ // `note` NIL, de proposito: ler o arquivo dispararia download sincrono. O
+ // coletor entrava no ramo `r.entry.IsNote` — verdadeiro, e um `.md` — e
+ // desreferenciava `r.note.Title`. Um unico `.md` nao hidratado do OneDrive
+ // derrubava a indexacao inteira no boot, e o cofre em OneDrive e cenario
+@@ -27,30 +27,21 @@ import (
+ // FILE_ATTRIBUTE_OFFLINE e gravavel por SetFileAttributes e vault.IsCloudOnly
+ // tambem o aceita — e por isso este teste consegue existir.
+ //
+ // So Windows porque o atributo e do NTFS; em outros sistemas IsCloudOnly
+ // devolve false por construcao e nao ha condicao para montar.
+ func TestBuildNotaSomenteNuvemNaoDerrubaIndexacao(t *testing.T) {
+ 	root := t.TempDir()
+ 	writeFile(t, root, "comum.md", "# Titulo comum\n\ncorpo\n")
+ 	writeFile(t, root, "nuvem.md", "# Titulo da nuvem\n\ncorpo\n")
+ 
+-	p, err := windows.UTF16PtrFromString(vault.LongPath(root + `\nuvem.md`))
+-	if err != nil {
+-		t.Fatal(err)
+-	}
+-	if err := windows.SetFileAttributes(p, windows.FILE_ATTRIBUTE_OFFLINE); err != nil {
+-		t.Skipf("nao foi possivel marcar FILE_ATTRIBUTE_OFFLINE: %v", err)
+-	}
+-	t.Cleanup(func() {
+-		_ = windows.SetFileAttributes(p, windows.FILE_ATTRIBUTE_NORMAL)
+-	})
++	vaulttest.MarcarSomenteNuvem(t, filepath.Join(root, "nuvem.md"))
+ 
+ 	v, err := vault.New(root)
+ 	if err != nil {
+ 		t.Fatal(err)
+ 	}
+ 	idx := index.New()
+ 	// Antes da correcao esta linha nao devolvia erro: entrava em panic.
+ 	if err := idx.Build(context.Background(), v); err != nil {
+ 		t.Fatalf("Build: %v", err)
+ 	}
+diff --git a/internal/index/build_descarte_test.go b/internal/index/build_descarte_test.go
+index 8281005..49b77d5 100644
+--- a/internal/index/build_descarte_test.go
++++ b/internal/index/build_descarte_test.go
+@@ -17,22 +17,21 @@ func TestBuildRegistraArquivoIlegivel(t *testing.T) {
+ 	root := t.TempDir()
+ 	if err := os.WriteFile(filepath.Join(root, "boa.md"), []byte("# Boa\n"), 0644); err != nil {
+ 		t.Fatal(err)
+ 	}
+ 
+ 	ilegivelPath := filepath.Join(root, "ilegivel.md")
+ 	if err := os.WriteFile(ilegivelPath, []byte("# Ilegivel\n"), 0644); err != nil {
+ 		t.Fatal(err)
+ 	}
+ 
+-	unlock := lockFileForTest(t, ilegivelPath)
+-	defer unlock()
++	lockFileForTest(t, ilegivelPath)
+ 
+ 	v, err := vault.New(root)
+ 	if err != nil {
+ 		t.Fatalf("vault.New: %v", err)
+ 	}
+ 	idx := index.New()
+ 	if err := idx.Build(context.Background(), v); err != nil {
+ 		t.Fatalf("Build: %v", err)
+ 	}
+ 
+diff --git a/internal/index/build_descarte_unix_test.go b/internal/index/build_descarte_unix_test.go
+index 536f327..b1de283 100644
+--- a/internal/index/build_descarte_unix_test.go
++++ b/internal/index/build_descarte_unix_test.go
+@@ -1,18 +1,19 @@
+ //go:build !windows
+ 
+ package index_test
+ 
+ import (
+ 	"os"
+ 	"testing"
+ )
+ 
+-func lockFileForTest(t *testing.T, path string) func() {
++// lockFileForTest torna o arquivo ilegivel do jeito que o POSIX permite. Nao ha
++// share mode aqui — a permissao e a unica alavanca —, e por isso este lado nao
++// vem de internal/vaulttest, cujo helper e de handle exclusivo do Windows.
++func lockFileForTest(t *testing.T, path string) {
+ 	t.Helper()
+ 	if err := os.Chmod(path, 0000); err != nil {
+ 		t.Fatal(err)
+ 	}
+-	return func() {
+-		_ = os.Chmod(path, 0644)
+-	}
++	t.Cleanup(func() { _ = os.Chmod(path, 0644) })
+ }
+diff --git a/internal/index/build_descarte_windows_test.go b/internal/index/build_descarte_windows_test.go
+index 0d0e4b5..7083f0c 100644
+--- a/internal/index/build_descarte_windows_test.go
++++ b/internal/index/build_descarte_windows_test.go
+@@ -1,31 +1,21 @@
+ //go:build windows
+ 
+ package index_test
+ 
+ import (
+-	"syscall"
+ 	"testing"
++
++	"github.com/jonyd/gobsidian/internal/vaulttest"
+ )
+ 
+-func lockFileForTest(t *testing.T, path string) func() {
++// lockFileForTest torna o arquivo ilegivel do jeito que o Windows permite: um
++// handle exclusivo, segurado ate o fim do teste.
++//
++// A copia local que existia aqui abria o handle e nao conferia nada — se o
++// share mode nao barrasse a leitura, TestBuildRegistraArquivoIlegivel
++// exercitava um cofre de dois arquivos legiveis e passava. O helper de
++// internal/vaulttest prova a trava antes de devolver.
++func lockFileForTest(t *testing.T, path string) {
+ 	t.Helper()
+-	pathPtr, err := syscall.UTF16PtrFromString(path)
+-	if err != nil {
+-		t.Fatal(err)
+-	}
+-	h, err := syscall.CreateFile(
+-		pathPtr,
+-		syscall.GENERIC_READ|syscall.GENERIC_WRITE,
+-		0,
+-		nil,
+-		syscall.OPEN_EXISTING,
+-		syscall.FILE_ATTRIBUTE_NORMAL,
+-		0,
+-	)
+-	if err != nil {
+-		t.Fatalf("CreateFile: %v", err)
+-	}
+-	return func() {
+-		_ = syscall.CloseHandle(h)
+-	}
++	vaulttest.TravarExclusivo(t, path)
+ }
+diff --git a/internal/index/classify_cloudonly_windows_test.go b/internal/index/classify_cloudonly_windows_test.go
+index 933d30e..36080e8 100644
+--- a/internal/index/classify_cloudonly_windows_test.go
++++ b/internal/index/classify_cloudonly_windows_test.go
+@@ -1,83 +1,44 @@
+ //go:build windows
+ 
+ package index_test
+ 
+ import (
+ 	"context"
+-	"os"
+ 	"path/filepath"
+ 	"testing"
+ 
+-	"golang.org/x/sys/windows"
+-
+ 	"github.com/jonyd/gobsidian/internal/index"
+ 	"github.com/jonyd/gobsidian/internal/vault"
++	"github.com/jonyd/gobsidian/internal/vaulttest"
+ )
+ 
+-// marcarSomenteNuvem poe FILE_ATTRIBUTE_OFFLINE no arquivo e restaura no fim.
+-//
+-// E o unico atributo que serve: FILE_ATTRIBUTE_RECALL_ON_DATA_ACCESS nao e
+-// gravavel por SetFileAttributes — e o motivo de TestReadNoteCloudOnlyFails
+-// estar pulado —, e vault.IsCloudOnly aceita os dois. So Windows porque o
+-// atributo e do NTFS; fora dele IsCloudOnly devolve false por construcao e nao
+-// ha condicao para montar.
+-func marcarSomenteNuvem(t *testing.T, abs string) {
+-	t.Helper()
+-	p, err := windows.UTF16PtrFromString(vault.LongPath(abs))
+-	if err != nil {
+-		t.Fatal(err)
+-	}
+-	if err := windows.SetFileAttributes(p, windows.FILE_ATTRIBUTE_OFFLINE); err != nil {
+-		t.Skipf("nao foi possivel marcar FILE_ATTRIBUTE_OFFLINE: %v", err)
+-	}
+-	t.Cleanup(func() {
+-		_ = windows.SetFileAttributes(p, windows.FILE_ATTRIBUTE_NORMAL)
+-	})
+-}
+-
+ // TestReplaceNotaSomenteNuvemEntraComoNotaSemAbrirOArquivo cobre a divergencia
+ // da Task 95 do lado que estava errado.
+ //
+ // Replace registrava o placeholder como Asset, e idx.Get devolvia false para
+ // um `.md` — a mesma entrada que Build registra como Note com CloudOnly.
+ //
+ // A prova de que o arquivo NAO foi aberto e mecanica, nao inferida do conteudo:
+ // o teste segura um handle exclusivo (dwShareMode = 0) sobre ele, e confere
+ // primeiro que esse handle de fato barra uma leitura. Com a trava provada, um
+ // Replace que abrisse o arquivo devolveria erro de compartilhamento; ele
+ // devolvendo nil e a afirmacao.
+ func TestReplaceNotaSomenteNuvemEntraComoNotaSemAbrirOArquivo(t *testing.T) {
+ 	root := t.TempDir()
+ 	writeFile(t, root, "nuvem.md", "---\naliases: [Nuvem]\n---\n# Titulo da nuvem\n\ncorpo\n")
+ 	abs := filepath.Join(root, "nuvem.md")
+-	marcarSomenteNuvem(t, abs)
+-
+-	p, err := windows.UTF16PtrFromString(vault.LongPath(abs))
+-	if err != nil {
+-		t.Fatal(err)
+-	}
+-	// Leitura E escrita: medido nesta maquina, um handle exclusivo que pede so
+-	// GENERIC_READ nao barra o os.Open do vault.ReadAll. Pedindo os dois, barra
+-	// — e a guarda logo abaixo confere isso em vez de confiar na regra.
+-	h, err := windows.CreateFile(p, windows.GENERIC_READ|windows.GENERIC_WRITE, 0, nil,
+-		windows.OPEN_EXISTING, windows.FILE_ATTRIBUTE_NORMAL, 0)
+-	if err != nil {
+-		t.Skipf("nao foi possivel abrir o arquivo em modo exclusivo: %v", err)
+-	}
+-	t.Cleanup(func() { _ = windows.CloseHandle(h) })
+-
+-	// Guarda da trava. Sem ela, um handle que nao barrasse nada faria o resto
+-	// do teste passar sem provar coisa nenhuma sobre abrir o arquivo.
+-	if _, err := os.ReadFile(abs); err == nil {
+-		t.Fatal("o handle exclusivo nao barrou a leitura; a prova de 'nao abriu' seria vazia")
+-	}
++	vaulttest.MarcarSomenteNuvem(t, abs)
++	// A trava prova, dentro do helper, que barra os.ReadFile antes de devolver:
++	// um handle que nao barrasse nada faria o resto do teste passar sem provar
++	// coisa nenhuma sobre abrir o arquivo.
++	vaulttest.TravarExclusivo(t, abs)
+ 
+ 	v, err := vault.New(root)
+ 	if err != nil {
+ 		t.Fatal(err)
+ 	}
+ 	ix := index.New()
+ 	if err := ix.Replace(context.Background(), v, "nuvem.md"); err != nil {
+ 		t.Fatalf("Replace: %v — o arquivo foi aberto, e abrir um placeholder "+
+ 			"dispara download sincrono", err)
+ 	}
+@@ -115,21 +76,21 @@ func TestReplaceNotaSomenteNuvemEntraComoNotaSemAbrirOArquivo(t *testing.T) {
+ // TestConstrucoesDoIndiceConcordamComPlaceholderDeNuvem e o mesmo diferencial
+ // campo a campo de TestConstrucoesDoIndiceConcordamCampoACampo, sobre o cofre
+ // que carrega a entrada onde as duas construcoes divergiam.
+ //
+ // Antes da Task 95 ele reprovava em Get: true por Build, false por Replace.
+ func TestConstrucoesDoIndiceConcordamComPlaceholderDeNuvem(t *testing.T) {
+ 	root := t.TempDir()
+ 	writeFile(t, root, "comum.md", "# Comum\n\nVer [[nuvem]].\n")
+ 	writeFile(t, root, "nuvem.md", "# Titulo da nuvem\n\ncorpo\n")
+ 	writeFile(t, root, "Anexos/diagrama.png", "\x89PNG")
+-	marcarSomenteNuvem(t, filepath.Join(root, "nuvem.md"))
++	vaulttest.MarcarSomenteNuvem(t, filepath.Join(root, "nuvem.md"))
+ 
+ 	// Guarda da montagem, antes de comparar: se o atributo nao pegasse, este
+ 	// teste viraria uma copia do cross-platform e nao afirmaria nada sobre
+ 	// placeholder de nuvem.
+ 	v, err := vault.New(root)
+ 	if err != nil {
+ 		t.Fatal(err)
+ 	}
+ 	ixGuarda := index.New()
+ 	if err := ixGuarda.Build(context.Background(), v); err != nil {
+diff --git a/internal/index/replace_duas_fases_windows_test.go b/internal/index/replace_duas_fases_windows_test.go
+index 9896642..3d4bdc2 100644
+--- a/internal/index/replace_duas_fases_windows_test.go
++++ b/internal/index/replace_duas_fases_windows_test.go
+@@ -1,45 +1,25 @@
+ //go:build windows
+ 
+ package index_test
+ 
+ import (
+ 	"context"
+ 	"os"
+ 	"path/filepath"
+ 	"testing"
+ 
+-	"golang.org/x/sys/windows"
+-
+ 	"github.com/jonyd/gobsidian/internal/index"
+ 	"github.com/jonyd/gobsidian/internal/vault"
++	"github.com/jonyd/gobsidian/internal/vaulttest"
+ )
+ 
+-// travaLeitura impede a leitura do arquivo, como um aplicativo que o mantém
+-// aberto com acesso exclusivo.
+-//
+-// Medido em 2026-08-26: `GENERIC_READ` com `share=0` bloqueia só a remoção;
+-// é preciso `GENERIC_READ|GENERIC_WRITE` para bloquear a leitura.
+-func travaLeitura(t *testing.T, abs string) {
+-	t.Helper()
+-	p, err := windows.UTF16PtrFromString(abs)
+-	if err != nil {
+-		t.Fatal(err)
+-	}
+-	h, err := windows.CreateFile(p, windows.GENERIC_READ|windows.GENERIC_WRITE, 0, nil,
+-		windows.OPEN_EXISTING, windows.FILE_ATTRIBUTE_NORMAL, 0)
+-	if err != nil {
+-		t.Skipf("nao foi possivel travar %q para leitura: %v", abs, err)
+-	}
+-	t.Cleanup(func() { _ = windows.CloseHandle(h) })
+-}
+-
+ // TestReplaceComErroDeLeituraNaoDeixaANotaForaDoIndice cobre o A3.
+ //
+ // `Replace` removia TODAS as contribuições antigas ANTES do I/O. Se a leitura
+ // falhasse, a nota ficava fora dos metadados sem republish — e sem
+ // reprocessamento dos citantes, então os links para ela continuavam com
+ // `state=ok` apontando para um caminho que `Get` não resolve mais.
+ //
+ // Pior no conjunto: `apply.go`, vendo o erro, pula `searchInv.Update`. A busca
+ // mantém o documento velho e os metadados não têm mais a nota; `service.Search`
+ // descarta posting sem metadado, e **a nota some das respostas** até o próximo
+@@ -67,21 +47,21 @@ func TestReplaceComErroDeLeituraNaoDeixaANotaForaDoIndice(t *testing.T) {
+ 	if err := idx.Build(context.Background(), v); err != nil {
+ 		t.Fatalf("idx.Build: %v", err)
+ 	}
+ 
+ 	canon := vault.CanonicalPath("nota.md")
+ 	if _, ok := idx.Get(canon); !ok {
+ 		t.Fatal("cenario invalido: a nota nem entrou no indice")
+ 	}
+ 
+ 	// Erro TRANSITORIO: o arquivo continua existindo, só não pode ser lido.
+-	travaLeitura(t, nota)
++	vaulttest.TravarExclusivo(t, nota)
+ 
+ 	errReplace := idx.Replace(context.Background(), v, canon)
+ 	if errReplace == nil {
+ 		t.Fatal("Replace devolveu nil com a leitura travada; o cenario nao exercitou nada")
+ 	}
+ 
+ 	// O estado tem de ser CONSISTENTE. O defeito era a nota sair dos metadados
+ 	// enquanto tudo o mais continuava achando que ela estava lá.
+ 	_, aindaNoIndice := idx.Get(canon)
+ 	if !aindaNoIndice {
+diff --git a/internal/ipc/ipc_test.go b/internal/ipc/ipc_test.go
+index 309b650..a44d084 100644
+--- a/internal/ipc/ipc_test.go
++++ b/internal/ipc/ipc_test.go
+@@ -8,27 +8,23 @@ import (
+ 	"net"
+ 	"os"
+ 	"path/filepath"
+ 	"runtime"
+ 	"strings"
+ 	"testing"
+ 	"time"
+ 
+ 	"github.com/jonyd/gobsidian/internal/config"
+ 	"github.com/jonyd/gobsidian/internal/ipc"
++	"github.com/jonyd/gobsidian/internal/vaulttest"
+ )
+ 
+-// boundedWait e o prazo usado para esperar por algo neste pacote. Um defeito
+-// real (por exemplo, o handshake travando em vez de devolver erro) nao pode
+-// travar "go test -race ./..." ate o timeout padrao de 10 minutos.
+-const boundedWait = 3 * time.Second
+-
+ func TestSocketPathDeterministicoEMesmaChaveDoCache(t *testing.T) {
+ 	p1, err := ipc.SocketPath("C:/cofre/um")
+ 	if err != nil {
+ 		t.Fatalf("SocketPath() error = %v", err)
+ 	}
+ 	p2, err := ipc.SocketPath("C:/cofre/um")
+ 	if err != nil {
+ 		t.Fatalf("SocketPath() error = %v", err)
+ 	}
+ 	if p1 != p2 {
+@@ -58,22 +54,22 @@ func TestDialAndHandshakeSocketAusente(t *testing.T) {
+ 	vault := t.TempDir()
+ 
+ 	start := time.Now()
+ 	conn, err := ipc.DialAndHandshake(context.Background(), vault, false, 0, 200*time.Millisecond)
+ 	elapsed := time.Since(start)
+ 
+ 	if err == nil {
+ 		_ = conn.Close()
+ 		t.Fatal("DialAndHandshake() error = nil, esperado erro (nenhum daemon escutando)")
+ 	}
+-	if elapsed > boundedWait {
+-		t.Fatalf("DialAndHandshake demorou %s para desistir de um socket ausente, esperado abaixo de %s", elapsed, boundedWait)
++	if elapsed > vaulttest.Prazo {
++		t.Fatalf("DialAndHandshake demorou %s para desistir de um socket ausente, esperado abaixo de %s", elapsed, vaulttest.Prazo)
+ 	}
+ }
+ 
+ func TestDialAndHandshakeRoundTrip(t *testing.T) {
+ 	vault := t.TempDir()
+ 
+ 	ln, path, err := ipc.Listen(vault)
+ 	if err != nil {
+ 		t.Fatalf("Listen() error = %v", err)
+ 	}
+@@ -87,33 +83,33 @@ func TestDialAndHandshakeRoundTrip(t *testing.T) {
+ 			return
+ 		}
+ 		saudacao := ipc.HandshakeConfig{VaultKey: config.VaultKey(vault)}
+ 		if err := ipc.Greet(c, saudacao); err != nil {
+ 			t.Errorf("Greet() error = %v", err)
+ 			return
+ 		}
+ 		accepted <- c
+ 	}()
+ 
+-	ctx, cancel := context.WithTimeout(context.Background(), boundedWait)
++	ctx, cancel := context.WithTimeout(context.Background(), vaulttest.Prazo)
+ 	defer cancel()
+ 
+-	conn, err := ipc.DialAndHandshake(ctx, vault, false, 0, boundedWait)
++	conn, err := ipc.DialAndHandshake(ctx, vault, false, 0, vaulttest.Prazo)
+ 	if err != nil {
+ 		t.Fatalf("DialAndHandshake() error = %v", err)
+ 	}
+ 	defer func() { _ = conn.Close() }()
+ 
+ 	var serverSide net.Conn
+ 	select {
+ 	case serverSide = <-accepted:
+-	case <-time.After(boundedWait):
++	case <-time.After(vaulttest.Prazo):
+ 		t.Fatal("servidor nao aceitou a conexao a tempo")
+ 	}
+ 	defer func() { _ = serverSide.Close() }()
+ 
+ 	// A ponte e burra: depois do handshake, o que passa pelo socket nao e
+ 	// interpretado, so copiado. Provar isso aqui e escrever um byte cru de
+ 	// cada lado e conferir que o outro lado recebe exatamente aquilo, sem
+ 	// nada do protocolo de saudacao sobrando no meio -- e a prova de que
+ 	// readGreeting nao "roubou" bytes que pertenciam ao proxy (a armadilha
+ 	// que um bufio.Reader introduziria).
+@@ -157,24 +153,24 @@ func TestDialAndHandshakeVersaoDiferente(t *testing.T) {
+ 		defer func() { _ = c.Close() }()
+ 		// Uma saudacao de uma versao que a ponte desta arvore nao fala --
+ 		// simula um daemon de outra versao, sem depender de a Task 92
+ 		// existir.
+ 		_, _ = fmt.Fprint(c, "GOBSIDIAN-IPC 999\n")
+ 		// Mantem a conexao aberta o suficiente para o cliente ler a linha
+ 		// antes de qualquer FIN chegar primeiro.
+ 		time.Sleep(100 * time.Millisecond)
+ 	}()
+ 
+-	ctx, cancel := context.WithTimeout(context.Background(), boundedWait)
++	ctx, cancel := context.WithTimeout(context.Background(), vaulttest.Prazo)
+ 	defer cancel()
+ 
+-	conn, err := ipc.DialAndHandshake(ctx, vault, false, 0, boundedWait)
++	conn, err := ipc.DialAndHandshake(ctx, vault, false, 0, vaulttest.Prazo)
+ 	if err == nil {
+ 		_ = conn.Close()
+ 		t.Fatal("DialAndHandshake() error = nil, esperado ErrVersionMismatch")
+ 	}
+ 	if !errors.Is(err, ipc.ErrVersionMismatch) {
+ 		t.Fatalf("DialAndHandshake() error = %v, esperado embrulhar ipc.ErrVersionMismatch", err)
+ 	}
+ }
+ 
+ // TestDialAndHandshakeConfigDivergente prova o perigo 1 do brief da Task
+@@ -199,51 +195,51 @@ func TestDialAndHandshakeConfigDivergente(t *testing.T) {
+ 		defer func() { _ = c.Close() }()
+ 		// O daemon oferece ro=1 (somente-leitura); a ponte abaixo quer
+ 		// ReadOnly=false.
+ 		saudacao := ipc.HandshakeConfig{ReadOnly: true, VaultKey: config.VaultKey(vault)}
+ 		if err := ipc.Greet(c, saudacao); err != nil {
+ 			return
+ 		}
+ 		time.Sleep(100 * time.Millisecond)
+ 	}()
+ 
+-	ctx, cancel := context.WithTimeout(context.Background(), boundedWait)
++	ctx, cancel := context.WithTimeout(context.Background(), vaulttest.Prazo)
+ 	defer cancel()
+ 
+-	conn, err := ipc.DialAndHandshake(ctx, vault, false, 0, boundedWait)
++	conn, err := ipc.DialAndHandshake(ctx, vault, false, 0, vaulttest.Prazo)
+ 	if err == nil {
+ 		_ = conn.Close()
+ 		t.Fatal("DialAndHandshake() error = nil, esperado ErrConfigMismatch")
+ 	}
+ 	if !errors.Is(err, ipc.ErrConfigMismatch) {
+ 		t.Fatalf("DialAndHandshake() error = %v, esperado embrulhar ipc.ErrConfigMismatch", err)
+ 	}
+ }
+ 
+ func TestDialAndHandshakeRespeitaContext(t *testing.T) {
+ 	vault := t.TempDir()
+ 
+ 	ctx, cancel := context.WithCancel(context.Background())
+ 	cancel() // ja cancelado antes de discar
+ 
+ 	start := time.Now()
+-	conn, err := ipc.DialAndHandshake(ctx, vault, false, 0, boundedWait)
++	conn, err := ipc.DialAndHandshake(ctx, vault, false, 0, vaulttest.Prazo)
+ 	elapsed := time.Since(start)
+ 
+ 	if err == nil {
+ 		_ = conn.Close()
+ 		t.Fatal("DialAndHandshake() error = nil, esperado erro de context ja cancelado")
+ 	}
+ 	if !errors.Is(err, context.Canceled) {
+ 		t.Fatalf("DialAndHandshake() error = %v, esperado embrulhar context.Canceled", err)
+ 	}
+-	if elapsed > boundedWait {
++	if elapsed > vaulttest.Prazo {
+ 		t.Fatalf("DialAndHandshake com context ja cancelado demorou %s, esperado retorno imediato", elapsed)
+ 	}
+ }
+ 
+ // TestListenRestringePermissaoUnix prova a garantia 4 da Task 91 em Unix:
+ // 0600, so o dono le e escreve. Em Windows a garantia vem da ACL herdada do
+ // diretorio (ipc_windows.go), nao de chmod -- ver
+ // TestListenSocketEmDiretorioDoPerfilNoWindows para o que da para provar la.
+ func TestListenRestringePermissaoUnix(t *testing.T) {
+ 	if runtime.GOOS == "windows" {
+diff --git a/internal/ipc/maxresults_handshake_test.go b/internal/ipc/maxresults_handshake_test.go
+index bc03aba..4d6f248 100644
+--- a/internal/ipc/maxresults_handshake_test.go
++++ b/internal/ipc/maxresults_handshake_test.go
+@@ -1,20 +1,21 @@
+ package ipc_test
+ 
+ import (
+ 	"context"
+ 	"errors"
+ 	"testing"
+ 	"time"
+ 
+ 	"github.com/jonyd/gobsidian/internal/config"
+ 	"github.com/jonyd/gobsidian/internal/ipc"
++	"github.com/jonyd/gobsidian/internal/vaulttest"
+ )
+ 
+ // TestHandshakeRecusaMaxResultsDivergente é o achado M9.
+ //
+ // A flag `--max-results` da ponte era no-op silencioso no modo daemon: não ia
+ // para o spawn e não entrava no handshake, então valia o `cfg` do PRIMEIRO
+ // daemon e a segunda ponte era atendida com um teto que ninguém pediu. É a
+ // mesma classe de `ReadOnlySet`/`DebounceMSSet` — parâmetro aceito que não faz
+ // efeito, e o cliente não tem como saber.
+ //
+@@ -38,24 +39,24 @@ func TestHandshakeRecusaMaxResultsDivergente(t *testing.T) {
+ 		}
+ 		defer func() { _ = c.Close() }()
+ 		// O daemon subiu com teto 50; a ponte abaixo quer 200.
+ 		saudacao := ipc.HandshakeConfig{VaultKey: config.VaultKey(vault), MaxResults: 50}
+ 		if err := ipc.Greet(c, saudacao); err != nil {
+ 			return
+ 		}
+ 		time.Sleep(100 * time.Millisecond)
+ 	}()
+ 
+-	ctx, cancel := context.WithTimeout(context.Background(), boundedWait)
++	ctx, cancel := context.WithTimeout(context.Background(), vaulttest.Prazo)
+ 	defer cancel()
+ 
+-	conn, err := ipc.DialAndHandshake(ctx, vault, false, 200, boundedWait)
++	conn, err := ipc.DialAndHandshake(ctx, vault, false, 200, vaulttest.Prazo)
+ 	if err == nil {
+ 		_ = conn.Close()
+ 		t.Fatal("handshake ACEITOU um daemon com teto diferente: a flag da ponte viraria no-op silencioso")
+ 	}
+ 	if !errors.Is(err, ipc.ErrConfigMismatch) {
+ 		t.Errorf("err = %v, queria ErrConfigMismatch", err)
+ 	}
+ }
+ 
+ // TestHandshakeAceitaMaxResultsIgual é o contrapeso, e sem ele "corrigir" o M9
+@@ -75,19 +76,19 @@ func TestHandshakeAceitaMaxResultsIgual(t *testing.T) {
+ 			return
+ 		}
+ 		defer func() { _ = c.Close() }()
+ 		saudacao := ipc.HandshakeConfig{VaultKey: config.VaultKey(vault), MaxResults: 200}
+ 		if err := ipc.Greet(c, saudacao); err != nil {
+ 			return
+ 		}
+ 		time.Sleep(100 * time.Millisecond)
+ 	}()
+ 
+-	ctx, cancel := context.WithTimeout(context.Background(), boundedWait)
++	ctx, cancel := context.WithTimeout(context.Background(), vaulttest.Prazo)
+ 	defer cancel()
+ 
+-	conn, err := ipc.DialAndHandshake(ctx, vault, false, 200, boundedWait)
++	conn, err := ipc.DialAndHandshake(ctx, vault, false, 200, vaulttest.Prazo)
+ 	if err != nil {
+ 		t.Fatalf("handshake com o MESMO teto foi recusado: %v", err)
+ 	}
+ 	_ = conn.Close()
+ }
+diff --git a/internal/search/cloudonly_update_windows_test.go b/internal/search/cloudonly_update_windows_test.go
+index 105d9b6..c4ff873 100644
+--- a/internal/search/cloudonly_update_windows_test.go
++++ b/internal/search/cloudonly_update_windows_test.go
+@@ -3,75 +3,31 @@
+ package search_test
+ 
+ import (
+ 	"context"
+ 	"os"
+ 	"path/filepath"
+ 	"reflect"
+ 	"sort"
+ 	"testing"
+ 
+-	"golang.org/x/sys/windows"
+-
+ 	"github.com/jonyd/gobsidian/internal/index"
+ 	"github.com/jonyd/gobsidian/internal/search"
+ 	"github.com/jonyd/gobsidian/internal/vault"
++	"github.com/jonyd/gobsidian/internal/vaulttest"
+ )
+ 
+ // conteudoDaNuvem tem termos proprios, que nao aparecem em nenhuma outra nota
+ // dos cofres deste arquivo: se algum deles for indexado, foi porque o
+ // placeholder foi aberto.
+ const conteudoDaNuvem = "# Titulo da nuvem\n\nsesquipedaliano hidratado indevidamente\n"
+ 
+-// marcarSomenteNuvem poe FILE_ATTRIBUTE_OFFLINE e restaura no fim.
+-//
+-// FILE_ATTRIBUTE_RECALL_ON_DATA_ACCESS nao e gravavel por SetFileAttributes — e
+-// o motivo de TestReadNoteCloudOnlyFails estar pulado —, e vault.IsCloudOnly
+-// aceita os dois. So Windows porque o atributo e do NTFS.
+-func marcarSomenteNuvem(t *testing.T, abs string) {
+-	t.Helper()
+-	p, err := windows.UTF16PtrFromString(vault.LongPath(abs))
+-	if err != nil {
+-		t.Fatal(err)
+-	}
+-	if err := windows.SetFileAttributes(p, windows.FILE_ATTRIBUTE_OFFLINE); err != nil {
+-		t.Skipf("nao foi possivel marcar FILE_ATTRIBUTE_OFFLINE: %v", err)
+-	}
+-	t.Cleanup(func() {
+-		_ = windows.SetFileAttributes(p, windows.FILE_ATTRIBUTE_NORMAL)
+-	})
+-}
+-
+-// travarExclusivo segura um handle exclusivo sobre o arquivo e CONFERE que ele
+-// barra uma leitura, devolvendo antes de qualquer assercao depender disso.
+-//
+-// Leitura E escrita: medido nesta maquina, um handle exclusivo que pede so
+-// GENERIC_READ nao barra o os.ReadFile. A conferencia existe porque uma trava
+-// que nao trava tornaria vazia toda prova de "nao abriu".
+-func travarExclusivo(t *testing.T, abs string) {
+-	t.Helper()
+-	p, err := windows.UTF16PtrFromString(vault.LongPath(abs))
+-	if err != nil {
+-		t.Fatal(err)
+-	}
+-	h, err := windows.CreateFile(p, windows.GENERIC_READ|windows.GENERIC_WRITE, 0, nil,
+-		windows.OPEN_EXISTING, windows.FILE_ATTRIBUTE_NORMAL, 0)
+-	if err != nil {
+-		t.Skipf("nao foi possivel abrir o arquivo em modo exclusivo: %v", err)
+-	}
+-	t.Cleanup(func() { _ = windows.CloseHandle(h) })
+-
+-	if _, err := os.ReadFile(abs); err == nil {
+-		t.Fatal("o handle exclusivo nao barrou a leitura; a prova de 'nao abriu' seria vazia")
+-	}
+-}
+-
+ func escreverNota(t *testing.T, root, rel, conteudo string) string {
+ 	t.Helper()
+ 	full := filepath.Join(root, filepath.FromSlash(rel))
+ 	if err := os.MkdirAll(filepath.Dir(full), 0o755); err != nil {
+ 		t.Fatalf("MkdirAll: %v", err)
+ 	}
+ 	if err := os.WriteFile(full, []byte(conteudo), 0o644); err != nil {
+ 		t.Fatalf("WriteFile: %v", err)
+ 	}
+ 	return full
+@@ -91,22 +47,22 @@ func escreverNota(t *testing.T, root, rel, conteudo string) string {
+ //     separados, zero falhas — e a causa NAO foi identificada. A trava fecha a
+ //     janela em que qualquer outro processo poderia mexer no arquivo, e as
+ //     mensagens da guarda abaixo separam as causas para que a proxima
+ //     ocorrencia diga qual foi, em vez de acusar o atributo por padrao.
+ func cofreComPlaceholder(t *testing.T) (*vault.Vault, *index.Index) {
+ 	t.Helper()
+ 	root := t.TempDir()
+ 	escreverNota(t, root, "comum.md", "# Comum\n\ncorpo de uma nota comum\n")
+ 	escreverNota(t, root, "outra.md", "# Outra\n\noutro corpo qualquer\n")
+ 	abs := escreverNota(t, root, "nuvem.md", conteudoDaNuvem)
+-	marcarSomenteNuvem(t, abs)
+-	travarExclusivo(t, abs)
++	vaulttest.MarcarSomenteNuvem(t, abs)
++	vaulttest.TravarExclusivo(t, abs)
+ 
+ 	v, err := vault.New(root)
+ 	if err != nil {
+ 		t.Fatal(err)
+ 	}
+ 	idx := index.New()
+ 	if err := idx.Build(context.Background(), v); err != nil {
+ 		t.Fatalf("Build: %v", err)
+ 	}
+ 
+@@ -146,22 +102,22 @@ func construirComoOBoot(t *testing.T, v *vault.Vault, idx *index.Index) *search.
+ // que a violava: Inverted.Update chamava os.ReadFile sem consultar
+ // vault.IsCloudOnly, e o laco de boot o chama para TODA nota do cofre.
+ //
+ // A prova de que o arquivo nao foi aberto e mecanica: o teste segura um handle
+ // exclusivo e confere que ele barra uma leitura ANTES de afirmar. Com a trava
+ // provada, um Update que abrisse o arquivo devolveria erro de
+ // compartilhamento; ele devolvendo nil e a afirmacao.
+ func TestUpdateNaoAbreNotaSomenteNuvem(t *testing.T) {
+ 	root := t.TempDir()
+ 	abs := escreverNota(t, root, "nuvem.md", conteudoDaNuvem)
+-	marcarSomenteNuvem(t, abs)
+-	travarExclusivo(t, abs)
++	vaulttest.MarcarSomenteNuvem(t, abs)
++	vaulttest.TravarExclusivo(t, abs)
+ 
+ 	v, err := vault.New(root)
+ 	if err != nil {
+ 		t.Fatal(err)
+ 	}
+ 
+ 	inv := search.NewInverted()
+ 	if err := inv.Update(context.Background(), v, "nuvem.md"); err != nil {
+ 		t.Fatalf("Update: %v — o arquivo foi ABERTO, e abrir um placeholder "+
+ 			"dispara download sincrono", err)
+diff --git a/internal/search/snippet_cache_windows_test.go b/internal/search/snippet_cache_windows_test.go
+index e67a4e7..19f6648 100644
+--- a/internal/search/snippet_cache_windows_test.go
++++ b/internal/search/snippet_cache_windows_test.go
+@@ -2,25 +2,24 @@
+ 
+ package search_test
+ 
+ import (
+ 	"context"
+ 	"os"
+ 	"path/filepath"
+ 	"strings"
+ 	"testing"
+ 
+-	"golang.org/x/sys/windows"
+-
+ 	"github.com/jonyd/gobsidian/internal/index"
+ 	"github.com/jonyd/gobsidian/internal/search"
+ 	"github.com/jonyd/gobsidian/internal/vault"
++	"github.com/jonyd/gobsidian/internal/vaulttest"
+ )
+ 
+ // TestSnippetCacheNaoAbreNotaSomenteNuvem prova que o cache não moveu a saída
+ // antecipada do placeholder de nuvem.
+ //
+ // A prova é possível porque vault.IsCloudOnly aceita FILE_ATTRIBUTE_OFFLINE, e
+ // esse atributo — ao contrário de RECALL_ON_DATA_ACCESS, que é o motivo de
+ // TestReadNoteCloudOnlyFails estar pulado — é gravável por SetFileAttributes.
+ // O arquivo no disco tem o termo; se GenerateSnippet chegasse a abri-lo, o
+ // trecho viria preenchido. Ele vindo vazio é a afirmação.
+@@ -29,30 +28,21 @@ import (
+ // cache faria a regra "nunca abre" depender de já ter aberto uma vez.
+ // É teste só de Windows porque o atributo é do NTFS.
+ func TestSnippetCacheNaoAbreNotaSomenteNuvem(t *testing.T) {
+ 	root := t.TempDir()
+ 	const conteudo = "alvo aaaaaaaaaaaaaaaaaaaa"
+ 	caminho := filepath.Join(root, "nuvem.md")
+ 	if err := os.WriteFile(caminho, []byte(conteudo), 0o644); err != nil {
+ 		t.Fatal(err)
+ 	}
+ 
+-	p, err := windows.UTF16PtrFromString(caminho)
+-	if err != nil {
+-		t.Fatal(err)
+-	}
+-	if err := windows.SetFileAttributes(p, windows.FILE_ATTRIBUTE_OFFLINE); err != nil {
+-		t.Skipf("nao foi possivel marcar FILE_ATTRIBUTE_OFFLINE: %v", err)
+-	}
+-	t.Cleanup(func() {
+-		_ = windows.SetFileAttributes(p, windows.FILE_ATTRIBUTE_NORMAL)
+-	})
++	vaulttest.MarcarSomenteNuvem(t, caminho)
+ 
+ 	v, err := vault.New(root)
+ 	if err != nil {
+ 		t.Fatal(err)
+ 	}
+ 	idx := index.New()
+ 	if err := idx.Build(context.Background(), v); err != nil {
+ 		t.Fatal(err)
+ 	}
+ 
+diff --git a/internal/service/cloudonly_replace_windows_test.go b/internal/service/cloudonly_replace_windows_test.go
+index 36b753d..d1a64bf 100644
+--- a/internal/service/cloudonly_replace_windows_test.go
++++ b/internal/service/cloudonly_replace_windows_test.go
+@@ -1,25 +1,24 @@
+ //go:build windows
+ 
+ package service_test
+ 
+ import (
+ 	"context"
+ 	"os"
+ 	"path/filepath"
+ 	"testing"
+ 
+-	"golang.org/x/sys/windows"
+-
+ 	"github.com/jonyd/gobsidian/internal/index"
+ 	"github.com/jonyd/gobsidian/internal/service"
+ 	"github.com/jonyd/gobsidian/internal/vault"
++	"github.com/jonyd/gobsidian/internal/vaulttest"
+ )
+ 
+ // TestToolsDepoisDeReplaceEmNotaSomenteNuvem fixa a MUDANCA DE COMPORTAMENTO
+ // DE TOOL que a Task 95 trouxe.
+ //
+ // Antes, index.Replace registrava um `.md` somente-nuvem como Asset. Um evento
+ // do watcher sobre esse arquivo REBAIXAVA a nota que o boot tinha indexado:
+ // idx.Get passava a devolver false, e note_read, note_metadata e note_list
+ // respondiam como se o arquivo nao existisse. Agora ele continua Note com
+ // CloudOnly, e as tres respondem sobre uma nota que existe e nao pode ser lida.
+@@ -30,54 +29,38 @@ import (
+ // Nenhuma das tres pode ABRIR o arquivo: abrir placeholder dispara download
+ // sincrono. O teste segura um handle exclusivo sobre ele e confere que o handle
+ // barra a leitura antes de afirmar qualquer coisa.
+ func TestToolsDepoisDeReplaceEmNotaSomenteNuvem(t *testing.T) {
+ 	root := t.TempDir()
+ 	caminho := filepath.Join(root, "nuvem.md")
+ 	if err := os.WriteFile(caminho, []byte("# Titulo da nuvem\n\ncorpo\n"), 0o644); err != nil {
+ 		t.Fatal(err)
+ 	}
+ 
+-	p, err := windows.UTF16PtrFromString(vault.LongPath(caminho))
+-	if err != nil {
+-		t.Fatal(err)
+-	}
+-	if err := windows.SetFileAttributes(p, windows.FILE_ATTRIBUTE_OFFLINE); err != nil {
+-		t.Skipf("nao foi possivel marcar FILE_ATTRIBUTE_OFFLINE: %v", err)
+-	}
+-	t.Cleanup(func() {
+-		_ = windows.SetFileAttributes(p, windows.FILE_ATTRIBUTE_NORMAL)
+-	})
++	vaulttest.MarcarSomenteNuvem(t, caminho)
+ 
+ 	v, err := vault.New(root)
+ 	if err != nil {
+ 		t.Fatal(err)
+ 	}
+ 	idx := index.New()
+ 	if err := idx.Build(context.Background(), v); err != nil {
+ 		t.Fatal(err)
+ 	}
+ 	if n, ok := idx.Get("nuvem.md"); !ok || !n.CloudOnly {
+ 		t.Fatal("a nota nao ficou marcada CloudOnly; o atributo nao pegou")
+ 	}
+ 
+ 	// Handle exclusivo: leitura E escrita, medido como o unico modo que barra o
+-	// os.Open do vault.ReadAll nesta maquina.
+-	h, err := windows.CreateFile(p, windows.GENERIC_READ|windows.GENERIC_WRITE, 0, nil,
+-		windows.OPEN_EXISTING, windows.FILE_ATTRIBUTE_NORMAL, 0)
+-	if err != nil {
+-		t.Skipf("nao foi possivel abrir o arquivo em modo exclusivo: %v", err)
+-	}
+-	t.Cleanup(func() { _ = windows.CloseHandle(h) })
+-	if _, err := os.ReadFile(caminho); err == nil {
+-		t.Fatal("o handle exclusivo nao barrou a leitura; a prova de 'nao abriu' seria vazia")
+-	}
++	// os.Open do vault.ReadAll nesta maquina. O helper de vaulttest confere a
++	// trava antes de devolver.
++	vaulttest.TravarExclusivo(t, caminho)
+ 
+ 	// O evento do watcher.
+ 	if err := idx.Replace(context.Background(), v, "nuvem.md"); err != nil {
+ 		t.Fatalf("Replace: %v — o arquivo foi aberto", err)
+ 	}
+ 
+ 	svc := service.New(v, idx, nil, nil, service.Options{})
+ 
+ 	_, err = svc.ReadNote(context.Background(), service.ReadRequest{Path: "nuvem.md"})
+ 	if err == nil {
+diff --git a/internal/service/erro_engolido_windows_test.go b/internal/service/erro_engolido_windows_test.go
+index 92bb4bd..0f46eaf 100644
+--- a/internal/service/erro_engolido_windows_test.go
++++ b/internal/service/erro_engolido_windows_test.go
+@@ -2,47 +2,26 @@
+ 
+ package service_test
+ 
+ import (
+ 	"context"
+ 	"os"
+ 	"path/filepath"
+ 	"strings"
+ 	"testing"
+ 
+-	"golang.org/x/sys/windows"
+-
+ 	"github.com/jonyd/gobsidian/internal/index"
+ 	"github.com/jonyd/gobsidian/internal/service"
+ 	"github.com/jonyd/gobsidian/internal/vault"
++	"github.com/jonyd/gobsidian/internal/vaulttest"
+ )
+ 
+-// travaExclusiva impede leitura E remoção do arquivo, como um aplicativo que o
+-// mantém aberto.
+-//
+-// O acesso pedido importa, e foi medido em 2026-08-26: `GENERIC_READ` com
+-// `share=0` bloqueia só o remove; `GENERIC_READ|GENERIC_WRITE` bloqueia os
+-// dois. Aqui queremos os dois.
+-func travaExclusiva(t *testing.T, abs string) {
+-	t.Helper()
+-	p, err := windows.UTF16PtrFromString(abs)
+-	if err != nil {
+-		t.Fatal(err)
+-	}
+-	h, err := windows.CreateFile(p, windows.GENERIC_READ|windows.GENERIC_WRITE, 0, nil,
+-		windows.OPEN_EXISTING, windows.FILE_ATTRIBUTE_NORMAL, 0)
+-	if err != nil {
+-		t.Skipf("nao foi possivel travar %q com acesso exclusivo: %v", abs, err)
+-	}
+-	t.Cleanup(func() { _ = windows.CloseHandle(h) })
+-}
+-
+ // TestDeleteToTrashNaoMenteQuandoORemoveFalha cobre o B5.
+ //
+ // `_ = os.Remove(absPath)` descartava o erro depois de copiar para a lixeira.
+ // Nota travada pelo Obsidian ⇒ `Deleted: true` com a nota existindo em DOIS
+ // lugares: o caminho original e a lixeira. É a mesma família do A1, no outro
+ // caminho de escrita.
+ func TestDeleteToTrashNaoMenteQuandoORemoveFalha(t *testing.T) {
+ 	svc, dir := montaCofreParaMove(t)
+ 	origem := filepath.Join(dir, "origem.md")
+ 
+@@ -52,84 +31,85 @@ func TestDeleteToTrashNaoMenteQuandoORemoveFalha(t *testing.T) {
+ 	if err != nil {
+ 		t.Fatal(err)
+ 	}
+ 	defer func() { _ = f.Close() }()
+ 
+ 	res, err := svc.DeleteNote(context.Background(), service.DeleteNoteRequest{
+ 		Path:    "origem.md",
+ 		ToTrash: true,
+ 	})
+ 
+-	_, errOrigem := os.Stat(origem)
+-	if errOrigem == nil && err == nil && res.Deleted {
+-		t.Errorf("Deleted=true com a nota ainda no caminho original: ela existe na "+
++	// Guarda da montagem, e so ela: o handle aberto sem compartilhar exclusao
++	// faz o os.Remove falhar, entao a origem TEM de continuar no disco. Com
++	// isso afirmado aqui, as duas assercoes seguintes ficam incondicionais —
++	// enquanto elas eram guardadas por `errOrigem == nil && err == nil && ...`,
++	// um cenario que nao se montasse passava calado, que e o defeito que esta
++	// tarefa remove.
++	if _, errOrigem := os.Stat(origem); errOrigem != nil {
++		t.Fatalf("cenario invalido: a origem sumiu do disco apesar do handle aberto: %v", errOrigem)
++	}
++	if err == nil {
++		t.Fatalf("DeleteNote devolveu nil com a nota ainda no caminho original: ela existe na "+
+ 			"lixeira E em %q (res=%+v)", origem, res)
+ 	}
+ 	// Desde 2026-09-02 o erro vem de moverCorpo, a conta unica do move, e
+ 	// nomeia o destino pelo caminho (".trash/origem.md") em vez da palavra
+ 	// "lixeira". A garantia e a mesma — o erro diz onde a copia esta.
+-	if err != nil && !strings.Contains(strings.ToLower(err.Error()), ".trash") {
++	if !strings.Contains(strings.ToLower(err.Error()), ".trash") {
+ 		t.Errorf("o erro nao explica que a copia na lixeira existe: %v", err)
+ 	}
+ }
+ 
+ // TestDeleteNoteToTrashNaoBaixaPlaceholder: com o rename recusado, o fallback
+ // de copia de moverCorpo faria os.ReadFile num placeholder de nuvem — o
+ // download sincrono que a regra "somente-nuvem nunca e aberto" proibe.
+ func TestDeleteNoteToTrashNaoBaixaPlaceholder(t *testing.T) {
+ 	root := t.TempDir()
+ 	caminho := filepath.Join(root, "nuvem.md")
+ 	if err := os.WriteFile(caminho, []byte("# Nuvem\n\ncorpo\n"), 0o644); err != nil {
+ 		t.Fatal(err)
+ 	}
+-	p, err := windows.UTF16PtrFromString(vault.LongPath(caminho))
+-	if err != nil {
+-		t.Fatal(err)
+-	}
+-	if err := windows.SetFileAttributes(p, windows.FILE_ATTRIBUTE_OFFLINE); err != nil {
+-		t.Skipf("nao foi possivel marcar FILE_ATTRIBUTE_OFFLINE: %v", err)
+-	}
+-	t.Cleanup(func() { _ = windows.SetFileAttributes(p, windows.FILE_ATTRIBUTE_NORMAL) })
++	vaulttest.MarcarSomenteNuvem(t, caminho)
+ 
+ 	v, err := vault.New(root)
+ 	if err != nil {
+ 		t.Fatal(err)
+ 	}
+ 	idx := index.New()
+ 	if err := idx.Build(context.Background(), v); err != nil {
+ 		t.Fatal(err)
+ 	}
+ 	if n, ok := idx.Get("nuvem.md"); !ok || !n.CloudOnly {
+ 		t.Fatal("a nota nao ficou CloudOnly; o atributo nao pegou")
+ 	}
+ 	// Handle exclusivo: os.Rename recusa, e o fallback de copia e forcado.
+-	travaExclusiva(t, caminho)
++	vaulttest.TravarExclusivo(t, caminho)
+ 	svc := service.New(v, idx, nil, nil, service.Options{})
+ 
+ 	_, err = svc.DeleteNote(context.Background(), service.DeleteNoteRequest{Path: "nuvem.md", ToTrash: true})
+ 	if err == nil {
+ 		t.Fatal("DeleteNote to_trash devolveu sucesso sobre um placeholder com rename recusado: o fallback leu o arquivo")
+ 	}
+ 	if got := service.CodeOf(err); got != service.CodeCloudOnlyFile {
+ 		t.Fatalf("codigo = %s, quer %s: %v", got, service.CodeCloudOnlyFile, err)
+ 	}
+ }
+ 
+ // TestMoveDryRunNaoApresentaDiffVazioComoResultado cobre o B17.
+ //
+ // `fromRaw, _ := os.ReadFile(absFrom)` engolia o erro de leitura, e o dry-run
+ // seguia produzindo um diff de `""` contra `""` — vazio, mas apresentado como
+ // resultado legítimo. Quem lê um dry-run vazio conclui que a operação não muda
+ // nada, que é o oposto do que aconteceria.
+ func TestMoveDryRunNaoApresentaDiffVazioComoResultado(t *testing.T) {
+ 	svc, dir := montaCofreParaMove(t)
+-	travaExclusiva(t, filepath.Join(dir, "origem.md"))
++	vaulttest.TravarExclusivo(t, filepath.Join(dir, "origem.md"))
+ 
+ 	res, err := svc.MoveNote(context.Background(), service.MoveNoteRequest{
+ 		From:        "origem.md",
+ 		To:          "destino.md",
+ 		UpdateLinks: true,
+ 		DryRun:      true,
+ 	})
+ 	if err == nil {
+ 		t.Errorf("dry-run devolveu sucesso com a origem ilegivel; diffs=%v", res.Diffs)
+ 	}
+diff --git a/internal/service/move_atomico_windows_test.go b/internal/service/move_atomico_windows_test.go
+index 05513c3..7f6c0a4 100644
+--- a/internal/service/move_atomico_windows_test.go
++++ b/internal/service/move_atomico_windows_test.go
+@@ -2,25 +2,24 @@
+ 
+ package service_test
+ 
+ import (
+ 	"context"
+ 	"os"
+ 	"path/filepath"
+ 	"strings"
+ 	"testing"
+ 
+-	"golang.org/x/sys/windows"
+-
+ 	"github.com/jonyd/gobsidian/internal/index"
+ 	"github.com/jonyd/gobsidian/internal/service"
+ 	"github.com/jonyd/gobsidian/internal/vault"
++	"github.com/jonyd/gobsidian/internal/vaulttest"
+ )
+ 
+ // montaCofreParaMove cria um cofre com a nota a mover e uma nota que a cita.
+ func montaCofreParaMove(t *testing.T) (*service.Service, string) {
+ 	t.Helper()
+ 	dir := t.TempDir()
+ 
+ 	if err := os.WriteFile(filepath.Join(dir, "origem.md"),
+ 		[]byte("# Origem\n\ncorpo da nota.\n"), 0o644); err != nil {
+ 		t.Fatal(err)
+@@ -66,29 +65,33 @@ func TestMoveNaoReportaSucessoComNotaDuplicada(t *testing.T) {
+ 		From:        "origem.md",
+ 		To:          "destino.md",
+ 		UpdateLinks: true,
+ 	})
+ 
+ 	_, errOrigem := os.Stat(origem)
+ 	_, errDestino := os.Stat(filepath.Join(dir, "destino.md"))
+ 	origemExiste := errOrigem == nil
+ 	destinoExiste := errDestino == nil
+ 
+-	if origemExiste && destinoExiste && err == nil {
+-		t.Errorf("SUCESSO reportado com a nota DUPLICADA: origem e destino existem "+
+-			"e MoveNote devolveu nil (res=%+v)", res)
+-	}
+-	if origemExiste && destinoExiste && err != nil {
+-		t.Logf("estado duplicado, mas o erro foi reportado: %v", err)
++	// Guarda da montagem, e so ela. Medido nesta maquina em 2026-09-04: com o
++	// handle aberto, o os.Rename e o os.Remove da origem falham e a copia ja
++	// esta no destino, entao os DOIS caminhos existem. Afirmar isso aqui e o
++	// que torna a assercao seguinte incondicional — enquanto ela era guardada
++	// por `origemExiste && destinoExiste && err == nil`, um cenario que nao se
++	// montasse passava sem afirmar coisa nenhuma sobre o A1.
++	if !origemExiste || !destinoExiste {
++		t.Fatalf("cenario invalido: com o handle aberto a nota devia ficar nos dois "+
++			"caminhos; origem existe=%v, destino existe=%v", origemExiste, destinoExiste)
+ 	}
+-	if err == nil && origemExiste {
+-		t.Error("MoveNote devolveu nil mas a origem continua no disco")
++	if err == nil {
++		t.Fatalf("SUCESSO reportado com a nota DUPLICADA: origem e destino existem "+
++			"e MoveNote devolveu nil (res=%+v)", res)
+ 	}
+ }
+ 
+ // TestMoveNaoReescreveCitantesAntesDeMoverOCorpo cobre a segunda metade do A1.
+ //
+ // Os citantes eram reescritos ANTES de a nota se mover. Falhando a movimentação,
+ // os links já estavam PERSISTIDOS EM DISCO apontando para um destino que não
+ // existe — sem compensação, e com o `raw` original em mãos no loop.
+ //
+ // O cenário precisa falhar DEPOIS do laço de citantes, e por isso trava a
+@@ -99,33 +102,23 @@ func TestMoveNaoReportaSucessoComNotaDuplicada(t *testing.T) {
+ // O acesso pedido importa, e foi MEDIDO em 2026-08-26 nesta máquina:
+ //
+ //	GENERIC_READ        + share=0 -> os.ReadFile OK,   os.Remove ERRO
+ //	GENERIC_READ|WRITE  + share=0 -> os.ReadFile ERRO, os.Remove ERRO
+ //
+ // Só o segundo bloqueia a leitura, que é o que este cenário precisa. O primeiro
+ // é o que o outro teste deste arquivo usa, porque lá o alvo é o `os.Remove`.
+ func TestMoveNaoReescreveCitantesAntesDeMoverOCorpo(t *testing.T) {
+ 	svc, dir := montaCofreParaMove(t)
+ 
+-	p, err := windows.UTF16PtrFromString(filepath.Join(dir, "origem.md"))
+-	if err != nil {
+-		t.Fatal(err)
+-	}
+-	h, err := windows.CreateFile(p, windows.GENERIC_READ|windows.GENERIC_WRITE,
+-		0 /* sem compartilhamento */, nil,
+-		windows.OPEN_EXISTING, windows.FILE_ATTRIBUTE_NORMAL, 0)
+-	if err != nil {
+-		t.Skipf("nao foi possivel travar a origem com acesso exclusivo: %v", err)
+-	}
+-	defer func() { _ = windows.CloseHandle(h) }()
++	vaulttest.TravarExclusivo(t, filepath.Join(dir, "origem.md"))
+ 
+-	_, err = svc.MoveNote(context.Background(), service.MoveNoteRequest{
++	_, err := svc.MoveNote(context.Background(), service.MoveNoteRequest{
+ 		From:        "origem.md",
+ 		To:          "destino.md",
+ 		UpdateLinks: true,
+ 	})
+ 	if err == nil {
+ 		t.Fatal("MoveNote devolveu nil com a origem travada para leitura")
+ 	}
+ 
+ 	citante, errLer := os.ReadFile(filepath.Join(dir, "citante.md"))
+ 	if errLer != nil {
+diff --git a/internal/vault/walk_raiz_windows_test.go b/internal/vault/walk_raiz_windows_test.go
+index 134f193..408ebcd 100644
+--- a/internal/vault/walk_raiz_windows_test.go
++++ b/internal/vault/walk_raiz_windows_test.go
+@@ -1,52 +1,41 @@
+ //go:build windows
+ 
+-package vault
++package vault_test
+ 
+ import (
+ 	"context"
+ 	"os"
+ 	"path/filepath"
+ 	"testing"
+ 
+-	"golang.org/x/sys/windows"
++	"github.com/jonyd/gobsidian/internal/vault"
++	"github.com/jonyd/gobsidian/internal/vaulttest"
+ )
+ 
+-// travarDiretorioExclusivo abre dir com dwShareMode = 0. Enquanto o handle
+-// vive, ReadDir(dir) falha com ERROR_SHARING_VIOLATION e Lstat(dir) passa —
+-// a segunda forma de falha da raiz que FalhaNaRaiz existe para reconhecer.
+-// Provado nesta maquina em 2026-09-02; o teste confere de novo e pula, com o
+-// motivo, se o SO desta vez deixar ler.
+-func travarDiretorioExclusivo(t *testing.T, dir string) {
+-	t.Helper()
+-	p, err := windows.UTF16PtrFromString(dir)
+-	if err != nil {
+-		t.Fatal(err)
+-	}
+-	h, err := windows.CreateFile(p, windows.GENERIC_READ|windows.GENERIC_WRITE, 0, nil,
+-		windows.OPEN_EXISTING, windows.FILE_FLAG_BACKUP_SEMANTICS, 0)
+-	if err != nil {
+-		t.Fatalf("CreateFile exclusivo em %q: %v", dir, err)
+-	}
+-	t.Cleanup(func() { _ = windows.CloseHandle(h) })
+-	if _, err := os.ReadDir(dir); err == nil {
+-		t.Skip("handle exclusivo NAO impediu ReadDir nesta maquina; o cenario nao se reproduz")
+-	}
+-}
+-
++// TestWalkNaoEngoleRaizQueExisteMasNaoLe cobre a segunda forma de falha da
++// raiz, a que FalhaNaRaiz existe para reconhecer: com um handle exclusivo sobre
++// o diretorio, Lstat(raiz) passa e ReadDir(raiz) falha com
++// ERROR_SHARING_VIOLATION. Um cofre inacessivel nao pode responder como cofre
++// vazio.
++//
++// A trava vem de internal/vaulttest, que prova que ReadDir de fato falha antes
++// de devolver — sem essa prova o teste percorreria um diretorio legivel e
++// passaria sem exercitar nada. O arquivo virou package vault_test por isso: o
++// helper importa vault, e so o pacote de teste externo pode importa-lo de volta.
+ func TestWalkNaoEngoleRaizQueExisteMasNaoLe(t *testing.T) {
+ 	root := t.TempDir()
+ 	if err := os.WriteFile(filepath.Join(root, "a.md"), []byte("# a"), 0o644); err != nil {
+ 		t.Fatal(err)
+ 	}
+-	v, err := New(root)
++	v, err := vault.New(root)
+ 	if err != nil {
+ 		t.Fatal(err)
+ 	}
+-	travarDiretorioExclusivo(t, root)
++	vaulttest.TravarDiretorioExclusivo(t, root)
+ 
+ 	var vistos int
+-	err = v.Walk(context.Background(), func(Entry) error { vistos++; return nil })
++	err = v.Walk(context.Background(), func(vault.Entry) error { vistos++; return nil })
+ 	if err == nil {
+ 		t.Fatalf("Walk devolveu nil com %d entradas para uma raiz que ReadDir nao le: cofre inacessivel virou cofre vazio", vistos)
+ 	}
+ }
+diff --git a/internal/vaulttest/doc.go b/internal/vaulttest/doc.go
+new file mode 100644
+index 0000000..03a6e5a
+--- /dev/null
++++ b/internal/vaulttest/doc.go
+@@ -0,0 +1,12 @@
++// Package vaulttest oferece aos testes de outros pacotes as condicoes de
++// ambiente que o produto promete respeitar e que so o sistema operacional
++// pode criar: um arquivo ou diretorio que NAO pode ser aberto, um arquivo
++// somente-nuvem, e o prazo unico de espera dos testes.
++//
++// Cada helper PROVA a condicao antes de devolver. Um handle exclusivo que nao
++// barra a leitura tornaria vazia toda assercao de "nao abriu" — foi o que
++// aconteceu quando cinco copias divergiram e so uma conferia.
++//
++// Importado apenas por arquivos _test.go. Importa vault e mais nada do
++// dominio, para nunca fechar ciclo com quem o usa.
++package vaulttest
+diff --git a/internal/vaulttest/exclusivo_other.go b/internal/vaulttest/exclusivo_other.go
+new file mode 100644
+index 0000000..308781b
+--- /dev/null
++++ b/internal/vaulttest/exclusivo_other.go
+@@ -0,0 +1,19 @@
++//go:build !windows
++
++package vaulttest
++
++import "testing"
++
++// TravarExclusivo nao existe fora do Windows: POSIX nao tem share mode. O
++// teste que depende dele pula, e o nome do pulo diz por que.
++func TravarExclusivo(t testing.TB, _ string) {
++	t.Helper()
++	t.Skip("handle exclusivo e semantica do Windows")
++}
++
++// TravarDiretorioExclusivo pula pelo mesmo motivo: em POSIX um diretorio
++// aberto por alguem nao deixa de ser legivel por mais ninguem.
++func TravarDiretorioExclusivo(t testing.TB, _ string) {
++	t.Helper()
++	t.Skip("handle exclusivo e semantica do Windows")
++}
+diff --git a/internal/vaulttest/exclusivo_windows.go b/internal/vaulttest/exclusivo_windows.go
+new file mode 100644
+index 0000000..e44d60f
+--- /dev/null
++++ b/internal/vaulttest/exclusivo_windows.go
+@@ -0,0 +1,52 @@
++//go:build windows
++
++package vaulttest
++
++import (
++	"os"
++	"testing"
++
++	"golang.org/x/sys/windows"
++
++	"github.com/jonyd/gobsidian/internal/vault"
++)
++
++// TravarExclusivo segura um handle exclusivo sobre o arquivo ate o fim do
++// teste e CONFERE que ele barra os.ReadFile antes de devolver.
++//
++// Leitura E escrita: um handle exclusivo que pede so GENERIC_READ nao barra
++// o os.ReadFile (medido; ver docs/ARMADILHAS.md).
++func TravarExclusivo(t testing.TB, abs string) {
++	t.Helper()
++	h := abrirExclusivo(t, abs, 0)
++	t.Cleanup(func() { _ = windows.CloseHandle(h) })
++	if _, err := os.ReadFile(abs); err == nil {
++		t.Fatalf("vaulttest: o handle exclusivo nao barrou a leitura de %s; a prova de 'nao abriu' seria vazia", abs)
++	}
++}
++
++// TravarDiretorioExclusivo e o equivalente para diretorio: com share mode 0 o
++// os.ReadDir falha, que e a condicao que vault.Walk e o watcher precisam
++// distinguir de "diretorio vazio".
++func TravarDiretorioExclusivo(t testing.TB, abs string) {
++	t.Helper()
++	h := abrirExclusivo(t, abs, windows.FILE_FLAG_BACKUP_SEMANTICS)
++	t.Cleanup(func() { _ = windows.CloseHandle(h) })
++	if _, err := os.ReadDir(abs); err == nil {
++		t.Fatalf("vaulttest: o handle exclusivo nao barrou a listagem de %s", abs)
++	}
++}
++
++func abrirExclusivo(t testing.TB, abs string, flags uint32) windows.Handle {
++	t.Helper()
++	p, err := windows.UTF16PtrFromString(vault.LongPath(abs))
++	if err != nil {
++		t.Fatal(err)
++	}
++	h, err := windows.CreateFile(p, windows.GENERIC_READ|windows.GENERIC_WRITE, 0, nil,
++		windows.OPEN_EXISTING, windows.FILE_ATTRIBUTE_NORMAL|flags, 0)
++	if err != nil {
++		t.Skipf("vaulttest: nao foi possivel abrir %s em modo exclusivo: %v", abs, err)
++	}
++	return h
++}
+diff --git a/internal/vaulttest/exclusivo_windows_test.go b/internal/vaulttest/exclusivo_windows_test.go
+new file mode 100644
+index 0000000..f2bb564
+--- /dev/null
++++ b/internal/vaulttest/exclusivo_windows_test.go
+@@ -0,0 +1,46 @@
++//go:build windows
++
++package vaulttest_test
++
++import (
++	"os"
++	"path/filepath"
++	"testing"
++
++	"github.com/jonyd/gobsidian/internal/vaulttest"
++)
++
++// A prova dentro do helper e o que o pacote vende. Este teste confere que ela
++// existe: depois de TravarExclusivo, a leitura falha; depois do Cleanup, volta
++// a funcionar (o handle foi fechado e nao vazou para o proximo teste).
++func TestTravarExclusivoBarraLeituraEDevolveNoCleanup(t *testing.T) {
++	abs := filepath.Join(t.TempDir(), "a.md")
++	if err := os.WriteFile(abs, []byte("x"), 0o644); err != nil {
++		t.Fatal(err)
++	}
++	t.Run("travado", func(t *testing.T) {
++		vaulttest.TravarExclusivo(t, abs)
++		if _, err := os.ReadFile(abs); err == nil {
++			t.Fatal("leitura passou com handle exclusivo aberto")
++		}
++	})
++	if _, err := os.ReadFile(abs); err != nil {
++		t.Fatalf("depois do Cleanup a leitura devia voltar: %v", err)
++	}
++}
++
++func TestTravarDiretorioExclusivoBarraListagem(t *testing.T) {
++	dir := filepath.Join(t.TempDir(), "sub")
++	if err := os.Mkdir(dir, 0o755); err != nil {
++		t.Fatal(err)
++	}
++	t.Run("travado", func(t *testing.T) {
++		vaulttest.TravarDiretorioExclusivo(t, dir)
++		if _, err := os.ReadDir(dir); err == nil {
++			t.Fatal("ReadDir passou com handle exclusivo aberto")
++		}
++	})
++	if _, err := os.ReadDir(dir); err != nil {
++		t.Fatalf("depois do Cleanup a listagem devia voltar: %v", err)
++	}
++}
+diff --git a/internal/vaulttest/prazo.go b/internal/vaulttest/prazo.go
+new file mode 100644
+index 0000000..a4747e4
+--- /dev/null
++++ b/internal/vaulttest/prazo.go
+@@ -0,0 +1,9 @@
++package vaulttest
++
++import "time"
++
++// Prazo e o unico limite de espera dos testes que aguardam algo assincrono
++// (socket, handshake, desligamento). Um defeito real nao pode travar
++// "go test -race ./..." ate o timeout de 10 minutos; e tres pacotes com tres
++// valores (2 s, 3 s, 5 s) eram tres respostas para a mesma pergunta.
++const Prazo = 5 * time.Second
+diff --git a/internal/vaulttest/somentenuvem_other.go b/internal/vaulttest/somentenuvem_other.go
+new file mode 100644
+index 0000000..62341ae
+--- /dev/null
++++ b/internal/vaulttest/somentenuvem_other.go
+@@ -0,0 +1,13 @@
++//go:build !windows
++
++package vaulttest
++
++import "testing"
++
++// MarcarSomenteNuvem nao tem equivalente fora do Windows: FILE_ATTRIBUTE_OFFLINE
++// e atributo NTFS, e vault.IsCloudOnly devolve false por construcao nos outros
++// sistemas — nao ha condicao para montar.
++func MarcarSomenteNuvem(t testing.TB, _ string) {
++	t.Helper()
++	t.Skip("FILE_ATTRIBUTE_OFFLINE e atributo NTFS")
++}
+diff --git a/internal/vaulttest/somentenuvem_windows.go b/internal/vaulttest/somentenuvem_windows.go
+new file mode 100644
+index 0000000..07a604b
+--- /dev/null
++++ b/internal/vaulttest/somentenuvem_windows.go
+@@ -0,0 +1,37 @@
++//go:build windows
++
++package vaulttest
++
++import (
++	"testing"
++
++	"golang.org/x/sys/windows"
++
++	"github.com/jonyd/gobsidian/internal/vault"
++)
++
++// MarcarSomenteNuvem poe FILE_ATTRIBUTE_OFFLINE no arquivo, restaura NORMAL no
++// fim do teste, e CONFERE que vault.IsCloudOnly passou a responder verdadeiro
++// antes de devolver.
++//
++// E o unico atributo que serve: FILE_ATTRIBUTE_RECALL_ON_DATA_ACCESS nao e
++// gravavel por SetFileAttributes — e o motivo de TestReadNoteCloudOnlyFails
++// estar pulado —, e vault.IsCloudOnly aceita os dois. So Windows porque o
++// atributo e do NTFS; fora dele IsCloudOnly devolve false por construcao e nao
++// ha condicao para montar.
++func MarcarSomenteNuvem(t testing.TB, abs string) {
++	t.Helper()
++	p, err := windows.UTF16PtrFromString(vault.LongPath(abs))
++	if err != nil {
++		t.Fatal(err)
++	}
++	if err := windows.SetFileAttributes(p, windows.FILE_ATTRIBUTE_OFFLINE); err != nil {
++		t.Skipf("vaulttest: nao foi possivel marcar FILE_ATTRIBUTE_OFFLINE em %s: %v", abs, err)
++	}
++	t.Cleanup(func() {
++		_ = windows.SetFileAttributes(p, windows.FILE_ATTRIBUTE_NORMAL)
++	})
++	if !vault.IsCloudOnly(abs) {
++		t.Fatalf("vaulttest: FILE_ATTRIBUTE_OFFLINE nao fez vault.IsCloudOnly(%s) responder verdadeiro", abs)
++	}
++}

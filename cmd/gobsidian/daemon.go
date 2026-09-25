@@ -8,6 +8,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"github.com/jonyduque/Gobsidian/internal/textos"
 	"io"
 	"log/slog"
 	"os"
@@ -30,7 +31,7 @@ func newDaemonCmd() *cobra.Command {
 
 	cmd := &cobra.Command{
 		Use:    "daemon",
-		Short:  "Roda o daemon de cofre compartilhado (uso interno da ponte)",
+		Short:  textos.ResumoDaemon,
 		Hidden: true,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			flags.ReadOnlySet = cmd.Flags().Changed("read-only")
@@ -42,7 +43,7 @@ func newDaemonCmd() *cobra.Command {
 				return err
 			}
 			if idleSeconds < 1 {
-				return fmt.Errorf("--idle-seconds precisa ser >= 1 (recebido %d)", idleSeconds)
+				return fmt.Errorf(textos.ErroIdleSeconds, idleSeconds)
 			}
 
 			log, closeLog, err := novoLoggerDoDaemon(cfg.VaultPath, cfg.LogLevel)

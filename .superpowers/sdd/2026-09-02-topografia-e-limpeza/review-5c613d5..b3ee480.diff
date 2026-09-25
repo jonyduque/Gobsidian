@@ -1,0 +1,1839 @@
+b3ee480 docs: final pass -- stale references after the boot/vault/tag moves
+ada4897 fix(mcpsrv): the served schema says what tags matches
+cd61624 fix(cli): doctor no longer declares --debounce-ms, which nothing read
+4627ea7 docs(sdd): record the final whole-branch review and the rulings on its findings
+ CLAUDE.md                                        |  5 ++-
+ README.md                                        |  2 +-
+ cmd/gobsidian/cli_subcommands_test.go            |  6 +++
+ cmd/gobsidian/doctor.go                          |  2 -
+ docs/ARCHITECTURE.md                             | 32 ++++++++++---
+ docs/ESTADO.md                                   |  2 +-
+ docs/ESTRUTURA.md                                | 13 +++---
+ docs/OPERACAO.md                                 | 33 ++++++++------
+ docs/SUGESTOES.md                                | 26 +++++++----
+ docs/TOOLS.md                                    | 30 ++++++++-----
+ docs/segregacao.md                               | 26 +++++++----
+ docs/wiki/Home.md                                |  4 +-
+ docs/wiki/_wiki/manifest.json                    |  1 -
+ docs/wiki/concepts/camadas-e-fronteiras.md       | 11 +++--
+ docs/wiki/decisions/decisoes-fechadas.md         |  2 +-
+ docs/wiki/features/escrita.md                    |  6 +--
+ docs/wiki/flows/boot.md                          | 22 ++++++---
+ docs/wiki/flows/encerramento.md                  | 12 +++--
+ docs/wiki/overview/onde-ficam-os-dados.md        |  6 +--
+ internal/boot/doc.go                             |  5 ++-
+ internal/boot/montar.go                          |  7 +++
+ internal/daemon/daemon.go                        |  3 +-
+ internal/daemon/lock.go                          |  6 ++-
+ internal/index/persist.go                        |  2 +-
+ internal/mcpsrv/schema_params_test.go            | 57 ++++++++++++++++++++++++
+ internal/mcpsrv/tools_read.go                    |  4 +-
+ internal/search/cloudonly_update_windows_test.go |  8 ++--
+ internal/search/inverted.go                      | 13 +++---
+ internal/search/mmap.go                          |  4 +-
+ internal/search/persist_test.go                  |  4 +-
+ internal/search/update_bench_test.go             |  4 +-
+ internal/service/search_lazy.go                  |  5 ++-
+ internal/service/search_lazy_test.go             |  2 +-
+ internal/watcher/counters.go                     |  4 +-
+ 34 files changed, 260 insertions(+), 109 deletions(-)
+diff --git a/CLAUDE.md b/CLAUDE.md
+index d8c2baa..2125e22 100644
+--- a/CLAUDE.md
++++ b/CLAUDE.md
+@@ -54,21 +54,24 @@ que um recém-chegado as faz. Cita a normativa; não a recopia. Página com
+ lugar do seu contexto.
+ 
+ ---
+ 
+ ## Estrutura do projeto
+ 
+ ```
+ cmd/gobsidian/     entrypoint fino e subcomandos: serve, doctor, index, search,
+                    inspect, daemon (oculto). ponte.go escolhe daemon vs
+                    em-processo; a montagem que serve e daemon compartilham
+-                   mora em internal/boot
++                   mora em internal/boot. index, inspect e search também
++                   passam por lá para abrir o índice (boot.AbrirIndice; search
++                   também chama boot.PrepararBusca), sem montar watcher nem
++                   Service
+ internal/
+   config/          struct de configuração, flags cobra, defaults, VaultKey
+   lifecycle/       stdin-eof, sinais, vigília do PID pai, shutdown com orçamento
+   vault/           raiz, caminho canônico e confinamento, walk com exclusões,
+                    EOL, detecção de somente-nuvem, temp+sync+rename atômico
+                    (ReplaceFile/WriteAtomic) e varredura de temporários órfãos
+   vaulttest/       apoio a teste: condições de ambiente do Windows; só _test.go
+                    importa
+   parser/          goldmark + extensões [[wikilink]], ^blockid, #tag,
+                    campo::inline; headings com offsets de byte; candidatos a
+diff --git a/README.md b/README.md
+index 72409b3..3e6af49 100644
+--- a/README.md
++++ b/README.md
+@@ -196,21 +196,21 @@ code --add-mcp '{"name":"gobsidian","command":"gobsidian","args":["serve","--vau
+ 
+ <br>
+ 
+ A flag declared by a subcommand but never read by it promises a contract the code doesn't keep — `index` and `inspect` used to declare `--read-only`, `--debounce-ms` and `--max-results` this way. The **Subcommands** column is the actual contract: what each subcommand declares.
+ 
+ | Flag | Effect | Subcommands |
+ |---|---|---|
+ | `--vault <path>` | Vault root. Required. | all |
+ | `--read-only` | Removes the entire write surface. | `serve`, `daemon`, `doctor` |
+ | `--cache-dir <path>` | Cache directory. Default: a hash of the vault path, always **outside** it. | `serve`, `search`, `daemon`, `index`, `inspect` |
+-| `--debounce-ms <n>` | Watcher coalescing window. | `serve`, `daemon`, `doctor` |
++| `--debounce-ms <n>` | Watcher coalescing window. | `serve`, `daemon` |
+ | `--log-level <level>` | `debug`, `info`, `warn` or `error`. | `serve`, `search`, `daemon`, `index`, `inspect` |
+ | `--eager-search` | Loads the search index at boot. Default: lazy — most sessions read and write without ever searching. | `serve`, `daemon` |
+ | `--max-results <n>` | Caps results per query. | `serve`, `search`, `daemon`, `doctor` |
+ | `--follow-symlinks` | Follows a symlink inside the vault; the default refuses, because confinement doesn't reach the target. | all |
+ | `--json` | Structured JSON output. | `search`, `index`, `inspect` |
+ | `--limit <n>` | Maximum results returned. Default: 20. | `search` |
+ 
+ `search` reuses the index and search cache from `serve`; the first run builds and writes it, later runs load it.
+ 
+ </details>
+diff --git a/cmd/gobsidian/cli_subcommands_test.go b/cmd/gobsidian/cli_subcommands_test.go
+index f843c8e..2e0f808 100644
+--- a/cmd/gobsidian/cli_subcommands_test.go
++++ b/cmd/gobsidian/cli_subcommands_test.go
+@@ -211,11 +211,17 @@ func TestIndexEInspectNaoAceitamFlagsQueIgnoram(t *testing.T) {
+ 			if tc.cmd().Flags().Lookup(flag) != nil {
+ 				t.Errorf("%s declara --%s e nao a usa", tc.nome, flag)
+ 			}
+ 		}
+ 	}
+ 	for _, flag := range []string{"read-only", "debounce-ms"} {
+ 		if newSearchCmd().Flags().Lookup(flag) != nil {
+ 			t.Errorf("search declara --%s e nao a usa", flag)
+ 		}
+ 	}
++	// doctor legitimamente mantem --read-only e --max-results (o proprio
++	// diagnostico os le); --debounce-ms nao tem watcher para coalescer e
++	// nao deve ser declarada (achado F1 da revisao final).
++	if newDoctorCmd().Flags().Lookup("debounce-ms") != nil {
++		t.Errorf("doctor declara --debounce-ms e nao a usa")
++	}
+ }
+diff --git a/cmd/gobsidian/doctor.go b/cmd/gobsidian/doctor.go
+index 8d491f0..537998e 100644
+--- a/cmd/gobsidian/doctor.go
++++ b/cmd/gobsidian/doctor.go
+@@ -14,21 +14,20 @@ func newDoctorCmd() *cobra.Command {
+ 
+ 	cmd := &cobra.Command{
+ 		Use:   "doctor",
+ 		Short: "Diagnostica o ambiente: permissoes, OneDrive, MAX_PATH, casing",
+ 		RunE: func(cmd *cobra.Command, _ []string) error {
+ 			// Sem esta linha, --read-only nao chega a Config e a verificacao
+ 			// de permissao de escrita roda mesmo quando o usuario pediu para
+ 			// nao rodar. Toda chamada a config.Load precisa preencher os
+ 			// companheiros das flags que o comando expoe.
+ 			flags.ReadOnlySet = cmd.Flags().Changed("read-only")
+-			flags.DebounceMSSet = cmd.Flags().Changed("debounce-ms")
+ 			flags.MaxResultsSet = cmd.Flags().Changed("max-results")
+ 
+ 			cfg, err := config.Load(flags)
+ 			if err != nil {
+ 				return err
+ 			}
+ 
+ 			results := doctor.Run(cmd.Context(), cfg)
+ 
+ 			// doctor imprime em stdout de proposito: e um comando de CLI,
+@@ -59,15 +58,14 @@ func newDoctorCmd() *cobra.Command {
+ 				con.Err("Ha falhas bloqueantes acima")
+ 				os.Exit(code)
+ 			}
+ 			con.OK("Ambiente apto")
+ 			return nil
+ 		},
+ 	}
+ 
+ 	flagsDeCofre(cmd, &flags)
+ 	cmd.Flags().BoolVar(&flags.ReadOnly, "read-only", false, "nao verifica permissao de escrita")
+-	cmd.Flags().IntVar(&flags.DebounceMS, "debounce-ms", 0, "janela de coalescencia de eventos do watcher")
+ 	cmd.Flags().IntVar(&flags.MaxResults, "max-results", 0, "teto de resultados por consulta")
+ 
+ 	return cmd
+ }
+diff --git a/docs/ARCHITECTURE.md b/docs/ARCHITECTURE.md
+index ff08416..e57ff46 100644
+--- a/docs/ARCHITECTURE.md
++++ b/docs/ARCHITECTURE.md
+@@ -399,45 +399,67 @@ service.PatchNote(path, heading, content, expectedHash, dryRun)
+   → writer.LockPath(canonical)            serializa escritas na mesma nota (§4.5)
+   → index.Get(canonical)                  localiza Heading{Start,End}
+   → ler arquivo inteiro                   (escrita exige o conteúdo completo)
+   → expectedHash informado e divergente?  → HASH_MISMATCH, parar
+   → verificar hash contra o índice        detecta modificação externa desde o parse
+        divergente → reparsear e recalcular offsets antes de prosseguir
+   → montar novo conteúdo:
+        prefixo [0:heading.End_do_titulo] + conteúdo novo + sufixo [heading.End:]
+   → normalizar EOL do conteúdo novo para o estilo do arquivo
+   → dryRun? devolver diff unificado e parar
+-  → writer.AtomicWrite(path, bytes)
++  → vault.WriteAtomic(path, bytes)
+   → invalidar entrada de índice (o watcher confirmará)
+   → writer.UnlockPath(canonical)
+ ```
+ 
+ A verificação de hash antes de aplicar o patch fecha a janela entre o parse e a escrita. Sem ela, uma edição feita no Obsidian entre as duas operações faria os deslocamentos apontarem para o lugar errado, e o patch cortaria a nota no meio de uma frase.
+ 
+ ### 5.5 Escrita atômica
+ 
++Implementação em `internal/vault/atomic.go` (`ReplaceFile` + `WriteAtomic`), não
++em `internal/writer` — o writer chama a conta, não a possui.
++
+ ```go
+ // mesmo diretório do alvo → mesmo volume → rename atômico
+ tmp := filepath.Join(filepath.Dir(target), ".gobsidian-tmp-"+random())
+ 
+-f, _ := os.OpenFile(tmp, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0644)
++f, _ := os.OpenFile(tmp, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0600)
++f.Chmod(modoDoAlvo)     // preserva o modo do arquivo substituído; falha só logada (achado M12)
+ f.Write(data)
+-f.Sync()          // durabilidade antes do rename
++f.Sync()                // durabilidade antes do rename
+ f.Close()
+-os.Rename(tmp, target)   // com retry: OneDrive devolve ERROR_SHARING_VIOLATION transitório
++os.Rename(tmp, target)  // com retry: OneDrive devolve ERROR_SHARING_VIOLATION transitório
++sincronizarDiretorio(filepath.Dir(target))  // sync do diretório após o rename; falha só logada (achado M12)
+ ```
+ 
+ O temporário fica no mesmo diretório do alvo, não em `%TEMP%`. Rename entre volumes não é atômico — degrada para cópia mais exclusão, e o ponto todo se perde.
+ 
++`Chmod` restaura o modo do arquivo alvo no temporário antes da escrita: sem
++isso, um rename por cima de uma nota `0644` a deixa `0600`, porque
++`os.CreateTemp` cria com esse modo — a escrita muda a permissão pelas costas
++(achado M12). Alvo inexistente usa `0644`. A chamada não é fatal se falhar:
++há sistema de arquivos sem suporte a `Chmod`, e recusar a escrita inteira por
++causa da permissão perderia o conteúdo que o usuário pediu para gravar.
++
+ `Sync()` antes do rename garante que o conteúdo esteja em disco antes que o nome passe a apontar para ele. Sem isso, um corte de energia entre rename e flush deixa um arquivo de tamanho correto cheio de zeros.
+ 
+-O retry no rename é específico do Windows com sincronizadores de nuvem, que abrem arquivos brevemente e devolvem violação de compartilhamento. Backoff exponencial, três tentativas, 50 ms iniciais.
++O retry no rename é específico do Windows com sincronizadores de nuvem, que
++abrem arquivos brevemente e devolvem violação de compartilhamento: **10
++tentativas, atraso fixo de 10 ms entre elas** — não backoff exponencial —,
++dormido via `select` sobre `time.After`/`ctx.Done()` para que um cancelamento
++durante a espera não fique preso até o fim do atraso. Depois do rename, o
++diretório é sincronizado (`sincronizarDiretorio`): o `Sync()` do arquivo
++garante os dados, mas o rename é uma mudança de diretório, e sem sincronizá-lo
++uma queda de energia logo depois pode deixar o alvo com o conteúdo antigo — ou
++nenhum — apesar de a escrita ter reportado sucesso (achado M12). Essa falha
++também não é fatal: o rename já aconteceu, e o aviso vai para `Debug`, não
++para o erro da escrita.
+ 
+ ### 5.6 `note_move` com reescrita de links
+ 
+ ```
+ 1. Resolver origem e destino; destino não pode existir
+ 2. Consultar index.Backlinks(origem) → lista de notas afetadas
+ 3. Para cada nota afetada, calcular a reescrita de cada Link:
+      preservar alias, âncora e a forma original (wikilink vs markdown)
+      recalcular o alvo mínimo não-ambíguo em relação ao novo caminho
+ 4. dryRun? devolver o conjunto de diffs e parar
+diff --git a/docs/ESTADO.md b/docs/ESTADO.md
+index 1ba157d..b45a778 100644
+--- a/docs/ESTADO.md
++++ b/docs/ESTADO.md
+@@ -189,21 +189,21 @@ e `t180b_{index,service}_{antes,depois}.txt`.
+ 
+ Um número visível ao usuário muda com a dobra: o subcomando `index` da CLI
+ reporta `len(idx.Tags("", 1))`, que agora conta **chaves dobradas** — num cofre
+ onde a mesma tag aparece em duas grafias, a contagem de tags distintas cai. De
+ quanto, em cofre real: **não medido**.
+ 
+ Fatos medidos sem benchmark:
+ 
+ - `vault_5000`: 112 tags distintas, 0 hierárquicas. Cofres reais do dono: **não medido** neste plano.
+ - Tag inline em NFD **não chega inteira ao índice** (medido em 2026-09-06, Task 180): `parser.tagNameChar` aceita letra, dígito, `-`, `_` e `/`, e não `unicode.Mn`, então o corpo `#Ação` gravado em NFD (`A c U+0327 a U+0303 o`) indexa como a tag `Ac`. É defeito do parser, anterior à chave única e fora do alcance dela — nenhuma dobra de chave conserta uma tag que já chegou cortada. Pelo frontmatter (`tags: ["Ação"]`) o YAML entrega a string inteira e a dobra funciona: chave `ação`, e um pedido em NFC casa a nota. Aberta como **B20** em `docs/SUGESTOES.md`.
+-- Cobertura por função (`go test -coverprofile`, 2026-09-02): `construirServico` 6,5 %, `carregarIndiceDoCache` 0 %, `prepararIndiceDeBusca` 0 %, `runServe` 0 %, `serveEmProcesso` 20,6 %, `buildInvertedIndex` 60,7 %; `WriteAtomic` 71,1 %, `SweepStaleTempFiles` 62,5 %, `CleanStaleTempFiles` 0 %; `SaveIndexCache` 64,5 %, `SaveInvertedCache` 56,0 %; `Tags` 91,7 %, `coletarLocked` 87,6 %, `tagListHierarchical` 94,1 %, `LinkGraph` 78,1 %; `Search` 96 %; `mcpsrv.Server.Serve` 0 %, `Close` 0 %; `doctor.checkDaemonLog` 44,4 %, `checkLocksDeDaemon` 58,6 %.
++- Cobertura por função (`go test -coverprofile`, 2026-09-02): `construirServico` 6,5 %, `carregarIndiceDoCache` 0 %, `prepararIndiceDeBusca` 0 %, `runServe` 0 %, `serveEmProcesso` 20,6 %, `buildInvertedIndex` 60,7 %; `WriteAtomic` 71,1 %, `SweepStaleTempFiles` 62,5 %, `CleanStaleTempFiles` 0 %; `SaveIndexCache` 64,5 %, `SaveInvertedCache` 56,0 %; `Tags` 91,7 %, `coletarLocked` 87,6 %, `tagListHierarchical` 94,1 %, `LinkGraph` 78,1 %; `Search` 96 %; `mcpsrv.Server.Serve` 0 %, `Close` 0 %; `doctor.checkDaemonLog` 44,4 %, `checkLocksDeDaemon` 58,6 %. Depois da Task 174, `construirServico` é `boot.Montar`, `prepararIndiceDeBusca` é `boot.PrepararBusca` e `buildInvertedIndex` é `boot.construirBusca`; `carregarIndiceDoCache` continua com o mesmo nome, hoje em `internal/boot/indice.go`; `CleanStaleTempFiles` já não existe (ver a nota da linha seguinte).
+ - Tempo de suíte (`go test ./... -count=1 -cover`): service 51,7 s, writer 32,5 s, search 31,1 s, watcher 26,2 s, index 22,3 s, vault 22,0 s, doctor 19,4 s, mcpsrv 17,0 s.
+ - Raio de explosão de `service.Index` (gopls references, medido antes da Task 173): `Get` 13, `ResolvePath` 8, `Backlinks` 5, `List` 4, `NotePaths` 2, `TotalSize`/`Tags`/`NoteCount`/`Generation`/`AssetCount`/`AliasCollisions` 1 cada, `Paths` **0**. `service.New` recebe `*index.Index`; a interface foi removida em 2026-09 (Task 173) — tinha uma implementação e nenhum fake.
+ - Raio de `writer.WriteAtomic` (medido em 2026-09-02, antes das Tasks 171-172): 6 sítios em `internal/service/write.go` (`:149,:248,:378,:619,:751,:832`) + 3 arquivos de teste; `SweepStaleTempFiles`: 1 sítio (`cmd/gobsidian/servico.go:78`). Depois das Tasks 171-172, `writer.WriteAtomic` e `writer.SweepStaleTempFiles` não existem mais — os chamadores usam `vault.WriteAtomic`/`vault.SweepStaleTempFiles` diretamente.
+ - Prefixo `.gobsidian-tmp-` em 4 literais (medido em 2026-09-02, antes das Tasks 171-172): `writer/atomic.go:14` (constante), `vault/walk.go:74`, `search/persist.go:87`, `index/persist.go:124`. Depois das Tasks 171-172, o literal existe numa só linha: `vault/atomic.go:14`.
+ - `hits` × `results`: `search --json --limit 200 --vault vault_5000 "execucao"` (binário de 6c5d1f1): `hits` e `results` são 200 itens e **byte a byte iguais** (`hits == results` → `True` em Python). JSON compacto: 195 481 bytes com `hits`, 97 787 sem — **50,0 % do payload é a cópia**. Arquivo indentado: 216 304 bytes. **Depois (Task 179, `hits` removido, commit `b6cf8be`+):** mesmo comando, mais `--max-results 200` (sem a flag, o teto administrativo `MaxResults` — padrão 50 desde a Task 168 — corta a página a 50 itens antes que a comparação faça sentido) e `--cache-dir` novo: 200 itens em `results`, sem `hits`. Arquivo indentado: **108 204 bytes**. JSON compacto: **95 969 bytes** (medido com o mesmo one-liner Python; a pequena diferença ante os 97 787 esperados vem do conteúdo do corpus — snippets e `modified` variam com o estado atual do `vault_5000`, não com o formato).
+ - CLI a frio × `serve` com cache: cofre `vault_5000`, mesmo binário. `search` a frio (Build + `inv.Update` serial por nota): **10 520 / 10 819 / 11 046 ms** de parede em 3 execuções. `inspect` a frio (só Build): **770 / 767 / 739 ms**. `serve` em processo (`GOBSIDIAN_NO_DAEMON=1 --eager-search`) com cache quente, 5 execuções: `index_ms` **101–123**, índice de busca `duracao_ms` **13–20**, parede boot→saída **475–528 ms**. Ou seja: a CLI de busca paga ~10 s que o `serve` não paga; adotar o cache na CLI (Task 175) tem teto de ganho medido, não estimado.
+ - Task 175, `search` reaproveitando `boot.AbrirIndice`/`boot.PrepararBusca` como o `serve`: cofre `vault_5000`, `--json --limit 200 "execucao"`, 3 execuções frias + 3 quentes por binário (`Measure-Command`, `TotalMilliseconds`). **Antes** (commit `ebf29ad`, sem `--cache-dir`, constrói tudo em memória sempre): frias **8338,6 / 1687,0 / 1631,9 ms**, "quentes" (mesmo binário, sem cache — repetição idêntica) **1700,4 / 1631,0 / 1597,7 ms**. **Depois**: frias (`--cache-dir` novo, apagado antes de cada uma) **1905,6 / 1921,2 / 1796,7 ms**; quentes (mesmo diretório de cache) **234,7 / 214,0 / 190,2 ms**. A quente do depois fica bem abaixo de 1/5 da fria do depois (1/5 de ~1800–1920 ms é ~360–384 ms; medi 190–235 ms). Os números não batem com a faixa do M4 acima (10 520–11 046 ms de "antes", 475–528 ms de `serve` quente) — a máquina/estado de disco nesta rodada não é o mesmo; a primeira chamada "antes" (8338,6 ms) sugere cache de disco do SO ainda frio nela e já quente nas cinco seguintes. Binário `antes`: worktree Git separado no commit base, sem tocar a árvore principal (`git worktree add --detach`).
+ 
+ ---
+ 
+diff --git a/docs/ESTRUTURA.md b/docs/ESTRUTURA.md
+index dbd8e2a..bfadbfe 100644
+--- a/docs/ESTRUTURA.md
++++ b/docs/ESTRUTURA.md
+@@ -2,32 +2,36 @@
+ 
+ ---
+ 
+ ## 1. Árvore
+ 
+ ```
+ gobsidian/
+ ├── cmd/
+ │   └── gobsidian/
+ │       ├── main.go               entrypoint; só constrói o context raiz e delega
++│       ├── flags.go              flagsDeCofre/flagsDeCache: flags compartilhadas
++│       │                         entre os subcomandos que abrem cofre e cache
++│       ├── cli_log.go            loggerDeCLI: logger de search, index e inspect
+ │       ├── serve.go              subcomando serve (stdio)
+ │       ├── doctor.go             subcomando doctor (diagnóstico de ambiente)
+ │       ├── index.go              subcomando index (indexar e sair)
+ │       ├── search.go             subcomando search (busca via CLI)
+ │       ├── inspect.go            subcomando inspect (dump do parse de uma nota)
+ │       ├── ponte.go              escolhe entre daemon e modo em processo; proxy de bytes
+ │       └── daemon.go             subcomando daemon (oculto; quem o inicia é a ponte)
+ │
+ ├── internal/
+ │   ├── config/
+-│   │   ├── config.go             struct de configuração, precedência de fontes
+-│   │   ├── flags.go              mapeamento de flags do cobra
++│   │   ├── config.go             struct de configuração, precedência de fontes;
++│   │   │                         struct Flags (o mapeamento de flags do cobra
++│   │   │                         mora em cmd/gobsidian/flags.go)
+ │   │   └── defaults.go           valores padrão em um único lugar
+ │   │
+ │   ├── lifecycle/
+ │   │   ├── lifecycle.go          composição dos três mecanismos → context raiz
+ │   │   ├── stdin.go              detecção de EOF em stdin
+ │   │   ├── signals.go            handlers de SIGINT/SIGTERM
+ │   │   ├── parent.go             política da vigília, independente de plataforma
+ │   │   ├── parent_windows.go     vigília do PID pai (build tag windows)
+ │   │   ├── parent_unix.go        vigília do PID pai (build tag !windows)
+ │   │   └── shutdown.go           sequência de encerramento com timeout
+@@ -35,21 +39,20 @@ gobsidian/
+ │   ├── vault/
+ │   │   ├── vault.go              tipo Vault; raiz, abertura, validação
+ │   │   ├── path.go               caminho canônico, resolução, confinamento
+ │   │   ├── path_windows.go       casing e separadores (build tag windows)
+ │   │   ├── path_other.go         idem (build tag !windows)
+ │   │   ├── walk.go               varredura com exclusões
+ │   │   ├── atomic.go             temporário + sync + rename, com retry; varredura
+ │   │   │                         de temporários órfãos no boot
+ │   │   ├── syncdir_unix.go       fsync do diretório após o rename (build tag !windows)
+ │   │   ├── syncdir_windows.go    no-op documentado: o Windows não expõe o handle
+-│   │   ├── ignore.go             .gitignore e .gobsidianignore
+ │   │   ├── eol.go                detecção e preservação de CRLF/LF — ÚNICA conta de EOL
+ │   │   ├── longpath_windows.go   prefixo de caminho longo p/ syscall direta (build tag windows)
+ │   │   ├── longpath_other.go     identidade (build tag !windows)
+ │   │   ├── cloud_windows.go      detecção de arquivo somente-nuvem (OneDrive)
+ │   │   └── cloud_other.go        sempre falso (build tag !windows)
+ │   │
+ │   ├── vaulttest/                APOIO A TESTE: nenhum arquivo de produção o
+ │   │   │                         importa; só _test.go. Importa vault e nada mais
+ │   │   │                         do domínio, para não fechar ciclo com quem o usa
+ │   │   ├── doc.go                por que o pacote existe e o que cada helper prova
+@@ -75,21 +78,20 @@ gobsidian/
+ │   │
+ │   ├── index/
+ │   │   ├── index.go              struct Index, RWMutex, ciclo de vida
+ │   │   ├── note.go               tipo Note e derivações
+ │   │   ├── build.go              varredura inicial com worker pool
+ │   │   ├── update.go             substituição incremental de uma nota
+ │   │   ├── backlinks.go          construção e manutenção do grafo reverso
+ │   │   ├── resolve.go            resolução de wikilink → caminho canônico
+ │   │   ├── alias.go              mapa alias → caminhos, do frontmatter
+ │   │   ├── chave.go              as chaves derivadas do índice: NFC e caixa, uma conta cada
+-│   │   ├── assets.go             registro de anexos (nome, tamanho, mtime)
+ │   │   ├── anchors.go            validação de âncora de heading e de bloco
+ │   │   ├── classify.go           classificação de entrada: nota, anexo, excluído
+ │   │   ├── contexto_link.go      recorte do contexto do backlink e heading da seção
+ │   │   ├── persist.go            carga e gravação do cache de metadados
+ │   │   ├── persist_codec.go      codec binário do cache de metadados (formato 5)
+ │   │   └── query.go              consultas por metadados (tag, pasta, frontmatter)
+ │   │
+ │   ├── search/
+ │   │   ├── analyzer.go           tokenização, case folding, diacríticos, stemming
+ │   │   ├── inverted.go           índice em duas camadas: base imutável + delta
+@@ -106,21 +108,20 @@ gobsidian/
+ │   ├── watcher/
+ │   │   ├── watcher.go            fachada; encapsula fsnotify
+ │   │   ├── debounce.go           janela de debounce e coalescência
+ │   │   ├── filter.go             filtro de relevância de evento
+ │   │   ├── apply.go              aplica lotes e reconciliação nos dois índices
+ │   │   ├── rename.go             correlação de rename por hash de conteúdo
+ │   │   ├── counters.go           contadores publicados em vault_stats
+ │   │   └── overflow.go           varredura de reconciliação pós-overflow
+ │   │
+ │   ├── writer/
+-│   │   ├── writer.go             fachada de escrita
+ │   │   ├── lock.go               mutex por caminho canônico; serializa escritas
+ │   │   ├── section.go            inserir e substituir sob heading
+ │   │   ├── block.go              substituir bloco por ^id
+ │   │   ├── linkrewrite.go        reescrita de links em note_move
+ │   │   └── diff.go               diff unificado para dry-run
+ │   │
+ │   ├── service/
+ │   │   ├── service.go            struct Service; injeção dos subsistemas
+ │   │   ├── read.go               métodos de leitura
+ │   │   ├── outline.go            note_outline: headings do índice + candidatos do parser
+@@ -156,20 +157,22 @@ gobsidian/
+ │   │   ├── indice.go             AbrirIndice: cache fresco ou construção, e grava
+ │   │   ├── busca.go              PrepararBusca: adota o cache, retoma ou constrói
+ │   │   ├── montar.go             Montar: cofre, varredura, índices, watcher, Service;
+ │   │   │                         PassoWatcher (passo "watcher", 500 ms)
+ │   │   ├── espelho.go            mirrorReader: espelha stdin e propaga o EOF fechando dst
+ │   │   └── vigia.go              VigiarHost: pipe + espelho + lifecycle.New;
+ │   │                             PassoFecharEspelho (passo "close-pipe", 500 ms)
+ │   │
+ │   ├── ipc/
+ │   │   ├── ipc.go                transporte local: socket, saudação, handshake
++│   │   ├── desconexao.go         EhDesconexaoLimpa: erro de loop de transporte que
++│   │   │                         so significa "o outro lado foi embora"
+ │   │   ├── ipc_windows.go        diretório de runtime e permissão (build tag windows)
+ │   │   └── ipc_unix.go           diretório de runtime e permissão 0600 (build tag !windows)
+ │   │
+ │   ├── daemon/
+ │   │   ├── daemon.go             laço de aceitação de N conexões sobre um índice
+ │   │   ├── log.go                caminho do log e as últimas linhas, para o doctor
+ │   │   ├── lock.go               corrida de inicialização: um daemon por cofre
+ │   │   ├── trava.go              posse por trava de kernel; o arquivo nunca e removido
+ │   │   ├── trava_unix.go         flock LOCK_EX|LOCK_NB (build tag !windows)
+ │   │   ├── trava_windows.go      LockFileEx no byte 1<<62 (build tag windows)
+diff --git a/docs/OPERACAO.md b/docs/OPERACAO.md
+index b36c664..430acd7 100644
+--- a/docs/OPERACAO.md
++++ b/docs/OPERACAO.md
+@@ -874,21 +874,21 @@ totalmente atingidos hoje** (RNF-02, e RNF-04 num único formato de oito) e
+ **dois passaram a ser atingidos** (RNF-06 pela Task 86, RNF-07 como efeito
+ colateral das otimizações de busca das Tasks 78-85). Nenhum teto foi
+ afrouxado para chegar a esse resultado — decisão fechada do lote (D-M7,
+ "nenhum teto de RNF é afrouxado nesta batelada"), e os números acima medem
+ contra os mesmos alvos do PRD.
+ 
+ ## Parte II do M7 — carga sob demanda e arena mapeada (2026-08-10)
+ 
+ ### Task 88 — índice de busca carregado só na primeira `vault_search`
+ 
+-`prepararIndiceDeBusca` deixou de rodar incondicionalmente no boot. A carga só
++`prepararIndiceDeBusca` (hoje `boot.PrepararBusca`, Task 174) deixou de rodar incondicionalmente no boot. A carga só
+ dispara na primeira chamada de `vault_search`; até lá a tool devolve
+ `INDEX_BUILDING`, nunca lista vazia. `--eager-search` liga o comportamento
+ antigo.
+ 
+ Medido no cofre real de 4.490 notas, três partidas, sem nenhuma chamada a
+ `vault_search`:
+ 
+ ```
+ RSS 125,2 MB   index_ms=622
+ RSS 125,0 MB   index_ms=507
+@@ -971,22 +971,23 @@ modo leitura sai da contagem de "Private" por ser file-backed e reclamável,
+ processo do Windows não expõem uma métrica de "páginas de quadro físico
+ únicas entre N processos" (o equivalente do PSS do Linux). O que está medido
+ e provado é que o array deixou de ser heap privado sempre residente; que as
+ páginas residentes são efetivamente as MESMAS entre os processos (e não só
+ "igualmente baratas cada uma") seria preciso uma ferramenta como RAMMap/VMMap
+ para confirmar — não medido nesta tarefa.
+ 
+ **Rename atômico sobre arquivo mapeado.** `os.Rename` do salvamento atômico
+ falha no Windows se o processo ainda tem o arquivo de destino mapeado — só
+ importa no caminho raro de cache PARCIAL retomado e depois regravado
+-(`buildInvertedIndex` continuando depois de `AdotarDe` um cache incompleto
+-carregado via arena). Confirmado experimentalmente antes de confiar na
++(`buildInvertedIndex`, hoje `boot.construirBusca`, continuando depois de
++`AdotarDe` um cache incompleto carregado via arena). Confirmado
++experimentalmente antes de confiar na
+ correção: com o arquivo ainda mapeado, `os.Remove` nele falha de verdade
+ (`TestSaveOverwritesMappedCache`, `internal/search/persist_test.go`).
+ `promoverArenaSePresente` copia as posições para o heap e desmapeia ANTES do
+ `os.Rename`; no caminho comum (cache completo, "pronta") `SaveInvertedCache`
+ nunca roda de novo no mesmo processo, então isto não dispara ali.
+ 
+ Ver ledger (`.superpowers/sdd/2026-07-25-gobsidian-v01/progress.md`, "Task 89
+ (M7)") para a prova de mutação e a saída de `verify.ps1`.
+ 
+ ### Task 90 — RNF-30 reformulado, antes de abrir o primeiro socket
+@@ -1647,61 +1648,63 @@ handle exclusivo sobre o placeholder e conferem que o handle barra uma leitura
+ **antes** de afirmar que nada foi aberto — a prova é mecânica, não inferida da
+ ausência de conteúdo.
+ 
+ **Achado que a Task 95 levantou e a Task 97 fechou:** `search.Inverted.Update`
+ chamava `os.ReadFile` sem consultar `vault.IsCloudOnly`. Ver a seção seguinte —
+ e ler ali por que "pré-existente" era o enquadramento errado.
+ 
+ ### O caminho que a correção do pânico tornou alcançável (Task 97, 2026-08-12)
+ 
+ `Inverted.Update` abria o arquivo sem consultar `vault.IsCloudOnly`, e ela é
+-chamada para **toda nota do cofre** por `buildInvertedIndex` no boot (via
+-`idx.NotePaths()`), pelo watcher em `Apply` e pela reconciliação por overflow.
++chamada para **toda nota do cofre** por `buildInvertedIndex` (hoje
++`boot.construirBusca`) no boot (via `idx.NotePaths()`), pelo watcher em
++`Apply` e pela reconciliação por overflow.
+ 
+ A tentação é registrar isso como defeito antigo, e o registro estaria errado:
+ **antes da correção do pânico desta mesma sessão, o caminho era inalcançável.**
+ Um único `.md` não hidratado derrubava `index.Build`, e o processo morria antes
+ de chegar a `NotePaths`. Consertar o pânico — que era um P0 — tornou o boot
+ possível e, com ele, tornou alcançável um download síncrono de **todo**
+ placeholder do cofre, em segundo plano, na primeira partida. Trocar um crash por
+ uma violação da regra "placeholder de nuvem nunca é aberto" não é conserto
+ completo; é a mesma armadilha já paga por este projeto, do outro lado. **Quem
+ roda depois do guarda precisa do mesmo guarda.**
+ 
+ **A guarda mora em `Inverted.Update`, não nos chamadores.** É a função que abre o
+ arquivo; são três pontos de chamada hoje, e guarda em chamador é a próxima
+ divergência esperando acontecer — a mesma lição de `aliasKey`, de `nomeChave` e
+ da `classificar` da Task 95.
+ 
+ **A nota entra coberta e vazia, não pulada.** `Add(path, nil)` registra
+ `docLengths` com zero, sem postings, sem abrir o arquivo. Um `return` seco
+ deixaria o caminho fora de `docLengths`, logo fora de `DocCount`, logo o
+ cabeçalho do cache declararia menos notas do que o índice de metadados enxerga,
+-logo `invertedCacheState` concluiria "cache parcial" em **todo** boot e
++logo `invertedCacheState` (hoje `boot.estadoDoCache`) concluiria "cache parcial" em **todo** boot e
+ regravaria o cache inteiro. É a armadilha que a nota sem token nenhum já custou —
+ 4 notas vazias em 3.152 custavam uma reconstrução e uma regravação por partida —
+ e é por isso que `HasDoc` existe separada de `DocLength`: o laço de retomada de
+ `buildInvertedIndex` conta por `HasDoc`, e uma nota de tamanho zero seria relida
+ para sempre sem nunca passar a contar como coberta.
+ 
+ Quatro testes, em `internal/search/cloudonly_update_windows_test.go`:
+ 
+ - **Não abre o arquivo**, por prova mecânica: um handle exclusivo
+   (`GENERIC_READ|GENERIC_WRITE`) sobre o placeholder, com a guarda que confere
+   que ele barra um `os.ReadFile` **antes** de qualquer asserção depender disso.
+ - **Entra coberta**: `HasDoc` verdadeiro, `DocLength` zero, e `Postings` vazio
+   para termos que só existem no conteúdo do disco.
+ - **O boot não declara cache parcial**: compara `DocCount` do índice invertido
+   com `NoteCount` do índice de metadados, e depois `hdr.NoteCount` contra
+   `idx.NoteCount()` depois de uma ida ao disco — que é literalmente o que
+-  `invertedCacheState` confronta. Conferir `DocLength == 0` não pega essa
+-  regressão; comparar as duas contagens que o boot compara, pega.
++  `invertedCacheState` (hoje `boot.estadoDoCache`) confronta. Conferir
++  `DocLength == 0` não pega essa regressão; comparar as duas contagens que o
++  boot compara, pega.
+ - **Ida e volta pelo cache**: índice recém-construído e índice recarregado
+   respondem igual, campo a campo, num cofre com placeholder.
+ 
+ ## Teto de concorrência reapertado e custo da guarda de nuvem medido (2026-08-13)
+ 
+ Duas lacunas que o lote anterior deixou escritas como abertas.
+ 
+ ### O teto de 60 ms tinha deixado de conseguir falhar
+ 
+ `TestRNF04SnippetConcurrencyLimit200` existe para detectar uma coisa só: que o
+@@ -2746,16 +2749,18 @@ que `serve` ou uma chamada anterior de `search`/`index` já tivessem gravado o
+ cache do mesmo cofre. Os dois passaram a abrir via `boot.AbrirIndice` — cache
+ quando `VerifyFreshness` confirma, construído e gravado quando não — e
+ ganharam `--cache-dir`/`--log-level`, que só `serve`, `search` e `daemon`
+ tinham.
+ 
+ `index --json` reporta qual dos dois caminhos aconteceu no campo `origin`
+ (`"build"` ou `"cache"`), na mesma conta que já sai no log `index_origin` de
+ `serve`. `inspect` também abre pelo cache mas não expõe a origem — não há
+ "resumo da indexação" para anexar o campo, só a nota inspecionada.
+ 
+-As quatro flags que `index`, `inspect`, `search`, `serve`, `daemon` e `doctor`
+-registravam repetindo o mesmo texto seis vezes (`--vault`, `--follow-symlinks`
+-em todos; `--cache-dir`, `--log-level` em quem lê índice) passaram a vir de
+-duas funções únicas em `cmd/gobsidian/flags.go` — `flagsDeCofre` e
+-`flagsDeCache` — para que o texto de ajuda pare de divergir quando alguém
+-edita um dos seis arquivos e esquece os outros cinco.
++As flags que os seis subcomandos registravam repetindo o mesmo texto passaram
++a vir de duas funções únicas em `cmd/gobsidian/flags.go`: `flagsDeCofre`
++(`--vault`, `--follow-symlinks`) roda nos seis — `index`, `inspect`, `search`,
++`serve`, `daemon` e `doctor` —; `flagsDeCache` (`--cache-dir`, `--log-level`)
++roda só em quem lê o índice do cache — `index`, `inspect`, `search`, `serve`
++e `daemon` — e não em `doctor`, que não abre índice nenhum. Duas funções
++para que o texto de ajuda pare de divergir quando alguém edita um dos
++arquivos e esquece os outros.
+diff --git a/docs/SUGESTOES.md b/docs/SUGESTOES.md
+index 0db9221..9473e82 100644
+--- a/docs/SUGESTOES.md
++++ b/docs/SUGESTOES.md
+@@ -301,27 +301,27 @@ corpo — span de outro link, com valores plausíveis e incorretos (pior que
+ fallback copia o corpo inteiro por chamada.
+ 
+ **M11 · Evento cuja máscara combina `Chmod` com `Write`/`Create` é descartado inteiro**
+ Bug (plataforma) · SUSPEITA · `watcher/filter.go:46-49`
+ A checagem de `Chmod` roda antes das demais e derruba o evento composto (padrão em
+ backends kqueue). Windows-first contém o dano; linux/darwin são alvos declarados e não
+ têm reconciliação por overflow (kqueue não emite `ErrEventOverflow`, `overflow.go:18-21`)
+ — conteúdo só entra no próximo boot lá.
+ 
+ **M12 · `WriteAtomic` sem fsync de diretório e perdendo o modo do arquivo**
+-Bug/Higiene · CONFIRMADO · `writer/atomic.go:94,113-115,126`
++Bug/Higiene · CONFIRMADO · `writer/atomic.go:94,113-115,126` (hoje `internal/vault/atomic.go`, Tasks 171/172)
+ Temporário nasce 0600 e nada restaura o modo original (linux/darwin: toda nota
+ reescrita vira 0600); `Sync` cobre só o arquivo — a durabilidade prometida no doc
+ comment (:85) não cobre o rename em ext4/xfs.
+ 
+ **M13 · Espera real sem cancelamento efetivo** · Falha-de-contrato · CONFIRMADO
+-`writer/atomic.go:88,121-132` (WriteAtomic sem ctx; retries com sleep);
++`writer/atomic.go:88,121-132` (hoje `internal/vault/atomic.go`, Tasks 171/172; WriteAtomic sem ctx; retries com sleep);
+ `vault/vault.go:124-127,163-166` (checagem só na entrada — `ReadAll` sobre placeholder
+ bloqueia na hidratação mesmo com ctx cancelado); `MoveNote(_ context.Context)` /
+ `DeleteNote(_ context.Context)` fazem I/O múltiplo ignorando cancelamento
+ (`write.go:415,667`). A forma `_` está conforme a regra; a espera ignorada, não.
+ 
+ **M14 · Detecção de EOL duplicada com semânticas diferentes**
+ Bug-latente/Higiene · CONFIRMADO · `writer/section.go:35-40` vs `vault/eol.go:51-59`
+ Writer: QUALQUER `\r\n` ⇒ CRLF; vault: maioria. Arquivo com 1 CRLF e 99 LF é "LF" para
+ o índice e "CRLF" para o patch de seção — conteúdo novo sai todo em CRLF dentro de
+ arquivo majoritariamente LF. Padrão "chave derivada em dois lugares", versão EOL.
+@@ -403,22 +403,24 @@ deduplica (`:410-419`). Alvo-hub paga soma quadrática no Build.
+ **P9 · Correlação de renames lê toda candidata quando há qualquer remoção**
+ CONFIRMADO · `watcher/rename.go:56-69`: sem pré-filtro por tamanho (os tamanhos das
+ remoções já estão no índice, :39). Esvaziar lixeira enquanto chega lote grande lê
+ todas as candidatas, serializado.
+ 
+ **P10 · `GenerateSnippet` re-tokeniza os termos da consulta por hit** · CONFIRMADO
+ `snippet.go:78` dentro do laço; `rawTerms` já vem analisado de `Search`
+ (`service/search.go:168`). Memoizar uma vez por busca ou aceitar tokens prontos.
+ 
+ **P11 · `SweepStaleTempFiles` varre sem prefixo LongPath e pula diretórios profundos em silêncio** — **PARCIALMENTE FECHADO; a rejeição da outra metade foi corrigida em 2026-08-31.** A metade que era defeito de verdade — descarte silencioso de erro de subárvore — está corrigida: `SweepResult` conta removidos, não-removidos e inacessíveis, e o boot loga os três. A metade do prefixo foi rejeitada em 2026-08-27 com uma sondagem de 318 caracteres sem prefixo; descobriu-se depois que a máquina tem `LongPathsEnabled = 1`, e um caminho RELATIVO de 327 caracteres também passa — o que prova que quem responde ali é o registro, não o `fixLongPath` do Go. A sondagem e a prova de mutação são inconclusivas para essa metade. Ver `docs/OPERACAO.md`.
+-CONFIRMADO (alcance depende do cofre) · `writer/atomic.go:57,69`; chamador
+-`servico.go:80` passa root cru. Contraste: `vault.Walk` usa `walkRoot` prefixado.
++CONFIRMADO (alcance depende do cofre) · `writer/atomic.go:57,69` (hoje
++`internal/vault/atomic.go`, Tasks 171/172); chamador `servico.go:80` (hoje
++`internal/boot/montar.go`, Task 174) passa root cru. Contraste: `vault.Walk`
++usa `walkRoot` prefixado.
+ Além do limiar Win32, o sweep "sucede" sem descer — temporários órfãos sobrevivem lá
+ para sempre.
+ 
+ **P12 · `Analyze` sem pré-alocação nem caminho rápido ASCII** · CONFIRMADO
+ `search/analyzer.go:78,95-108`: `var tokens []Token` cresce por append (documento de
+ 100 KB ⇒ dezenas de milhares de tokens, ~20 realocações com cópia) e decodifica runa a
+ runa sem tabela para `r < utf8.RuneSelf`. É custo da CONSTRUÇÃO do índice (boot e
+ retomadas). Item 27 da revisão anterior, re-verificado hoje.
+ 
+ **P13 · `Search` faz `index.Get` duas vezes por hit da página** · CONFIRMADO
+@@ -426,22 +428,24 @@ retomadas). Item 27 da revisão anterior, re-verificado hoje.
+ Get e transportá-la resolve; cuidado com a corrida documentada de nota removida entre
+ as fases (o comentário de `montaSlot` existe por isso).
+ 
+ **P14 · `IsCloudOnly` custa um syscall por entrada da varredura, evitável**
+ CONFIRMADO · `vault/walk.go:174,185`: `d.Info()` já foi obtido em :174; no Windows ele
+ vem preenchido do `FindFirstFile` — os mesmos bits, sem syscall, via
+ `info.Sys().(*syscall.Win32FileAttributeData)`. (Em `Inverted.Update` o syscall é
+ necessário — não há `FileInfo` em mãos.)
+ 
+ **P15 · Varredura de temporários no caminho crítico do boot, em toda instância**
+-Performance · CONFIRMADO · `cmd/gobsidian/servico.go:80-84`
+-`SweepStaleTempFiles` percorre o cofre inteiro (`WalkDir`, `writer/atomic.go:55-80`)
++Performance · CONFIRMADO · `cmd/gobsidian/servico.go:80-84` (hoje
++`internal/boot/montar.go`, Task 174)
++`SweepStaleTempFiles` percorre o cofre inteiro (`WalkDir`, `writer/atomic.go:55-80`,
++hoje `internal/vault/atomic.go`, Tasks 171/172)
+ ANTES de montar watcher e serviço — recuperação de crash que não é prerequisito para
+ responder o initialize. Numa partida simultânea de N instâncias são N varreduras
+ seriais competindo por disco antes do primeiro byte; contribui direto para a demora de
+ listar ferramentas. Direção: SOBREPOR à carga do índice de metadados (goroutine
+ iniciada junto, `join` antes de servir) — preserva a garantia documentada em
+ `atomic.go:20-32` ("o único lugar sem escrita em voo é o boot") e troca a soma serial
+ pelo máximo das duas etapas. Variante posterior com guarda (sweep pós-announce pulando
+ caminhos sob trava do writer, `lock.go`) exige teste da corrida ENOENT documentada —
+ não fazer sem ele. Detalhe no plano, Fase 2.4.
+ 
+@@ -765,22 +769,23 @@ Passos:
+ 
+ - **Opção mínima (S)**: (i) `vault.Walk` pula entradas com `d.Type()&fs.ModeSymlink != 0`
+   registrando skip (como faz com ruído); (ii) centralizar a abertura: `Open`/
+   `ReadRange`/`ReadAll`/`WriteAtomic` resolvem o componente final com `filepath.EvalSymlinks`
+   e recusam alvo fora da raiz (uma função única em `vault`, usada por todos). Testes
+   T-C2 ficam verdes; mutação: remover a checagem ⇒ T-C2 reprova. Custo baixo; janela
+   TOCTOU residual documentada.
+ - **Opção estrutural (M/L)**: migrar aberturas para `os.OpenRoot(root)` (Go ≥1.24):
+   `Root.Open/Create/Stat/Remove/OpenFile` tornam o escape impossível por construção,
+   eliminam TOCTOU e a classe inteira (inclui futuros vetores 8.3/junction). Toca em
+-  `vault.Open/ReadRange/ReadAll`, `writer.WriteAtomic` (criar temporário + rename
+-  dentro do root — renomear via `Root.Rename`?) e no sweep de temporários. Exige ADR
++  `vault.Open/ReadRange/ReadAll`, `vault.WriteAtomic` (hoje já no mesmo pacote,
++  Tasks 171/172; criar temporário + rename dentro do root — renomear via
++  `Root.Rename`?) e no sweep de temporários. Exige ADR
+   novo (AD-10) e revisão dos testes de plataforma.
+ - **Recomendação**: Opção mínima AGORA (fecha o buraco com risco pequeno), Opção
+   estrutural como tarefa de arquitetura própria com medição de impacto em boot
+   (syscalls extras por nota) antes de adotar.
+ 
+ ### 1.3 A4: classificar erros de Accept
+ 
+ 1. No ramo de erro (`daemon.go:147-153`): sair só quando
+    `errors.Is(err, net.ErrClosed)` ou `ctx.Err() != nil`; caso contrário, logar com
+    contador, dormir backoff curto (começar 50 ms, teto 1 s) e `continue`.
+@@ -919,20 +924,25 @@ Passos:
+    `ctx.Done()` fechando o handle — tarefa separada com teste de timeout, pois toca o
+    caminho quente de leitura.
+ 
+ ### 3.5 M14: uma detecção de EOL
+ 
+ Apagar `writer.DetectEOL/NormalizeEOL` (`section.go:35-40`) e consumir
+ `vault.DetectEOL/NormalizeEOL` nos pontos de `write.go:227,345-346`. Teste de
+ paridade: mesmo arquivo misto decide igual no índice e no patch (golden com 1 CRLF +
+ 99 LF). Mutação: restaurar a heurística do writer ⇒ reprova.
+ 
++<!-- `vault.NormalizeEOL` foi apagada na Task 166 (commit e46654d, "delete dead
++code and the error code no path produces"); só `vault.DetectEOL` existe hoje.
++A recomendação acima, como escrita, não é mais executável e precisaria ser
++reescrita contra o que resta em `vault`. -->
++
+ ---
+ 
+ ## Fase 4 — Contratos que mentem (A8, M1–M6, M11, B4, B14, B18, higiene B10/B11/B13/B16)
+ 
+ Decisões de produto curtas, depois execução mecânica. Para cada campo: **ou implementa,
+ ou tira do schema e do TOOLS.md** — nunca deixar prometido e ignorado.
+ 
+ 1. **A8 `Backlink.Context`**: preencher na resolução — o offset Start/End do link e o
+    corpo já lidos no parse permitem recortar ±N bytes; persistir no codec (bump de
+    versão do cache de METADADOS — usar a constante ÚNICA do B11). Ou remover campo +
+diff --git a/docs/TOOLS.md b/docs/TOOLS.md
+index b089b79..a52e70b 100644
+--- a/docs/TOOLS.md
++++ b/docs/TOOLS.md
+@@ -300,22 +300,30 @@ Todas as tags do cofre.
+     "hierarchical": { "type": "boolean", "default": false, "description": "Retorna árvore em vez de lista plana." }
+   }
+ }
+ ```
+ 
+ **Retorno.** Objeto contendo a lista ou árvore de nós em `tags`, onde cada nó possui `tag`, `count` e opcionalmente `children` (quando `hierarchical: true`).
+ 
+ **Forma da tag devolvida.** `tag` vem **dobrada**: minúscula, NFC, sem `#`.
+ Grafias que diferem só em caixa ou em forma Unicode são uma entrada só, com a
+ soma das contagens — `#Ação` e `#ação` viram `ação`. Vale nos dois ramos,
+-plano e hierárquico. `note_metadata.tags` continua devolvendo a grafia original
+-da nota: a dobra é da chave de agrupamento, não do conteúdo da nota.
++plano e hierárquico. `note_metadata.tags` e `note_list.tags` continuam
++devolvendo a grafia original da nota (ver `:216` acima para `note_list`): a
++dobra é da chave de agrupamento, não do conteúdo da nota.
++
++A mesma chave dobrada é o que o subcomando `index` da CLI conta:
++`len(idx.Tags("", 1))` (`cmd/gobsidian/index.go:53`) soma entradas de
++`idx.tags`, cujas chaves já passam por `ChaveDeTag` — então grafias que só
++diferem em caixa, forma Unicode ou `#` inicial contam como uma tag só na
++contagem de tags distintas que `index --json` reporta. De quanto isso reduz a
++contagem num cofre com tags gravadas de formas diferentes: **não medido**.
+ 
+ **`prefix` não é o filtro `tags`.** São duas operações diferentes, de propósito.
+ O `tags` de `note_list` e de `vault_search` casa por SEGMENTO — a tag pedida e
+ suas subtags, e nada mais (`projeto` casa `projeto` e `projeto/alpha`, e não
+ casa `projetos`). O `prefix` daqui é autocompletar: prefixo de string sobre a
+ chave dobrada, que corta no meio de um segmento (`proj/al` lista
+ `proj/alpha`) e que, terminando em `/`, exclui a própria tag (`civil/` lista as
+ subtags de `civil` e não `civil`). O comportamento está fixado no golden
+ `testdata/tag_list_hierarquico.json` desde a Task 169, nos dois ramos.
+ 
+@@ -328,29 +336,31 @@ Estado do cofre e saúde do servidor.
+ ```json
+ {
+   "type": "object",
+   "properties": {
+     "include_health":  { "type": "boolean", "default": true },
+     "include_runtime": { "type": "boolean", "default": false }
+   }
+ }
+ ```
+ 
+-**Retorno.**
++**Retorno.** Campos de `service.StatsResult` (`internal/service/graph.go`):
++
++- `notes`, `assets`, `total_size`: contagem de notas, contagem de anexos, tamanho total do cofre (notas + anexos)
++- `alias_collisions`: aliases declarados por mais de uma nota
++- `generation`: geração corrente do índice
++- Com `include_health` — cada campo é ponteiro: ausente quando não pedido, presente (inclusive `0`) quando pedido — `orphans` (notas sem backlink), `broken_links`, `broken_anchors`, `frontmatter_errors`
++- Com `include_runtime`: `runtime` (`num_goroutine`, `alloc`, `total_alloc`, `sys`, `num_gc` — de `runtime.MemStats`, não RSS do processo) e objeto `watcher` (ausente se desligado) com os campos: `active`, `events_received`, `events_dropped`, `events_dropped_by_reason`, `events_coalesced`, `events_processed`, `events_skipped`, `reconciliations`, `reconciled_updated`, `reconciled_removed`.
+ 
+-- Contagem de notas, tamanho total, contagem de links, contagem de tags
+-- Contagem de anexos e tamanho total deles
+-- Notas órfãs (sem backlinks), links quebrados, âncoras quebradas, notas vazias
+-- Colisões de alias: aliases declarados por mais de uma nota
+-- Notas somente-nuvem não hidratadas
+-- Timestamp da última indexação e duração
+-- Com `include_runtime`: `runtime` (RSS, goroutines, gc) e objeto `watcher` (ausente se desligado) com os campos: `active`, `events_received`, `events_dropped`, `events_dropped_by_reason`, `events_coalesced`, `events_processed`, `events_skipped`, `reconciliations`, `reconciled_updated`, `reconciled_removed`.
++Não há contagem de links, contagem de tags, contagem de notas vazias, nem
++contagem de notas somente-nuvem não hidratadas — nenhum desses tem campo em
++`StatsResult` hoje.
+ 
+ **Notas.** Os contadores do watcher são a instrumentação principal para diagnosticar cofres em pastas sincronizadas. `events_received` conta os eventos antes do filtro de relevância (brutos), e `events_dropped` conta os irrelevantes ou ocultos. `events_dropped_by_reason` desdobra o total porque as causas pedem ações diferentes: `chmod` alto é OneDrive em operação normal e pode ser ignorado; `outside_vault` alto indica que a raiz do cofre é um link e o confinamento está recusando eventos; `excluded` alto indica atividade em `.obsidian/` ou `.git/`; `unknown_op` alto indica evento que o filtro não soube classificar e merece `--log-level debug`. `events_coalesced` conta eventos adicionais na mesma nota dentro da janela de debounce. `events_processed` conta o número de absorções de mudanças efetivas, e `events_skipped` as absorções rejeitadas (mesmo mtime e tamanho). `reconciled_updated` e `reconciled_removed` registram os arquivos corrigidos por reconciliação de overflow. Uma razão alta entre `events_received` e `events_processed` é o comportamento esperado e saudável; overflows recorrentes (contabilizados em `reconciliations`) indicam que a janela de debounce precisa ser ampliada via `--debounce-ms`. O menor valor aceito é `1`: zero é recusado na carga da configuração.
+ 
+ ---
+ 
+ # Escrita
+ 
+ Todas aceitam `dry_run`. Todas preservam o estilo de fim de linha do arquivo. Nenhuma reformata conteúdo que não seja o alvo explícito da operação.
+ 
+ ## `note_create`
+diff --git a/docs/segregacao.md b/docs/segregacao.md
+index 63dd975..d162de4 100644
+--- a/docs/segregacao.md
++++ b/docs/segregacao.md
+@@ -75,27 +75,27 @@ Com `persist.go` e o `mmap` dos dois lados, são 2.219 loc — **34% de
+ O custo de manter assim não é o tamanho, é a divergência: dois formatos
+ versionados evoluindo em separado, e todo defeito de codec precisa ser achado
+ duas vezes. É o único caso deste documento em que a duplicação é de
+ **mecanismo**, não de coincidência.
+ 
+ Extração natural: um pacote com as primitivas — varint, string, checksum,
+ cabeçalho versionado, arena mmap —, com `index` e `search` guardando apenas o
+ próprio esquema. Cria uma folha nova, que é o tipo de aresta que o `CLAUDE.md`
+ manda justificar; a justificativa é esta seção.
+ 
+-### 2. Troca atômica — três implementações
++### 2. Troca atômica — três implementações (unificadas em `vault.ReplaceFile`, Task 171/172)
+ 
+-`writer/atomic.go:141`, `index/persist.go:124`, `search/persist.go:87`.
++Havia três: `writer/atomic.go:141`, `index/persist.go:124`, `search/persist.go:87`.
+ 
+-A do `writer` é a cuidadosa: restaura o modo do alvo, porque `os.CreateTemp`
+-cria 0600 e um rename por cima trocaria a permissão da nota do usuário; e trata
+-a repetição no Windows. As duas de cache são a versão curta.
++A do `writer` era a cuidadosa: restaurava o modo do alvo, porque `os.CreateTemp`
++cria 0600 e um rename por cima trocaria a permissão da nota do usuário; e tratava
++a repetição no Windows. As duas de cache eram a versão curta.
+ 
+ A regra do projeto — *todo caminho derivado passa por UMA função* — aponta para
+ cá. Mas o consumo difere no que importa: cache perdido se refaz, nota do usuário
+ não. Unificar as três acopla o caminho barato ao caro sem que o caro fique mais
+ seguro. Recomendação: só junto com o item 1, e só entre os dois caches.
+ 
+ Extraído nas Tasks 171 e 172: hoje há uma implementação só,
+ `vault.ReplaceFile`, e os dois caches passam por ela.
+ 
+ ### 3. Chave derivada — a tag escapa da conta única
+@@ -104,31 +104,41 @@ Extraído nas Tasks 171 e 172: hoje há uma implementação só,
+ caminho, nome de arquivo e alias. Mas `index/query.go` tem 10 `strings.ToLower`
+ soltos: parte é parâmetro de consulta (`Sort`, `Order`, `TagMode`), o que está
+ certo, e parte é comparação de tag e de chave de campo inline — que baixa caixa
+ sem normalizar Unicode.
+ 
+ Não é o defeito que `chave.go` fechou; é o mesmo mecanismo um nível acima. Um
+ cofre com `#Ação` gravado em NFD e consultado em NFC tem, aqui, a mesma classe
+ de falha silenciosa. **Não medido** em cofre real — antes de mexer, vale contar
+ quantas tags do corpus não são ASCII.
+ 
++**Fechado pela Task 180** (`18d9da4`): a comparação de tag e de chave de campo
++inline passa hoje por `index.ChaveDeTag` (NFC + caixa) em `query.go`, `index.go`,
++`update.go` e `service/graph.go`. Restam três `strings.ToLower` soltos em
++`query.go` (`:263`, `:424`, `:428`) — os três são parâmetro de consulta
++(`mode`, `order`, `sort`), a classe que este documento já classificava como
++certa acima.
++
+ ---
+ 
+ ## O que não separar
+ 
+ - **`text`** — 62 loc, um arquivo, nenhum teste. Pequeno demais para virar
+   debate, e fan-in 3 justifica existir como está.
+ - **Arquivos por build tag** — `mmap_windows.go`/`mmap_unix.go` em `search`,
+   `trava_windows.go`/`trava_unix.go` em `daemon`. Já estão certos: perto do uso, e não
+   reunidos num pacote "plataforma" que obrigaria a olhar em dois lugares.
+ - **`service`, 3.097 loc** — parece grande, divide bem por arquivo
+   (`write.go` 841, `graph.go` 747, `search.go` 540). Fachada gorda não é pacote
+   confuso.
+ 
+ ---
+ 
+ ## Se virar tarefa
+ 
+ Só o item 1 tem ganho medível: uma superfície de codec em vez de duas, um
+-formato a versionar em vez de dois. Os itens 2 e 3 são registro — o 2 porque a
+-recomendação é **não** unificar tudo, e essa decisão precisa estar escrita para
+-não ser retomada do zero; o 3 porque falta a medição que diria se vale.
++formato a versionar em vez de dois. O item 2 está fechado (Tasks 171/172) e o
++item 3 também (Task 180); os dois ficam como registro — o 2 porque a
++recomendação foi **não** unificar tudo, e essa decisão precisa estar escrita
++para não ser retomada do zero; o 3 porque o que restou depois do fechamento
++(os três `strings.ToLower` de parâmetro de consulta) já era classificado como
++certo.
+diff --git a/docs/wiki/Home.md b/docs/wiki/Home.md
+index 82b9ff6..f43545d 100644
+--- a/docs/wiki/Home.md
++++ b/docs/wiki/Home.md
+@@ -29,22 +29,22 @@ o modelo do outro lado consegue buscar, ler seções específicas e editar notas
+ sem que ninguém precise despejar o cofre inteiro no contexto.
+ 
+ ## Como começar
+ 
+ - **Comando principal:** `gobsidian serve --vault "C:\caminho\do\cofre"`
+ - **Precisa de:** Go 1.25.0 ou mais novo (o toolchain instalado hoje é 1.26.5).
+   Nenhum serviço externo, nenhum banco, nenhuma rede.
+ - **Saída esperada:** no stderr, `servidor pronto vault=... notes=N index_ms=…`.
+   No stdout, só JSON-RPC — **um byte estranho ali corrompe a sessão**.
+ - **Primeiros arquivos para ler:** `cmd/gobsidian/main.go`,
+-  `cmd/gobsidian/servico.go` (a sequência de boot), `internal/service/service.go`
+-  (a fachada que cada tool chama).
++  `internal/boot/montar.go` (a sequência de boot, `boot.Montar`),
++  `internal/service/service.go` (a fachada que cada tool chama).
+ - **Uma primeira mudança segura:** acrescentar um campo a uma resposta de tool
+   em `internal/service/` e expô-lo em `internal/mcpsrv/`.
+ - **Uma mudança tentadora e perigosa:** `go mod tidy`. Ele remove dependências
+   fixadas que ainda não têm importador. Ver [Regras não negociáveis](risks/regras-nao-negociaveis.md).
+ 
+ Detalhes em [Como rodar](overview/como-rodar.md).
+ 
+ ## Por que existe?
+ 
+ Um cofre real tem milhares de notas e dezenas de MB. Colar isso num prompt é
+diff --git a/docs/wiki/_wiki/manifest.json b/docs/wiki/_wiki/manifest.json
+index 07f23d8..410ba40 100644
+--- a/docs/wiki/_wiki/manifest.json
++++ b/docs/wiki/_wiki/manifest.json
+@@ -19,21 +19,20 @@
+     "cmd/gobsidian/doctor.go": "24df3f72c260944cfe432c7134477a39628541fa",
+     "cmd/gobsidian/index.go": "42d5217ecb6557fd99dc6eb8ca25ab880866b27f",
+     "cmd/gobsidian/inspect.go": "03815c43babfbc630cd2a97fcbbe5119954f49ec",
+     "cmd/gobsidian/inverted_cache_state_test.go": "600263385b622f863f3d85c048b8a90f42ac1c6f",
+     "cmd/gobsidian/main.go": "03c15c23c4da352f8faf162b2ebe0280f3f29488",
+     "cmd/gobsidian/ponte.go": "9c5d7a952ee75aec1ee07fbadeb0d5c07e78bb38",
+     "cmd/gobsidian/ponte_test.go": "8e6fe9f57f9fd3602c231f950efc3d1f70a8ab66",
+     "cmd/gobsidian/search.go": "b7751e7dc9fafb0941f3c3bcc9620635f19a0e26",
+     "cmd/gobsidian/serve.go": "4df2530eaf7b0c8b43cf5bff5f83defe8c5d1011",
+     "cmd/gobsidian/serve_test.go": "954d357038b12937e689e139f6357655ea8f9c5f",
+-    "cmd/gobsidian/servico.go": "e8f0893524acf840803ff0e81e31b7896102df41",
+     "docs/ARCHITECTURE.md": "38d56c0db47602ad19cbaff67b180eb5b77cf9e3",
+     "docs/ESTRUTURA.md": "98814a59a96437bf268915734828a2137d9b13c5",
+     "docs/OPERACAO.md": "3622aaf7cded9db67e38754aa39d97cd8a8d4592",
+     "docs/PRD.md": "59dfdd46d0297c8bb39fa6c7bcfca9ccd04e5c1c",
+     "docs/TOOLS.md": "4c62ede9e6b91e9eabf4d7ac48f4954220b5a1d2",
+     "docs/WINDOWS.md": "564aca3091ebf2c162e53bab4dde401b7fc47710",
+     "docs/bench-baseline.json": "cfc998f0f157f1cc2515b8aa454eb1295994933d",
+     "docs/superpowers/plans/2026-07-25-gobsidian-v01.md": "b54562f807ef736bbea69fb55625eaf3ebe118f5",
+     "docs/superpowers/plans/2026-07-26-m0-review-fixes.md": "c2ee50acec173336392ab8ca7fe2f1ee48d3f89c",
+     "docs/superpowers/plans/2026-08-05-m7-performance-de-busca.md": "e4518a127bc72b628d84b6008edcef091dff8ba5",
+diff --git a/docs/wiki/concepts/camadas-e-fronteiras.md b/docs/wiki/concepts/camadas-e-fronteiras.md
+index 6eb0696..f52f269 100644
+--- a/docs/wiki/concepts/camadas-e-fronteiras.md
++++ b/docs/wiki/concepts/camadas-e-fronteiras.md
+@@ -68,24 +68,27 @@ de variável de ambiente, resolução de caminho e cálculo em memória não rec
+ Quando o parâmetro existe só por consistência de assinatura, nomeie-o `_`.
+ 
+ **Sem `helpers.go`, `utils.go`, `common.go`.** Arquivo assim é preocupação que
+ ninguém nomeou. O pacote `internal/console` nasceu como `internal/utils` e foi
+ renomeado por isso.
+ 
+ ## Onde a fronteira vaza hoje
+ 
+ Uma, e ela é de forma, não de segurança:
+ 
+-- `service.Index` é uma interface de 12 métodos que devolve `*index.Note`,
+-  `index.Query` e `index.TagCount`. Ela não isola nada — `service` não compila
+-  sem `index`. Fica como está: trocá-la por tipos próprios custaria uma cópia do
+-  domínio inteiro para comprar uma fronteira que ninguém precisa atravessar.
++- Até a Task 173 existia uma `service.Index`, interface de 12 métodos que
++  devolvia `*index.Note`, `index.Query` e `index.TagCount` — e que não isolava
++  nada, porque `service` não compilava sem `index` mesmo assim. A Task 173 a
++  removeu: `Service` guarda hoje um `*index.Index` (`internal/service/service.go`)
++  concreto, direto. O ponto do parágrafo original fica de pé, só que mais forte:
++  trocar o tipo concreto por uma interface própria custaria uma cópia do domínio
++  inteiro para comprar uma fronteira que ninguém precisa atravessar.
+ 
+ A que **era** de segurança fechou: a superfície de escrita construía
+ `vault.CanonicalPath` por conversão, sem passar por `vault.Resolve`, e no Windows
+ `..\..\x.md` escapava da raiz do cofre. Hoje todo caminho de escrita entra por
+ `s.index.ResolvePath` (nota existente) ou por `vault.Resolve` (destino novo, no
+ `note_create` e no `to` do `note_move`), e o confinamento mora em
+ `vault.Canonicalize` — **uma conta por regra**.
+ 
+ ## Ver também
+ 
+diff --git a/docs/wiki/decisions/decisoes-fechadas.md b/docs/wiki/decisions/decisoes-fechadas.md
+index f13a951..fd1a58f 100644
+--- a/docs/wiki/decisions/decisoes-fechadas.md
++++ b/docs/wiki/decisions/decisoes-fechadas.md
+@@ -1,20 +1,20 @@
+ ---
+ title: Decisões fechadas
+ type: decision
+ status: active
+ description: Escolhas com trade-off registrado, que não devem ser re-litigadas sem dado novo.
+ source_paths:
+   - internal/ipc/ipc.go
+   - internal/config/config.go
+   - internal/search/inverted.go
+-  - cmd/gobsidian/servico.go
++  - internal/boot/montar.go
+ source_commit: c6804e1e
+ tags: [adr, trade-offs]
+ language: pt-BR
+ updated_at: '2026-08-31'
+ ---
+ 
+ # Decisões fechadas
+ 
+ As decisões normativas com identificador (D1–D13, AD-01–AD-09, D-M7-*) vivem em
+ `docs/PRD.md` e `docs/ARCHITECTURE.md`. Esta página registra as que mais afetam a
+diff --git a/docs/wiki/features/escrita.md b/docs/wiki/features/escrita.md
+index ad62c29..b91227e 100644
+--- a/docs/wiki/features/escrita.md
++++ b/docs/wiki/features/escrita.md
+@@ -1,56 +1,56 @@
+ ---
+ title: Escrita
+ type: feature
+ status: active
+ description: As cinco tools de escrita, gravação atômica, travas por caminho e preservação de EOL/BOM.
+ source_paths:
+   - internal/service/write.go
+-  - internal/writer/atomic.go
++  - internal/vault/atomic.go
+   - internal/writer/lock.go
+   - internal/writer/diff.go
+   - internal/writer/section.go
+   - internal/writer/linkrewrite.go
+ source_commit: f7de8e81
+ tags: [escrita, atomicidade]
+ language: pt-BR
+ updated_at: '2026-08-31'
+ ---
+ 
+ # Escrita
+ 
+ Cinco tools: `note_create`, `note_append`, `note_patch`, `note_move`,
+ `note_delete`. Todas passam por `internal/writer` para tocar o disco.
+ 
+ ## Gravação atômica
+ 
+-`writer.WriteAtomic` faz temporário no mesmo diretório → `Write` → `Sync` →
++`vault.WriteAtomic` faz temporário no mesmo diretório → `Write` → `Sync` →
+ `Close` → `os.Rename` → **fsync do diretório**, com retentativa no rename
+ (10 × 10 ms) porque no Windows um antivírus ou o próprio Obsidian pode segurar o
+ arquivo por um instante. A retentativa respeita `ctx`: espera cancelável, não
+ `time.Sleep` cego.
+ 
+ Dois cuidados que faltavam até 2026-08-28:
+ 
+ - **O modo do arquivo original é preservado.** Sem isso, editar uma nota
+   somente-leitura a devolvia gravável — a escrita apagava uma decisão do usuário
+   em silêncio.
+ - **O diretório é sincronizado** depois do rename, atrás de build tag
+   (`syncdir_unix.go` / `syncdir_windows.go`). Sem fsync do diretório, o rename
+   pode não sobreviver a uma queda de energia mesmo com o conteúdo já em disco. No
+   Windows não há handle de diretório sincronizável, e o arquivo da plataforma diz
+   isso em vez de fingir que faz.
+ 
+ O temporário desta escrita é removido no `defer` em qualquer falha; o de um
+ processo morto é removido **no boot** por `SweepStaleTempFiles`.
+ 
+-> `CleanStaleTempFiles` **não pode** ser chamada no início de uma escrita. O glob
++> `SweepStaleTempFiles` **não pode** ser chamada no início de uma escrita. O glob
+ > apaga todos os temporários do diretório, inclusive o de outra escrita em voo. A
+ > trava é por *caminho*; o recurso compartilhado ali é o *diretório*.
+ 
+ ## Travas por caminho
+ 
+ `writer.PathLocker` dá um mutex por caminho, com contagem de referência e chave
+ em minúsculas (casing uniforme no Windows). Quem trava **dois** caminhos —
+ `note_move` — os adquire em ordem de chave, nunca na ordem origem→destino: dois
+ moves opostos simultâneos (A→B e B→A) travariam um ao outro em AB-BA. A ordem
+ global custa uma comparação de string. Duas notas na mesma pasta escrevem em
+diff --git a/docs/wiki/flows/boot.md b/docs/wiki/flows/boot.md
+index 1ce1ac3..a66ec9c 100644
+--- a/docs/wiki/flows/boot.md
++++ b/docs/wiki/flows/boot.md
+@@ -1,39 +1,47 @@
+ ---
+ title: Fluxo de boot
+ type: flow
+-status: active
++status: stale
+ description: O que roda entre o host lançar o processo e as tools serem anunciadas.
+ source_paths:
+   - cmd/gobsidian/serve.go
+-  - cmd/gobsidian/servico.go
+   - cmd/gobsidian/ponte.go
++  - internal/boot/montar.go
++  - internal/boot/vigia.go
+ source_commit: f7de8e81
+ tags: [boot, inicializacao]
+ language: pt-BR
+ updated_at: '2026-08-31'
+ ---
+ 
+ # Fluxo de boot
+ 
++> **Nota (2026-09-06):** `cmd/gobsidian/servico.go` foi extraído para
++> `internal/boot` (Task 174) e não existe mais; `construirServico` virou
++> `boot.Montar`, `invertedCacheState` virou `boot.estadoDoCache` e
++> `buildInvertedIndex` virou `boot.construirBusca`. Os nomes abaixo foram
++> corrigidos, mas a página não foi re-derivada por completo contra o `boot`
++> atual — daí `status: stale`.
++
+ ```
+ runServe
+  └─ servePonte                          decide ponte ou processo
+      ├─ ipc.DialAndHandshake            daemon vivo? → copia bytes e acabou
+      ├─ daemon.EnsureStarted            ganhou a corrida? lança um
+      └─ serveEmProcesso                 fallback obrigatório
+-         ├─ lifecycle.New               os três mecanismos de encerramento
+-         ├─ construirServico            ⟵ o miolo
++         ├─ boot.VigiarHost             pipe + espelho + os três mecanismos de encerramento
++         ├─ boot.Montar                 ⟵ o miolo
+          └─ mcpsrv.New + srv.Serve
+ ```
+ 
+-`construirServico` (`cmd/gobsidian/servico.go`) é compartilhada entre o modo em
++`boot.Montar` (`internal/boot/montar.go`) é compartilhada entre o modo em
+ processo e o daemon **de propósito**: as duas precisam da mesma sequência, e
+ sequência de boot construída em dois lugares tem o mesmo risco de divergência que
+ chave de mapa calculada em dois lugares.
+ 
+ ## A sequência
+ 
+ **1. Índice de metadados.** Tenta o cache do disco. Só aceita quando
+ `VerifyFreshness` confirma que ele bate com o disco — mesma contagem de arquivos,
+ mesmo tamanho e mtime por arquivo. Qualquer divergência cai para `idx.Build`, que
+ varre e parseia. **Não há reparo parcial aqui**: reparar só o que mudou é
+@@ -73,25 +81,25 @@ tentativa falhava pelo mesmo motivo, para sempre, e nada no log dizia isso:
+ 
+ O carregamento do cache saiu pelo mesmo raciocínio numa escala menor: 1,83 s
+ contra 1,3 s do índice de metadados — mais da metade do tempo até responder,
+ gasto numa estrutura que nenhuma tool precisa para ser anunciada.
+ 
+ No modo padrão a carga acontece **dentro da primeira `vault_search`**, uma vez,
+ com retentativa se falhar (`service.cargaUnica`).
+ 
+ ## Cache parcial
+ 
+-`invertedCacheState` decide o que fazer com o que veio do disco:
++`boot.estadoDoCache` decide o que fazer com o que veio do disco:
+ 
+ - **pronta** — `hdr.NoteCount >= idx.NoteCount()`: cobre o cofre inteiro.
+ - **retomar** — utilizável mas incompleto; serve de ponto de partida, e
+-  `buildInvertedIndex` só lê do disco o que `HasDoc` ainda não cobre.
++  `boot.construirBusca` só lê do disco o que `HasDoc` ainda não cobre.
+ 
+ A comparação é `>=` e não `==` porque notas apagadas deixam entradas velhas no
+ cache; as sobras não vazam para o resultado porque a busca só devolve o que o
+ índice de metadados confirma.
+ 
+ Durante a construção, o cache é gravado a cada **60 s** — é a única rede contra
+ encerramento abrupto, já que a saída por cancelamento não grava parcial.
+ 
+ ## Memória transitória
+ 
+diff --git a/docs/wiki/flows/encerramento.md b/docs/wiki/flows/encerramento.md
+index fd08014..fc61a69 100644
+--- a/docs/wiki/flows/encerramento.md
++++ b/docs/wiki/flows/encerramento.md
+@@ -3,20 +3,22 @@ title: Encerramento
+ type: flow
+ status: active
+ description: Os quatro mecanismos que garantem que o processo morre, e o desligamento por etapas.
+ source_paths:
+   - internal/lifecycle/lifecycle.go
+   - internal/lifecycle/stdin.go
+   - internal/lifecycle/signals.go
+   - internal/lifecycle/parent.go
+   - internal/lifecycle/shutdown.go
+   - cmd/gobsidian/serve.go
++  - internal/boot/espelho.go
++  - internal/boot/vigia.go
+ source_commit: cceb980
+ tags: [lifecycle, shutdown, orfaos]
+ language: pt-BR
+ updated_at: '2026-09-04'
+ ---
+ 
+ # Encerramento
+ 
+ Um servidor MCP é subprocesso de um host que pode fechar de qualquer jeito.
+ Processo órfão segurando um índice de centenas de MB é o pior modo de falha do
+@@ -71,23 +73,27 @@ limite duro global (6 s no `serve`):
+ Ela recebe `ctx` e **descarta o cancelamento** com `context.WithoutCancel`: o
+ context raiz já está cancelado quando ela roda, então derivar os orçamentos dele
+ faria toda etapa nascer expirada. `WithoutCancel` preserva os valores e joga fora
+ só o cancelamento.
+ 
+ ## O espelho de stdin
+ 
+ O monitor de EOF e o SDK precisam ler o mesmo stdin, e dois leitores no mesmo
+ descritor repartem os bytes e corrompem o JSON-RPC.
+ 
+-A saída é `mirrorReader`: o SDK lê do espelho, o lifecycle observa a cópia.
+-**`io.TeeReader` não serve** — ele copia bytes, e EOF não é byte. `mirrorReader`
+-faz `dst.CloseWithError(err)`, que é o que propaga o fim da leitura.
++A saída é `mirrorReader` (`internal/boot/espelho.go`): o SDK lê do espelho, o
++lifecycle observa a cópia. **`io.TeeReader` não serve** — ele copia bytes, e
++EOF não é byte. `mirrorReader` faz `dst.CloseWithError(err)`, que é o que
++propaga o fim da leitura. `boot.VigiarHost` (`internal/boot/vigia.go`) é quem
++monta o andaime — pipe, `mirrorReader` e `lifecycle.New`, nessa ordem —, e
++serve e a ponte (`serveEmProcesso` e `servePonteRemota`) compartilham essa
++montagem em vez de repeti-la.
+ 
+ O espelho é **auxiliar**: falha de escrita nele não pode virar erro da leitura
+ principal — mataria uma sessão saudável por um motivo que o cliente não pode
+ resolver.
+ 
+ ## Código de saída
+ 
+ `shutdownExitCode` (`cmd/gobsidian/serve.go`) delega a `ipc.EhDesconexaoLimpa`
+ (`internal/ipc/desconexao.go`) a decisão de o que é desconexão limpa. Ela
+ aceita quatro formas no retorno do serve loop — `context.Canceled`, `io.EOF`,
+diff --git a/docs/wiki/overview/onde-ficam-os-dados.md b/docs/wiki/overview/onde-ficam-os-dados.md
+index 590b7c2..0ca075c 100644
+--- a/docs/wiki/overview/onde-ficam-os-dados.md
++++ b/docs/wiki/overview/onde-ficam-os-dados.md
+@@ -1,21 +1,21 @@
+ ---
+ title: Onde ficam os dados
+ type: overview
+ status: active
+ description: Caches, socket, lock, lixeira e temporários — o que o servidor grava e onde.
+ source_paths:
+   - internal/config/config.go
+   - internal/index/persist.go
+   - internal/search/persist.go
+   - internal/ipc/ipc.go
+-  - internal/writer/atomic.go
++  - internal/vault/atomic.go
+ source_commit: c6804e1e
+ tags: [cache, dados, disco]
+ language: pt-BR
+ updated_at: '2026-08-31'
+ ---
+ 
+ # Onde ficam os dados
+ 
+ Regra geral: **nada do servidor é gravado dentro do cofre**, exceto as notas que
+ o usuário mandou escrever e a lixeira. O cache fora do cofre é decisão fechada
+@@ -82,24 +82,24 @@ lançados juntos podem ambos ver "ninguém escuta" antes de qualquer um bindar.
+ Compartilhar o arquivo travaria os dois, porque o daemon adquire o de escuta
+ enquanto a ponte que o lançou ainda segura o de `EnsureStarted`.
+ 
+ Ver [Daemon e ponte](../features/daemon-e-ponte.md).
+ 
+ ## Dentro do cofre
+ 
+ | O quê | Onde | Quem cria |
+ |---|---|---|
+ | Lixeira | `.trash/` | `note_delete` com `to_trash` |
+-| Temporários de escrita | `.gobsidian-tmp-*` no mesmo diretório do alvo | `writer.WriteAtomic` |
++| Temporários de escrita | `.gobsidian-tmp-*` no mesmo diretório do alvo | `vault.WriteAtomic` |
+ 
+ `.trash` é um dos diretórios **excluídos da varredura** (junto de `.obsidian`,
+ `.git` e `.stfolder`), então nota na lixeira não volta ao índice. Isso também
+ significa que hoje **não há tool para listar ou restaurar** o que foi para lá.
+ 
+ Temporário órfão só sobra quando o processo é morto sem rodar `defer`.
+-`writer.SweepStaleTempFiles` limpa isso **no boot**, que é o único momento sem
++`vault.SweepStaleTempFiles` limpa isso **no boot**, que é o único momento sem
+ escrita em voo — varrer durante uma escrita apagaria o temporário de outra.
+ 
+ ## Ver também
+ 
+ - [Escrita](../features/escrita.md)
+ - [Armadilhas já pagas](../risks/armadilhas-pagas.md)
+diff --git a/internal/boot/doc.go b/internal/boot/doc.go
+index 308d07f..8364571 100644
+--- a/internal/boot/doc.go
++++ b/internal/boot/doc.go
+@@ -1,16 +1,17 @@
+ // Package boot monta o servidor: cofre, indice de metadados (do cache ou
+ // construido), indice de busca (adotado do cache, retomado ou construido),
+ // watcher e Service. Existe porque serve e daemon precisam da mesma
+ // montagem, e ela vivia em cmd/gobsidian, onde nenhum teste de pacote a
+-// alcancava. Os subcomandos de CLI nao passam por aqui: index, search e
+-// inspect montam o indice por conta propria, sem watcher e sem Service.
++// alcancava. Os subcomandos de CLI abrem o indice por aqui — index, inspect
++// e search chamam AbrirIndice, e search tambem chama PrepararBusca —, mas
++// nao chegam a Montar: nao constroem watcher nem Service.
+ //
+ // Monta tambem a VIGILIA do host (VigiarHost) e os passos de encerramento
+ // que os tres pontos de saida repetiam — o pipe espelhado mais lifecycle.New
+ // em serve e na ponte, e os passos "close-pipe" e "watcher". Por isso importa
+ // lifecycle: e o mesmo andaime, e a ordem entre as pecas importa.
+ //
+ // Nao importa mcpsrv: quem monta nao decide como o host conversa. E nao
+ // decide QUANDO encerrar — lifecycle.Shutdown continua sendo chamada por
+ // quem serve, com os passos que so ela conhece (in-flight, half-close,
+ // close-conn).
+diff --git a/internal/boot/montar.go b/internal/boot/montar.go
+index 41ab70d..679d8e3 100644
+--- a/internal/boot/montar.go
++++ b/internal/boot/montar.go
+@@ -78,20 +78,27 @@ func Montar(ctx context.Context, cfg config.Config, log *slog.Logger) (*Componen
+ 	//
+ 	// Ela percorre o cofre inteiro, e estava no caminho critico antes de montar
+ 	// watcher e servico — recuperacao de crash que nao e pre-requisito para
+ 	// responder o initialize. Numa partida simultanea de varias instancias eram
+ 	// N varreduras seriais disputando disco antes do primeiro byte.
+ 	//
+ 	// A garantia documentada em vault/atomic.go continua valendo: "o unico
+ 	// lugar sem escrita em voo e o boot". As duas metades do boot continuam
+ 	// antes de o servidor servir, e o join abaixo acontece antes de watcher.New
+ 	// — nada que escreva chegou a existir ainda.
++	//
++	// A garantia vale porque o CacheDir padrao fica FORA do cofre, e a
++	// varredura acima so alcanca cfg.VaultPath: o temporario que AbrirIndice
++	// grava por vault.ReplaceFile nao entra no caminho dela. Um --cache-dir
++	// apontado para DENTRO do cofre colocaria o temporario de AbrirIndice ao
++	// alcance da varredura, e a garantia deixaria de valer (achado N5 da
++	// revisao final).
+ 	type varreduraFeita struct {
+ 		res vault.SweepResult
+ 		err error
+ 	}
+ 	varredura := make(chan varreduraFeita, 1)
+ 	go func() {
+ 		r, err := vault.SweepStaleTempFiles(ctx, cfg.VaultPath)
+ 		varredura <- varreduraFeita{res: r, err: err}
+ 	}()
+ 
+diff --git a/internal/daemon/daemon.go b/internal/daemon/daemon.go
+index e997f58..96b4d4f 100644
+--- a/internal/daemon/daemon.go
++++ b/internal/daemon/daemon.go
+@@ -30,22 +30,21 @@ import (
+ 
+ // Config e o que o daemon precisa alem do config.Config do cofre.
+ type Config struct {
+ 	Vault         config.Config
+ 	OciosidadeMax time.Duration
+ }
+ 
+ // Daemon aceita conexoes no socket do cofre e as serve contra o MESMO
+ // *mcpsrv.Server -- o indice, o watcher e o servico por baixo dele sao
+ // compartilhados entre todas as sessoes (ver cmd/gobsidian/daemon.go, que
+-// monta esse Server uma unica vez, via construirServico, antes de chamar
+-// New).
++// monta esse Server uma unica vez, via boot.Montar, antes de chamar New).
+ type Daemon struct {
+ 	ln  net.Listener
+ 	srv *mcpsrv.Server
+ 	cfg Config
+ 	log *slog.Logger
+ 
+ 	mu             sync.Mutex
+ 	conexoesAtivas int
+ 	ultimoCliente  time.Time
+ }
+diff --git a/internal/daemon/lock.go b/internal/daemon/lock.go
+index a7d2a2a..b5323fe 100644
+--- a/internal/daemon/lock.go
++++ b/internal/daemon/lock.go
+@@ -109,22 +109,24 @@ func adquirirLock(vaultPath string) (adquiriu bool, liberar func(), err error) {
+ }
+ 
+ // Sufixos das duas travas do daemon, derivadas do caminho do socket. O doctor
+ // lista as travas pelo mesmo par -- ate 2026-09-02 ele filtrava por ".sock.lock"
+ // e a trava de escuta (".sock.listen.lock") era invisivel para ele.
+ const (
+ 	sufixoTrava         = ".lock"
+ 	sufixoTravaDeEscuta = ".listen.lock"
+ )
+ 
+-// EhArquivoDeTrava diz se um nome de arquivo no diretorio de runtime e uma
+-// das duas travas de daemon. E a unica conta; o doctor a consome.
++// EhArquivoDeTrava diz se um nome de arquivo no diretorio de runtime e
++// qualquer arquivo ".lock" (o diretorio de runtime e so do produto, entao
++// isso cobre as duas travas de daemon sem precisar dos dois sufixos). E a
++// unica conta; o doctor a consome.
+ func EhArquivoDeTrava(nome string) bool {
+ 	return strings.HasSuffix(nome, sufixoTrava) // ".listen.lock" tambem termina em ".lock"
+ }
+ 
+ // lockPath deriva do MESMO caminho que ipc.SocketPath calcula, trocando so
+ // a extensao -- um cofre, um socket, um lock, todos no mesmo diretorio de
+ // runtime.
+ func lockPath(vaultPath string) (string, error) {
+ 	sock, err := ipc.SocketPath(vaultPath)
+ 	if err != nil {
+diff --git a/internal/index/persist.go b/internal/index/persist.go
+index df74016..660e367 100644
+--- a/internal/index/persist.go
++++ b/internal/index/persist.go
+@@ -55,21 +55,21 @@ var (
+ 	// ErrIndexCacheNotFound indica que o arquivo de cache não existe.
+ 	ErrIndexCacheNotFound = errors.New("index cache file not found")
+ 	// ErrIndexCacheVersionMismatch indica incompatibilidade de formato, de
+ 	// parser ou de caminho do cofre.
+ 	ErrIndexCacheVersionMismatch = errors.New("index cache version mismatch")
+ 	// ErrIndexCacheCorrupted indica erro de decodificação ou checksum que
+ 	// não bate.
+ 	ErrIndexCacheCorrupted = errors.New("index cache file corrupted")
+ 	// ErrIndexCachePartial indica que o cabeçalho promete mais do que o
+ 	// corpo do arquivo trouxe. É a regra que o cache de busca aprendeu na
+-	// marra (ver o comentário de invertedCacheState em cmd/gobsidian/serve.go):
++	// marra (ver o comentário de estadoDoCache em internal/boot/busca.go):
+ 	// LoadInvertedCache conferia versão e não contagem, e um cache parcial
+ 	// passava por completo.
+ 	ErrIndexCachePartial = errors.New("index cache incomplete")
+ )
+ 
+ // CacheHeader guarda as versões e a cobertura declarada do cache.
+ type CacheHeader struct {
+ 	FormatVersion int
+ 	ParserVersion int
+ 	VaultPath     string
+diff --git a/internal/mcpsrv/schema_params_test.go b/internal/mcpsrv/schema_params_test.go
+index be1217e..ca6c59b 100644
+--- a/internal/mcpsrv/schema_params_test.go
++++ b/internal/mcpsrv/schema_params_test.go
+@@ -1,19 +1,20 @@
+ package mcpsrv_test
+ 
+ import (
+ 	"context"
+ 	"encoding/json"
+ 	"io"
+ 	"log/slog"
+ 	"os"
+ 	"path/filepath"
++	"strings"
+ 	"testing"
+ 	"time"
+ 
+ 	"github.com/jonyd/gobsidian/internal/config"
+ 	"github.com/jonyd/gobsidian/internal/index"
+ 	"github.com/jonyd/gobsidian/internal/mcpsrv"
+ 	"github.com/jonyd/gobsidian/internal/search"
+ 	"github.com/jonyd/gobsidian/internal/service"
+ 	"github.com/jonyd/gobsidian/internal/vault"
+ 	"github.com/modelcontextprotocol/go-sdk/mcp"
+@@ -254,10 +255,66 @@ func TestLinkGraph_IncludeEmbedsParameter(t *testing.T) {
+ 	if len(data.Edges) == 0 {
+ 		t.Fatal("resposta sem arestas; o teste nao exercitou nada")
+ 	}
+ 
+ 	for _, e := range data.Edges {
+ 		if e.Target == "note_c.md" {
+ 			t.Errorf("nao esperava aresta de embed quando include_embeds=false, obteve: %+v", e)
+ 		}
+ 	}
+ }
++
++// tagsDescriptionServida devolve a description que o schema servido traz
++// para o campo "tags" da tool nomeada. O SDK entrega, do lado do cliente,
++// tool.InputSchema como map[string]any (a serializacao default do schema do
++// servidor) -- e o servidor so envia type+description por campo
++// (jsonschema-go v0.4.2, ver docs/TOOLS.md "Schemas servidos"), entao
++// navegar o mapa e o unico jeito de ver o que o host realmente recebe.
++func tagsDescriptionServida(t *testing.T, tools []*mcp.Tool, toolName string) string {
++	t.Helper()
++	for _, tool := range tools {
++		if tool.Name != toolName {
++			continue
++		}
++		schema, ok := tool.InputSchema.(map[string]any)
++		if !ok {
++			t.Fatalf("%s: InputSchema nao e map[string]any: %T", toolName, tool.InputSchema)
++		}
++		props, ok := schema["properties"].(map[string]any)
++		if !ok {
++			t.Fatalf("%s: schema sem properties", toolName)
++		}
++		tagsProp, ok := props["tags"].(map[string]any)
++		if !ok {
++			t.Fatalf("%s: schema sem properties.tags", toolName)
++		}
++		desc, _ := tagsProp["description"].(string)
++		return desc
++	}
++	t.Fatalf("tool %s nao encontrada em ListTools", toolName)
++	return ""
++}
++
++// TestSchemaServidoDescreveTagsHierarquicas e o achado F2 da revisao final:
++// a Task 180 (18d9da4) fez "tags" casar hierarquicamente (subtags) e dobrar
++// caixa/NFC em vault_search e note_list, e o TOOLS.md documentou a prosa,
++// mas a tag `jsonschema` das duas -- a unica coisa que atravessa ate o host,
++// porque o servidor so envia type+description -- nao acompanhou. Sem este
++// teste, o modelo do outro lado nunca saberia que #projeto casa
++// projeto/alpha.
++func TestSchemaServidoDescreveTagsHierarquicas(t *testing.T) {
++	session, cleanup := setupMCPServer(t)
++	defer cleanup()
++
++	ctx := context.Background()
++	res, err := session.ListTools(ctx, nil)
++	if err != nil {
++		t.Fatalf("ListTools: %v", err)
++	}
++
++	for _, toolName := range []string{"vault_search", "note_list"} {
++		desc := tagsDescriptionServida(t, res.Tools, toolName)
++		if !strings.Contains(desc, "subtags") {
++			t.Errorf("%s.tags: description servida nao menciona subtags: %q", toolName, desc)
++		}
++	}
++}
+diff --git a/internal/mcpsrv/tools_read.go b/internal/mcpsrv/tools_read.go
+index c1733b5..006390a 100644
+--- a/internal/mcpsrv/tools_read.go
++++ b/internal/mcpsrv/tools_read.go
+@@ -317,21 +317,21 @@ func parseDateFilter(s string) (time.Time, error) {
+ 	}
+ 	if t, err := time.Parse("2006-01-02", s); err == nil {
+ 		return t.UTC(), nil
+ 	}
+ 	return time.Time{}, fmt.Errorf("formato invalido: %q (esperado RFC3339 ou YYYY-MM-DD)", s)
+ }
+ 
+ type vaultSearchInput struct {
+ 	Query          string                 `json:"query,omitempty" jsonschema:"Termos de busca. Aspas duplas delimitam frase exata."`
+ 	Folder         string                 `json:"folder,omitempty" jsonschema:"Restringe a uma pasta e suas subpastas."`
+-	Tags           []string               `json:"tags,omitempty" jsonschema:"Notas que contenham TODAS as tags."`
++	Tags           []string               `json:"tags,omitempty" jsonschema:"Notas que contenham TODAS as tags. A tag pedida casa a si mesma e suas subtags; '#' inicial é opcional; comparação insensível a caixa e a forma Unicode (NFC)."`
+ 	Frontmatter    map[string]interface{} `json:"frontmatter,omitempty" jsonschema:"Pares chave/valor que devem casar no frontmatter."`
+ 	ModifiedAfter  string                 `json:"modified_after,omitempty" jsonschema:"Data mínima de modificação. Aceita RFC3339 ('2006-01-02T15:04:05Z07:00') ou data curta ('2006-01-02')."`
+ 	ModifiedBefore string                 `json:"modified_before,omitempty" jsonschema:"Data máxima de modificação. Aceita RFC3339 ('2006-01-02T15:04:05Z07:00') ou data curta ('2006-01-02')."`
+ 	SnippetChars   *int                   `json:"snippet_chars,omitempty" jsonschema:"Tamanho máximo do trecho em caracteres. Teto máximo: 1000."`
+ 	Limit          *int                   `json:"limit,omitempty"`
+ 	Offset         *int                   `json:"offset,omitempty"`
+ }
+ 
+ type noteReadInput struct {
+ 	Path               string         `json:"path,omitempty" jsonschema:"Caminho de uma nota. Mutuamente exclusivo com paths."`
+@@ -353,21 +353,21 @@ func noteReadValidationError(msg string) (*mcp.CallToolResult, any, error) {
+ 	valErr := service.Errorf(service.CodeInvalidArgument, "%s", msg)
+ 	res := &mcp.CallToolResult{}
+ 	res.SetError(fmt.Errorf("%s: %w", service.CodeInvalidArgument, valErr))
+ 	out := service.ReadBatchResult{Items: []service.ReadNoteItem{{Err: valErr}}}
+ 	return res, out, nil
+ }
+ 
+ type noteListInput struct {
+ 	Folder      string                 `json:"folder,omitempty"`
+ 	Glob        string                 `json:"glob,omitempty" jsonschema:"Padrão de caminho, ex.: 'Civil/PONTO *.md'"`
+-	Tags        []string               `json:"tags,omitempty"`
++	Tags        []string               `json:"tags,omitempty" jsonschema:"A tag pedida casa a si mesma e suas subtags; '#' inicial é opcional; comparação insensível a caixa e a forma Unicode (NFC)."`
+ 	TagMode     string                 `json:"tag_mode,omitempty"`
+ 	Frontmatter map[string]interface{} `json:"frontmatter,omitempty"`
+ 	Recursive   *bool                  `json:"recursive,omitempty"`
+ 	Sort        string                 `json:"sort,omitempty"`
+ 	Order       string                 `json:"order,omitempty"`
+ 	Fields      []string               `json:"fields,omitempty" jsonschema:"Campos de frontmatter a incluir no retorno."`
+ 	Limit       *int                   `json:"limit,omitempty"`
+ 	Offset      *int                   `json:"offset,omitempty"`
+ }
+ 
+diff --git a/internal/search/cloudonly_update_windows_test.go b/internal/search/cloudonly_update_windows_test.go
+index c4ff873..2e38131 100644
+--- a/internal/search/cloudonly_update_windows_test.go
++++ b/internal/search/cloudonly_update_windows_test.go
+@@ -78,21 +78,21 @@ func cofreComPlaceholder(t *testing.T) (*vault.Vault, *index.Index) {
+ 		t.Fatalf("nuvem.md nao esta no indice de metadados (notas=%d, anexos=%d); "+
+ 			"IsCloudOnly no disco = %v", idx.NoteCount(), idx.AssetCount(), vault.IsCloudOnly(abs))
+ 	}
+ 	if !n.CloudOnly {
+ 		t.Fatalf("a nota nao ficou marcada CloudOnly; IsCloudOnly no disco = %v",
+ 			vault.IsCloudOnly(abs))
+ 	}
+ 	return v, idx
+ }
+ 
+-// construirComoOBoot tokeniza o cofre exatamente como buildInvertedIndex faz:
++// construirComoOBoot tokeniza o cofre exatamente como boot.construirBusca faz:
+ // um Update por caminho de idx.NotePaths().
+ func construirComoOBoot(t *testing.T, v *vault.Vault, idx *index.Index) *search.Inverted {
+ 	t.Helper()
+ 	inv := search.NewInverted()
+ 	for _, p := range idx.NotePaths() {
+ 		if err := inv.Update(context.Background(), v, p); err != nil {
+ 			t.Fatalf("inv.Update %s: %v", p, err)
+ 		}
+ 	}
+ 	return inv
+@@ -136,21 +136,21 @@ func TestUpdateNaoAbreNotaSomenteNuvem(t *testing.T) {
+ 	for _, termo := range []string{"sesquipedaliano", "hidratado", "titulo", "nuvem"} {
+ 		if posts := inv.Postings(termo); len(posts) != 0 {
+ 			t.Fatalf("Postings(%q) = %v, quer vazio; o conteudo do disco entrou no indice", termo, posts)
+ 		}
+ 	}
+ }
+ 
+ // TestPlaceholderNaoFazOBootDeclararCacheParcial afirma sobre o que o BOOT
+ // compara, e nao sobre um campo isolado.
+ //
+-// invertedCacheState confronta hdr.NoteCount — que e inv.DocCount() no momento
++// boot.estadoDoCache confronta hdr.NoteCount — que e inv.DocCount() no momento
+ // da gravacao — com idx.NoteCount(). Menor significa "cache parcial": o boot
+ // retoma a construcao e regrava o cache inteiro, em toda partida, para sempre.
+ // Conferir DocLength == 0 nao pega essa regressao; comparar as duas contagens
+ // que o boot compara, pega.
+ func TestPlaceholderNaoFazOBootDeclararCacheParcial(t *testing.T) {
+ 	v, idx := cofreComPlaceholder(t)
+ 	inv := construirComoOBoot(t, v, idx)
+ 
+ 	if inv.DocCount() != idx.NoteCount() {
+ 		t.Fatalf("DocCount do indice de busca = %d, notas no indice de metadados = %d; "+
+@@ -161,25 +161,25 @@ func TestPlaceholderNaoFazOBootDeclararCacheParcial(t *testing.T) {
+ 	cacheDir := t.TempDir()
+ 	if err := search.SaveInvertedCache(context.Background(), cacheDir, string(v.Root()), inv); err != nil {
+ 		t.Fatalf("SaveInvertedCache: %v", err)
+ 	}
+ 	doCache, hdr, err := search.LoadInvertedCache(context.Background(), cacheDir, string(v.Root()))
+ 	if err != nil {
+ 		t.Fatalf("LoadInvertedCache: %v", err)
+ 	}
+ 	defer func() { _ = doCache.Close() }()
+ 
+-	// A comparacao literal de invertedCacheState: hdr.NoteCount >= noteCount
++	// A comparacao literal de boot.estadoDoCache: hdr.NoteCount >= noteCount
+ 	// significa cache pronto; menor significa retomar.
+ 	if hdr.NoteCount < idx.NoteCount() {
+ 		t.Fatalf("cabecalho do cache declara %d notas, o indice de metadados enxerga %d; "+
+-			"invertedCacheState devolveria retomar=true e o cache seria regravado em todo boot",
++			"boot.estadoDoCache devolveria retomar=true e o cache seria regravado em todo boot",
+ 			hdr.NoteCount, idx.NoteCount())
+ 	}
+ }
+ 
+ // TestIdaEVoltaPeloCacheComPlaceholder confere que indice recem-construido e
+ // indice recarregado respondem IGUAL para o cofre com placeholder.
+ //
+ // Nao afirma valores: afirma igualdade entre as duas construcoes. E o formato
+ // que pegou a divergencia de DocLength entre construido e recarregado, quando o
+ // mesmo cofre ranqueava diferente conforme o servidor tivesse acabado de
+diff --git a/internal/search/inverted.go b/internal/search/inverted.go
+index 3391615..6df81d1 100644
+--- a/internal/search/inverted.go
++++ b/internal/search/inverted.go
+@@ -76,22 +76,23 @@ type Inverted struct {
+ 	termosVivosBase    int
+ 
+ 	terms      map[string]map[string][]TokenPosition // delta: termo -> (path -> posList)
+ 	docLengths map[string]int                        // delta: path -> total de tokens
+ 
+ 	// termosDoDoc é o índice reverso do delta: path -> os termos distintos que
+ 	// aquele caminho contribuiu para `terms`. É o mesmo papel que
+ 	// `base.termosDoDoc` cumpre no lado imutável, e existe pelo mesmo motivo:
+ 	// sem ele, apagar um caminho do delta varre TODO termo do delta.
+ 	//
+-	// Na construção do índice do zero — o laço de buildInvertedIndex, uma
+-	// chamada de Add por nota — isso é quadrático: a n-ésima nota varre os
++	// Na construção do índice do zero — o laço de construirBusca
++	// (internal/boot/busca.go), uma chamada de Add por nota — isso é
++	// quadrático: a n-ésima nota varre os
+ 	// termos que as n-1 anteriores acumularam, só para não achar nada, porque
+ 	// caminho novo não está em termo nenhum.
+ 	//
+ 	// A entrada é escrita em addTermPositionLocked exatamente quando o par
+ 	// (termo, path) aparece pela primeira vez, e apagada inteira em
+ 	// removeLocked. Isso mantém a lista sem repetição e exata: `terms[t][p]`
+ 	// existe se e somente se `t` está em `termosDoDoc[p]`.
+ 	termosDoDoc map[string][]string
+ 
+ 	// geracao conta toda mutacao do indice. E o que invalida a memorizacao de
+@@ -591,35 +592,35 @@ func (ix *Inverted) Update(ctx context.Context, v *vault.Vault, path vault.Canon
+ 	// atalho e era re-lido a cada varredura, mesmo intocado.
+ 	if vault.Classify(path) != vault.ClassNote {
+ 		ix.Add(string(path), nil)
+ 		return nil
+ 	}
+ 
+ 	// Placeholder de nuvem entra COBERTO E VAZIO, sem ser aberto.
+ 	//
+ 	// A guarda mora aqui, e nao nos chamadores, porque esta e a funcao que abre
+ 	// o arquivo — e desde 2026-08-26 ela e o UNICO caminho de indexacao a
+-	// partir de arquivo: o laco de boot em buildInvertedIndex passou a chamar
+-	// Update em vez de ler com v.ReadAll e chamar Add direto, que era como o
+-	// boot escapava desta guarda inteira. Guarda em chamador e a proxima
++	// partir de arquivo: o laco de boot em construirBusca (internal/boot/busca.go)
++	// passou a chamar Update em vez de ler com v.ReadAll e chamar Add direto, que
++	// era como o boot escapava desta guarda inteira. Guarda em chamador e a proxima
+ 	// divergencia esperando acontecer, que e a mesma licao de aliasKey e de
+ 	// index.classificar.
+ 	//
+ 	// Ate o pico de indexacao ser corrigido este caminho era INALCANCAVEL: um
+ 	// unico `.md` nao hidratado derrubava index.Build, e o boot morria antes de
+ 	// chegar a NotePaths. Com o pico consertado, o boot passaria a ler todo
+ 	// placeholder do cofre — trocando um crash por download sincrono em massa,
+ 	// que e justamente a regra que Note.CloudOnly existe para respeitar.
+ 	//
+ 	// Add(path, nil) e nao um return seco: a nota TEM de contar como coberta.
+ 	// Fora de docLengths ela nao entra em DocCount, o cabecalho do cache declara
+-	// menos notas do que o indice de metadados enxerga, e invertedCacheState
++	// menos notas do que o indice de metadados enxerga, e boot.estadoDoCache
+ 	// conclui "cache parcial" em TODO boot, regravando o cache inteiro. E a
+ 	// mesma armadilha que a nota sem token nenhum ja custou — ver o comentario
+ 	// de Add — e o motivo de HasDoc existir separada de DocLength.
+ 	if vault.IsCloudOnly(abs) {
+ 		ix.Add(string(path), nil)
+ 		return nil
+ 	}
+ 
+ 	data, err := os.ReadFile(abs)
+ 	if err != nil {
+diff --git a/internal/search/mmap.go b/internal/search/mmap.go
+index 48775b9..6de5607 100644
+--- a/internal/search/mmap.go
++++ b/internal/search/mmap.go
+@@ -148,22 +148,22 @@ func leRodape(dados []byte) (offset, count uint64, ok bool) {
+ 	return offset, count, true
+ }
+ 
+ // promoverArenaSePresente troca `pos` de uma arena mapeada por uma cópia no
+ // heap e desfaz o mapeamento, se o base do índice vier de uma arena.
+ //
+ // Chamada por SaveInvertedCache ANTES do os.Rename do salvamento atômico: o
+ // rename falha no Windows (ERROR_SHARING_VIOLATION) se o processo ainda tem o
+ // arquivo de destino mapeado. Promover para o heap primeiro custa uma cópia —
+ // ~291 MB no cofre de referência — mas só no caminho raro em que isto pode
+-// acontecer: cache PARCIAL retomado (ver invertedCacheState em
+-// cmd/gobsidian/serve.go) e depois regravado por buildInvertedIndex. No
++// acontecer: cache PARCIAL retomado (ver boot.estadoDoCache em
++// internal/boot/busca.go) e depois regravado por boot.construirBusca. No
+ // caminho comum — cache completo, "pronta" — SaveInvertedCache nunca roda de
+ // novo neste processo depois da carga, então esta função não faz nada.
+ //
+ // Sem isto, o rename falharia sempre que o servidor retomasse um cache
+ // parcial mapeado e depois o regravasse — o sintoma seria "falha ao salvar
+ // cache invertido de busca" no log a cada encerramento de construção, e o
+ // cache no disco nunca avançaria além do estado parcial.
+ func promoverArenaSePresente(inv *Inverted) {
+ 	if inv == nil {
+ 		return
+diff --git a/internal/search/persist_test.go b/internal/search/persist_test.go
+index 32ac4ff..42cd1d7 100644
+--- a/internal/search/persist_test.go
++++ b/internal/search/persist_test.go
+@@ -44,21 +44,21 @@ func TestSaveAndLoadInvertedCache(t *testing.T) {
+ 	postings := loaded.Postings("prescricao")
+ 	if len(postings) != 1 || postings[0].Path != "a.md" {
+ 		t.Errorf("Get(prescricao) = %+v, want a.md", postings)
+ 	}
+ }
+ 
+ // TestSaveOverwritesMappedCache exercita o caminho que a Task 89 identificou
+ // como o único em que o rename atômico de SaveInvertedCache pode colidir com
+ // um mapeamento deste MESMO processo: cache PARCIAL retomado — carregado via
+ // arena mapeada — e depois regravado por quem continua a construção
+-// (buildInvertedIndex, em cmd/gobsidian/serve.go).
++// (boot.construirBusca, em internal/boot/busca.go).
+ //
+ // O os.Rename do salvamento atômico falha no Windows
+ // (ERROR_SHARING_VIOLATION) se o arquivo de destino ainda está mapeado neste
+ // processo. Antes de confiar que o SaveInvertedCache abaixo tem de dar certo,
+ // este teste primeiro CONFIRMA o problema que promoverArenaSePresente existe
+ // para evitar: no Windows, remover o arquivo enquanto `loaded` ainda o tem
+ // mapeado falha. Em Unix isso não é um problema (unlink de arquivo mapeado é
+ // uma operação válida), então essa confirmação só roda sob GOOS==windows —
+ // runtime.GOOS em teste, para pular caso, é aceitável (ver CLAUDE.md).
+ func TestSaveOverwritesMappedCache(t *testing.T) {
+@@ -89,21 +89,21 @@ func TestSaveOverwritesMappedCache(t *testing.T) {
+ 		// ainda mapeado por `loaded`, o Windows recusa removê-lo. Se esta
+ 		// asserção um dia parar de disparar, TestSaveOverwritesMappedCache
+ 		// deixou de testar o que diz testar — não há mais nada para
+ 		// promoverArenaSePresente proteger.
+ 		if err := os.Remove(cachePath); err == nil {
+ 			t.Fatal("os.Remove teve sucesso com o cache ainda mapeado; " +
+ 				"o cenario que este teste existe para cobrir nao ocorreu")
+ 		}
+ 	}
+ 
+-	// Simula o resto de buildInvertedIndex retomando a partir do cache
++	// Simula o resto de boot.construirBusca retomando a partir do cache
+ 	// parcial: escreve no DELTA do mesmo índice que carregou via arena.
+ 	loaded.Add("b.md", search.Analyze("recurso extraordinario processo civil"))
+ 
+ 	// A regravação por cima do arquivo mapeado é o que a Task 89 precisa
+ 	// funcionar sem erro — sem promoverArenaSePresente, este Rename falharia
+ 	// no Windows com o cenário confirmado acima.
+ 	if err := search.SaveInvertedCache(ctx, cacheDir, vaultPath, loaded); err != nil {
+ 		t.Fatalf("SaveInvertedCache por cima do cache mapeado: %v", err)
+ 	}
+ 
+diff --git a/internal/search/update_bench_test.go b/internal/search/update_bench_test.go
+index 0a40eee..161734b 100644
+--- a/internal/search/update_bench_test.go
++++ b/internal/search/update_bench_test.go
+@@ -6,22 +6,22 @@ import (
+ 	"path/filepath"
+ 	"testing"
+ 
+ 	"github.com/jonyd/gobsidian/internal/index"
+ 	"github.com/jonyd/gobsidian/internal/search"
+ 	"github.com/jonyd/gobsidian/internal/vault"
+ )
+ 
+ // BenchmarkInvertedUpdateLote mede a construcao do indice de busca do jeito que
+ // o servidor a faz: um Inverted.Update por caminho devolvido por
+-// index.NotePaths, que e exatamente o laco de buildInvertedIndex em
+-// cmd/gobsidian/serve.go.
++// index.NotePaths, que e exatamente o laco de boot.construirBusca em
++// internal/boot/busca.go.
+ //
+ // Existe para responder uma pergunta que ficou aberta na Task 97: a guarda de
+ // placeholder de nuvem paga um vault.IsCloudOnly — isto e, um GetFileAttributes
+ // no Windows — por nota, alem do que vault.Walk ja paga na varredura. Nao havia
+ // benchmark que cobrisse Update em lote, entao o custo entrou no ledger como
+ // "nao medido". Este e o instrumento; o custo se mede desligando a guarda e
+ // comparando com benchstat.
+ //
+ // Mede o caminho COMPLETO de propósito — leitura de disco, Analyze e Add —, e
+ // nao so a guarda: o numero que interessa e quanto a guarda pesa sobre o
+diff --git a/internal/service/search_lazy.go b/internal/service/search_lazy.go
+index f1e4eb7..e7978b8 100644
+--- a/internal/service/search_lazy.go
++++ b/internal/service/search_lazy.go
+@@ -1,21 +1,22 @@
+ package service
+ 
+ import (
+ 	"context"
+ 	"sync"
+ )
+ 
+ // CarregadorBusca traz o indice invertido de busca para o estado pronto —
+ // carrega o cache do disco, e completa por tokenizacao o que faltar. Quem
+-// monta o Service fornece a implementacao (ver cmd/gobsidian/serve.go); este
+-// pacote so decide QUANDO ela roda.
++// monta o Service fornece a implementacao (boot.Montar, envolvendo
++// boot.PrepararBusca, em internal/boot/montar.go); este pacote so decide
++// QUANDO ela roda.
+ type CarregadorBusca func(ctx context.Context) error
+ 
+ // cargaUnica dispara uma funcao no maximo uma vez COM EXITO, e deixa quem
+ // espera desistir.
+ //
+ // # Por que nao sync.Once
+ //
+ // sync.Once marca "ja disparei" mesmo quando a funcao falha, e a falha vira
+ // permanente — nenhuma busca depois consegue tentar de novo. cargaUnica so
+ // marca pronta depois de f() devolver nil, entao uma falha transitoria (cache
+diff --git a/internal/service/search_lazy_test.go b/internal/service/search_lazy_test.go
+index 1889d0b..e4618fb 100644
+--- a/internal/service/search_lazy_test.go
++++ b/internal/service/search_lazy_test.go
+@@ -15,21 +15,21 @@ import (
+ 
+ // servicoComCargaPreguicosa monta um Service minimo, com o indice invertido
+ // marcado como em construcao, e injeta `carregar` como a funcao que
+ // Service.garanteIndiceDeBusca dispara na primeira busca. Nao precisa de
+ // cofre nem de indice de metadados de verdade: o que este teste cobre e o
+ // contrato entre Search e o carregamento sob demanda, nao a construcao do
+ // indice em si — essa ja tem cobertura em search_building_test.go e nos
+ // testes de cmd/gobsidian.
+ //
+ // O wrapper chama inv.MarkReady() quando `carregar` tem exito, espelhando o
+-// que prepararIndiceDeBusca faz de verdade: sem isso, uma segunda busca bem
++// que boot.PrepararBusca faz de verdade: sem isso, uma segunda busca bem
+ // sucedida ainda veria Building() == true e devolveria INDEX_BUILDING, o que
+ // não é o que se está testando aqui.
+ func servicoComCargaPreguicosa(t *testing.T, carregar func() error) *service.Service {
+ 	t.Helper()
+ 	root := t.TempDir()
+ 
+ 	v, err := vault.New(root)
+ 	if err != nil {
+ 		t.Fatalf("vault.New: %v", err)
+ 	}
+diff --git a/internal/watcher/counters.go b/internal/watcher/counters.go
+index 0688e5e..57f5a73 100644
+--- a/internal/watcher/counters.go
++++ b/internal/watcher/counters.go
+@@ -1,16 +1,16 @@
+ package watcher
+ 
+ // Counters e o retrato dos contadores do watcher. Mora aqui, e nao em
+ // internal/service: as camadas abaixo do servico nao o conhecem
+-// (ARCHITECTURE.md §1). Quem casa os dois lados e o adaptador em
+-// cmd/gobsidian/serve.go.
++// (ARCHITECTURE.md §1). Quem casa os dois lados e o adaptador watcherStats
++// em internal/boot/montar.go.
+ type Counters struct {
+ 	Active            bool
+ 	EventsReceived    int64
+ 	EventsDropped     int64            // soma de DroppedByReason
+ 	DroppedByReason   map[string]int64 // chmod, outside_vault, excluded, unknown_op
+ 	EventsCoalesced   int64
+ 	EventsProcessed   int64
+ 	EventsSkipped     int64
+ 	Reconciliations   int64
+ 	ReconciledUpdated int64

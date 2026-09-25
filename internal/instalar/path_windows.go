@@ -5,6 +5,7 @@ package instalar
 import (
 	"errors"
 	"fmt"
+	"github.com/jonyduque/Gobsidian/internal/textos"
 	"os"
 	"path/filepath"
 	"strings"
@@ -105,7 +106,7 @@ func RemoverDoPath(dir string) (mudou bool, err error) {
 
 // AvisoDePath e o que o usuario precisa saber depois de o PATH mudar.
 func AvisoDePath() string {
-	return "abra um terminal NOVO para o PATH atualizado valer; a sessao atual mantem o PATH antigo"
+	return textos.AvisoPathWindows
 }
 
 // DiretorioPadrao e onde o binario vai sem elevacao (decisao D-04).

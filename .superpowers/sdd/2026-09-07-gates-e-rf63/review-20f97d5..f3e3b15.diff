@@ -1,0 +1,774 @@
+# Review package: 20f97d5..f3e3b15
+
+## Commits
+f3e3b15 fix(gates): audit_reports counts a section only when it is a heading
+55d2599 fix(gates): pre_commit_docs reads the hatch from the commit message, not the command line
+c642e18 docs(prd): RF-63 names every anchor form, and the empty anchor is measured
+
+## Files changed
+ CLAUDE.md                                         |   4 +-
+ docs/ESTADO.md                                    |  48 ++++----
+ docs/PRD.md                                       |   4 +-
+ docs/papeis/documentador.md                       |   9 +-
+ scripts/audit_reports.ps1                         |  28 ++++-
+ scripts/check_gates.ps1                           | 142 ++++++++++++++++++++++
+ scripts/pre_commit_docs.ps1                       |  51 ++++++--
+ scripts/testdata/gates/msg-com-sem-doc.txt        |   3 +
+ scripts/testdata/gates/msg-sem-escotilha.txt      |   3 +
+ scripts/testdata/gates/sdd-falso/task-1-report.md |  48 ++++++++
+ scripts/testdata/gates/sdd-falso/task-2-report.md |  54 ++++++++
+ scripts/verify.ps1                                |   5 +
+ 12 files changed, 357 insertions(+), 42 deletions(-)
+
+## Diff
+diff --git a/CLAUDE.md b/CLAUDE.md
+index 46dd014..b2467b8 100644
+--- a/CLAUDE.md
++++ b/CLAUDE.md
+@@ -197,36 +197,36 @@ inteiro e chamava `parser` de folha quando ele já importava `text`.
+ 
+ **Aresta nova precisa de justificativa — folha não ganha import.** E o parágrafo
+ que descreve o grafo não vale mais que os imports: dizer "conferido" não é
+ conferir, e as duas versões anteriores diziam.
+ 
+ ---
+ 
+ ## Comandos
+ 
+ ```bash
+-pwsh -File scripts/verify.ps1              # o gate: 14 etapas, para no primeiro erro
++pwsh -File scripts/verify.ps1              # o gate: 15 etapas, para no primeiro erro
+ pwsh -File scripts/build.ps1               # build com versão via ldflags
+ pwsh -File scripts/test_orphans.ps1        # os quatro cenários de encerramento
+ pwsh -File scripts/mutate.ps1 ...          # prova de mutação — ver papeis/testador.md
+ pwsh -File scripts/audit_reports.ps1 <N>   # auditoria do próprio relatório
+ pwsh -File scripts/check_briefs.ps1 <a> <b>  # antes de despachar tarefas
+ pwsh -File scripts/sdd.ps1 status          # ledger + git
+ pwsh -File scripts/measure.ps1 -Vault <x>  # RNF-01 e RNF-07 contra um cofre real
+ pwsh -File scripts/gen_vault.ps1 -Notes 5000 -Seed 42 -Out <x>   # cofre de bench
+ ```
+ 
+ **`verify.ps1` verde é obrigatório antes de qualquer commit.** Ele existe porque
+ a lista solta convida a rodar três dos cinco: cobre build, `go test -race`, a
+ contagem de testes pulados, tetos de latência, `go vet` nos três GOOS, `gofmt`,
+ `golangci-lint` (Windows e Linux), `check_net`, `check_tool_params`,
+-`check_doc_refs` e `check_readme_anchors`. A contagem de pulados **informa e não
++`check_doc_refs`, `check_readme_anchors` e `check_gates`. A contagem de pulados **informa e não
+ reprova** — há skip legítimo, como o de `vaulttest` fora do Windows —, mas um
+ teste que pula não cobre nada, e o de paridade pulava sem que o gate dissesse.
+ Aceita `-SkipCross` e `-SkipNet` para iteração rápida; o gate roda tudo.
+ 
+ ---
+ 
+ ## Regras que não são negociáveis
+ 
+ **stdout pertence ao JSON-RPC.** Todo log vai para stderr via `log/slog`. Um
+ `fmt.Println` em código alcançável de `serve` corrompe a sessão — o sintoma é o
+diff --git a/docs/ESTADO.md b/docs/ESTADO.md
+index 7730bd7..828a012 100644
+--- a/docs/ESTADO.md
++++ b/docs/ESTADO.md
+@@ -597,47 +597,51 @@ o quarto, que é exatamente o defeito que ela existe para impedir.
+   Unicode são dois arquivos para o sistema de arquivos e **uma chave só** para o
+   índice. O comportamento já está correto desde que `lowerPath` virou lista:
+   `ResolvePath` devolve `ErrAmbiguousPath` em vez de escolher uma em silêncio, e
+   remover uma não apaga a entrada da outra. **Medido: zero ocorrências** nos cinco
+   cofres reais, 5.186 notas, todos NTFS e todos em NFC.
+ 
+   Decisão do dono: **não vale detectar e avisar.** O custo seria uma varredura a
+   mais no boot para um caso que não ocorre, e a resposta já é a certa quando
+   ocorre. Registrado em `docs/wiki/entities/note-e-caminho.md`.
+ - **O hook `scripts/pre_commit_docs.ps1` não gateia nada** (achado do
+-  implementador da Task 182, 2026-09-06; **não corrigido** neste marco). Ele
+-  procura `[sem-doc]` no **texto do comando** que o `PreToolUse` recebe, não na
+-  mensagem do commit. Um comentário de shell na linha do `git commit` já o
+-  satisfaz — foi assim que a Task 182 passou por ele, declaradamente. O hook
+-  existe para recusar `.go` de produção sem documentação, e hoje qualquer um o
+-  desliga sem intenção nenhuma de burlá-lo, porque a escotilha casa antes de o
+-  gate olhar o que está em stage. Conserto: ler a mensagem do commit
+-  (`-m`/`-F`/`COMMIT_EDITMSG`) em vez da linha de comando. A escotilha `[sem-doc]`
+-  em si é decisão fechada e fica — ver `docs/papeis/documentador.md`.
++  implementador da Task 182, 2026-09-06; **corrigido em 2026-09-07** (Task 187):
++  o hook lê a mensagem de `-m`/`-F`; `scripts/check_gates.ps1` prova que o
++  comentário de shell é recusado). Ele procurava `[sem-doc]` no **texto do
++  comando** que o `PreToolUse` recebe, não na mensagem do commit. Um comentário
++  de shell na linha do `git commit` já o satisfazia — foi assim que a Task 182
++  passou por ele, declaradamente. O hook existe para recusar `.go` de produção
++  sem documentação, e qualquer um o desligava sem intenção nenhuma de burlá-lo,
++  porque a escotilha casava antes de o gate olhar o que está em stage. A
++  escotilha `[sem-doc]` em si é decisão fechada e fica — ver
++  `docs/papeis/documentador.md`.
+ - **`scripts/audit_reports.ps1` casa a palavra, não a evidência** (achado do
+-  implementador da Task 184, 2026-09-06; **não corrigido**). As quatro seções
+-  obrigatórias de um relatório são procuradas por regex de palavra solta sobre o
+-  corpo inteiro (`audit_reports.ps1:113-118`: `red`, `green`, `muta`,
+-  `verifica`). A frase "**não** há ciclo RED/GREEN nem prova de mutação para
+-  colar" satisfaz três delas — uma negação explícita passa pelo mesmo portão que
+-  uma evidência real, e o achado `SECAO-AUSENTE` desaparece de um relatório que
+-  de fato não tem nenhuma das três. É a **mesma classe** do hook acima: checador
+-  que casa a palavra em vez do fato não gateia nada. Conserto: exigir um
+-  cabeçalho Markdown com o nome da seção, e não a palavra em qualquer lugar.
+-  Os outros achados do script (`HEDGE`, `SHA-FANTASMA`, `MUTACAO-CONDICIONAL`)
+-  não têm esse defeito e seguem úteis.
++  implementador da Task 184, 2026-09-06; **corrigido em 2026-09-07** (Task 188):
++  seção só conta em cabeçalho Markdown; `check_gates.ps1` prova que a prosa que
++  nega é sinalizada. Efeito medido nos relatórios reais: `79` → `203`
++  `SECAO-AUSENTE`). As quatro seções obrigatórias de um relatório eram
++  procuradas por regex de palavra solta sobre o corpo inteiro
++  (`audit_reports.ps1:113-118`: `red`, `green`, `muta`, `verifica`). A frase
++  "**não** há ciclo RED/GREEN nem prova de mutação para colar" satisfazia três
++  delas — uma negação explícita passava pelo mesmo portão que uma evidência
++  real, e o achado `SECAO-AUSENTE` desaparecia de um relatório que de fato não
++  tinha nenhuma das três. Era a **mesma classe** do hook acima: checador que
++  casa a palavra em vez do fato não gateia nada. Conserto: exigir um cabeçalho
++  Markdown com o nome da seção, e não a palavra em qualquer lugar. Os outros
++  achados do script (`HEDGE`, `SHA-FANTASMA`, `MUTACAO-CONDICIONAL`) não têm
++  esse defeito e seguem úteis.
+ - **`[x](b.md#)` — âncora vazia depois do `#` — perde o `#` na reescrita.**
+   `splitAnchor` devolve `("b.md", "")` e `anchorMarkdown` devolve `""` para
+   âncora vazia, então um `note_move` reescreve `[x](b.md#)` como `[x](c.md)`.
+-  Fidelidade mínima perdida numa forma que **não foi medida em cofre real**.
++  Fidelidade mínima perdida numa forma que, **medida em 2026-09-07 em cinco cofres reais** (Estudo, Jurisprudência, Oral, Revisão, _automacao), tem **zero** ocorrências internas: os dois únicos acertos de `\]\([^) ]*#\)` são URLs `http://...#mce_temp_url#` em Jurisprudência — externas, que `note_move` nunca reescreve. `[[b#]]` deu zero nos cinco.
+   **Parqueado por decisão**, não esquecido: não vale um ramo a mais no formatador
+-  por uma forma cuja frequência é desconhecida. Se aparecer, o conserto é
++  por uma forma cuja frequência medida é zero. Se aparecer, o conserto é
+   distinguir "sem âncora" de "âncora vazia" no `parser.Link`, que hoje são a
+   mesma coisa.
+ 
+ ---
+ 
+ ## Onde o trabalho é rastreado
+ 
+ O ledger fica em `.superpowers/sdd/2026-07-25-gobsidian-v01/progress.md`. O
+ caminho plano antigo virou ponteiro: os dois derivaram e um tinha 16 tarefas
+ enquanto o outro tinha 6.
+diff --git a/docs/PRD.md b/docs/PRD.md
+index 5b571a0..2961a98 100644
+--- a/docs/PRD.md
++++ b/docs/PRD.md
+@@ -158,21 +158,21 @@ do usuário, sem desfazer. Medido em 2026-09-01 nos cinco cofres reais: 3.433 de
+ 
+ ### 5.2.1 Resolução de referências
+ 
+ Um wikilink não é um caminho, e resolvê-lo como se fosse produz um grafo que diverge do Obsidian de forma silenciosa. Estes requisitos existem separados do parsing porque são resolução, não sintaxe: dependem do conteúdo do cofre inteiro, não da nota que está sendo parseada.
+ 
+ | ID | Requisito | Prio |
+ |---|---|---|
+ | RF-60 | Indexação de anexos (`.png`, `.jpg`, `.jpeg`, `.gif`, `.webp`, `.svg`, `.pdf`, `.mp3`, `.mp4`, `.wav`, `.canvas`) por caminho, tamanho e mtime, sem leitura de conteúdo | P0 |
+ | RF-61 | Resolução de embed para anexo, de modo que `![[diagrama.png]]` não seja contabilizado como link quebrado | P0 |
+ | RF-62 | Resolução de wikilink pelo campo `aliases` do frontmatter da nota alvo — **divergência deliberada do Obsidian**, ver abaixo | P0 |
+-| RF-63 | Validação da âncora: `[[nota#heading]]` e `[[nota#^bloco]]` marcados como âncora quebrada quando a nota resolve mas o alvo interno não existe | P1 |
++| RF-63 | Validação da âncora em **todas** as formas que a carregam — `[[nota#heading]]`, `[[nota#^bloco]]`, `[texto](nota.md#heading)`, `![[nota#heading]]`/`![texto](nota.md#heading)` e as auto-referências `[[#heading]]`/`[texto](#heading)`, que resolvem para a própria nota — marcadas como âncora quebrada quando a nota resolve mas o alvo interno não existe. A separação do `#` é uma conta só, antes do percent-decode; `%23` nunca é separador | P1 |
+ | RF-64 | Chaves de resolução normalizadas para **NFC**, de modo que uma nota gravada em NFD seja encontrada por um pedido em NFC e vice-versa | P0 |
+ | RF-65 | Colisão de chave de resolução — por caixa ou por normalização — devolve ambiguidade nomeada, nunca um dos candidatos escolhido em silêncio | P0 |
+ | RF-66 | Resolução por nome de arquivo insensível a maiúsculas, igual à resolução por caminho completo | P1 |
+ 
+ **RF-64 vale para a chave, nunca para o caminho guardado.** O caminho continua
+ sendo a grafia do disco — normalizá-lo faria o servidor tentar abrir arquivo que
+ não existe. E a normalização de chave **não remove acento**: remover é o que a
+ busca faz (RF-23), e aplicá-lo aqui faria `Capitulo` e `Capítulo` colidirem numa
+ entrada só, fundindo duas notas distintas.
+ 
+@@ -198,21 +198,21 @@ RF-60 e RF-61 andam juntos. Sem indexar os anexos, todo embed de imagem vira lin
+ **RF-62 é uma divergência deliberada, e a premissa original estava errada.**
+ 
+ Este requisito foi escrito assumindo que o Obsidian resolve `[[P3]]` quando alguma nota declara `aliases: [P3]`. A rodada de paridade contra o `metadataCache` real mostrou que **não resolve**: uma nota com `aliases: [P3, Terceiro]` foi corretamente registrada com esses aliases, e `[[Terceiro]]` apareceu em `unresolvedLinks`. O alias alimenta o seletor rápido e o autocomplete — que ao inserir escreve `[[Nota Real|Alias]]` — mas um `[[Alias]]` digitado à mão não vira aresta no grafo dele.
+ 
+ A decisão, tomada com a evidência na mão, é **manter a resolução por alias**. Um alias declarado é uma intenção explícita do autor de que aquele nome se refere àquela nota, e honrá-la encontra backlinks reais que o Obsidian perde. A regra de comparação assimétrica de §7 já cobre o caso: nossa saída precisa conter tudo o que o Obsidian encontrou, e encontrar mais é o produto.
+ 
+ A consequência precisa ser sabida por quem opera: `note_metadata` e `link_graph` mostram backlinks que o painel do Obsidian não mostra. Isso é uma diferença observável, não um bug a ser reportado.
+ 
+ O que **não** muda: alias continua sendo *fallback*, nunca *override*. Se existe `P3.md` e outra nota declara `aliases: [P3]`, `[[P3]]` aponta para o arquivo. A paridade confirmou essa precedência nos dois lados.
+ 
+-RF-63 vai além do que o próprio Obsidian expõe na interface, e é deliberado: uma âncora quebrada é exatamente o tipo de erro que aparece depois de renomear um heading, e é invisível até alguém clicar no link.
++RF-63 vai além do que o próprio Obsidian expõe na interface, e é deliberado: uma âncora quebrada é exatamente o tipo de erro que aparece depois de renomear um heading, e é invisível até alguém clicar no link. Até 2026-09-06 o requisito só nomeava o wikilink, e as formas Markdown e de auto-referência contavam como **alvo ausente** — um cofre real carregava 267 delas, outro 372 (medição em `docs/ESTADO.md`). O requisito nomeia as formas para que a próxima regressão tenha nome.
+ 
+ ### 5.3 Busca
+ 
+ | ID | Requisito | Prio |
+ |---|---|---|
+ | RF-20 | Busca full-text com ranking BM25 sobre corpo e título | P0 |
+ | RF-21 | Filtros combináveis: pasta, tag, campo de frontmatter, intervalo de datas | P0 |
+ | RF-22 | Trechos de resultado com destaque de termos e contexto configurável | P0 |
+ | RF-23 | Normalização de acentos, *case folding* e indexação dupla — forma crua e forma reduzida — para português | P0 |
+ | RF-24 | Busca exata por frase entre aspas | P1 |
+diff --git a/docs/papeis/documentador.md b/docs/papeis/documentador.md
+index 58b75e4..c4e695b 100644
+--- a/docs/papeis/documentador.md
++++ b/docs/papeis/documentador.md
+@@ -41,20 +41,25 @@ MB"*. O primeiro é exemplo, o segundo é expectativa; nenhum é medição.
+ 
+ - Alvo não atingido **e registrado** é informação.
+ - Alvo não medido **apresentado como resultado** é ficção com aparência de
+   tabela.
+ - Se não mediu, escreva **"não medido"**.
+ 
+ Palavras que denunciam hedge apresentado como resultado: *tende a*,
+ *aproximadamente*, *e.g.*, *ex:*, *deveria*. `scripts/audit_reports.ps1` procura
+ por elas.
+ 
++As quatro seções obrigatórias de um relatório de tarefa — RED, GREEN, mutação,
++verificação — só contam quando aparecem num **cabeçalho** Markdown (`#` a
++`######`); citar a palavra em prosa, inclusive para negar que a seção existe,
++não conta (corrigido na Task 188, 2026-09-07).
++
+ **Não afirme estado que você não verificou.** O README declarou "v0.1 publicada"
+ sem tag, sem release e sem gate.
+ 
+ ---
+ 
+ ## Os gates de documentação
+ 
+ Os três rodam dentro de `verify.ps1` e no CI. **Entraram na bateria em
+ 2026-08-11 porque até então não rodavam em lugar nenhum** — três seções do README
+ ficaram sem link por um marco inteiro por causa disso.
+@@ -133,21 +138,23 @@ desatualizado.
+ 
+ Ao responder algo sobre o projeto a partir do wiki, **cite a página e o caminho
+ de código** (`internal/service/write.go:79`), e verifique no código quando a
+ página estiver `status: stale`. Página defasada é ponto de partida, não resposta.
+ 
+ ---
+ 
+ ## O hook de commit
+ 
+ `.claude/settings.json` instala um hook `PreToolUse` filtrado para
+-`git commit*`, que roda `scripts/pre_commit_docs.ps1`.
++`git commit*`, que roda `scripts/pre_commit_docs.ps1`. A escotilha `[sem-doc]`
++vale na MENSAGEM do commit (`-m` ou o arquivo de `-F`), nunca na linha de
++comando fora dela.
+ 
+ **Ele bloqueia o modelo, não pergunta ao usuário.** A primeira versão devolvia
+ `ask`, e o resultado era o hook interrompendo o *usuário* por causa de um commit
+ que o *modelo* fez — alvo errado, e uma pergunta a cada commit vira ruído que se
+ aprende a aprovar sem ler, o mesmo modo de falha de um gate que reprova
+ aleatoriamente. Hoje devolve `deny`, e o motivo volta para quem esqueceu a
+ documentação, que corrige e tenta de novo.
+ 
+ | Situação | Decisão |
+ |---|---|
+diff --git a/scripts/audit_reports.ps1 b/scripts/audit_reports.ps1
+index 2344325..6f06d8b 100644
+--- a/scripts/audit_reports.ps1
++++ b/scripts/audit_reports.ps1
+@@ -40,28 +40,31 @@
+       2 -> o script nao conseguiu rodar
+ 
+ .EXAMPLE
+     pwsh -File scripts/audit_reports.ps1
+     pwsh -File scripts/audit_reports.ps1 -Task 33
+ #>
+ [CmdletBinding()]
+ param(
+     # Audita so um numero de tarefa. Sem isto, audita todos os relatorios.
+     [Parameter(Position = 0)]
+-    [string]$Task
++    [string]$Task,
++    # Raiz alternativa dos artefatos. Existe para check_gates.ps1 auditar
++    # fixtures em vez do ledger real.
++    [string]$SddRoot
+ )
+ 
+ Set-StrictMode -Version Latest
+ $ErrorActionPreference = 'Stop'
+ 
+ $ProjectRoot = Split-Path -Parent $PSScriptRoot
+-$SddRoot = Join-Path $ProjectRoot '.superpowers\sdd'
++if (-not $SddRoot) { $SddRoot = Join-Path $ProjectRoot '.superpowers\sdd' }
+ 
+ if (-not (Test-Path $SddRoot)) {
+     Write-Output "[!] Diretorio de artefatos nao encontrado: $SddRoot"
+     exit 2
+ }
+ 
+ $Findings = 0
+ 
+ # Palavras de conteudo de um texto curto. Verbos de commit e ruido de ledger
+ # saem: sem isso, "fix" e "watcher" fazem qualquer descricao casar com qualquer
+@@ -103,25 +106,38 @@ $HedgePattern = "(?i)(?=.*$HedgeWord)(?=.*$ResultShape)"
+ 
+ # "coberta implicitamente" e uma nao-resposta a uma verificacao, independente
+ # de haver numero na linha. Foi a resposta do relatorio da Task 29 para
+ # "os.Stat falhando com permissao negada deixa o indice intocado?".
+ $NonAnswerPattern = '(?i)(implicitamente|implicitly|coberto por consequ|covered by the|por consequencia|deve funcionar|presumo|assumo que)'
+ 
+ # Prova de mutacao escrita no condicional. O tempo verbal e o sinal: prova real
+ # esta no passado e traz saida colada.
+ $ConditionalPattern = '(?i)^\s*(se (n[oó]s )?(remov|alter|mud|apag|desativ|comment|troc)\w*|if we (remove|change|disable|comment)|caso (remov|alter)\w*)'
+ 
++# A secao tem de estar num CABECALHO, nao em qualquer lugar do corpo. Ate
++# 2026-09-07 bastava a palavra solta, e "nao ha ciclo RED/GREEN nem prova de
++# mutacao" satisfazia tres das quatro — uma negacao explicita passava pelo
++# mesmo portao que uma evidencia real (relatorio da Task 184, 2026-09-06).
++# Os relatorios reais deste projeto ja usam "### RED — ...", "### GREEN — ...",
++# "## Mutation proofs", "## Verification"/"## Gate outputs": o padrao casa o
++# cabecalho, em qualquer nivel, em portugues ou ingles.
++#
++# RED/GREEN usam \b (fronteira de palavra, largura zero) e nao (^|\W)...(\W|$):
++# a forma com \W falha em "### RED — ..." porque o \s obrigatorio depois de
++# #{1,6} ja consome o unico espaco antes de RED, e sobra nenhum caractere
++# \W para o grupo (^|\W) casar — medido nesta tarefa rodando o padrao contra
++# o cabecalho real antes de fechar o Step 4.
+ $Required = @(
+-    @{ Name = 'TDD/RED';     Pattern = '(?i)(^|\W)red(\W|$)' },
+-    @{ Name = 'TDD/GREEN';   Pattern = '(?i)(^|\W)green(\W|$)' },
+-    @{ Name = 'Mutacao';     Pattern = '(?i)muta' },
+-    @{ Name = 'Verificacao'; Pattern = '(?i)verifica' }
++    @{ Name = 'TDD/RED';     Pattern = '(?im)^#{1,6}\s.*\bred\b' },
++    @{ Name = 'TDD/GREEN';   Pattern = '(?im)^#{1,6}\s.*\bgreen\b' },
++    @{ Name = 'Mutacao';     Pattern = '(?im)^#{1,6}\s.*muta' },
++    @{ Name = 'Verificacao'; Pattern = '(?im)^#{1,6}\s.*(verifica|verification|gate)' }
+ )
+ 
+ $Filter = if ($Task) { "task-$Task-report.md" } else { 'task-*-report.md' }
+ $Reports = @(Get-ChildItem -Path $SddRoot -Filter $Filter -Recurse -File | Sort-Object Name)
+ 
+ if ($Reports.Count -eq 0) {
+     Write-Output "[!] Nenhum relatorio casou com '$Filter' em $SddRoot"
+     exit 2
+ }
+ 
+diff --git a/scripts/check_gates.ps1 b/scripts/check_gates.ps1
+new file mode 100644
+index 0000000..e210730
+--- /dev/null
++++ b/scripts/check_gates.ps1
+@@ -0,0 +1,142 @@
++#Requires -Version 7.0
++<#
++.SYNOPSIS
++    Prova que os gates recusam o bypass que ja passou por eles.
++
++.DESCRIPTION
++    Dois gates deste projeto casavam a PALAVRA e nao a evidencia, e foram
++    contornados sem intencao de contornar (docs/ESTADO.md, dividas de
++    2026-09-06):
++
++      - pre_commit_docs.ps1 procurava [sem-doc] na LINHA DE COMANDO do git
++        commit, e um comentario de shell (`# [sem-doc]`) o satisfazia com a
++        mensagem dizendo outra coisa.
++      - audit_reports.ps1 procurava as secoes obrigatorias do relatorio por
++        palavra solta no corpo, e "nao ha ciclo RED/GREEN nem prova de
++        mutacao" satisfazia tres delas.
++
++    Cada caso aqui e um bypass conhecido com a decisao que o gate DEVE tomar.
++    Roda como etapa do verify.ps1: gate que volta a aceitar o bypass reprova
++    o gate inteiro.
++
++.NOTES
++    Saida em ASCII puro. Sai 1 se qualquer caso reprovar.
++#>
++[CmdletBinding()]
++param()
++
++Set-StrictMode -Version Latest
++$ErrorActionPreference = 'Stop'
++
++$ProjectRoot = Split-Path -Parent $PSScriptRoot
++$Fixtures = Join-Path $PSScriptRoot 'testdata\gates'
++$Hook = Join-Path $PSScriptRoot 'pre_commit_docs.ps1'
++
++$script:Total = 0
++$script:Reprovados = 0
++
++function Caso {
++    param([string]$Nome, [string]$Esperado, [string]$Obtido)
++    $script:Total++
++    if ($Esperado -eq $Obtido) {
++        Write-Output "[OK] $Nome"
++    }
++    else {
++        $script:Reprovados++
++        Write-Output "[!] ${Nome}: esperado '$Esperado', obtido '$Obtido'"
++    }
++}
++
++# Decisao do hook em modo simulado. O hook imprime o JSON de hook em stdout;
++# so a decisao interessa aqui.
++#
++# Nao chama "pwsh -File $Hook -EmStage $EmStage" direto: -File repassa os
++# argumentos como argv cru (medido nesta tarefa), entao um -EmStage com mais
++# de um elemento vira um parametro posicional sobrando e o hook reprova com
++# erro de bind -- nao com a decisao do caso. -EncodedCommand roda o mesmo
++# script, mas o array chega como array de verdade porque quem le a linha e o
++# parser do PowerShell, nao o passa-argumento do -File.
++function Decisao-Hook {
++    param([string]$Comando, [string[]]$EmStage)
++    try {
++        $comandoLiteral = "'" + ($Comando -replace "'", "''") + "'"
++        $emStageLiteral = ($EmStage | ForEach-Object { "'" + ($_ -replace "'", "''") + "'" }) -join ','
++        $hookLiteral = "'" + ($Hook -replace "'", "''") + "'"
++        $script = "& $hookLiteral -Simular -Comando $comandoLiteral -EmStage @($emStageLiteral)"
++        $encoded = [Convert]::ToBase64String([System.Text.Encoding]::Unicode.GetBytes($script))
++        $json = & pwsh -NoProfile -EncodedCommand $encoded
++        if ($LASTEXITCODE -ne 0) { return 'erro' }
++        return ($json | ConvertFrom-Json).hookSpecificOutput.permissionDecision
++    }
++    catch {
++        return 'erro'
++    }
++}
++
++# Conta quantos SECAO-AUSENTE o auditor emite para um relatorio.
++function Secoes-Ausentes([string]$Task) {
++    $saida = & pwsh -NoProfile -File $Audit -Task $Task -SddRoot $SddFalso 2>&1 | Out-String
++    return ([regex]::Matches($saida, 'SECAO-AUSENTE')).Count.ToString()
++}
++
++Push-Location $ProjectRoot
++try {
++    Write-Output "=== pre_commit_docs.ps1 ==="
++    $go = @('internal/index/resolve.go')
++    $goEDoc = @('internal/index/resolve.go', 'docs/TOOLS.md')
++    $msgSem = 'scripts/testdata/gates/msg-sem-escotilha.txt'
++    $msgCom = 'scripts/testdata/gates/msg-com-sem-doc.txt'
++
++    # O bypass real de 2026-09-06: a escotilha num comentario de shell, a
++    # mensagem (via -F) sem ela.
++    Caso -Nome 'escotilha em comentario de shell, mensagem sem ela -> deny' `
++        -Esperado 'deny' -Obtido (Decisao-Hook "git commit -F $msgSem # [sem-doc]" $go)
++
++    Caso -Nome 'escotilha no arquivo de -F -> allow' `
++        -Esperado 'allow' -Obtido (Decisao-Hook "git commit -F $msgCom" $go)
++
++    Caso -Nome 'escotilha em -m entre aspas duplas -> allow' `
++        -Esperado 'allow' -Obtido (Decisao-Hook 'git commit -m "fix: x [sem-doc]"' $go)
++
++    Caso -Nome 'escotilha em -m entre aspas simples -> allow' `
++        -Esperado 'allow' -Obtido (Decisao-Hook "git commit -m 'fix: x [sem-doc]'" $go)
++
++    Caso -Nome 'escotilha fora das aspas de -m -> deny' `
++        -Esperado 'deny' -Obtido (Decisao-Hook 'git commit -m "fix: x" # [sem-doc]' $go)
++
++    Caso -Nome '-m sem escotilha, .go sem doc -> deny' `
++        -Esperado 'deny' -Obtido (Decisao-Hook 'git commit -m "fix: x"' $go)
++
++    Caso -Nome '-m sem escotilha, .go com doc -> allow' `
++        -Esperado 'allow' -Obtido (Decisao-Hook 'git commit -m "fix: x"' $goEDoc)
++
++    Caso -Nome '-F arquivo inexistente, escotilha no comando -> deny' `
++        -Esperado 'deny' -Obtido (Decisao-Hook 'git commit -F nao-existe.txt [sem-doc]' $go)
++
++    Caso -Nome 'sem -m nem -F (editor), .go sem doc -> deny' `
++        -Esperado 'deny' -Obtido (Decisao-Hook 'git commit' $go)
++
++    Write-Output ""
++    Write-Output "=== audit_reports.ps1 ==="
++    $Audit = Join-Path $PSScriptRoot 'audit_reports.ps1'
++    $SddFalso = Join-Path $Fixtures 'sdd-falso'
++
++    # O bypass conhecido: prosa que NEGA ter RED/GREEN/mutacao satisfazia
++    # tres das quatro palavras. Com cabecalho exigido, faltam as quatro.
++    Caso -Nome 'prosa que nomeia as secoes sem te-las -> 4 SECAO-AUSENTE' `
++        -Esperado '4' -Obtido (Secoes-Ausentes '1')
++
++    Caso -Nome 'quatro secoes em cabecalho -> 0 SECAO-AUSENTE' `
++        -Esperado '0' -Obtido (Secoes-Ausentes '2')
++}
++finally {
++    Pop-Location
++}
++
++Write-Output ""
++if ($script:Reprovados -gt 0) {
++    Write-Output "[!] check_gates: $script:Reprovados de $script:Total casos reprovados"
++    exit 1
++}
++Write-Output "[OK] check_gates: $script:Total casos"
++exit 0
+diff --git a/scripts/pre_commit_docs.ps1 b/scripts/pre_commit_docs.ps1
+index 6e685e1..8faa336 100644
+--- a/scripts/pre_commit_docs.ps1
++++ b/scripts/pre_commit_docs.ps1
+@@ -23,67 +23,99 @@
+     aprovar sem ler — que e o mesmo modo de falha de um gate que reprova
+     aleatoriamente.
+ 
+     Agora ele devolve `deny`, e o motivo volta para o MODELO, que corrige e
+     tenta de novo. Do ponto de vista do usuario e automatico: nenhum prompt.
+ 
+     ESCOTILHA. `[sem-doc]` na mensagem do commit passa direto. Existe porque
+     gate sem saida legitima ensina a contornar o gate — e porque ha commits em
+     que documentacao de fato nao se aplica (revert, ajuste de formatacao,
+     correcao de teste que nao muda contrato). Usar a escotilha e uma decisao
+-    consciente e visivel na mensagem, que e exatamente o que se quer.
++    consciente e visivel na mensagem, que e exatamente o que se quer. A
++    escotilha vale na mensagem (-m ou arquivo de -F). Ate 2026-09-07 valia em
++    qualquer lugar da linha de comando, inclusive num comentario de shell, e
++    por isso nao valia nada.
+ 
+ .NOTES
+     Saida: JSON de hook em stdout. Falha do proprio script NAO bloqueia o
+     commit: um hook quebrado nao pode virar um repositorio travado.
+ #>
+ [CmdletBinding()]
+ param(
+-    # Para teste manual: pula a leitura de stdin e assume que e um git commit.
++    # Para teste: pula a leitura de stdin. -Comando e a linha que o hook
++    # receberia em tool_input.command; -EmStage substitui `git diff --cached`.
+     [switch]$Simular,
+-    # Para teste manual: mensagem de commit simulada.
+-    [string]$Mensagem = ""
++    [string]$Comando = "",
++    [string[]]$EmStage = @()
+ )
+ 
+ $ErrorActionPreference = "Stop"
+ 
+ function Emitir($decisao, $motivo, $aviso = $null) {
+     $saida = @{
+         hookSpecificOutput = @{
+             hookEventName            = "PreToolUse"
+             permissionDecision       = $decisao
+             permissionDecisionReason = $motivo
+         }
+     }
+     if ($aviso) { $saida.systemMessage = $aviso }
+     $saida | ConvertTo-Json -Depth 5 -Compress
+     exit 0
+ }
+ 
++# A escotilha vale na MENSAGEM, nunca na linha de comando. Ate 2026-09-07 o
++# hook procurava [sem-doc] no texto do comando inteiro, e um comentario de
++# shell (`git commit -F msg.txt # [sem-doc]`) o satisfazia com a mensagem
++# dizendo outra coisa — foi assim que os commits de 2026-09-06 passaram, por
++# instrucao do brief, sem que ninguem quisesse burlar nada. Gate que le a
++# escotilha fora do lugar onde ela fica visivel no historico nao gateia.
++#
++# Le -m/--message= (aspas duplas, simples ou sem aspas, repetidos) e o
++# arquivo de -F/--file=. Sem nenhum dos dois — commit que abriria editor — a
++# mensagem e desconhecida e a escotilha nao vale.
++function Extrair-Mensagem([string]$linha) {
++    $partes = [System.Collections.Generic.List[string]]::new()
++    $reM = '(?:-m|--message)(?:=|\s+)(?:"([^"]*)"|''([^'']*)''|(\S+))'
++    foreach ($m in [regex]::Matches($linha, $reM)) {
++        $texto = @($m.Groups[1].Value, $m.Groups[2].Value, $m.Groups[3].Value) | Where-Object { $_ } | Select-Object -First 1
++        if ($texto) { $partes.Add($texto) }
++    }
++    $reF = '(?:-F|--file)(?:=|\s+)(?:"([^"]*)"|''([^'']*)''|(\S+))'
++    foreach ($m in [regex]::Matches($linha, $reF)) {
++        $arquivo = @($m.Groups[1].Value, $m.Groups[2].Value, $m.Groups[3].Value) | Where-Object { $_ } | Select-Object -First 1
++        if ($arquivo -and (Test-Path -LiteralPath $arquivo -PathType Leaf)) {
++            $partes.Add((Get-Content -LiteralPath $arquivo -Raw -Encoding utf8))
++        }
++    }
++    return ($partes -join "`n")
++}
++
+ try {
+-    $comando = $Mensagem
++    $comando = $Comando
+     if (-not $Simular) {
+         $bruto = [Console]::In.ReadToEnd()
+         if ([string]::IsNullOrWhiteSpace($bruto)) { Emitir "allow" "sem payload" }
+         $entrada = $bruto | ConvertFrom-Json
+         $comando = $entrada.tool_input.command
+         if ($comando -notmatch 'git\s+commit') { Emitir "allow" "nao e git commit" }
+         if ($comando -match '--amend' -and $comando -notmatch '--no-edit') {
+             Emitir "allow" "amend de mensagem"
+         }
+     }
+ 
+-    if ($comando -match '\[sem-doc\]') {
+-        Emitir "allow" "escotilha [sem-doc] usada de proposito"
++    $mensagem = Extrair-Mensagem $comando
++    if ($mensagem -match '\[sem-doc\]') {
++        Emitir "allow" "escotilha [sem-doc] na mensagem do commit"
+     }
+ 
+-    $emStage = @(git diff --cached --name-only 2>$null | Where-Object { $_ })
++    $emStage = if ($Simular) { @($EmStage) } else { @(git diff --cached --name-only 2>$null | Where-Object { $_ }) }
+     if ($emStage.Count -eq 0) { Emitir "allow" "nada em stage" }
+ 
+     $codigo = @($emStage | Where-Object {
+             $_ -like "internal/*.go" -or $_ -like "cmd/*.go" -or
+             $_ -like "internal/*/*.go" -or $_ -like "cmd/*/*.go"
+         } | Where-Object { $_ -notlike "*_test.go" })
+ 
+     if ($codigo.Count -eq 0) { Emitir "allow" "nenhum .go de producao em stage" }
+ 
+     $docs = @($emStage | Where-Object {
+@@ -122,19 +154,20 @@ try {
+         ($codigo | Select-Object -First 8 | ForEach-Object { "  - $_" }),
+         "",
+         "Antes de tentar de novo, decida qual se aplica:",
+         "  - mudou contrato de tool?      -> docs/TOOLS.md",
+         "  - mudou regra ou armadilha?    -> docs/ARMADILHAS.md",
+         "  - mudou camada ou decisao?     -> docs/ARCHITECTURE.md (AD-xx)",
+         "  - mudou requisito ou medicao?  -> docs/OPERACAO.md (numero MEDIDO, nunca estimado)",
+         "  - fechou uma tarefa?           -> o ledger em .superpowers/sdd/<marco>/progress.md",
+         "",
+         "Se documentacao genuinamente NAO se aplica (revert, formatacao, ajuste de",
+-        "teste que nao muda contrato), inclua [sem-doc] na mensagem do commit.",
++        "teste que nao muda contrato), inclua [sem-doc] na MENSAGEM do commit (-m ou",
++        "arquivo de -F). Na linha de comando fora da mensagem ele nao vale.",
+         "Isso e uma decisao consciente e fica visivel no historico."
+     ) | Where-Object { $null -ne $_ }
+ 
+     Emitir "deny" (($texto | Out-String).TrimEnd())
+ }
+ catch {
+     Emitir "allow" "pre_commit_docs.ps1 falhou: $($_.Exception.Message)"
+ }
+diff --git a/scripts/testdata/gates/msg-com-sem-doc.txt b/scripts/testdata/gates/msg-com-sem-doc.txt
+new file mode 100644
+index 0000000..4bf2ac7
+--- /dev/null
++++ b/scripts/testdata/gates/msg-com-sem-doc.txt
+@@ -0,0 +1,3 @@
++test(index): tighten an assertion [sem-doc]
++
++The contract did not change; only the test did.
+diff --git a/scripts/testdata/gates/msg-sem-escotilha.txt b/scripts/testdata/gates/msg-sem-escotilha.txt
+new file mode 100644
+index 0000000..5169bf4
+--- /dev/null
++++ b/scripts/testdata/gates/msg-sem-escotilha.txt
+@@ -0,0 +1,3 @@
++fix(index): a message that does not use the hatch
++
++Body without the tag.
+diff --git a/scripts/testdata/gates/sdd-falso/task-1-report.md b/scripts/testdata/gates/sdd-falso/task-1-report.md
+new file mode 100644
+index 0000000..e9a022a
+--- /dev/null
++++ b/scripts/testdata/gates/sdd-falso/task-1-report.md
+@@ -0,0 +1,48 @@
++# Task 1 report — fixture: prose that names the sections without having them
++
++## Status
++DONE.
++
++## What changed
++Only a comment changed, so there is no RED/GREEN cycle and no mutation
++proof to paste; the verification was reading the diff. This paragraph
++exists to satisfy the old word-match: it contains the words red, green,
++mutation and verification without a single section of any of them.
++
++## Filler
++
++This paragraph is neutral padding, written only so the fixture file crosses
++the two thousand byte floor that the auditor uses to flag a report as too
++short to hold pasted command output. Its content carries no signal at all;
++only its length matters here, and the length is measured and pasted into
++the task report rather than assumed.
++
++This paragraph is neutral padding, written only so the fixture file crosses
++the two thousand byte floor that the auditor uses to flag a report as too
++short to hold pasted command output. Its content carries no signal at all;
++only its length matters here, and the length is measured and pasted into
++the task report rather than assumed.
++
++This paragraph is neutral padding, written only so the fixture file crosses
++the two thousand byte floor that the auditor uses to flag a report as too
++short to hold pasted command output. Its content carries no signal at all;
++only its length matters here, and the length is measured and pasted into
++the task report rather than assumed.
++
++This paragraph is neutral padding, written only so the fixture file crosses
++the two thousand byte floor that the auditor uses to flag a report as too
++short to hold pasted command output. Its content carries no signal at all;
++only its length matters here, and the length is measured and pasted into
++the task report rather than assumed.
++
++This paragraph is neutral padding, written only so the fixture file crosses
++the two thousand byte floor that the auditor uses to flag a report as too
++short to hold pasted command output. Its content carries no signal at all;
++only its length matters here, and the length is measured and pasted into
++the task report rather than assumed.
++
++This paragraph is neutral padding, written only so the fixture file crosses
++the two thousand byte floor that the auditor uses to flag a report as too
++short to hold pasted command output. Its content carries no signal at all;
++only its length matters here, and the length is measured and pasted into
++the task report rather than assumed.
+diff --git a/scripts/testdata/gates/sdd-falso/task-2-report.md b/scripts/testdata/gates/sdd-falso/task-2-report.md
+new file mode 100644
+index 0000000..ad7951c
+--- /dev/null
++++ b/scripts/testdata/gates/sdd-falso/task-2-report.md
+@@ -0,0 +1,54 @@
++# Task 2 report — fixture: the four sections as headings
++
++## Status
++DONE.
++
++### RED — before the fix
++(saida colada)
++
++### GREEN — after the fix
++(saida colada)
++
++## Mutation proofs
++(saida colada)
++
++## Verification
++(saida colada)
++
++## Filler
++
++This paragraph is neutral padding, written only so the fixture file crosses
++the two thousand byte floor that the auditor uses to flag a report as too
++short to hold pasted command output. Its content carries no signal at all;
++only its length matters here, and the length is measured and pasted into
++the task report rather than assumed.
++
++This paragraph is neutral padding, written only so the fixture file crosses
++the two thousand byte floor that the auditor uses to flag a report as too
++short to hold pasted command output. Its content carries no signal at all;
++only its length matters here, and the length is measured and pasted into
++the task report rather than assumed.
++
++This paragraph is neutral padding, written only so the fixture file crosses
++the two thousand byte floor that the auditor uses to flag a report as too
++short to hold pasted command output. Its content carries no signal at all;
++only its length matters here, and the length is measured and pasted into
++the task report rather than assumed.
++
++This paragraph is neutral padding, written only so the fixture file crosses
++the two thousand byte floor that the auditor uses to flag a report as too
++short to hold pasted command output. Its content carries no signal at all;
++only its length matters here, and the length is measured and pasted into
++the task report rather than assumed.
++
++This paragraph is neutral padding, written only so the fixture file crosses
++the two thousand byte floor that the auditor uses to flag a report as too
++short to hold pasted command output. Its content carries no signal at all;
++only its length matters here, and the length is measured and pasted into
++the task report rather than assumed.
++
++This paragraph is neutral padding, written only so the fixture file crosses
++the two thousand byte floor that the auditor uses to flag a report as too
++short to hold pasted command output. Its content carries no signal at all;
++only its length matters here, and the length is measured and pasted into
++the task report rather than assumed.
+diff --git a/scripts/verify.ps1 b/scripts/verify.ps1
+index 96a07d1..8bb585e 100644
+--- a/scripts/verify.ps1
++++ b/scripts/verify.ps1
+@@ -245,20 +245,25 @@ else {
+ Invoke-Step "check_tool_params" { & (Join-Path $PSScriptRoot "check_tool_params.ps1") }
+ 
+ # As duas checagens de documentacao entram na bateria porque, ate 2026-08-11,
+ # nao rodavam em lugar nenhum -- nem aqui, nem no CI. Verificador que so roda
+ # quando alguem lembra e verificador que nao existe: foi assim que tres secoes
+ # do README ficaram sem link de navegacao por um marco inteiro, e que a tabela
+ # do cabecalho do cache citou campos com grafia que o codigo nunca teve.
+ Invoke-Step "check_doc_refs" { & (Join-Path $PSScriptRoot "check_doc_refs.ps1") }
+ Invoke-Step "check_readme_anchors" { & (Join-Path $PSScriptRoot "check_readme_anchors.ps1") }
+ 
++# Os gates que casam a palavra em vez da evidencia foram contornados sem
++# intencao (ESTADO.md, 2026-09-06). check_gates prova, a cada rodada, que o
++# bypass conhecido continua recusado.
++Invoke-Step "check_gates" { & (Join-Path $PSScriptRoot "check_gates.ps1") }
++
+ Pop-Location
+ 
+ Write-Output ""
+ if ($Failed.Count -gt 0) {
+     Write-Warning "[!] $($Failed.Count) etapa(s) reprovada(s):"
+     $Failed | ForEach-Object { Write-Output "    $_" }
+     exit 1
+ }
+ 
+ Write-Output "[OK] Bateria completa. Pode commitar."

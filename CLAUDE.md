@@ -124,7 +124,7 @@ a do `boot`, que é nova — e a do `boot` ganhou `lifecycle` no mesmo dia
 As justificativas estão logo abaixo do bloco:
 
 ```
-text  vault  config  lifecycle               folhas
+text  vault  config  lifecycle  textos       folhas
 parser   → text
 console  → text
 ipc      → config
@@ -137,9 +137,9 @@ mcpsrv   → config, index, parser, service, vault
 boot     → config, index, lifecycle, search, service, vault, watcher
 daemon   → config, ipc, lifecycle, mcpsrv
 doctor   → config, daemon, ipc, vault
-hosts      → (folha)
+hosts      → textos
 selfupdate → (folha)
-instalar   → config, daemon, hosts, ipc, search, text
+instalar   → config, daemon, hosts, ipc, search, text, textos
 ```
 
 Os três últimos são de 2026-09-08 (plano do instalador, tasks 195–201), e as
@@ -154,9 +154,19 @@ ela, a última linha do log não diz qual espera não voltou, que é exatamente 
 que faltou para determinar a causa do PID 42856 em 2026-09-07. `lifecycle`
 continua folha, e continua sem saber quando encerrar: quem decide é quem chama.
 
-`hosts` é **folha**: ele recebe a raiz do sistema de arquivos e o comando a
-registrar por parâmetro. Escreve JSON genérico e não sabe o que é uma tool —
-por isso não importa `mcpsrv` nem `service`, e não vai importar.
+`hosts` recebe a raiz do sistema de arquivos e o comando a registrar por
+parâmetro. Escreve JSON genérico e não sabe o que é uma tool — por isso não
+importa `mcpsrv` nem `service`, e não vai importar. A única aresta dele é
+`hosts → textos`, de 2026-09-16, e ela não muda isso: `textos` é folha de
+constantes, e o que `hosts` toma dela é o nome de cada host como aparece na
+tela (`textos.HostClaudeDesktop`...). `instalar → textos` é do mesmo dia e
+pelo mesmo motivo: os anúncios de cada passo da instalação
+(`textos.PassoTrava`...) e o aviso de PATH do Windows. A regra é a do próprio
+pacote — **tudo o que o produto escreve na tela mora num arquivo só, em
+português correto** —, e até então cada mensagem morava ao lado do código que
+a imprimia, metade com acento e metade sem. `textos` não importa nada do
+projeto e não vai importar; `cmd/gobsidian` é o terceiro importador, fora do
+grafo como sempre.
 
 `selfupdate` também é **folha** — nenhuma aresta interna. Ele é o **único
 pacote do produto com `net/http`**, sob a segunda exceção nomeada da RNF-30

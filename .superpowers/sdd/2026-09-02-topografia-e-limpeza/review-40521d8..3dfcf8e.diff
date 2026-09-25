@@ -1,0 +1,278 @@
+# Review package: 40521d8e9bd5fad832e7142c11ed00cf51ff95a5..HEAD
+
+## Commits
+3dfcf8e fix(vault): a ReadDir failure on the scanned root is a root failure, not an unreadable entry
+
+## Files changed
+ internal/vault/walk.go                           | 30 +++++++++++---
+ internal/vault/walk_raiz_test.go                 | 36 ++++++++++++++++
+ internal/vault/walk_raiz_windows_test.go         | 52 ++++++++++++++++++++++++
+ internal/watcher/varredura_raiz_ilegivel_test.go | 48 ++++++++++++++++++++++
+ internal/watcher/watcher.go                      |  9 ++--
+ 5 files changed, 167 insertions(+), 8 deletions(-)
+
+## Diff
+diff --git a/internal/vault/walk.go b/internal/vault/walk.go
+index 56e82a1..f3d13e2 100644
+--- a/internal/vault/walk.go
++++ b/internal/vault/walk.go
+@@ -110,35 +110,55 @@ func Classify(rel CanonicalPath) Classification {
+ 	ext := strings.ToLower(filepath.Ext(name))
+ 	if ext == ".md" {
+ 		return ClassNote
+ 	}
+ 	if assetExts[ext] {
+ 		return ClassAsset
+ 	}
+ 	return ClassExcluded
+ }
+ 
++// FalhaNaRaiz diz se um erro entregue pelo callback de filepath.WalkDir e da
++// PROPRIA raiz varrida, e nao de uma entrada dentro dela.
++//
++// WalkDir tem duas formas de falhar na raiz, e so uma delas vem com d == nil:
++//
++//   - Lstat(raiz) falhou: um unico callback, d == nil.
++//   - Lstat passou e ReadDir(raiz) falhou: DOIS callbacks — o primeiro normal,
++//     o segundo com d != nil, caminho == raiz e o erro do ReadDir.
++//
++// Tratar so d == nil deixa a segunda forma passar como "entrada ilegivel":
++// engolida, logada, e a varredura devolve sucesso com zero entradas. Um
++// diretorio que existe mas nao pode ser lido (antivirus segurando a pasta,
++// no Windows) virava cofre vazio. E a unica conta dessa distincao — Walk e
++// watcher.varreDiretorioNovo usam a mesma.
++func FalhaNaRaiz(raiz, caminho string, d fs.DirEntry) bool {
++	return d == nil || caminho == raiz
++}
++
+ // Walk percorre o cofre aplicando as exclusoes e classificando cada arquivo
+ // como nota ou anexo. Arquivos que nao sao nem um nem outro sao ignorados.
+ func (v *Vault) Walk(ctx context.Context, fn func(Entry) error) error {
+ 	return filepath.WalkDir(v.walkRoot, func(abs string, d fs.DirEntry, err error) error {
+ 		if err != nil {
+-			// d == nil significa que a falha foi na propria raiz: WalkDir nao
+-			// conseguiu nem fazer Lstat nela. Isso acontece quando o cofre
+-			// some entre New e Walk — unidade removivel desconectada, pasta
+-			// sincronizada que o cliente de nuvem moveu, share de rede caido.
++			// Falha na propria raiz, e nao numa entrada dentro dela. Acontece
++			// quando o cofre some entre New e Walk — unidade removivel
++			// desconectada, pasta sincronizada que o cliente de nuvem moveu,
++			// share de rede caido — e tambem quando a raiz existe mas nao pode
++			// ser lida. Ver FalhaNaRaiz para a segunda forma, que ReadDir
++			// produz.
+ 			//
+ 			// Engolir esse erro faria Walk devolver sucesso com zero entradas,
+ 			// e o servidor reportaria com confianca que o cofre esta vazio.
+ 			// Um cofre inacessivel e um erro; um cofre vazio e um fato. As
+ 			// duas coisas nao podem produzir a mesma resposta.
+-			if d == nil {
++			if FalhaNaRaiz(v.walkRoot, abs, d) {
+ 				return fmt.Errorf("varrendo a raiz do cofre %q: %w", v.root, err)
+ 			}
+ 			// Um diretorio ilegivel nao derruba a varredura inteira. O cofre
+ 			// e do usuario, e uma pasta com ACL estranha e problema local.
+ 			if d.IsDir() {
+ 				v.RecordSkip(abs, err)
+ 				return fs.SkipDir
+ 			}
+ 			v.RecordSkip(abs, err)
+ 			return nil
+diff --git a/internal/vault/walk_raiz_test.go b/internal/vault/walk_raiz_test.go
+new file mode 100644
+index 0000000..f84262b
+--- /dev/null
++++ b/internal/vault/walk_raiz_test.go
+@@ -0,0 +1,36 @@
++package vault
++
++import (
++	"io/fs"
++	"testing"
++)
++
++// entradaFalsa satisfaz fs.DirEntry sem tocar o disco. So Name e usado
++// pela conta; o resto existe para compilar.
++type entradaFalsa struct{ nome string }
++
++func (e entradaFalsa) Name() string               { return e.nome }
++func (e entradaFalsa) IsDir() bool                { return true }
++func (e entradaFalsa) Type() fs.FileMode          { return fs.ModeDir }
++func (e entradaFalsa) Info() (fs.FileInfo, error) { return nil, fs.ErrNotExist }
++
++func TestFalhaNaRaizReconheceAsDuasFormasDoWalkDir(t *testing.T) {
++	const raiz = `C:\cofre`
++	casos := []struct {
++		nome    string
++		caminho string
++		d       fs.DirEntry
++		quer    bool
++	}{
++		{"Lstat da raiz falhou: d == nil", raiz, nil, true},
++		{"ReadDir da raiz falhou: d != nil, caminho == raiz", raiz, entradaFalsa{"cofre"}, true},
++		{"entrada comum ilegivel", `C:\cofre\sub`, entradaFalsa{"sub"}, false},
++	}
++	for _, c := range casos {
++		t.Run(c.nome, func(t *testing.T) {
++			if got := FalhaNaRaiz(raiz, c.caminho, c.d); got != c.quer {
++				t.Fatalf("FalhaNaRaiz(%q, %q, %v) = %v, quer %v", raiz, c.caminho, c.d, got, c.quer)
++			}
++		})
++	}
++}
+diff --git a/internal/vault/walk_raiz_windows_test.go b/internal/vault/walk_raiz_windows_test.go
+new file mode 100644
+index 0000000..134f193
+--- /dev/null
++++ b/internal/vault/walk_raiz_windows_test.go
+@@ -0,0 +1,52 @@
++//go:build windows
++
++package vault
++
++import (
++	"context"
++	"os"
++	"path/filepath"
++	"testing"
++
++	"golang.org/x/sys/windows"
++)
++
++// travarDiretorioExclusivo abre dir com dwShareMode = 0. Enquanto o handle
++// vive, ReadDir(dir) falha com ERROR_SHARING_VIOLATION e Lstat(dir) passa —
++// a segunda forma de falha da raiz que FalhaNaRaiz existe para reconhecer.
++// Provado nesta maquina em 2026-09-02; o teste confere de novo e pula, com o
++// motivo, se o SO desta vez deixar ler.
++func travarDiretorioExclusivo(t *testing.T, dir string) {
++	t.Helper()
++	p, err := windows.UTF16PtrFromString(dir)
++	if err != nil {
++		t.Fatal(err)
++	}
++	h, err := windows.CreateFile(p, windows.GENERIC_READ|windows.GENERIC_WRITE, 0, nil,
++		windows.OPEN_EXISTING, windows.FILE_FLAG_BACKUP_SEMANTICS, 0)
++	if err != nil {
++		t.Fatalf("CreateFile exclusivo em %q: %v", dir, err)
++	}
++	t.Cleanup(func() { _ = windows.CloseHandle(h) })
++	if _, err := os.ReadDir(dir); err == nil {
++		t.Skip("handle exclusivo NAO impediu ReadDir nesta maquina; o cenario nao se reproduz")
++	}
++}
++
++func TestWalkNaoEngoleRaizQueExisteMasNaoLe(t *testing.T) {
++	root := t.TempDir()
++	if err := os.WriteFile(filepath.Join(root, "a.md"), []byte("# a"), 0o644); err != nil {
++		t.Fatal(err)
++	}
++	v, err := New(root)
++	if err != nil {
++		t.Fatal(err)
++	}
++	travarDiretorioExclusivo(t, root)
++
++	var vistos int
++	err = v.Walk(context.Background(), func(Entry) error { vistos++; return nil })
++	if err == nil {
++		t.Fatalf("Walk devolveu nil com %d entradas para uma raiz que ReadDir nao le: cofre inacessivel virou cofre vazio", vistos)
++	}
++}
+diff --git a/internal/watcher/varredura_raiz_ilegivel_test.go b/internal/watcher/varredura_raiz_ilegivel_test.go
+new file mode 100644
+index 0000000..2bef0a8
+--- /dev/null
++++ b/internal/watcher/varredura_raiz_ilegivel_test.go
+@@ -0,0 +1,48 @@
++//go:build !windows
++
++package watcher
++
++import (
++	"context"
++	"os"
++	"path/filepath"
++	"testing"
++)
++
++// TestVarreDiretorioNovoNaoEngoleRaizIlegivel prova que o watcher USA a conta
++// de vault.FalhaNaRaiz, e nao uma decisao propria.
++//
++// O irmao TestVarreDiretorioNovoAcusaFalhaNaPropriaRaiz, em
++// varredura_raiz_test.go, cobre so a PRIMEIRA forma de falha da raiz — o
++// caminho que nao existe, onde Lstat falha e o callback vem com d == nil. A
++// segunda forma nao aparece ali: a raiz EXISTE, Lstat passa, e e o ReadDir que
++// falha. Ai o callback vem com d != nil, e a decisao feita a mao tratava isso
++// como entrada ilegivel qualquer — engolia, e a varredura devolvia sucesso com
++// zero entradas.
++//
++// Fica fora do Windows porque o instrumento e chmod 0o000, que no Windows nao
++// remove permissao de leitura de diretorio. A mesma segunda forma esta provada
++// la por outro instrumento — handle exclusivo — em
++// internal/vault/walk_raiz_windows_test.go.
++func TestVarreDiretorioNovoNaoEngoleRaizIlegivel(t *testing.T) {
++	w, cancel, root, _ := setupTestWatcher(t)
++	defer cancel()
++	dir := filepath.Join(root, "chegou")
++	if err := os.MkdirAll(dir, 0o755); err != nil {
++		t.Fatal(err)
++	}
++	if err := os.WriteFile(filepath.Join(dir, "a.md"), []byte("# a"), 0o644); err != nil {
++		t.Fatal(err)
++	}
++	if err := os.Chmod(dir, 0o000); err != nil {
++		t.Fatal(err)
++	}
++	t.Cleanup(func() { _ = os.Chmod(dir, 0o755) })
++	if _, err := os.ReadDir(dir); err == nil {
++		t.Skip("ReadDir nao falhou com 0o000 (root?); o cenario nao se reproduz aqui")
++	}
++	err := w.varreDiretorioNovo(context.Background(), dir)
++	if err == nil {
++		t.Fatal("varreDiretorioNovo devolveu nil para uma raiz que ReadDir nao consegue ler: a varredura reportou sucesso com zero entradas")
++	}
++}
+diff --git a/internal/watcher/watcher.go b/internal/watcher/watcher.go
+index 4e2d348..c10817b 100644
+--- a/internal/watcher/watcher.go
++++ b/internal/watcher/watcher.go
+@@ -222,34 +222,37 @@ func (w *Watcher) emite(ctx context.Context, e fsnotify.Event) error {
+ // de eventos do fsnotify e pode estourar o buffer do sistema operacional — o
+ // que dispara a reconciliacao, que e justamente o anteparo para eventos
+ // perdidos. Fazer a varredura numa goroutine tiraria a espera dali, mas Run
+ // fecha w.events ao sair, e uma varredura sobrevivente escrevendo num canal
+ // fechado derruba o processo. Espera limitada vale mais que panico.
+ func (w *Watcher) varreDiretorioNovo(ctx context.Context, dir string) error {
+ 	err := filepath.WalkDir(dir, func(caminho string, d fs.DirEntry, erro error) error {
+ 		if erro != nil {
+ 			// d == nil significa falha na PROPRIA RAIZ: o WalkDir nao
+ 			// conseguiu nem fazer Lstat no diretorio que acabou de chegar.
+-			// E a mesma distincao que vault.Walk ja faz (walk.go:133), e que
+-			// aqui nunca tinha sido feita.
++			// E a mesma distincao que vault.Walk ja faz, e que aqui nunca
++			// tinha sido feita.
+ 			//
+ 			// Engolir isso faz a varredura reportar sucesso com ZERO entradas
+ 			// — exatamente o estado que esta funcao existe para impedir. O
+ 			// sintoma resultante e indistinguivel de "a varredura nao rodou":
+ 			// um evento recebido, indice vazio, e as notas invisiveis para
+ 			// todas as tools ate o proximo reinicio, sem erro e sem log util.
+ 			// No Windows a causa transitoria classica e o antivirus segurando
+ 			// o diretorio recem-movido.
+ 			//
+ 			// Diretorio inacessivel e diretorio vazio nao podem produzir a
+ 			// mesma resposta.
+-			if d == nil {
++			//
++			// A segunda forma — ReadDir da raiz falhou, d != nil — e a que
++			// vault.FalhaNaRaiz cobre.
++			if vault.FalhaNaRaiz(dir, caminho, d) {
+ 				return fmt.Errorf("varrendo a raiz do diretório novo %q: %w", caminho, erro)
+ 			}
+ 			// Entrada ilegivel nao pode abortar a varredura das outras: a
+ 			// alternativa e perder o diretorio inteiro por causa de um arquivo.
+ 			w.log.Warn("entrada ilegivel ao varrer diretório novo", "path", caminho, "err", erro)
+ 			return nil
+ 		}
+ 		if caminho == dir {
+ 			return nil
+ 		}

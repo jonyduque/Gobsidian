@@ -1,0 +1,179 @@
+{
+  "lastSeq": 70,
+  "entries": {
+    "Apelidada.md": {
+      "hash": "1a698a62c18136eda142a629b1264deb69df9ce5479cb5abede261320b99fd5d",
+      "size": 112,
+      "mtime": 1785260102991,
+      "seq": 70
+    },
+    "Ação.md": {
+      "hash": "f2eefce3623d9fbcd6dee44bde1cb9ba424dafada5fd6d87ce5435b98e671bfd",
+      "size": 55,
+      "mtime": 1787018010203,
+      "seq": 70
+    },
+    "Bem-vindo.md": {
+      "hash": "cb0bd207f599e50bacf54c2accb059be7c4bad5708b38d1ff95a8d9b3e167387",
+      "size": 195,
+      "mtime": 1785257537337,
+      "seq": 70
+    },
+    "main.js": {
+      "hash": "30f45558c1e17a763fb8fd64538ce1637f5aeac0f04370d41123af2f3f9a7ce5",
+      "size": 1292687,
+      "mtime": 1787018010336,
+      "seq": 70
+    },
+    "manifest.json": {
+      "hash": "ee82ffce406568d880f77ccfc7e60a4b0b652156cc5e8fbb31d2a8a28f011576",
+      "size": 298,
+      "mtime": 1787018010412,
+      "seq": 70
+    },
+    "metadata.json": {
+      "hash": "9840b1fe8602058ef6616fc72d954bba00791b5f60233745472f5045ca1dadcf",
+      "size": 8206,
+      "mtime": 1785263023933,
+      "seq": 70
+    },
+    "Neoconstitucionalismo.md": {
+      "hash": "43ebe73eccb1a8d02aa0920fb0c54de5145629d862590476b4c7626d75d9d53a",
+      "size": 132134,
+      "mtime": 1785257599344,
+      "seq": 70
+    },
+    "Origem.md": {
+      "hash": "f84f21df023ee10d464781a0b84a8088bf277128442bfb3021cb0299d399d464",
+      "size": 579,
+      "mtime": 1785260102994,
+      "seq": 70
+    },
+    "P3.md": {
+      "hash": "f5b785e8570ee1401eba05c73a3636a9a0c77dbef87e5de0b57e014d762dbbb7",
+      "size": 110,
+      "mtime": 1785260102992,
+      "seq": 70
+    },
+    "Pasted image 20260814221454.png": {
+      "hash": "f7165d1c066537be040b10a02a861af5e9c5942d8e7a13158a2f06682731cd09",
+      "size": 407540,
+      "mtime": 1786756494044,
+      "seq": 70
+    },
+    "Sem título.md": {
+      "hash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "size": 0,
+      "mtime": 1787018010156,
+      "seq": 70
+    },
+    ".obsidian/app.json": {
+      "hash": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+      "size": 2,
+      "mtime": 1787058044405,
+      "seq": 70
+    },
+    ".obsidian/appearance.json": {
+      "hash": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+      "size": 2,
+      "mtime": 1787058044408,
+      "seq": 70
+    },
+    ".obsidian/community-plugins (conflito 01M08RSCY410E88M0516VB4K9R 2026-08-17 22h52).json": {
+      "hash": "8afeb1e2d2b77027eddbd6d224a099e0dc2e8fb76c65548ecd52adf4efd9ea98",
+      "size": 149,
+      "mtime": 1787018010582,
+      "seq": 70
+    },
+    ".obsidian/community-plugins.json": {
+      "hash": "f97c4b9cd9564bfc568e8514eaa7be601d4c7c540d1e77f55dc506c78530aa8c",
+      "size": 33,
+      "mtime": 1787058068837,
+      "seq": 70
+    },
+    ".obsidian/core-plugins (conflito 01M08RSCY410E88M0516VB4K9R 2026-08-17 22h52).json": {
+      "hash": "e0d65919d21440099b45fce47409ccd2a5907ccaeb0decef03aebee429656bfd",
+      "size": 804,
+      "mtime": 1787018010566,
+      "seq": 70
+    },
+    ".obsidian/core-plugins.json": {
+      "hash": "763cf20a921fd9955735b278006820b90b207b2fc04d9e79ca648279c7c14276",
+      "size": 696,
+      "mtime": 1787058044031,
+      "seq": 70
+    },
+    ".obsidian/graph.json": {
+      "hash": "89b1b8c279c3229a13509a0fad866ef90a7a70a6536f78d542e9c0960aec3d77",
+      "size": 493,
+      "mtime": 1785257539468,
+      "seq": 70
+    },
+    ".obsidian/plugins/gosync/data (conflito 01M08RX5ZS3SF5S2Y89TSS36NY 2026-08-17 18h09).json": {
+      "hash": "a21cf9731b8e7aef662f3f1a7245a2da930c77caae3caf66943ddacdf0c88ec4",
+      "size": 330,
+      "mtime": 1787018010427,
+      "seq": 70
+    },
+    ".obsidian/plugins/gosync/data (conflito 01M08RX5ZS3SF5S2Y89TSS36NY 2026-08-17 18h19).json": {
+      "hash": "fc0254af375e8ccfc612efcd4e2234459915782ecef335fcf89c8fe19d69be67",
+      "size": 330,
+      "mtime": 1787018010394,
+      "seq": 70
+    },
+    ".obsidian/plugins/gosync/data.json": {
+      "hash": "66013a58f1816fb1768716a68f739ab5dcc0e81cb01ac49461b7f3e765f0a204",
+      "size": 193,
+      "mtime": 1787078301181,
+      "seq": 70
+    },
+    ".obsidian/plugins/gosync/main (conflito 01M08RSCY410E88M0516VB4K9R 2026-08-17 22h52).js": {
+      "hash": "41c3f0ae6f69dce289e1c371561972a2bd4707893e0d634581493ff25240b151",
+      "size": 1325293,
+      "mtime": 1787018010513,
+      "seq": 70
+    },
+    ".obsidian/plugins/gosync/main.js": {
+      "hash": "0d4578219b7ab7299bb7c592490fabdaaae5a986d5b6390bfdcb5939db433139",
+      "size": 1328842,
+      "mtime": 1787019579437,
+      "seq": 70
+    },
+    ".obsidian/plugins/gosync/manifest (conflito 01M08RSCY410E88M0516VB4K9R 2026-08-17 22h52).json": {
+      "hash": "b778e3b7d719a86ddb019f7761685cf0b0a0b4b2a0f2da5b34af1fde11e755b3",
+      "size": 439,
+      "mtime": 1787018010372,
+      "seq": 70
+    },
+    ".obsidian/plugins/gosync/manifest.json": {
+      "hash": "8beda20cedf3fe58b8f4684fad4f3e6585b2d6c7e82d61508b83118dda2fc987",
+      "size": 298,
+      "mtime": 1787019579440,
+      "seq": 70
+    },
+    ".obsidian/plugins/gosync/styles.css": {
+      "hash": "03caed14e415d5b7a726133cf58c8b01944815bd36c2af41f5c302755d3142c9",
+      "size": 2088,
+      "mtime": 1787019579444,
+      "seq": 70
+    },
+    "Anexos/diagrama.png": {
+      "hash": "c414cd0e204de974f73753c7e28d7638e7b3691bb8b1a2bab6b25bb7fed7ce77",
+      "size": 70,
+      "mtime": 1785260103182,
+      "seq": 70
+    },
+    "Civil/PONTO 03.md": {
+      "hash": "f0311f8522917ded078a11e098755f0dc9740ff08ad230a2a0f5dc25c23737e1",
+      "size": 90,
+      "mtime": 1785260102988,
+      "seq": 70
+    },
+    "Penal/PONTO 03.md": {
+      "hash": "4d8ae5112f3154af148d4f27ee60ca003ae5ddb0f669040639099aafae8e9cf8",
+      "size": 75,
+      "mtime": 1785260102990,
+      "seq": 70
+    }
+  }
+}

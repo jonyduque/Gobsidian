@@ -1,0 +1,81 @@
+/* Estilos da aba de configuração do gosync.
+ *
+ * O Obsidian carrega este arquivo sozinho quando ele está ao lado do main.js --
+ * é por isso que ele não é importado de lugar nenhum.
+ *
+ * Tudo aqui usa VARIÁVEIS DO TEMA (--text-muted, --color-green, ...) em vez de
+ * cor fixa. Um plugin que fixa cor fica ilegível no primeiro tema escuro que o
+ * usuário instalar, e o Obsidian tem centenas deles. */
+
+.gosync-requisitos {
+  list-style: none;
+  margin: 0.25em 0 0.75em 0;
+  padding: 0;
+  font-size: var(--font-ui-smaller);
+}
+.gosync-requisitos li {
+  color: var(--text-muted);
+  padding: 1px 0;
+}
+.gosync-requisitos li.cumprido {
+  color: var(--color-green);
+}
+/* O marcador vem do CSS, não do texto: assim o rótulo lido por leitor de tela
+ * continua sendo só a regra, e a marca visual não vira caractere solto. */
+.gosync-requisitos li::before {
+  content: "○ ";
+}
+.gosync-requisitos li.cumprido::before {
+  content: "● ";
+}
+
+.gosync-forca {
+  width: 100%;
+  height: 6px;
+  border-radius: 3px;
+  background: var(--background-modifier-border);
+  overflow: hidden;
+  margin: 0.35em 0 0.15em 0;
+}
+.gosync-forca > div {
+  height: 100%;
+  width: 0;
+  border-radius: 3px;
+  background: var(--color-red);
+  transition: width 120ms ease-out, background-color 120ms ease-out;
+}
+.gosync-forca[data-nivel="medio"] > div {
+  background: var(--color-yellow);
+}
+.gosync-forca[data-nivel="bom"] > div {
+  background: var(--color-green);
+}
+
+/* QR centralizado, com a contagem embaixo. `max-width` porque o SVG do
+ * qrcode-generator tem tamanho fixo em px e estouraria a largura no celular. */
+.gosync-qr {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.5em;
+  margin: 1em 0;
+}
+.gosync-qr svg {
+  max-width: 100%;
+  height: auto;
+  background: #fff;
+  padding: 8px;
+  border-radius: 6px;
+}
+.gosync-qr-codigo {
+  font-family: var(--font-monospace);
+  font-size: var(--font-ui-large);
+  letter-spacing: 0.12em;
+}
+.gosync-qr-tempo {
+  color: var(--text-muted);
+  font-size: var(--font-ui-smaller);
+}
+.gosync-qr-tempo.acabando {
+  color: var(--color-red);
+}

@@ -2,6 +2,7 @@ package hosts
 
 import (
 	"fmt"
+	"github.com/jonyduque/Gobsidian/internal/textos"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -107,7 +108,7 @@ func Todos() []Host {
 			},
 			configurar: func(a Ambiente, ens []EntradaNomeada) (string, error) {
 				alvo := filepath.Join(diretorioDoClaudeDesktop(a), "claude_desktop_config.json")
-				return "Reinicie o Claude Desktop para carregar o servidor.", FundirVarias(alvo, ens)
+				return textos.HostClaudeDesktop, FundirVarias(alvo, ens)
 			},
 		},
 		{
@@ -124,7 +125,7 @@ func Todos() []Host {
 				for _, chave := range chavesAPodar(ens) {
 					_ = a.Rodar("claude", "mcp", "remove", chave, "--scope", "user")
 				}
-				return "Registrado no Claude Code.", registrarPorCLI(a, ens, func(en EntradaNomeada) []string {
+				return textos.HostClaudeCode, registrarPorCLI(a, ens, func(en EntradaNomeada) []string {
 					return append([]string{"mcp", "add", en.Chave, "--scope", "user", "--", en.Command}, en.Args...)
 				}, "claude")
 			},
@@ -139,7 +140,7 @@ func Todos() []Host {
 				for _, chave := range chavesAPodar(ens) {
 					_ = a.Rodar("gemini", "mcp", "remove", chave, "--scope", "user")
 				}
-				return "Registrado no Gemini CLI.", registrarPorCLI(a, ens, func(en EntradaNomeada) []string {
+				return textos.HostGeminiCLI, registrarPorCLI(a, ens, func(en EntradaNomeada) []string {
 					return append([]string{"mcp", "add", en.Chave, en.Command}, en.Args...)
 				}, "gemini")
 			},
@@ -153,7 +154,7 @@ func Todos() []Host {
 			arquivo: func(a Ambiente) string { return filepath.Join(a.Home, ".gemini", "antigravity", "mcp_config.json") },
 			configurar: func(a Ambiente, ens []EntradaNomeada) (string, error) {
 				alvo := filepath.Join(a.Home, ".gemini", "antigravity", "mcp_config.json")
-				return "Reinicie o Antigravity.", FundirVarias(alvo, ens)
+				return textos.HostAntigravity, FundirVarias(alvo, ens)
 			},
 		},
 		{
@@ -165,7 +166,7 @@ func Todos() []Host {
 			arquivo: func(a Ambiente) string { return filepath.Join(a.Home, ".gemini", "antigravity-ide", "mcp_config.json") },
 			configurar: func(a Ambiente, ens []EntradaNomeada) (string, error) {
 				alvo := filepath.Join(a.Home, ".gemini", "antigravity-ide", "mcp_config.json")
-				return "Reinicie o Antigravity IDE.", FundirVarias(alvo, ens)
+				return textos.HostAntigravityIDE, FundirVarias(alvo, ens)
 			},
 		},
 		{
@@ -176,7 +177,7 @@ func Todos() []Host {
 				for _, chave := range chavesAPodar(ens) {
 					_ = a.Rodar("codex", "mcp", "remove", chave)
 				}
-				return "Registrado em ~/.codex/config.toml.", registrarPorCLI(a, ens, func(en EntradaNomeada) []string {
+				return textos.HostCodex, registrarPorCLI(a, ens, func(en EntradaNomeada) []string {
 					return append([]string{"mcp", "add", en.Chave, "--", en.Command}, en.Args...)
 				}, "codex")
 			},
@@ -195,7 +196,7 @@ func Todos() []Host {
 						return "", err
 					}
 				}
-				return "Registrado na configuracao de usuario do VS Code.", nil
+				return textos.HostVSCode, nil
 			},
 		},
 		{
@@ -206,7 +207,7 @@ func Todos() []Host {
 			},
 			arquivo: func(a Ambiente) string { return filepath.Join(a.Home, ".cursor", "mcp.json") },
 			configurar: func(a Ambiente, ens []EntradaNomeada) (string, error) {
-				return "Reinicie o Cursor.", FundirVarias(filepath.Join(a.Home, ".cursor", "mcp.json"), ens)
+				return textos.HostCursor, FundirVarias(filepath.Join(a.Home, ".cursor", "mcp.json"), ens)
 			},
 		},
 		{
@@ -218,7 +219,7 @@ func Todos() []Host {
 			arquivo: func(a Ambiente) string { return filepath.Join(a.Home, ".codeium", "windsurf", "mcp_config.json") },
 			configurar: func(a Ambiente, ens []EntradaNomeada) (string, error) {
 				alvo := filepath.Join(a.Home, ".codeium", "windsurf", "mcp_config.json")
-				return "Reinicie o Windsurf.", FundirVarias(alvo, ens)
+				return textos.HostWindsurf, FundirVarias(alvo, ens)
 			},
 		},
 	}

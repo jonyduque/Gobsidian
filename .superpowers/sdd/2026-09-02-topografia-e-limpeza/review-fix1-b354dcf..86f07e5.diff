@@ -1,0 +1,55 @@
+diff --git a/README.md b/README.md
+index 12f4792..f98f765 100644
+--- a/README.md
++++ b/README.md
+@@ -201,12 +201,12 @@ A flag declared by a subcommand but never read by it promises a contract the cod
+ | Flag | Effect | Subcommands |
+ |---|---|---|
+ | `--vault <path>` | Vault root. Required. | all |
+-| `--read-only` | Removes the entire write surface. | `serve` |
+-| `--cache-dir <path>` | Cache directory. Default: a hash of the vault path, always **outside** it. | `serve` |
+-| `--debounce-ms <n>` | Watcher coalescing window. | `serve` |
+-| `--log-level <level>` | `debug`, `info`, `warn` or `error`. | `serve` |
+-| `--eager-search` | Loads the search index at boot. Default: lazy — most sessions read and write without ever searching. | `serve` |
+-| `--max-results <n>` | Caps results per query. | `serve`, `search` |
++| `--read-only` | Removes the entire write surface. | `serve`, `daemon`, `doctor` |
++| `--cache-dir <path>` | Cache directory. Default: a hash of the vault path, always **outside** it. | `serve`, `daemon` |
++| `--debounce-ms <n>` | Watcher coalescing window. | `serve`, `daemon`, `doctor` |
++| `--log-level <level>` | `debug`, `info`, `warn` or `error`. | `serve`, `daemon` |
++| `--eager-search` | Loads the search index at boot. Default: lazy — most sessions read and write without ever searching. | `serve`, `daemon` |
++| `--max-results <n>` | Caps results per query. | `serve`, `search`, `daemon`, `doctor` |
+ | `--follow-symlinks` | Follows a symlink inside the vault; the default refuses, because confinement doesn't reach the target. | all |
+ | `--json` | Structured JSON output. | `search`, `index`, `inspect` |
+ | `--limit <n>` | Maximum results returned. Default: 20. | `search` |
+diff --git a/docs/wiki/entities/formato-do-cache.md b/docs/wiki/entities/formato-do-cache.md
+index 10d0f5d..f874cd1 100644
+--- a/docs/wiki/entities/formato-do-cache.md
++++ b/docs/wiki/entities/formato-do-cache.md
+@@ -8,10 +8,10 @@ source_paths:
+   - internal/search/persist.go
+   - internal/search/soa.go
+   - internal/search/mmap.go
+-source_commit: f7de8e81
++source_commit: b1f2cfe
+ tags: [cache, formato, mmap]
+ language: pt-BR
+-updated_at: '2026-08-31'
++updated_at: '2026-09-04'
+ ---
+ 
+ # Formato do cache de busca
+@@ -110,6 +110,14 @@ build nem teste: faz o leitor **recusar todo save que o próprio processo acabou
+ gravar**, com reconstrução completa a cada boot e nenhum log dizendo por quê
+ (achado B11). O alias existe para que o bump seja impossível de fazer pela metade.
+ 
++Desde 2026-09-04 (Task 157, b1f2cfe) o cache de **busca** segue o mesmo padrão: em
++`persist_codec.go`, `cacheCodecVers = CacheFormatVersion` é alias, e
++`cacheMagic` virou `var` — `fmt.Sprintf("GBS%d", CacheFormatVersion)` — em vez
++de literal. Antes eram três literais (`CacheFormatVersion`, `cacheMagic =
++"GBS6"`, `cacheCodecVers = 6`) para o mesmo bump, com o mesmo risco: um bump
++que esquecesse um dos três produzia um cache que passa pelo cabeçalho e falha
++— ou decodifica lixo estruturalmente válido — no corpo.
++
+ ## Custo de trocar de formato
+ 
+ **Toda troca reconstrói o cache de todo cofre no boot seguinte**, em segundo

@@ -3,6 +3,7 @@ package main
 
 import (
 	"fmt"
+	"github.com/jonyduque/Gobsidian/internal/textos"
 
 	"github.com/carapace-sh/carapace"
 	"github.com/spf13/cobra"
@@ -60,15 +61,15 @@ func acrescentarShellsDoCarapace(raiz *cobra.Command) {
 	for _, s := range shellsDoCarapace {
 		cmd := &cobra.Command{
 			Use:   s.nome,
-			Short: "Generate the autocompletion script for " + s.nome,
-			Long:  "Gera o script de autocompletar para " + s.nome + ".\n\n" + s.comoCarregar,
+			Short: fmt.Sprintf(textos.CompletarResumoShell, s.nome),
+			Long:  fmt.Sprintf(textos.CompletarDescricao, s.nome, s.comoCarregar),
 			Args:  cobra.NoArgs,
 			RunE: func(cmd *cobra.Command, _ []string) error {
 				// Snippet le a arvore inteira, entao o alvo e a RAIZ, e nao o
 				// subcomando que esta imprimindo.
 				texto, err := carapace.Gen(raiz).Snippet(cmd.Name())
 				if err != nil {
-					return fmt.Errorf("gerando o script de %s: %w", cmd.Name(), err)
+					return fmt.Errorf(textos.ErroGerandoScript, cmd.Name(), err)
 				}
 				_, err = fmt.Fprintln(cmd.OutOrStdout(), texto)
 				return err

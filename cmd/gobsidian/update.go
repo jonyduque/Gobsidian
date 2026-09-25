@@ -11,6 +11,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/jonyduque/Gobsidian/internal/textos"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -32,18 +33,16 @@ func newUpdateCmd() *cobra.Command {
 
 	cmd := &cobra.Command{
 		Use:   "update",
-		Short: "Atualiza o gobsidian para a ultima versao publicada",
-		Long: "Consulta a versao publicada, baixa o binario da plataforma corrente, " +
-			"CONFERE o SHA-256 publicado e -- so entao -- encerra os processos em execucao " +
-			"e troca o binario. Divergencia de soma aborta sem instalar nada.",
+		Short: textos.ResumoUpdate,
+		Long:  textos.DescricaoUpdate,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			return rodarUpdate(cmd.Context(), cmd, apenasConferir, sim)
 		},
 	}
 	cmd.Flags().BoolVar(&apenasConferir, "check", false,
-		"so diz se ha versao nova, sem baixar nem instalar")
+		textos.FlagUpdateCheck)
 	cmd.Flags().BoolVar(&sim, "yes", false,
-		"nao pergunta antes de encerrar os processos em execucao")
+		textos.FlagUpdateYes)
 	return cmd
 }
 
@@ -51,15 +50,15 @@ func rodarUpdate(ctx context.Context, cmd *cobra.Command, apenasConferir, sim bo
 	con := console.New(cmd.OutOrStdout())
 	entrada := bufio.NewReader(cmd.InOrStdin())
 
-	con.Step("Consultando a última versão publicada")
+	con.Step("%s", textos.UpdateConsultando)
 	transporte := selfupdate.TransporteHTTP{}
 	release, err := selfupdate.UltimaVersao(ctx, transporte, repositorio)
 	if err != nil {
-		return fmt.Errorf("consultando releases: %w", err)
+		return fmt.Errorf(textos.ErroConsultarRelease, err)
 	}
 
-	con.Info("instalada: %s", version)
-	con.Info("publicada: %s", release.Tag)
+	con.Info(textos.UpdateInstalada, version)
+	con.Info(textos.UpdatePublicada, release.Tag)
 
 	// selfupdate.PrecisaAtualizar, e nao `release.Tag == version`: a comparacao
 	// por igualdade dizia que um build local -- carimbado pelo `git describe` de
@@ -67,18 +66,18 @@ func rodarUpdate(ctx context.Context, cmd *cobra.Command, apenasConferir, sim bo
 	// em relacao a v1.5.1, e `update` faria downgrade. Encontrado rodando
 	// `update --check` de verdade em 2026-09-09.
 	if !selfupdate.PrecisaAtualizar(version, release.Tag) {
-		con.OK("Já está na última versão")
+		con.OK("%s", textos.UpdateJaAtual)
 		return nil
 	}
 	if apenasConferir {
-		con.Warn("Há versão nova: %s", release.Tag)
-		con.Detail("rode `gobsidian update` para instalar")
+		con.Warn(textos.UpdateHaVersaoNova, release.Tag)
+		con.Detail("%s", textos.UpdateComoInstalar)
 		return nil
 	}
 
 	ativo := nomeDoAtivoDaPlataforma()
 	if _, ok := release.Ativos[ativo]; !ok {
-		return fmt.Errorf("o release %s nao publica %q (plataforma %s/%s)",
+		return fmt.Errorf(textos.ErroAtivoAusente,
 			release.Tag, ativo, runtime.GOOS, runtime.GOARCH)
 	}
 
@@ -90,20 +89,20 @@ func rodarUpdate(ctx context.Context, cmd *cobra.Command, apenasConferir, sim bo
 	// quebrado.
 	tmp, err := os.MkdirTemp("", "gobsidian-update-*")
 	if err != nil {
-		return fmt.Errorf("criando diretorio temporario: %w", err)
+		return fmt.Errorf(textos.ErroTemporario, err)
 	}
 	defer func() { _ = os.RemoveAll(tmp) }()
 
 	baixado := filepath.Join(tmp, instalar.NomeDoExecutavel)
-	con.Step("Baixando %s e conferindo o SHA-256", ativo)
+	con.Step(textos.UpdateBaixando, ativo)
 	if err := selfupdate.Baixar(ctx, transporte, release, ativo, baixado); err != nil {
 		if errors.Is(err, selfupdate.ErrHashDivergente) {
-			con.Err("O binário baixado NÃO confere com a soma publicada")
-			con.Detail("nada foi instalado; sua instalação continua intacta")
+			con.Err("%s", textos.UpdateHashDiverge)
+			con.Detail("%s", textos.UpdateNadaMudou)
 		}
 		return err
 	}
-	con.OK("SHA-256 confere")
+	con.OK("%s", textos.UpdateHashConfere)
 
 	sis := instalar.SistemaReal(
 		func(pergunta string, itens []string) bool {
@@ -116,10 +115,10 @@ func rodarUpdate(ctx context.Context, cmd *cobra.Command, apenasConferir, sim bo
 	// `install` ja perguntou. Sem manifesto nao ha o que atualizar.
 	m, err := instalar.LerManifesto()
 	if err != nil {
-		return fmt.Errorf("%w -- rode `gobsidian install` primeiro", err)
+		return fmt.Errorf(textos.ErroSemManifesto, err)
 	}
 
-	con.Step("Trocando o binário")
+	con.Step("%s", textos.UpdateTrocando)
 	r, err := instalar.Instalar(ctx, sis, instalar.Opcoes{
 		Origem:  baixado,
 		Destino: filepath.Dir(m.Binario),
@@ -129,16 +128,16 @@ func rodarUpdate(ctx context.Context, cmd *cobra.Command, apenasConferir, sim bo
 		SemPath: m.PathAdicionado == "",
 	})
 	if errors.Is(err, instalar.ErrRecusado) {
-		con.Warn("Atualização cancelada; nada foi alterado")
+		con.Warn("%s", textos.UpdateCancelado)
 		return nil
 	}
 	if err != nil {
 		return err
 	}
 
-	con.OK("Atualizado para %s", release.Tag)
+	con.OK(textos.UpdateConcluido, release.Tag)
 	imprimirResumo(con, r, cofresDoManifesto(m))
-	con.Detail("os hosts reiniciam o servidor sozinhos; não há o que fazer à mão")
+	con.Detail("%s", textos.UpdateHostsSozinho)
 	return nil
 }
 

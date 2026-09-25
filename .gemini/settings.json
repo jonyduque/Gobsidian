@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "gobsidian": {
+      "command": "C:\\Users\\jonyd\\AppData\\Local\\Programs\\gobsidian\\gobsidian.exe",
+      "args": [
+        "serve",
+        "--vault",
+        "C:/Users/jonyd/Obsidian/Estudo"
+      ]
+    }
+  }
+}

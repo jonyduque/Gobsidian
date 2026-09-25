@@ -9,6 +9,7 @@ package main
 
 import (
 	"errors"
+	"github.com/jonyduque/Gobsidian/internal/textos"
 	"os"
 
 	"github.com/jonyduque/Gobsidian/internal/console"
@@ -52,7 +53,7 @@ func main() {
 func newRootCmd() *cobra.Command {
 	root := &cobra.Command{
 		Use:           "gobsidian",
-		Short:         "Servidor MCP para cofres locais do Obsidian",
+		Short:         textos.ResumoRaiz,
 		SilenceUsage:  true,
 		SilenceErrors: true,
 	}
@@ -93,12 +94,12 @@ func newRootCmd() *cobra.Command {
 func newVersionCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "version",
-		Short: "Imprime versao, commit e data de build",
+		Short: textos.ResumoVersion,
 		Run: func(cmd *cobra.Command, _ []string) {
 			con := console.New(cmd.OutOrStdout())
 			con.Campos("gobsidian "+version, []console.Campo{
-				console.Campof("commit", "%s", commit),
-				console.Campof("build", "%s", buildDate),
+				console.Campof(textos.CampoCommit, "%s", commit),
+				console.Campof(textos.CampoBuild, "%s", buildDate),
 			})
 		},
 	}
@@ -152,9 +153,9 @@ func semArgumentos(cmd *cobra.Command) error {
 	}
 
 	con := console.New(cmd.OutOrStdout())
-	con.Step("gobsidian ainda nao esta instalado nesta maquina")
-	con.Detail("este executavel vai se instalar em %s", instalar.DiretorioPadrao())
-	con.Detail("para so ver a ajuda, rode `gobsidian --help`")
+	con.Step("%s", textos.AutoinstalarNaoInstalado)
+	con.Detail(textos.AutoinstalarDestino, instalar.DiretorioPadrao())
+	con.Detail("%s", textos.AutoinstalarAjuda)
 
 	var o opcoesDeInstalacao
 	o.vault = os.Getenv("GOBSIDIAN_VAULT")

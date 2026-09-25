@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"github.com/jonyduque/Gobsidian/internal/textos"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -22,7 +23,7 @@ func newServeCmd() *cobra.Command {
 
 	cmd := &cobra.Command{
 		Use:   "serve",
-		Short: "Serve o cofre via MCP sobre stdio",
+		Short: textos.ResumoServe,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			// Flags booleanas e inteiras nao distinguem "omitida" de "definida
 			// com o valor zero". Sem isso, --read-only=false nao consegue

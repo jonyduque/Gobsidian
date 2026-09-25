@@ -1,0 +1,11 @@
+{
+  "id": "gosync",
+  "name": "gosync",
+  "version": "0.0.0",
+  "minAppVersion": "1.4.0",
+  "description": "Plugin Obsidian que sincroniza vaults com o servidor gosync.",
+  "author": "jonyduque",
+  "authorUrl": "https://github.com/jonyduque/gosync",
+  "isDesktopOnly": false,
+  "main": "main.js"
+}

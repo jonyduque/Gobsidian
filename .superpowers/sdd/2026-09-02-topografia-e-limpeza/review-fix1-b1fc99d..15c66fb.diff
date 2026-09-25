@@ -1,0 +1,258 @@
+diff --git a/internal/index/parity_test.go b/internal/index/parity_test.go
+index 6d3db46..167b50a 100644
+--- a/internal/index/parity_test.go
++++ b/internal/index/parity_test.go
+@@ -140,26 +140,35 @@ func contagemOf(m map[string]int) []string {
+ 
+ // conjuntosIguais compara os DOIS sentidos.
+ //
+ // Ate 2026-09-04 cada comparacao daqui iterava so `want`, isto e, perguntava
+ // "todo item da referencia existe no nosso indice?" — e uma referencia com
+ // listas vazias corria zero comparacoes e reportava paridade. O sentido que
+ // faltava e o que pega o excesso: um heading que inventamos, uma tag que o
+ // Obsidian nao registra, um link a mais. Ordenar antes de comparar e o que
+ // torna a igualdade uma pergunta sobre CONJUNTO, e nao sobre a ordem em que o
+ // parser ou o dumper listaram.
++//
++// Compact nos DOIS lados porque conjunto nao tem repetido: "tags" chega aqui
++// como a uniao de `tags` (corpo) e `frontmatterTags`, que o Obsidian popula de
++// fontes independentes, e uma nota com `#civil` no corpo e `tags: [civil]` no
++// frontmatter entregaria [civil civil] do lado da referencia. Nenhuma nota do
++// corpus de hoje tem as duas listas preenchidas, entao isso nunca disparou —
++// mas quem acrescentasse essa nota veria um indice CORRETO reprovar.
+ func conjuntosIguais(t *testing.T, path, campo string, got, want []string) {
+ 	t.Helper()
+ 	g := slices.Clone(got)
+ 	w := slices.Clone(want)
+ 	slices.Sort(g)
+ 	slices.Sort(w)
++	g = slices.Compact(g)
++	w = slices.Compact(w)
+ 	if !slices.Equal(g, w) {
+ 		t.Errorf("%s: %s divergem\n  nosso indice: %v\n  referencia:   %v", path, campo, g, w)
+ 	}
+ }
+ 
+ func headingsComparaveis(got []parser.Heading) []string {
+ 	out := make([]string, 0, len(got))
+ 	for _, g := range got {
+ 		out = append(out, fmt.Sprintf("h%d %s", g.Level, g.Text))
+ 	}
+@@ -242,21 +251,27 @@ func TestParityWithObsidian(t *testing.T) {
+ 	refPath := filepath.Join("..", "..", "testdata", "parity", "metadata.json")
+ 
+ 	// UM unico motivo para pular: o corpus nao existe nesta maquina. Ele e
+ 	// gerado por um plugin de desenvolvimento do Obsidian (tools/parity-dumper),
+ 	// que nem todo checkout roda.
+ 	//
+ 	// Todo o resto e FALHA, e nao skip. Ate 2026-09-04 um corpus presente e
+ 	// incompleto — diretorio vazio, referencia sem notas — pulava, e o
+ 	// `verify.ps1` ficava verde sem paridade nenhuma. Corpus ausente e um fato
+ 	// do ambiente; corpus presente e quebrado e um defeito.
+-	if _, err := os.Stat(root); errors.Is(err, fs.ErrNotExist) {
++	// So a ausencia pula. Um Stat que falha por permissao seguia adiante, os
++	// dois Glob devolviam vazio, e o teste morria dizendo que o corpus existe e
++	// esta sem notas — que e falso, e manda procurar o defeito no lugar errado.
++	if _, err := os.Stat(root); err != nil {
++		if !errors.Is(err, fs.ErrNotExist) {
++			t.Fatalf("nao deu para inspecionar o corpus de paridade em %s: %v", root, err)
++		}
+ 		t.Skipf("corpus de paridade ausente em %s; gere com tools/parity-dumper (ver o README de la)", root)
+ 	}
+ 
+ 	notes, _ := filepath.Glob(filepath.Join(root, "*.md"))
+ 	sub, _ := filepath.Glob(filepath.Join(root, "*", "*.md"))
+ 	if len(notes)+len(sub) == 0 {
+ 		t.Fatalf("%s existe mas nao tem nota nenhuma; o corpus de paridade esta incompleto", root)
+ 	}
+ 
+ 	ref := loadReference(t, refPath)
+diff --git a/internal/service/read_test.go b/internal/service/read_test.go
+index 5e655b9..5657bee 100644
+--- a/internal/service/read_test.go
++++ b/internal/service/read_test.go
+@@ -107,23 +107,26 @@ func TestReadNoteRejectsTraversal(t *testing.T) {
+ 	svc := newTestService(t, t.TempDir())
+ 
+ 	_, err := svc.ReadNote(context.Background(), ReadRequest{Path: "../fora.md"})
+ 	if CodeOf(err) != CodePathOutsideVault {
+ 		t.Errorf("codigo = %v, quer PATH_OUTSIDE_VAULT", CodeOf(err))
+ 	}
+ }
+ 
+ // TestReadNoteCloudOnlyFails foi apagado aqui: era um t.Skip incondicional na
+ // primeira linha, isto e, cobertura zero reportada como teste. A cobertura
+-// pretendida — nota somente-nuvem nunca e aberta — existe de verdade em
+-// cloudonly_replace_windows_test.go, que monta o placeholder com
+-// vaulttest.MarcarSomenteNuvem e confere que a condicao se montou.
++// pretendida — nota somente-nuvem nunca e aberta — existe de verdade, NO
++// WINDOWS, em cloudonly_replace_windows_test.go, que monta o placeholder com
++// vaulttest.MarcarSomenteNuvem e confere que a condicao se montou. Aquele
++// arquivo e //go:build windows, entao fora do Windows a cobertura substituta e
++// zero — o que nao e perda, ja que o t.Skip incondicional tambem cobria zero,
++// e em todo lugar.
+ 
+ // TestReadNoteBOMOffsetParity prova a costura entre index.Build (que soma
+ // vault.BOMLen aos offsets de uma nota com BOM) e service.ReadNote (que usa
+ // esses offsets contra vault.ReadRange, que le o arquivo — com o BOM ainda
+ // nele). Uma asercao so sobre Headings[0].Text passaria com o bug: o heading
+ // existe com o texto certo mesmo que os offsets estejam tres bytes cedo
+ // demais. Aqui indexamos a MESMA nota duas vezes, uma com BOM e outra sem, e
+ // exigimos que o conteudo devolvido pela mesma secao seja identico — isso so
+ // pode passar se os offsets guardados no indice forem os do arquivo, nao os
+ // do corpo sem BOM que o parser recebeu.
+diff --git a/internal/service/rnf5000_test.go b/internal/service/rnf5000_test.go
+index bd05d60..1cf0c4e 100644
+--- a/internal/service/rnf5000_test.go
++++ b/internal/service/rnf5000_test.go
+@@ -19,22 +19,23 @@ import (
+ //
+ //   - RNF-01, PRD.md:288 — indexacao a frio: alvo <= 3 s, limite de falha 6 s.
+ //   - RNF-07, PRD.md:294 — heap vivo em repouso: alvo <= 8 MB + 32 KB x notas,
+ //     limite de falha 2x o alvo. Para as 5.000 notas deste cofre o alvo da
+ //     8 + 32 x 5000 / 1024 = 164,25 MB. A conta e a mesma que
+ //     scripts/measure.ps1:223-227 faz, com as mesmas constantes.
+ //
+ // RESSALVA QUE ESTE TESTE NAO PODE DEIXAR DE FAZER: o cofre que gen_vault.ps1
+ // produz tem as 5.000 notas do cofre de referencia do PRD, mas nao os 50 MB —
+ // medido em 2026-09-04, 5.050 arquivos e 1,4 MB. Medido no mesmo dia nesta
+-// maquina, a indexacao sai em ~100 ms de mediana contra o limite de 6 s, e o
+-// heap vivo em ~12,5 MB contra o limite de 328,5 MB. Os tetos aqui sao
++// maquina, a indexacao sai em ~370 ms de mediana (medido em 2026-09-04:
++// mediana de 371,5 ms) contra o limite de 6 s, e o heap vivo em ~12,5 MB
++// contra o limite de 328,5 MB. Os tetos aqui sao
+ // anteparo contra regressao CATASTROFICA e nada mais; verde neste teste NAO
+ // autoriza escrever que o RNF-01 ou o RNF-07 estao atingidos. Quem responde
+ // isso e `scripts/measure.ps1` contra um cofre real, e o resultado mora em
+ // docs/OPERACAO.md.
+ const (
+ 	rnf01Alvo   = 3 * time.Second
+ 	rnf01Limite = 6 * time.Second
+ 
+ 	// Uma conta so para o tamanho do cofre: o teto do RNF-07 escala com ele, e
+ 	// as guardas de contagem falam do mesmo numero.
+@@ -194,46 +195,48 @@ func TestScale5000_RNF01_RNF02_RNF07_RNF04(t *testing.T) {
+ 	// sobre newInvertedFromSoA — deducao correta e frágil, e que rederivava pela
+ 	// terceira vez uma resposta que agora tem uma funcao so. A contagem fica
+ 	// logo abaixo, medindo outra coisa: que o corpus veio inteiro.
+ 	if doCache == nil {
+ 		t.Fatal("LoadInvertedCache devolveu cache nulo; sem base o RNF-04 mediria o ramo do delta")
+ 	}
+ 	if !doCache.VindoDoCache() {
+ 		t.Fatal("o indice nao veio do cache; o RNF-04 mediria o ramo do delta")
+ 	}
+ 	if doCache.DocCount() < rnf5000Notas {
+-		t.Fatalf("o indice vindo do cache tem %d documentos, quer >= 5000; "+
+-			"o cache foi recusado e o RNF-04 mediria o ramo do delta", doCache.DocCount())
++		t.Fatalf("o indice vindo do cache tem %d documentos, quer >= %d; "+
++			"o cache foi recusado e o RNF-04 mediria o ramo do delta", doCache.DocCount(), rnf5000Notas)
+ 	}
+ 
+ 	// Cache de trecho DESLIGADO: o laço abaixo repete cada consulta 30 vezes, e
+ 	// com o cache ligado 29 dessas 30 acertariam. O p95 cairia para o valor da
+ 	// consulta repetida, que nenhum usuário vê na primeira busca — seria um RNF
+ 	// declarado atingido por medir outra coisa.
+ 	svc := service.New(v, idx, doCache, nil, service.Options{SnippetCacheEntries: &semCacheDeTrecho})
+ 	t.Logf("=== RNF-04 (Latencia vault_search p95 5.000 notas, indice vindo do CACHE) ===")
+ 
+ 	// Tres destas oito consultas casavam ZERO documentos no cofre que
+ 	// gen_vault.ps1 produz, e o teste so imprimia — media a latencia de nao
+ 	// achar nada e chamava isso de RNF-04. bench_test.go:173-178 registra que
+ 	// a mesma troca de corpus quebrou o benchmark em 2026-09-01; aqui nao
+ 	// quebrou nada porque nada era afirmado.
+ 	//
+-	// Trocadas, e cada troca conferida DUAS vezes no cofre gerado por
+-	// `gen_vault.ps1 -Notes 5000 -Seed 42`, nesta maquina, em 2026-09-04:
+-	// por `grep -ril` (arquivos que contem o termo, de 5.000) e pelo `Total`
+-	// que a propria busca devolve — os dois numeros abaixo, nessa ordem:
++	// Trocadas, e cada troca conferida DUAS vezes no cofre em
++	// %TEMP%ault_5000 (5.000 notas .md; a semente que o gerou NAO foi
++	// verificada — o diretorio foi reaproveitado, nao regenerado, entao nao da
++	// para afirmar que veio de `-Seed 42`), nesta maquina, em 2026-09-04: por
++	// `grep -ril` (arquivos que contem o termo, de 5.000) e pelo `Total` que a
++	// propria busca devolve — os dois numeros abaixo, nessa ordem:
+ 	//
+ 	//   nota ................................. grep 5000  / busca 5000
+ 	//   decisao reconheceu ................... grep 1224 e 1224 / busca 1224
+ 	//   Acentuada ............................ grep 1214  / busca 1214
+-	//   nota + pasta Projetos ................ pasta existe / busca 1165
++	//   nota + pasta Projetos ................ 1165 .md sob Projetos/ / busca 1165
+ 	//   nota + tag golang .................... grep 608   / busca 608
+ 	//   "contra a decisao que reconheceu" .... grep 1224  / busca 1224
+ 	//   acordao firmou ....................... grep 1234 e 1234 / busca 1234
+ 	//
+ 	// E as tres que sairam, medidas do mesmo jeito e no mesmo cofre:
+ 	//
+ 	//   servidor ... 8 arquivos, e nos OITO como pedaco de palavra inventada
+ 	//                ("imservidorio", "extraservidorio"); como TOKEN, zero
+ 	//   algoritmo 0, BM25 0, pesos 0
+ 	//   comportamento 0, watcher 0
+diff --git a/scripts/verify.ps1 b/scripts/verify.ps1
+index e21dc33..96a07d1 100644
+--- a/scripts/verify.ps1
++++ b/scripts/verify.ps1
+@@ -92,41 +92,62 @@ $DirsFmt = @("internal", "cmd", "scripts", "tools") | Where-Object { Test-Path $
+ Invoke-Step "go build" { go build @Alvos }
+ 
+ # O log verboso desta etapa e o insumo da contagem de pulados, logo abaixo.
+ # Ele e gravado em arquivo, e nao despejado na tela, porque a saida de `-v` da
+ # suite inteira tem dezenas de milhares de linhas; so o rabo aparece, e so
+ # quando a etapa reprova.
+ $LogTestes = Join-Path ([System.IO.Path]::GetTempPath()) "gobsidian-verify-testes.txt"
+ 
+ Invoke-Step "go test -race" {
+     go test -race -v @Alvos 2>&1 | Set-Content -LiteralPath $LogTestes -Encoding utf8
+-    if ($LASTEXITCODE -ne 0) { Get-Content -LiteralPath $LogTestes -Tail 80 }
++    if ($LASTEXITCODE -ne 0) {
++        # As linhas que interessam nem sempre estao no rabo. Um WARNING: DATA
++        # RACE sai no MEIO da execucao, e numa suite que roda por minutos
++        # depois dele o relatorio da corrida sai do -Tail 80 e a tela mostra 80
++        # linhas de --- PASS. O -race e a razao declarada de existir desta
++        # etapa, entao o que ele imprime nao pode depender de onde parou.
++        $Marcas = @(Select-String -LiteralPath $LogTestes -Pattern '^(--- FAIL|WARNING: DATA RACE|FAIL\s)')
++        if ($Marcas) {
++            Write-Output "     --- falhas e corridas no log inteiro ---"
++            foreach ($m in $Marcas) { Write-Output ("     {0}:{1}" -f $m.LineNumber, $m.Line.Trim()) }
++            Write-Output "     --- ultimas 80 linhas ---"
++        }
++        Get-Content -LiteralPath $LogTestes -Tail 80
++    }
+ }
+ 
+ # Etapa que INFORMA, nao reprova.
+ #
+ # Um teste que pula nao cobre nada, e ate 2026-09-04 o gate nao dizia quantos
+ # pulavam: o teste de paridade pulava quando o corpus faltava, e `verify.ps1`
+ # ficava verde sem paridade nenhuma. Reprovar seria errado — ha skip legitimo,
+ # como o de `vaulttest` fora do Windows —, mas um numero invisivel e um numero
+ # que ninguem vigia.
+ #
+ # A contagem sai do log que a etapa acima ja produziu. Uma segunda passada de
+ # `go test` custaria os minutos da primeira e mediria outra coisa (cache de
+ # teste, maquina em outro estado).
+ $script:StepNumber++
+ Write-Output "[...] $script:StepNumber. contagem de testes pulados"
+ if (Test-Path -LiteralPath $LogTestes) {
+     # `^\s*--- SKIP:` pega tambem o subteste, que vem indentado. Um subteste
+     # pulado tambem nao cobre nada, entao ele conta.
+     $Pulados = @(Select-String -LiteralPath $LogTestes -Pattern '^\s*--- SKIP: ')
+-    Write-Output "[!] $($Pulados.Count) testes pulados"
++    # Se a suite reprovou, o log para no ponto da falha e a contagem e parcial.
++    # Um "[!] 6 testes pulados" de suite abortada e um numero que parece
++    # completo e nao e.
++    if ($Failed -contains "go test -race") {
++        Write-Output "[!] $($Pulados.Count) testes pulados (suite reprovou; contagem parcial)"
++    }
++    else {
++        Write-Output "[!] $($Pulados.Count) testes pulados"
++    }
+     foreach ($p in $Pulados) {
+         Write-Output ("     {0}" -f $p.Line.Trim())
+     }
+ }
+ else {
+     Write-Output "[!] testes pulados: NAO MEDIDO (o log de $LogTestes nao foi gravado)"
+ }
+ 
+ # O teto do RNF-04 so e cobrado SEM -race: o detector multiplica a latencia por
+ # 2 a 6, e comparar esse numero com 100 ms nao diria nada. Como a etapa acima e

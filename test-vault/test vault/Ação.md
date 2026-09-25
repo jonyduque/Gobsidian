@@ -1,0 +1,1 @@
+Este é apenas um teste co. Não caracteres especiais. 

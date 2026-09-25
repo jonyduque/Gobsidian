@@ -1,0 +1,1249 @@
+diff --git a/internal/service/delete_test.go b/internal/service/delete_test.go
+index 7aaefa8..f96e8e1 100644
+--- a/internal/service/delete_test.go
++++ b/internal/service/delete_test.go
+@@ -115,40 +115,58 @@ func TestDeleteNote_TrashNameCollision(t *testing.T) {
+ 	if err != nil {
+ 		t.Fatalf("Primeira exclusao: %v", err)
+ 	}
+ 
+ 	// Recria a.md com outro conteudo
+ 	if err := os.WriteFile(filepath.Join(root, "a.md"), []byte("Versao 2"), 0644); err != nil {
+ 		t.Fatalf("WriteFile a.md: %v", err)
+ 	}
+ 	_ = idx.Build(context.Background(), v)
+ 
+-	time.Sleep(10 * time.Millisecond)
++	// Havia um time.Sleep(10ms) aqui, e ele nao esperava por nada. A hipotese
++	// implicita era que os dois destinos na lixeira se distinguem pelo sufixo
++	// `_<UnixNano>` e que duas chamadas rapidas demais receberiam o mesmo
++	// numero. Nao e como funciona: `.trash/a.md` nao existe na PRIMEIRA
++	// exclusao, entao res1 fica sem sufixo nenhum; so a segunda encontra o nome
++	// ocupado e ganha o sufixo. Os dois caminhos diferem por CONSTRUCAO, e nao
++	// por resolucao de relogio. O sleep so somava 10 ms a suite.
+ 
+ 	// Segunda exclusao com mesmo nome
+ 	res2, err := svc.DeleteNote(context.Background(), service.DeleteNoteRequest{
+ 		Path:    "a.md",
+ 		ToTrash: true,
+ 	})
+ 	if err != nil {
+ 		t.Fatalf("Segunda exclusao: %v", err)
+ 	}
+ 
+ 	if res1.TrashPath == res2.TrashPath {
+ 		t.Errorf("colisao de nomes na lixeira: res1=%q, res2=%q", res1.TrashPath, res2.TrashPath)
+ 	}
+ 
+-	if _, err := os.Stat(filepath.Join(root, filepath.FromSlash(res1.TrashPath))); err != nil {
+-		t.Errorf("primeiro arquivo da lixeira sumiu: %v", err)
+-	}
+-	if _, err := os.Stat(filepath.Join(root, filepath.FromSlash(res2.TrashPath))); err != nil {
+-		t.Errorf("segundo arquivo da lixeira sumiu: %v", err)
++	// Conteudo, e nao so existencia: dois arquivos na lixeira com o mesmo corpo
++	// significariam que a segunda exclusao sobrescreveu a primeira e o caminho
++	// devolvido mentiu. Ler os dois e o que distingue "nao colidiu" de "colidiu
++	// e ninguem viu".
++	for _, caso := range []struct{ caminho, quer string }{
++		{res1.TrashPath, "Versao 1"},
++		{res2.TrashPath, "Versao 2"},
++	} {
++		b, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(caso.caminho)))
++		if err != nil {
++			t.Errorf("arquivo da lixeira %q sumiu: %v", caso.caminho, err)
++			continue
++		}
++		if string(b) != caso.quer {
++			t.Errorf("lixeira %q tem %q, quer %q: uma exclusao sobrescreveu a outra",
++				caso.caminho, string(b), caso.quer)
++		}
+ 	}
+ }
+ 
+ // TestDeleteNoteToTrashMoveSemCopiar: rename preserva o mtime do arquivo;
+ // WriteAtomic (escreve, sync, rename do temporario) produz um arquivo com mtime
+ // NOVO. Fixar um mtime antigo e conferir que ele sobreviveu distingue mover de
+ // copiar sem olhar a implementacao.
+ func TestDeleteNoteToTrashMoveSemCopiar(t *testing.T) {
+ 	svc, _, _, root := createDeleteService(t, map[string]string{"a.md": "# A\n\ncorpo\n"})
+ 
+@@ -178,21 +196,35 @@ func TestDeleteNoteToTrashMoveSemCopiar(t *testing.T) {
+ 
+ func TestDeleteNote_DryRunDoesNotDelete(t *testing.T) {
+ 	files := map[string]string{
+ 		"alvo.md": "Conteudo",
+ 		"ref.md":  "Link [[alvo]]",
+ 	}
+ 
+ 	svc, _, _, root := createDeleteService(t, files)
+ 
+ 	alvoPath := filepath.Join(root, "alvo.md")
+-	infoBefore, _ := os.Stat(alvoPath)
++
++	// mtime fixado no PASSADO antes da chamada, em vez de lido antes e comparado
++	// depois.
++	//
++	// A versao anterior tirava um os.Stat, chamava DeleteNote e comparava com um
++	// segundo os.Stat, sem nada entre os dois capaz de mover o relogio. Se o
++	// dry_run reescrevesse o arquivo dentro do mesmo tique de mtime, os dois
++	// valores sairiam iguais e a assercao passaria: um teste que so pode falhar
++	// quando a maquina esta lenta o bastante. Com 2020 no mtime, QUALQUER
++	// reescrita — que carimba a hora atual — reprova, e a resolucao do sistema
++	// de arquivos deixa de fazer parte da conta.
++	antigo := time.Date(2020, 1, 2, 3, 4, 5, 0, time.UTC)
++	if err := os.Chtimes(alvoPath, antigo, antigo); err != nil {
++		t.Fatal(err)
++	}
+ 
+ 	res, err := svc.DeleteNote(context.Background(), service.DeleteNoteRequest{
+ 		Path:              "alvo.md",
+ 		ToTrash:           true,
+ 		ReportBrokenLinks: true,
+ 		DryRun:            true,
+ 	})
+ 	if err != nil {
+ 		t.Fatalf("DeleteNote dry_run: %v", err)
+ 	}
+@@ -203,14 +235,15 @@ func TestDeleteNote_DryRunDoesNotDelete(t *testing.T) {
+ 
+ 	if len(res.BrokenLinks) != 1 || res.BrokenLinks[0] != "ref.md" {
+ 		t.Errorf("BrokenLinks em dry_run = %v; quer [ref.md]", res.BrokenLinks)
+ 	}
+ 
+ 	infoAfter, err := os.Stat(alvoPath)
+ 	if err != nil {
+ 		t.Fatalf("alvo.md sumiu apos dry_run: %v", err)
+ 	}
+ 
+-	if !infoBefore.ModTime().Equal(infoAfter.ModTime()) {
+-		t.Error("mtime de alvo.md foi alterado durante dry_run")
++	if !infoAfter.ModTime().Equal(antigo) {
++		t.Errorf("mtime de alvo.md = %v, quer %v: o dry_run tocou o arquivo",
++			infoAfter.ModTime(), antigo)
+ 	}
+ }
+diff --git a/internal/watcher/atalho_busca_test.go b/internal/watcher/atalho_busca_test.go
+index a8a976f..1d29fdb 100644
+--- a/internal/watcher/atalho_busca_test.go
++++ b/internal/watcher/atalho_busca_test.go
+@@ -1,24 +1,24 @@
+ package watcher
+ 
+ import (
+ 	"context"
+ 	"log/slog"
+ 	"os"
+ 	"path/filepath"
+ 	"sync/atomic"
+ 	"testing"
+-	"time"
+ 
+ 	"github.com/jonyd/gobsidian/internal/index"
+ 	"github.com/jonyd/gobsidian/internal/search"
+ 	"github.com/jonyd/gobsidian/internal/vault"
++	"github.com/jonyd/gobsidian/internal/vaulttest"
+ )
+ 
+ // TestAtalhoDoApplyConsultaOIndiceDeBusca cobre a assimetria A7.
+ //
+ // O atalho de mtime/tamanho do Apply consultava SÓ idx.Get. A reconciliação por
+ // overflow já tinha aprendido a condição certa — overflow.go:58 exige
+ // `ok && (inv == nil || inv.HasDoc(...))` — e o Apply não a espelhou. São duas
+ // cópias de uma regra, e a que está errada é a MAIS usada.
+ //
+ // Consequência: um único `searchInv.Update` falho (que só produz log.Warn)
+@@ -68,31 +68,25 @@ func TestAtalhoDoApplyConsultaOIndiceDeBusca(t *testing.T) {
+ 	reconcile := make(chan struct{})
+ 	var processed, skipped, recUp, recRem atomic.Int64
+ 	log := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
+ 
+ 	ctx, cancel := context.WithCancel(context.Background())
+ 	defer cancel()
+ 	go Apply(ctx, entrada, reconcile, idx, v, log, &processed, &skipped, &recUp, &recRem, inv)
+ 
+ 	entrada <- []vault.CanonicalPath{canon}
+ 
+-	limite := time.Now().Add(5 * time.Second)
+-	for time.Now().Before(limite) {
+-		if inv.HasDoc("nota.md") {
+-			return
+-		}
+-		time.Sleep(10 * time.Millisecond)
++	if !EsperarAte(vaulttest.Prazo, func() bool { return inv.HasDoc("nota.md") }) {
++		t.Errorf("o indice de busca NAO se recompos: o atalho de mtime/tamanho pulou o "+
++			"evento sem consultar HasDoc (skipped=%d, processed=%d)",
++			skipped.Load(), processed.Load())
+ 	}
+-
+-	t.Errorf("o indice de busca NAO se recompos: o atalho de mtime/tamanho pulou o "+
+-		"evento sem consultar HasDoc (skipped=%d, processed=%d)",
+-		skipped.Load(), processed.Load())
+ }
+ 
+ // TestAtalhoDoApplyAindaPulaQuandoTudoEstaEmDia é o contrapeso.
+ //
+ // Sem ele, a correção poderia ser "nunca pular", e o atalho — que existe para
+ // não reindexar a cada evento espúrio do OneDrive — deixaria de funcionar em
+ // silêncio, trocando um defeito por um custo.
+ func TestAtalhoDoApplyAindaPulaQuandoTudoEstaEmDia(t *testing.T) {
+ 	dir := t.TempDir()
+ 	if err := os.WriteFile(filepath.Join(dir, "nota.md"), []byte("# T\n\ncorpo.\n"), 0o644); err != nil {
+@@ -117,20 +111,15 @@ func TestAtalhoDoApplyAindaPulaQuandoTudoEstaEmDia(t *testing.T) {
+ 	reconcile := make(chan struct{})
+ 	var processed, skipped, recUp, recRem atomic.Int64
+ 	log := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
+ 
+ 	ctx, cancel := context.WithCancel(context.Background())
+ 	defer cancel()
+ 	go Apply(ctx, entrada, reconcile, idx, v, log, &processed, &skipped, &recUp, &recRem, inv)
+ 
+ 	entrada <- []vault.CanonicalPath{canon}
+ 
+-	limite := time.Now().Add(5 * time.Second)
+-	for time.Now().Before(limite) {
+-		if skipped.Load() > 0 {
+-			return
+-		}
+-		time.Sleep(10 * time.Millisecond)
++	if !EsperarAte(vaulttest.Prazo, func() bool { return skipped.Load() > 0 }) {
++		t.Error("o atalho deixou de pular um evento espurio com tudo em dia; " +
++			"a guarda ficou larga demais e o OneDrive passa a reindexar sem motivo")
+ 	}
+-	t.Error("o atalho deixou de pular um evento espurio com tudo em dia; " +
+-		"a guarda ficou larga demais e o OneDrive passa a reindexar sem motivo")
+ }
+diff --git a/internal/watcher/burst_test.go b/internal/watcher/burst_test.go
+index 79c1da5..68236f6 100644
+--- a/internal/watcher/burst_test.go
++++ b/internal/watcher/burst_test.go
+@@ -28,45 +28,38 @@ func TestWatcher_Burst(t *testing.T) {
+ 	if err != nil {
+ 		t.Fatalf("watcher.New: %v", err)
+ 	}
+ 
+ 	ctx, cancel := context.WithCancel(context.Background())
+ 	defer cancel()
+ 	go func() {
+ 		_ = w.Run(ctx)
+ 	}()
+ 
+-	// Wait for watcher to start
+-	time.Sleep(100 * time.Millisecond)
++	EsperarWatcherAtivo(t, w)
+ 
+ 	count := 500
+ 	for i := 0; i < count; i++ {
+ 		path := filepath.Join(dir, fmt.Sprintf("note_%d.md", i))
+ 		_ = os.WriteFile(path, []byte(fmt.Sprintf("note %d", i)), 0644)
+ 	}
+ 
+ 	// O que este teste mede e CONVERGENCIA — as 500 notas chegam ao indice —,
+ 	// nao o tempo que ela leva. O prazo era de 10 s (100 x 100 ms), e sob -race
+ 	// com a suite inteira rodando em paralelo ele estourou com 427 de 500: o
+ 	// watcher estava progredindo, so nao terminou dentro da janela. Prazo curto
+ 	// num teste de convergencia mede a carga da maquina.
+ 	//
+ 	// 60 s e generoso de proposito. Ele nao afrouxa nada: se a convergencia nao
+ 	// acontecer, o teste continua reprovando, e com o numero parcial na
+ 	// mensagem para distinguir "parou" de "estava devagar".
+-	prazo := time.Now().Add(60 * time.Second)
+-	for time.Now().Before(prazo) {
+-		if idx.NoteCount() == count {
+-			break
+-		}
+-		time.Sleep(100 * time.Millisecond)
+-	}
++	_ = EsperarAte(60*time.Second, func() bool { return idx.NoteCount() == count })
+ 
+ 	if idx.NoteCount() != count {
+ 		t.Fatalf("esperava %d notas no indice, encontrou %d", count, idx.NoteCount())
+ 	}
+ 
+ 	var walkCount int
+ 	_ = v.Walk(context.Background(), func(e vault.Entry) error {
+ 		if e.IsNote {
+ 			walkCount++
+ 		}
+diff --git a/internal/watcher/counters_test.go b/internal/watcher/counters_test.go
+index f7e039c..14157ba 100644
+--- a/internal/watcher/counters_test.go
++++ b/internal/watcher/counters_test.go
+@@ -8,20 +8,21 @@ import (
+ 	"log/slog"
+ 	"os"
+ 	"path/filepath"
+ 	"sync"
+ 	"testing"
+ 	"time"
+ 
+ 	"github.com/fsnotify/fsnotify"
+ 	"github.com/jonyd/gobsidian/internal/index"
+ 	"github.com/jonyd/gobsidian/internal/vault"
++	"github.com/jonyd/gobsidian/internal/vaulttest"
+ )
+ 
+ // bufferDeLog acumula o que o watcher registrou, para o teste despejar quando
+ // falhar.
+ //
+ // io.Discard estava aqui antes, e foi o que tornou um estouro de prazo
+ // indiagnosticavel em 2026-08-26: o teste dizia "nunca chegou ao indice" e
+ // TODOS os avisos do watcher — falha ao adicionar watch, entrada ilegivel,
+ // varredura interrompida — tinham sido jogados fora. Um teste que descarta o
+ // log do componente que ele testa so consegue dizer QUE falhou.
+@@ -83,165 +84,130 @@ func setupTestWatcher(t *testing.T) (*Watcher, context.CancelFunc, string, *inde
+ 	idx := index.New()
+ 
+ 	w, err := New(v, idx, nil, 10*time.Millisecond, log)
+ 	if err != nil {
+ 		t.Fatalf("watcher.New: %v", err)
+ 	}
+ 
+ 	ctx, cancel := context.WithCancel(context.Background())
+ 	go func() { _ = w.Run(ctx) }()
+ 
+-	// Wait for watcher to start
+-	time.Sleep(50 * time.Millisecond)
++	EsperarWatcherAtivo(t, w)
+ 
+ 	return w, cancel, dir, idx
+ }
+ 
+ func TestCounters_EventsReceived(t *testing.T) {
+ 	w, cancel, dir, _ := setupTestWatcher(t)
+ 	defer cancel()
+ 
+ 	notePath := filepath.Join(dir, "received.md")
+ 	if err := os.WriteFile(notePath, []byte("content"), 0644); err != nil {
+ 		t.Fatal(err)
+ 	}
+ 
+-	for range 50 {
+-		if w.Stats().EventsReceived > 0 {
+-			break
+-		}
+-		time.Sleep(20 * time.Millisecond)
+-	}
+-
+-	stats := w.Stats()
+-	if stats.EventsReceived == 0 {
+-		t.Error("EventsReceived = 0, want > 0")
++	if !EsperarAte(vaulttest.Prazo, func() bool { return w.Stats().EventsReceived > 0 }) {
++		t.Errorf("EventsReceived = 0 apos %v, want > 0\n%s", vaulttest.Prazo, diagnostico(w))
+ 	}
+ }
+ 
+ func TestCounters_EventsDropped(t *testing.T) {
+ 	w, cancel, dir, _ := setupTestWatcher(t)
+ 	defer cancel()
+ 
+ 	notePath := filepath.Join(dir, "desktop.ini")
+ 	if err := os.WriteFile(notePath, []byte("content"), 0644); err != nil {
+ 		t.Fatal(err)
+ 	}
+ 
+-	for range 50 {
+-		if w.Stats().EventsDropped > 0 {
+-			break
+-		}
+-		time.Sleep(20 * time.Millisecond)
+-	}
+-
+-	stats := w.Stats()
+-	if stats.EventsDropped == 0 {
+-		t.Error("EventsDropped = 0, want > 0")
++	if !EsperarAte(vaulttest.Prazo, func() bool { return w.Stats().EventsDropped > 0 }) {
++		t.Errorf("EventsDropped = 0 apos %v, want > 0\n%s", vaulttest.Prazo, diagnostico(w))
+ 	}
+ }
+ 
+ func TestCounters_EventsProcessed(t *testing.T) {
+ 	w, cancel, dir, _ := setupTestWatcher(t)
+ 	defer cancel()
+ 
+ 	notePath := filepath.Join(dir, "processed.md")
+ 	if err := os.WriteFile(notePath, []byte("content"), 0644); err != nil {
+ 		t.Fatal(err)
+ 	}
+ 
+-	for range 50 {
+-		if w.Stats().EventsProcessed > 0 {
+-			break
+-		}
+-		time.Sleep(20 * time.Millisecond)
+-	}
+-
+-	stats := w.Stats()
+-	if stats.EventsProcessed == 0 {
+-		t.Error("EventsProcessed = 0, want > 0")
++	if !EsperarAte(vaulttest.Prazo, func() bool { return w.Stats().EventsProcessed > 0 }) {
++		t.Errorf("EventsProcessed = 0 apos %v, want > 0\n%s", vaulttest.Prazo, diagnostico(w))
+ 	}
+ }
+ 
+ func TestCounters_EventsSkipped(t *testing.T) {
+ 	w, cancel, dir, _ := setupTestWatcher(t)
+ 	defer cancel()
+ 
+ 	notePath := filepath.Join(dir, "skipped.md")
+ 	if err := os.WriteFile(notePath, []byte("content"), 0644); err != nil {
+ 		t.Fatal(err)
+ 	}
+ 
+-	for range 50 {
+-		if w.Stats().EventsProcessed > 0 {
+-			break
+-		}
+-		time.Sleep(20 * time.Millisecond)
+-	}
+-
+-	stats := w.Stats()
+-	if stats.EventsProcessed == 0 {
+-		t.Fatal("EventsProcessed = 0, want > 0")
++	if !EsperarAte(vaulttest.Prazo, func() bool { return w.Stats().EventsProcessed > 0 }) {
++		t.Fatalf("EventsProcessed = 0 apos %v, want > 0\n%s", vaulttest.Prazo, diagnostico(w))
+ 	}
+ 
+ 	canon, _ := vault.Canonicalize(dir, notePath)
+ 	w.debounced <- []vault.CanonicalPath{canon}
+ 
+-	for range 50 {
+-		if w.Stats().EventsSkipped > 0 {
+-			break
+-		}
+-		time.Sleep(20 * time.Millisecond)
+-	}
+-
+-	stats = w.Stats()
+-	if stats.EventsSkipped == 0 {
+-		t.Error("EventsSkipped = 0, want > 0")
++	if !EsperarAte(vaulttest.Prazo, func() bool { return w.Stats().EventsSkipped > 0 }) {
++		t.Errorf("EventsSkipped = 0 apos %v, want > 0\n%s", vaulttest.Prazo, diagnostico(w))
+ 	}
+ }
+ 
++// TestCounters_Reconciliations chama handleFSError, que e o corpo que Run
++// executa ao receber um erro do fsnotify.
++//
++// A versao anterior escrevia `fsnotify.ErrEventOverflow` em `w.fsWatcher.Errors`
++// e esperava 100 ms. As duas metades estavam erradas: escrever no canal do
++// fsnotify corre com o backend kqueue e o detector reprova em macOS com DATA
++// RACE — e por isso que TestRun_OverflowSchedulesExactlyOne deixou de fazer isso
++// (overflow_test.go:138-147) —, e o sleep esperava por um numero em vez de por
++// um sinal. Chamando o metodo, o contador ja subiu quando ele retorna: nao ha o
++// que esperar.
+ func TestCounters_Reconciliations(t *testing.T) {
+ 	w, cancel, _, _ := setupTestWatcher(t)
+ 	defer cancel()
+ 
+-	w.fsWatcher.Errors <- fsnotify.ErrEventOverflow
+-
+-	time.Sleep(100 * time.Millisecond)
++	w.handleFSError(fsnotify.ErrEventOverflow)
+ 
+-	stats := w.Stats()
+-	if stats.Reconciliations == 0 {
+-		t.Error("Reconciliations = 0, want > 0")
++	if got := w.Stats().Reconciliations; got == 0 {
++		t.Errorf("Reconciliations = %d, want > 0\n%s", got, diagnostico(w))
+ 	}
+ }
+ 
++// TestCounters_DropReasons chama emite, que e o corpo que Run executa para cada
++// evento — o mesmo filtro e os mesmos contadores.
++//
++// A versao anterior escrevia os quatro eventos em `w.fsWatcher.Events` e depois
++// esperava em laco o filtro reagir. Escrever num canal interno do fsnotify e a
++// corrida que overflow_test.go:138-147 registra; e como emite e sincrona, a
++// espera some junto.
+ func TestCounters_DropReasons(t *testing.T) {
+ 	w, cancel, dir, _ := setupTestWatcher(t)
+ 	defer cancel()
+ 
+-	// 1. Chmod
+-	w.fsWatcher.Events <- fsnotify.Event{Name: filepath.Join(dir, "nota.md"), Op: fsnotify.Chmod}
+-	// 2. Outside vault
+-	w.fsWatcher.Events <- fsnotify.Event{Name: "D:\\fora\\nota.md", Op: fsnotify.Write}
+-	// 3. Excluded (.git)
+-	w.fsWatcher.Events <- fsnotify.Event{Name: filepath.Join(dir, ".git", "config"), Op: fsnotify.Write}
+-	// 4. Unknown op
+-	w.fsWatcher.Events <- fsnotify.Event{Name: filepath.Join(dir, "nota.md"), Op: 0}
+-
+-	for range 50 {
+-		st := w.Stats()
+-		if st.DroppedByReason["chmod"] == 1 &&
+-			st.DroppedByReason["outside_vault"] == 1 &&
+-			st.DroppedByReason["excluded"] == 1 &&
+-			st.DroppedByReason["unknown_op"] == 1 {
+-			break
++	ctx := context.Background()
++	for _, e := range []fsnotify.Event{
++		{Name: filepath.Join(dir, "nota.md"), Op: fsnotify.Chmod},        // 1. Chmod
++		{Name: "D:\\fora\\nota.md", Op: fsnotify.Write},                  // 2. Outside vault
++		{Name: filepath.Join(dir, ".git", "config"), Op: fsnotify.Write}, // 3. Excluded (.git)
++		{Name: filepath.Join(dir, "nota.md"), Op: 0},                     // 4. Unknown op
++	} {
++		if err := w.emite(ctx, e); err != nil {
++			t.Fatalf("emite(%+v): %v", e, err)
+ 		}
+-		time.Sleep(20 * time.Millisecond)
+ 	}
+ 
+ 	st := w.Stats()
+ 	if st.DroppedByReason["chmod"] != 1 {
+ 		t.Errorf("chmod drop count = %d, want 1", st.DroppedByReason["chmod"])
+ 	}
+ 	if st.DroppedByReason["outside_vault"] != 1 {
+ 		t.Errorf("outside_vault drop count = %d, want 1", st.DroppedByReason["outside_vault"])
+ 	}
+ 	if st.DroppedByReason["excluded"] != 1 {
+@@ -256,53 +222,52 @@ func TestCounters_DropReasons(t *testing.T) {
+ }
+ 
+ func TestCounters_ActiveState(t *testing.T) {
+ 	w, cancel, _, _ := setupTestWatcher(t)
+ 
+ 	if !w.Stats().Active {
+ 		t.Error("Active = false, want true while running")
+ 	}
+ 
+ 	cancel()
+-	time.Sleep(100 * time.Millisecond)
+ 
+-	if w.Stats().Active {
+-		t.Error("Active = true, want false after cancel")
++	// O sinal observavel do cancelamento e o proprio Active voltando a false —
++	// Run o marca no defer, ao sair do laco.
++	if !EsperarAte(vaulttest.Prazo, func() bool { return !w.Stats().Active }) {
++		t.Errorf("Active = true apos %v do cancel, want false — o laco de Run nao saiu",
++			vaulttest.Prazo)
+ 	}
+ }
+ 
+ func TestCounters_Coalesced(t *testing.T) {
+ 	w, cancel, dir, _ := setupTestWatcher(t)
+ 	defer cancel()
+ 
+ 	canon, _ := vault.Canonicalize(dir, filepath.Join(dir, "nota.md"))
+ 	in := make(chan Event, 10)
+ 	out := make(chan []vault.CanonicalPath, 10)
+ 
+ 	ctx, cancelDebounce := context.WithCancel(context.Background())
+ 	defer cancelDebounce()
+ 
+ 	go Debounce(ctx, in, out, 50*time.Millisecond, slog.Default(), &w.coalesced)
+ 
+ 	// Send duplicate events to dirty set
+ 	in <- Event{Path: canon, Op: OpCreate}
+ 	in <- Event{Path: canon, Op: OpWrite}
+ 
+-	for range 50 {
+-		if w.Stats().EventsCoalesced > 0 {
+-			break
+-		}
+-		time.Sleep(10 * time.Millisecond)
++	if !EsperarAte(vaulttest.Prazo, func() bool { return w.Stats().EventsCoalesced > 0 }) {
++		t.Fatalf("EventsCoalesced continuou 0 apos %v: o debouncer nao juntou os "+
++			"dois eventos do mesmo caminho", vaulttest.Prazo)
+ 	}
+-
+-	if w.Stats().EventsCoalesced != 1 {
+-		t.Errorf("EventsCoalesced = %d, want 1", w.Stats().EventsCoalesced)
++	if got := w.Stats().EventsCoalesced; got != 1 {
++		t.Errorf("EventsCoalesced = %d, want 1", got)
+ 	}
+ }
+ 
+ // setupSoReconciliador monta a pilha com o caminho NORMAL desconectado.
+ //
+ // # Por que sem w.Run
+ //
+ // A versao anterior deste setup rodava o watcher inteiro, com debounce de
+ // 10 ms. Apagar o arquivo disparava um evento de verdade, e o caminho normal
+ // tirava a entrada do indice competindo com o reconciliador: quando ele
+@@ -349,32 +314,29 @@ func setupSoReconciliador(t *testing.T) (*Watcher, string) {
+ 
+ // prazoReconciliacao e quanto se espera o contador subir.
+ //
+ // Generoso de proposito. O que o teste mede e que a reconciliacao ACONTECE,
+ // nao em quanto tempo: sob -race, com a suite inteira disputando a maquina,
+ // prazo curto mede a carga e nao o mecanismo. Se o mecanismo nao funcionar, o
+ // teste continua reprovando — so demora mais para dizer isso.
+ const prazoReconciliacao = 30 * time.Second
+ 
+ // esperaContador repete a leitura ate o contador chegar em `quer` ou o prazo
+-// acabar, e devolve o ultimo valor visto.
++// acabar, e devolve o ultimo valor visto — e o ultimo valor, e nao um booleano,
++// porque a mensagem de falha do chamador o imprime.
+ func esperaContador(t *testing.T, ler func() int64, quer int64) int64 {
+ 	t.Helper()
+-	limite := time.Now().Add(prazoReconciliacao)
+ 	var ultimo int64
+-	for time.Now().Before(limite) {
++	EsperarAte(prazoReconciliacao, func() bool {
+ 		ultimo = ler()
+-		if ultimo >= quer {
+-			return ultimo
+-		}
+-		time.Sleep(10 * time.Millisecond)
+-	}
++		return ultimo >= quer
++	})
+ 	return ultimo
+ }
+ 
+ func TestCounters_ReconciledUpdatedAndRemoved(t *testing.T) {
+ 	w, dir := setupSoReconciliador(t)
+ 	alvo := filepath.Join(dir, "n1.md")
+ 
+ 	if err := os.WriteFile(alvo, []byte("content"), 0644); err != nil {
+ 		t.Fatal(err)
+ 	}
+@@ -433,27 +395,24 @@ func TestPastaQueChegaComArquivosDentro(t *testing.T) {
+ 	}
+ 	for _, abs := range esperados {
+ 		if err := os.WriteFile(abs, []byte("# X\n\nconteudo.\n"), 0644); err != nil {
+ 			t.Fatal(err)
+ 		}
+ 	}
+ 	if err := os.Rename(pronta, filepath.Join(dir, "chegou")); err != nil {
+ 		t.Skipf("rename de diretorio nao suportado neste ambiente: %v", err)
+ 	}
+ 
+-	limite := time.Now().Add(30 * time.Second)
+-	for time.Now().Before(limite) {
+-		if idx.NoteCount() >= len(esperados) {
+-			break
+-		}
+-		time.Sleep(10 * time.Millisecond)
+-	}
++	// O resultado da espera nao decide nada: quem reprova, e com o nome da nota
++	// que faltou e os contadores, e o laco abaixo. Estourar o prazo aqui so
++	// significa "vai reprovar com uma mensagem melhor daqui a uma linha".
++	_ = EsperarAte(prazoReconciliacao, func() bool { return idx.NoteCount() >= len(esperados) })
+ 
+ 	for rel := range esperados {
+ 		if _, ok := idx.Get(vault.CanonicalPath(rel)); !ok {
+ 			var vistos []string
+ 			for _, p := range idx.NotePaths() {
+ 				vistos = append(vistos, string(p))
+ 			}
+ 			t.Errorf("%s nunca chegou ao indice; indice=%v\n%s",
+ 				rel, vistos, diagnostico(w))
+ 		}
+@@ -463,20 +422,18 @@ func TestPastaQueChegaComArquivosDentro(t *testing.T) {
+ 	// que achou neles. Sem isto a pasta entra certa e para de acompanhar: uma
+ 	// nota criada depois, dentro de chegou/sub/, nunca apareceria — e nenhuma
+ 	// asserção acima notaria, porque todas falam do estado inicial.
+ 	//
+ 	// Esta metade foi escrita depois: a prova de mutacao mostrou que remover o
+ 	// Add do subdiretorio deixava o teste verde.
+ 	depois := filepath.Join(dir, "chegou", "sub", "d.md")
+ 	if err := os.WriteFile(depois, []byte("# D\n\nnota criada depois.\n"), 0644); err != nil {
+ 		t.Fatal(err)
+ 	}
+-	limite = time.Now().Add(30 * time.Second)
+-	for time.Now().Before(limite) {
+-		if _, ok := idx.Get(vault.CanonicalPath("chegou/sub/d.md")); ok {
+-			return
+-		}
+-		time.Sleep(10 * time.Millisecond)
++	if !EsperarAte(prazoReconciliacao, func() bool {
++		_, ok := idx.Get(vault.CanonicalPath("chegou/sub/d.md"))
++		return ok
++	}) {
++		t.Errorf("chegou/sub/d.md nao foi indexada: o subdiretorio varrido ficou sem watch\n%s",
++			diagnostico(w))
+ 	}
+-	t.Errorf("chegou/sub/d.md nao foi indexada: o subdiretorio varrido ficou sem watch\n%s",
+-		diagnostico(w))
+ }
+diff --git a/internal/watcher/debounce_test.go b/internal/watcher/debounce_test.go
+index 244605f..84595e2 100644
+--- a/internal/watcher/debounce_test.go
++++ b/internal/watcher/debounce_test.go
+@@ -2,20 +2,21 @@ package watcher
+ 
+ import (
+ 	"bytes"
+ 	"context"
+ 	"log/slog"
+ 	"sync"
+ 	"testing"
+ 	"time"
+ 
+ 	"github.com/jonyd/gobsidian/internal/vault"
++	"github.com/jonyd/gobsidian/internal/vaulttest"
+ )
+ 
+ func TestDebounce_Coalescence(t *testing.T) {
+ 	in := make(chan Event, 100)
+ 	out := make(chan []vault.CanonicalPath, 100)
+ 	var buf bytes.Buffer
+ 	log := slog.New(slog.NewTextHandler(&buf, nil))
+ 
+ 	ctx, cancel := context.WithCancel(context.Background())
+ 	defer cancel()
+@@ -32,27 +33,43 @@ func TestDebounce_Coalescence(t *testing.T) {
+ 	for i := 0; i < 10; i++ {
+ 		in <- Event{Path: path1, Op: OpWrite}
+ 	}
+ 
+ 	// 2 distinct paths
+ 	path2 := vault.CanonicalPath("file2.md")
+ 	path3 := vault.CanonicalPath("file3.md")
+ 	in <- Event{Path: path2, Op: OpWrite}
+ 	in <- Event{Path: path3, Op: OpWrite}
+ 
+-	// Wait for tick
+-	time.Sleep(100 * time.Millisecond)
++	// Espera pelo LOTE, e nao pelo relogio. O sinal observavel do tick do
++	// debouncer e o que ele escreve em `out`; um sleep de 100 ms contra um tick
++	// de 50 ms so tinha folga enquanto a maquina estivesse ociosa, e cancelava o
++	// debouncer antes do flush quando nao estivesse.
++	var results []vault.CanonicalPath
++	prazo := time.After(vaulttest.Prazo)
++	for len(results) < 3 {
++		select {
++		case lote := <-out:
++			results = append(results, lote...)
++		case <-prazo:
++			t.Fatalf("o debouncer emitiu %d caminho(s) em %v, quer 3: %v",
++				len(results), vaulttest.Prazo, results)
++		}
++	}
++
+ 	cancel()
+ 	wg.Wait()
+ 	close(out)
+ 
+-	var results []vault.CanonicalPath
++	// Drena o que sobrou, e e aqui que "coalescido" se prova: um debouncer que
++	// nao juntasse as 10 escritas em file1.md teria mais lotes na fila depois
++	// dos tres primeiros caminhos, e o len abaixo passaria de 3.
+ 	for p := range out {
+ 		results = append(results, p...)
+ 	}
+ 
+ 	if len(results) != 3 {
+ 		t.Fatalf("expected 3 paths (1 coalesced + 2 distinct), got %d: %v", len(results), results)
+ 	}
+ 
+ 	counts := make(map[vault.CanonicalPath]int)
+ 	for _, p := range results {
+@@ -99,23 +116,27 @@ func TestDebounce_NoStarvation(t *testing.T) {
+ 		for {
+ 			select {
+ 			case <-out:
+ 				emitted++
+ 			case <-ctx.Done():
+ 				return
+ 			}
+ 		}
+ 	}()
+ 
++	// Este sleep e ESTIMULO, nao sincronizacao: ele espaca as escritas para que
++	// elas cubram os 50 ms de forma continua e cruzem varios ticks de 10 ms. Nao
++	// ha sinal observavel a esperar aqui — o que se aguarda e o proprio relogio,
++	// que e a variavel independente do teste.
+ 	for time.Since(start) < 50*time.Millisecond {
+ 		in <- Event{Path: path, Op: OpWrite}
+-		time.Sleep(1 * time.Millisecond) // Continuous fast writes
++		time.Sleep(1 * time.Millisecond)
+ 	}
+ 
+ 	cancel()
+ 	wg.Wait()
+ 	cwg.Wait()
+ 
+ 	if emitted == 0 {
+ 		t.Fatalf("Starvation detected: expected multiple emissions during continuous write, got %d", emitted)
+ 	}
+ }
+diff --git a/internal/watcher/espera_test.go b/internal/watcher/espera_test.go
+new file mode 100644
+index 0000000..e700328
+--- /dev/null
++++ b/internal/watcher/espera_test.go
+@@ -0,0 +1,70 @@
++package watcher
++
++import (
++	"testing"
++	"time"
++
++	"github.com/jonyd/gobsidian/internal/vaulttest"
++)
++
++// EsperarAte consulta `cond` ate ela valer, e devolve se valeu dentro do prazo.
++//
++// Um sleep fixo e a pior das duas coisas: lento quando a condicao ja vale, e
++// falso quando a maquina esta carregada. Este pacote pagou os dois lados —
++// TestWatcher_Burst reprovou com 427 das 500 notas indexadas porque a janela
++// media a carga da suite (ver o comentario em burst_test.go), e uma duzia de
++// testes gastava 50 a 100 ms parada esperando um laco que ja tinha arrancado.
++//
++// # Por que devolve bool em vez de chamar t.Fatalf
++//
++// A versao que recebe `t` e reprova por conta propria escreve a MESMA mensagem
++// em todo sitio ("condicao nao valeu em 5s"). Os testes deste pacote tem
++// diagnostico caro e especifico: `diagnostico(w)` despeja os oito contadores e
++// separa "o watch nunca viu o evento" de "o filtro comeu o evento" de "Apply
++// nao indexou"; `bufferDeLog` guarda o log do watcher para o Cleanup despejar,
++// e existe porque `io.Discard` ja tornou um estouro de prazo indiagnosticavel
++// aqui. Centralizar a ESPERA sem centralizar a MENSAGEM e o que preserva isso.
++//
++// # Por que exportada, num arquivo _test.go
++//
++// Ela nao existe no binario de producao — `_test.go` so entra no binario de
++// teste. E exportada porque parte dos testes deste diretorio esta em
++// `package watcher_test` (apply_test.go, rename_test.go,
++// rename_prefiltro_test.go), e essa parte so alcanca identificadores
++// exportados de `package watcher`.
++func EsperarAte(prazo time.Duration, cond func() bool) bool {
++	fim := time.Now().Add(prazo)
++	for {
++		if cond() {
++			return true
++		}
++		if !time.Now().Before(fim) {
++			return false
++		}
++		// Intervalo de POLLING, nao sincronizacao: a condicao acabou de ser
++		// consultada acima e sera de novo na volta seguinte. Nada aqui depende
++		// de 10 ms serem suficientes para coisa alguma.
++		time.Sleep(10 * time.Millisecond)
++	}
++}
++
++// EsperarWatcherAtivo espera o laco de Run estar rodando, e reprova se ele nao
++// arrancar.
++//
++// `w.active` e marcado na PRIMEIRA linha de Run. Isso basta como sinal de
++// arranque porque os watches do fsnotify sao registrados em `New`, e nao em
++// `Run`: quando `New` retorna, o sistema operacional ja esta reportando
++// mudancas do cofre, e o que falta e apenas alguem lendo `fsWatcher.Events`.
++// Um arquivo criado entre `New` e o primeiro `select` de `Run` nao se perde.
++//
++// Antes disto, seis testes escreviam `time.Sleep(50 * time.Millisecond)` ou
++// `time.Sleep(100 * time.Millisecond)` com o comentario "Wait for watcher to
++// start" — um numero que nao vinha de medicao nenhuma e que nao reprovava se o
++// laco nunca arrancasse: o teste seguia e falhava depois, dizendo outra coisa.
++func EsperarWatcherAtivo(t *testing.T, w *Watcher) {
++	t.Helper()
++	if !EsperarAte(vaulttest.Prazo, func() bool { return w.Stats().Active }) {
++		t.Fatalf("o laco de Run nao ficou ativo em %v; nada do que vem depois "+
++			"deste ponto seria observado\n%s", vaulttest.Prazo, diagnostico(w))
++	}
++}
+diff --git a/internal/watcher/overflow_test.go b/internal/watcher/overflow_test.go
+index dd29901..b938905 100644
+--- a/internal/watcher/overflow_test.go
++++ b/internal/watcher/overflow_test.go
+@@ -10,20 +10,21 @@ import (
+ 	"os"
+ 	"path/filepath"
+ 	"strings"
+ 	"testing"
+ 	"time"
+ 
+ 	"github.com/fsnotify/fsnotify"
+ 	"github.com/jonyd/gobsidian/internal/index"
+ 	"github.com/jonyd/gobsidian/internal/search"
+ 	"github.com/jonyd/gobsidian/internal/vault"
++	"github.com/jonyd/gobsidian/internal/vaulttest"
+ )
+ 
+ // TestReconcile_CorrectsLostEvents roda SEM watcher. Isso e a tarefa inteira:
+ // com o watcher ligado, o pipeline normal aplica as tres mudancas e a
+ // reconciliacao nunca e exercitada — foi assim que um requisito P0 passou por
+ // uma revisao inteira com cobertura zero.
+ func TestReconcile_CorrectsLostEvents(t *testing.T) {
+ 	tmp := t.TempDir()
+ 
+ 	modificado := filepath.Join(tmp, "file1.md")
+@@ -99,32 +100,30 @@ func TestApply_ReconcileSignal(t *testing.T) {
+ 	defer cancel()
+ 
+ 	log := slog.New(slog.NewTextHandler(io.Discard, nil))
+ 	go Apply(ctx, in, reconcile, idx, v, log, nil, nil, nil, nil, nil)
+ 
+ 	if err := os.WriteFile(alvo, []byte("depois, bem maior"), 0644); err != nil {
+ 		t.Fatal(err)
+ 	}
+ 	reconcile <- struct{}{}
+ 
+-	// Espera em laco com condicao de saida. time.Sleep fixo como assercao e o
+-	// que fez o teste anterior passar sem mecanismo nenhum.
++	// Espera pelo estado do indice, e nao por um relogio: time.Sleep fixo como
++	// assercao e o que fez o teste anterior passar sem mecanismo nenhum.
+ 	quer := int64(len("depois, bem maior"))
+-	deadline := time.Now().Add(3 * time.Second)
+-	for time.Now().Before(deadline) {
+-		if n, ok := idx.Get("nota.md"); ok && n.Size == quer {
+-			return
+-		}
+-		time.Sleep(10 * time.Millisecond)
++	if !EsperarAte(vaulttest.Prazo, func() bool {
++		n, ok := idx.Get("nota.md")
++		return ok && n.Size == quer
++	}) {
++		n, _ := idx.Get("nota.md")
++		t.Fatalf("indice nao foi corrigido pelo sinal de reconciliacao: %+v", n)
+ 	}
+-	n, _ := idx.Get("nota.md")
+-	t.Fatalf("indice nao foi corrigido pelo sinal de reconciliacao: %+v", n)
+ }
+ 
+ func TestRun_OverflowSchedulesExactlyOne(t *testing.T) {
+ 	tmp := t.TempDir()
+ 	v, err := vault.New(tmp)
+ 	if err != nil {
+ 		t.Fatalf("vault.New: %v", err)
+ 	}
+ 	idx := index.New()
+ 	log := slog.New(slog.NewTextHandler(io.Discard, nil))
+diff --git a/internal/watcher/rename_test.go b/internal/watcher/rename_test.go
+index 3441897..d6fafc4 100644
+--- a/internal/watcher/rename_test.go
++++ b/internal/watcher/rename_test.go
+@@ -4,20 +4,21 @@ import (
+ 	"context"
+ 	"io"
+ 	"log/slog"
+ 	"os"
+ 	"path/filepath"
+ 	"testing"
+ 	"time"
+ 
+ 	"github.com/jonyd/gobsidian/internal/index"
+ 	"github.com/jonyd/gobsidian/internal/vault"
++	"github.com/jonyd/gobsidian/internal/vaulttest"
+ 	"github.com/jonyd/gobsidian/internal/watcher"
+ )
+ 
+ func TestCorrelateRenames(t *testing.T) {
+ 	tmp := t.TempDir()
+ 	v, _ := vault.New(tmp)
+ 	idx := index.New()
+ 	log := slog.New(slog.NewTextHandler(io.Discard, nil))
+ 
+ 	// Setup: initial files
+@@ -422,37 +423,45 @@ func TestWatcher_RenameEndToEnd(t *testing.T) {
+ 	if err != nil {
+ 		t.Fatalf("watcher.New: %v", err)
+ 	}
+ 	defer func() { _ = w.Close() }()
+ 
+ 	ctx, cancel := context.WithCancel(context.Background())
+ 	defer cancel()
+ 
+ 	go func() { _ = w.Run(ctx) }()
+ 
++	// Era o unico teste do pacote que mexia no disco sem esperar o laco de Run
++	// arrancar. Ele nao reprovava por isso porque os watches sao registrados em
++	// New, e nao em Run — mas dependia disso sem dizer, e um dia em que Run
++	// passasse a registrar alguma coisa o teste viraria intermitente sem que
++	// nada no texto dele explicasse por que.
++	watcher.EsperarWatcherAtivo(t, w)
++
+ 	// Rename no disco
+ 	if err := os.Remove(filepath.Join(tmp, "origem.md")); err != nil {
+ 		t.Fatal(err)
+ 	}
+ 	if err := os.WriteFile(filepath.Join(tmp, "destino.md"), origemContent, 0644); err != nil {
+ 		t.Fatal(err)
+ 	}
+ 
+-	// Aguarda processamento do debounce e correlação
+-	deadline := time.Now().Add(3 * time.Second)
+-	for time.Now().Before(deadline) {
+-		if _, ok := idx.Get("destino.md"); ok {
+-			if _, oldOk := idx.Get("origem.md"); !oldOk {
+-				break
+-			}
+-		}
+-		time.Sleep(20 * time.Millisecond)
++	// Aguarda o SINAL da correlacao: destino.md dentro do indice e origem.md
++	// fora dele. As duas metades importam — so a primeira passaria com um
++	// rename tratado como criacao, deixando a nota antiga para tras.
++	if !watcher.EsperarAte(vaulttest.Prazo, func() bool {
++		_, novo := idx.Get("destino.md")
++		_, velho := idx.Get("origem.md")
++		return novo && !velho
++	}) {
++		t.Logf("a correlacao de rename nao convergiu em %v; as assercoes abaixo dizem o que faltou",
++			vaulttest.Prazo)
+ 	}
+ 
+ 	if _, ok := idx.Get("origem.md"); ok {
+ 		t.Errorf("origem.md ainda no índice após rename end-to-end")
+ 	}
+ 	destinoNote, ok := idx.Get("destino.md")
+ 	if !ok {
+ 		t.Fatalf("destino.md ausente no índice após rename end-to-end")
+ 	}
+ 	if destinoNote.Path != "destino.md" {
+diff --git a/internal/watcher/watcher_test.go b/internal/watcher/watcher_test.go
+index 4af46fe..cd2d780 100644
+--- a/internal/watcher/watcher_test.go
++++ b/internal/watcher/watcher_test.go
+@@ -1,26 +1,28 @@
+ package watcher
+ 
+ import (
+ 	"context"
+ 	"errors"
+ 	"io"
+ 	"log/slog"
+ 	"os"
+ 	"path/filepath"
+ 	"runtime"
++	"strings"
+ 	"testing"
+ 	"time"
+ 
+ 	"github.com/jonyd/gobsidian/internal/index"
+ 	"github.com/jonyd/gobsidian/internal/search"
+ 	"github.com/jonyd/gobsidian/internal/vault"
++	"github.com/jonyd/gobsidian/internal/vaulttest"
+ )
+ 
+ func TestWatcher(t *testing.T) {
+ 	log := slog.New(slog.NewTextHandler(io.Discard, nil))
+ 	dir := t.TempDir()
+ 
+ 	v, err := vault.New(dir)
+ 	if err != nil {
+ 		t.Fatalf("vault.New: %v", err)
+ 	}
+@@ -33,41 +35,35 @@ func TestWatcher(t *testing.T) {
+ 	}
+ 
+ 	ctx, cancel := context.WithCancel(context.Background())
+ 	defer cancel()
+ 
+ 	errc := make(chan error, 1)
+ 	go func() {
+ 		errc <- w.Run(ctx)
+ 	}()
+ 
+-	// Wait for watcher to start
+-	time.Sleep(100 * time.Millisecond)
++	EsperarWatcherAtivo(t, w)
+ 
+ 	// Create a note
+ 	notePath := filepath.Join(dir, "teste.md")
+ 	if err := os.WriteFile(notePath, []byte("conteudo"), 0644); err != nil {
+ 		t.Fatalf("WriteFile: %v", err)
+ 	}
+ 
+ 	// Verify event via index
+-	found := false
+ 	canon, _ := vault.Canonicalize(dir, notePath)
+-	for range 50 {
+-		if _, ok := idx.Get(canon); ok {
+-			found = true
+-			break
+-		}
+-		time.Sleep(20 * time.Millisecond)
+-	}
+-	if !found {
+-		t.Fatal("timeout waiting for index to update with 'teste.md'")
++	if !EsperarAte(vaulttest.Prazo, func() bool {
++		_, ok := idx.Get(canon)
++		return ok
++	}) {
++		t.Fatalf("o indice nao recebeu 'teste.md' em %v\n%s", vaulttest.Prazo, diagnostico(w))
+ 	}
+ 
+ 	// Shutdown test
+ 	cancel()
+ 	select {
+ 	case err := <-errc:
+ 		if !errors.Is(err, context.Canceled) {
+ 			t.Errorf("Run error = %v, want %v", err, context.Canceled)
+ 		}
+ 	case <-time.After(time.Second):
+@@ -101,21 +97,21 @@ func TestWatcher_CloseReleasesHandles(t *testing.T) {
+ 	if err != nil {
+ 		t.Fatalf("watcher.New: %v", err)
+ 	}
+ 
+ 	ctx, cancel := context.WithCancel(context.Background())
+ 	errc := make(chan error, 1)
+ 	go func() {
+ 		errc <- w.Run(ctx)
+ 	}()
+ 
+-	time.Sleep(50 * time.Millisecond)
++	EsperarWatcherAtivo(t, w)
+ 
+ 	cancel()
+ 	<-errc
+ 	if err := w.Close(); err != nil {
+ 		t.Fatalf("w.Close: %v", err)
+ 	}
+ 
+ 	targetDir := filepath.Join(tmp, "vault_renamed")
+ 	if err := os.Rename(vaultDir, targetDir); err != nil {
+ 		t.Fatalf("os.Rename da raiz falhou após Close: %v", err)
+@@ -132,21 +128,21 @@ func TestWatcher_EventsChannelClosedOnShutdown(t *testing.T) {
+ 	log := slog.New(slog.NewTextHandler(io.Discard, nil))
+ 
+ 	w, err := New(v, idx, nil, 10*time.Millisecond, log)
+ 	if err != nil {
+ 		t.Fatalf("New: %v", err)
+ 	}
+ 
+ 	ctx, cancel := context.WithCancel(context.Background())
+ 	go func() { _ = w.Run(ctx) }()
+ 
+-	time.Sleep(50 * time.Millisecond)
++	EsperarWatcherAtivo(t, w)
+ 
+ 	cancel()
+ 	_ = w.Close()
+ 
+ 	select {
+ 	case _, ok := <-w.events:
+ 		if ok {
+ 			t.Error("w.events aberto após shutdown, esperava ok == false")
+ 		}
+ 	case <-time.After(1 * time.Second):
+@@ -163,48 +159,68 @@ func TestWatcher_DirCreatedAfterStartIsWatched(t *testing.T) {
+ 	w, err := New(v, idx, nil, 10*time.Millisecond, log)
+ 	if err != nil {
+ 		t.Fatalf("New: %v", err)
+ 	}
+ 
+ 	ctx, cancel := context.WithCancel(context.Background())
+ 	defer cancel()
+ 	defer func() { _ = w.Close() }()
+ 
+ 	go func() { _ = w.Run(ctx) }()
+-	time.Sleep(50 * time.Millisecond)
++	EsperarWatcherAtivo(t, w)
+ 
+ 	subDir := filepath.Join(tmp, "nova_pasta")
+ 	if err := os.MkdirAll(subDir, 0755); err != nil {
+ 		t.Fatal(err)
+ 	}
+ 
+-	time.Sleep(100 * time.Millisecond)
++	// O sinal observavel de "o watch do diretorio novo ja foi registrado" e a
++	// lista de watches do proprio fsnotify — leitura, nao escrita em canal
++	// interno. Os 100 ms que estavam aqui eram um palpite sobre quanto o Run
++	// leva para tratar o evento de criacao, e errar esse palpite nao produz uma
++	// falha honesta: a nota seria escrita ANTES do Add, o evento dela nunca
++	// existiria, e o teste reprovaria dizendo "subdiretorio nao vigiado" quando
++	// o que houve foi uma corrida do proprio teste.
++	if !EsperarAte(vaulttest.Prazo, func() bool { return estaVigiado(w, subDir) }) {
++		t.Fatalf("o watch em %s nao foi registrado em %v; lista=%v\n%s",
++			subDir, vaulttest.Prazo, w.fsWatcher.WatchList(), diagnostico(w))
++	}
+ 
+ 	notePath := filepath.Join(subDir, "subnota.md")
+ 	if err := os.WriteFile(notePath, []byte("# Subnota\n"), 0644); err != nil {
+ 		t.Fatal(err)
+ 	}
+ 
+ 	canon, _ := vault.Canonicalize(tmp, notePath)
+-	deadline := time.Now().Add(3 * time.Second)
+-	found := false
+-	for time.Now().Before(deadline) {
+-		if _, ok := idx.Get(canon); ok {
+-			found = true
+-			break
+-		}
+-		time.Sleep(20 * time.Millisecond)
++	if !EsperarAte(vaulttest.Prazo, func() bool {
++		_, ok := idx.Get(canon)
++		return ok
++	}) {
++		t.Errorf("nota em subdiretório criado dinamicamente (%s) não foi indexada\n%s",
++			canon, diagnostico(w))
+ 	}
++}
+ 
+-	if !found {
+-		t.Errorf("nota em subdiretório criado dinamicamente (%s) não foi indexada", canon)
++// estaVigiado diz se o fsnotify tem watch registrado naquele diretorio.
++//
++// A comparacao e por caminho limpo e sem distincao de caixa porque o nome que
++// chega em WatchList e o que o backend recebeu no Add — no Windows ele vem do
++// evento do sistema operacional, e a caixa dele nao e a que o teste escreveu.
++// Comparar as strings cruas daria um "nao vigiado" falso.
++func estaVigiado(w *Watcher, dir string) bool {
++	alvo := filepath.Clean(dir)
++	for _, p := range w.fsWatcher.WatchList() {
++		if strings.EqualFold(filepath.Clean(p), alvo) {
++			return true
++		}
+ 	}
++	return false
+ }
+ 
+ func TestNew_FailsOnUnwatchablePath(t *testing.T) {
+ 	nonExistentDir := filepath.Join(t.TempDir(), "subpasta_inexistente")
+ 	v, err := vault.New(nonExistentDir)
+ 	if err != nil {
+ 		t.Skipf("vault.New recusou caminho inexistente: %v", err)
+ 	}
+ 
+ 	log := slog.New(slog.NewTextHandler(io.Discard, nil))
+@@ -232,46 +248,43 @@ func TestWatcherUpdatesSearchIndex(t *testing.T) {
+ 	}
+ 
+ 	log := slog.New(slog.NewTextHandler(io.Discard, nil))
+ 	w, err := New(v, idx, inv, 10*time.Millisecond, log)
+ 	if err != nil {
+ 		t.Fatal(err)
+ 	}
+ 	ctx, cancel := context.WithCancel(context.Background())
+ 	defer cancel()
+ 	go func() { _ = w.Run(ctx) }()
+-	time.Sleep(100 * time.Millisecond) // watcher precisa estar observando
++	EsperarWatcherAtivo(t, w)
+ 
+ 	// CRIACAO: a nota nova tem de passar a ser encontravel.
+ 	if err := os.WriteFile(filepath.Join(tmp, "nova.md"), []byte("prescricao intercorrente"), 0644); err != nil {
+ 		t.Fatal(err)
+ 	}
+ 	esperaTermo(t, inv, "prescricao", "nova.md", true)
+ 
+ 	// REMOCAO: a nota removida tem de deixar de ser encontravel. Um teste que
+ 	// so cobre a criacao passa com um Remove que nunca acontece.
+ 	if err := os.Remove(filepath.Join(tmp, "nova.md")); err != nil {
+ 		t.Fatal(err)
+ 	}
+ 	esperaTermo(t, inv, "prescricao", "nova.md", false)
+ }
+ 
+-// esperaTermo espera em laco com condicao de saida. time.Sleep fixo como
++// esperaTermo espera pelo estado do indice de busca. time.Sleep fixo como
+ // assercao e o que faz um teste passar sem o mecanismo existir.
+ func esperaTermo(t *testing.T, inv *search.Inverted, termo, path string, quer bool) {
+ 	t.Helper()
+-	limite := time.Now().Add(3 * time.Second)
+-	for time.Now().Before(limite) {
+-		presente := false
++	ok := EsperarAte(vaulttest.Prazo, func() bool {
+ 		for _, p := range inv.Postings(termo) {
+ 			if p.Path == path {
+-				presente = true
++				return quer
+ 			}
+ 		}
+-		if presente == quer {
+-			return
+-		}
+-		time.Sleep(10 * time.Millisecond)
++		return !quer
++	})
++	if !ok {
++		t.Fatalf("apos %v, %q em %q: presente=%v, quer %v — a busca nao acompanhou o cofre",
++			vaulttest.Prazo, termo, path, !quer, quer)
+ 	}
+-	t.Fatalf("apos 3s, %q em %q: presente=%v, quer %v — a busca nao acompanhou o cofre",
+-		termo, path, !quer, quer)
+ }
