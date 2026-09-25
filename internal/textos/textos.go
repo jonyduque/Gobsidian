@@ -158,6 +158,7 @@ const (
 	InstallCofreEscolhido   = "cofre: %s"
 	InstallConfigAtual      = "Configuração atual"
 	InstallManterConfig     = "Manter esta configuração?"
+	VaultsMantido           = "Configuração mantida; nada foi alterado"
 	InstallQuaisCofres      = "Quais cofres configurar?"
 	InstallQuaisHosts       = "Em quais hosts registrar?"
 	InstallSemHosts         = "nenhum host de IA conhecido foi detectado"

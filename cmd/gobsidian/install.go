@@ -88,15 +88,11 @@ func rodarInstalacao(ctx context.Context, cmd *cobra.Command, o *opcoesDeInstala
 		o.sim = true
 	}
 
-	cofres, err := escolherCofres(con, entrada, o)
+	e, err := escolherConfiguracao(con, entrada, o)
 	if err != nil {
 		return err
 	}
-
-	chaves, err := escolherHosts(con, entrada, o)
-	if err != nil {
-		return err
-	}
+	cofres, chaves := e.cofres, e.hosts
 
 	sis := instalar.SistemaReal(
 		func(pergunta string, itens []string) bool {
@@ -165,26 +161,72 @@ func resto(cofres []string) []string {
 //
 // Numero digitado aceita um. Caixas aceitam 0..N, que e a forma real da
 // pergunta. Ver console.Selecionar; sem terminal, cai na versao digitada.
-func escolherCofres(con *console.Stream, entrada *bufio.Reader, o *opcoesDeInstalacao) ([]string, error) {
+// escolha e o que install e vaults decidiram sobre cofres e hosts.
+type escolha struct {
+	cofres []string
+	// hosts segue a convencao de instalar.Opcoes.Hosts: nulo e "detecte",
+	// vazio e "nenhum".
+	hosts []string
+	// manter diz que o usuario escolheu manter a configuracao atual: nada
+	// nos hosts muda.
+	manter bool
+}
+
+// configuracaoAtualFn e escolherHostsFn existem para o teste da sequencia nao
+// ler nem reescrever os hosts de verdade da maquina -- o mesmo motivo de
+// rodarInstalacaoFn em main.go.
+var (
+	configuracaoAtualFn = func() []string {
+		return instalar.ConfiguracaoAtual(hosts.AmbienteReal(), instalar.CaminhoDoRegistroDoObsidian())
+	}
+	escolherHostsFn = escolherHosts
+)
+
+// escolherConfiguracao faz as duas perguntas na ordem, e e quem garante que
+// "manter" responde as duas.
+//
+// Medido pelo dono em 2026-09-25, com `gobsidian vaults`: Sim em "Manter esta
+// configuracao?" e a lista de hosts apareceu mesmo assim, porque o manter so
+// valia para os cofres. Com --yes era pior: a fatia nula de hosts fazia
+// instalar.Instalar configurar TODOS os detectados. Manter e nao alterar nada:
+// os hosts saem vazios e NAO nulos.
+func escolherConfiguracao(con *console.Stream, entrada *bufio.Reader, o *opcoesDeInstalacao) (escolha, error) {
+	cofres, manter, err := escolherCofres(con, entrada, o)
+	if err != nil {
+		return escolha{}, err
+	}
+	if manter {
+		return escolha{cofres: cofres, hosts: []string{}, manter: true}, nil
+	}
+	chaves, err := escolherHostsFn(con, entrada, o)
+	if err != nil {
+		return escolha{}, err
+	}
+	return escolha{cofres: cofres, hosts: chaves}, nil
+}
+
+// escolherCofres devolve os cofres escolhidos e se o usuario manteve a
+// configuracao atual.
+//
+// "Manter" so e oferecido quando a linha de comando nao pediu nada: com
+// --vault ou --hosts, quem chamou ja disse o que quer configurar.
+func escolherCofres(con *console.Stream, entrada *bufio.Reader, o *opcoesDeInstalacao) ([]string, bool, error) {
 	if o.vault != "" {
-		return []string{o.vault}, nil
+		return []string{o.vault}, false, nil
 	}
 
-	jaConfigurados := instalar.ConfiguracaoAtual(hosts.AmbienteReal(), instalar.CaminhoDoRegistroDoObsidian())
+	jaConfigurados := configuracaoAtualFn()
 
 	// Manter o que ja existe e a resposta mais provavel de quem roda o
 	// instalador de novo -- e a unica que nao mexe em nada.
-	if len(jaConfigurados) > 0 {
+	if len(jaConfigurados) > 0 && o.hostsCSV == "" {
 		corpos := make([]string, 0, len(jaConfigurados))
 		for _, c := range jaConfigurados {
 			corpos = append(corpos, "  "+c)
 		}
 		con.Bloco(textos.InstallConfigAtual, corpos, "")
-		if o.sim {
-			return jaConfigurados, nil
-		}
-		if simOuNao(con, entrada, textos.InstallManterConfig, true) {
-			return jaConfigurados, nil
+		if o.sim || simOuNao(con, entrada, textos.InstallManterConfig, true) {
+			return jaConfigurados, true, nil
 		}
 	}
 
@@ -229,15 +271,15 @@ func escolherCofres(con *console.Stream, entrada *bufio.Reader, o *opcoesDeInsta
 	}
 
 	if len(itens) == 0 {
-		return nil, errors.New(textos.ErroSemCofre)
+		return nil, false, errors.New(textos.ErroSemCofre)
 	}
 	if o.sim {
 		// Sem interacao, a escolha e o que ja estava, ou o primeiro cofre.
 		if len(jaConfigurados) > 0 {
-			return jaConfigurados, nil
+			return jaConfigurados, false, nil
 		}
 		con.Info(textos.InstallCofreEscolhido, itens[0].caminho)
-		return []string{itens[0].caminho}, nil
+		return []string{itens[0].caminho}, false, nil
 	}
 
 	opcoes := make([]console.Opcao, 0, len(itens))
@@ -249,7 +291,7 @@ func escolherCofres(con *console.Stream, entrada *bufio.Reader, o *opcoesDeInsta
 	switch {
 	case err == nil:
 	case errors.Is(err, console.ErrCancelado):
-		return nil, errors.New(textos.ErroSelecaoCancelada)
+		return nil, false, errors.New(textos.ErroSelecaoCancelada)
 	case errors.Is(err, console.ErrSemTerminal):
 		// Sem terminal de verdade (pipe, IDE, CI): a MESMA pergunta, digitada.
 		con.Titulo("%s", textos.InstallQuaisCofres)
@@ -259,17 +301,17 @@ func escolherCofres(con *console.Stream, entrada *bufio.Reader, o *opcoesDeInsta
 		resposta := perguntar(con, entrada, textos.InstallEscolhaDigitada, "")
 		indices, err = console.SelecionarDigitando(resposta, opcoes)
 		if err != nil {
-			return nil, err
+			return nil, false, err
 		}
 	default:
-		return nil, err
+		return nil, false, err
 	}
 
 	var saida []string
 	for _, i := range indices {
 		saida = append(saida, itens[i].caminho)
 	}
-	return saida, nil
+	return saida, false, nil
 }
 
 func contem(lista []string, alvo string) bool {
@@ -469,14 +511,15 @@ func newVaultsCmd() *cobra.Command {
 				return fmt.Errorf(textos.ErroSemManifesto, err)
 			}
 
-			cofres, err := escolherCofres(con, entrada, &o)
+			e, err := escolherConfiguracao(con, entrada, &o)
 			if err != nil {
 				return err
 			}
-			chaves, err := escolherHosts(con, entrada, &o)
-			if err != nil {
-				return err
+			if e.manter {
+				con.OK("%s", textos.VaultsMantido)
+				return nil
 			}
+			cofres, chaves := e.cofres, e.hosts
 
 			ok, falhos := instalar.ConfigurarHosts(m.Binario, cofres, o.readOnly, chaves)
 			con.OK("%s", textos.InstallHostsConfigurados)
