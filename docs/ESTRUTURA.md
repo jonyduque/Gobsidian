@@ -127,6 +127,7 @@ gobsidian/
 │   │   ├── outline.go            note_outline: headings do índice + candidatos do parser
 │   │   ├── write.go              métodos de escrita
 │   │   ├── graph.go              link_graph, note_metadata, tag_list, vault_stats
+│   │   ├── tree.go               VaultTree: a conta única do conjunto de pastas, derivado do índice
 │   │   ├── broken.go             vault_broken_links: lista o que vault_stats conta
 │   │   ├── search.go             vault_search: filtro, paginação, trechos
 │   │   ├── search_lazy.go        carga única e cancelável do índice de busca
@@ -139,8 +140,8 @@ gobsidian/
 │   │   ├── tools_read.go         handlers e schemas das tools de leitura
 │   │   ├── alvo_note_read.go     item de paths: string ou objeto, e o schema com oneOf
 │   │   ├── tools_write.go        handlers e schemas das tools de escrita
-│   │   ├── resources.go          exposição de notas como resources gobsidian://
-│   │   ├── uri.go                construção e parsing da URI gobsidian://
+│   │   ├── resources.go          o cofre inteiro como resources gobsidian:///, notas e pastas
+│   │   ├── uri.go                construção e parsing da URI gobsidian:///; barra final = pasta
 │   │   ├── recover.go            middleware de recuperação de panic
 │   │   └── convert.go            erros de domínio → resultados MCP
 │   │

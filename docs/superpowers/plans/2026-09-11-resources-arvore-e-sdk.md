@@ -87,8 +87,8 @@ O custo que sobra é o da **listagem**, e esse é do cliente: `resources/list` c
 **Aqui está o risco honesto, e ele muda com a ordenação.** Hoje a lista é `Sort: "modified", Order: "desc"` — as 200 mais recentes. Publicar tudo ordenado por **caminho** é o que a árvore precisa, mas se o cliente não paginar, a primeira página passa a ser "as 1000 primeiras em ordem alfabética" em vez de "as 200 mais recentes". Para quem não pagina, isso é pior. **Medido em 2026-09-14 (E1): o Claude Desktop 1.52386.6 segue `nextCursor` e carrega todas as páginas em sequência.** A1 entra como está, com `PageSize` 1000.
 
 - [x] A1.1 — Medir, antes de mudar código, se o host segue o cursor (ver E1). O resultado é a entrada desta decisão.
-- [ ] A1.2 — Substituir a chamada `ListNotes(Limit: 200, Sort: "modified")` por uma que devolva o cofre inteiro ordenado por caminho. **Não dá para fazer com `ListNotes`:** `service.ComTeto` grampeia todo `limit` em `LimiteTeto = 500` (`internal/service/errors.go:137`), e esse teto é contrato de tool declarado no schema (achado B4). Laçar com `Offset` funcionaria, ao custo de 7 ordenações completas do cofre. Entra método novo na fachada — ver A2.
-- [ ] A1.3 — Teste: cofre de N notas publica N resources, e a N-ésima é legível pela URI publicada. O teste atual (`resources_test.go:99`) prova o **contrário** — que uma nota além do limite só é alcançável pelo template. Ele não some: vira o teste do template, com o nome dizendo isso.
+- [x] A1.2 — Substituir a chamada `ListNotes(Limit: 200, Sort: "modified")` por uma que devolva o cofre inteiro ordenado por caminho. **Não dá para fazer com `ListNotes`:** `service.ComTeto` grampeia todo `limit` em `LimiteTeto = 500` (`internal/service/errors.go:137`), e esse teto é contrato de tool declarado no schema (achado B4). Laçar com `Offset` funcionaria, ao custo de 7 ordenações completas do cofre. Entra método novo na fachada — ver A2.
+- [x] A1.3 — Teste: cofre de N notas publica N resources, e a N-ésima é legível pela URI publicada. O teste atual (`resources_test.go:99`) prova o **contrário** — que uma nota além do limite só é alcançável pelo template. Ele não some: vira o teste do template, com o nome dizendo isso.
 
 ### A2. Um método de fachada para a árvore, e por que não é `ListNotes`
 
@@ -98,10 +98,10 @@ Pastas não existem no domínio hoje. `index.Query.Folder` filtra por prefixo, m
 
 Proposta: `service.VaultTree(ctx, TreeRequest) (TreeResult, error)`, devolvendo pastas e notas ordenadas por caminho, sem teto, documentado como **a conta única do conjunto de pastas**. Quando um dia existir uma tool `vault_folders` ou um `gobsidian index --tree`, eles chamam esta — e não uma segunda derivação que diverge no primeiro caminho com barra dupla.
 
-- [ ] A2.1 — `TreeResult` com `Folders []FolderItem` (caminho, contagem de notas diretas, contagem recursiva) e `Notes []TreeNote` (caminho, título, tamanho, modificado). Sem hash, sem tags: não é a projeção da tool.
-- [ ] A2.2 — Derivar o conjunto de pastas dos caminhos das notas, **não** do disco: o índice é a verdade e já respeita as exclusões (`.obsidian`, `.trash`). Uma varredura paralela do FS reintroduziria a divergência que `vault.Walk` existe para não ter.
-- [ ] A2.3 — Teste com caminho de uma pasta só, caminho aninhado em 5 níveis (é o que Estudo tem), pasta sem nota direta mas com subpasta cheia, e nome com acento e espaço.
-- [ ] A2.4 — Atualizar o grafo do `CLAUDE.md` **só se** uma aresta nova aparecer. Não deve: `service` já importa `index` e `vault`.
+- [x] A2.1 — `TreeResult` com `Folders []FolderItem` (caminho, contagem de notas diretas, contagem recursiva) e `Notes []TreeNote` (caminho, título, tamanho, modificado). Sem hash, sem tags: não é a projeção da tool.
+- [x] A2.2 — Derivar o conjunto de pastas dos caminhos das notas, **não** do disco: o índice é a verdade e já respeita as exclusões (`.obsidian`, `.trash`). Uma varredura paralela do FS reintroduziria a divergência que `vault.Walk` existe para não ter.
+- [x] A2.3 — Teste com caminho de uma pasta só, caminho aninhado em 5 níveis (é o que Estudo tem), pasta sem nota direta mas com subpasta cheia, e nome com acento e espaço.
+- [x] A2.4 — Atualizar o grafo do `CLAUDE.md` **só se** uma aresta nova aparecer. Não deve: `service` já importa `index` e `vault`.
 
 ### A3. Pasta como resource, e o "primeiro item" que o dono pediu
 
@@ -122,10 +122,10 @@ Forma:
 
 **O read de pasta devolve UM `ResourceContents`, não os filhos inteiros.** A spec permite devolver o conteúdo de vários arquivos; ler a raiz de Estudo assim seriam 3.313 notas numa resposta. O que a pasta devolve é um índice em Markdown: contagem, subpastas e notas diretas, cada uma como link `gobsidian:///...`. Barato, previsível, e é o que um "primeiro item da pasta" deveria mostrar.
 
-- [ ] A3.1 — `ehPastaURI` + despacho no handler. Uma conta.
-- [ ] A3.2 — Read de pasta devolvendo o índice em Markdown. Incluir a raiz (`gobsidian:///`), que é o "todos os itens do cofre".
-- [ ] A3.3 — Teste: read de pasta lista os filhos diretos e **não** os netos; read de pasta vazia não dá erro; read de pasta inexistente dá erro de domínio, não panic.
-- [ ] A3.4 — `resources_test.go` ganha o caso de pasta com espaço e acento, pelo mesmo motivo que `TestResourceRegistrationSurvivesPathsWithSpaces` existe: foi um panic no boot que derrubou o servidor antes de anunciar uma tool.
+- [x] A3.1 — `ehPastaURI` + despacho no handler. Uma conta.
+- [x] A3.2 — Read de pasta devolvendo o índice em Markdown. Incluir a raiz (`gobsidian:///`), que é o "todos os itens do cofre".
+- [x] A3.3 — Teste: read de pasta lista os filhos diretos e **não** os netos; read de pasta vazia não dá erro; read de pasta inexistente dá erro de domínio, não panic.
+- [x] A3.4 — `resources_test.go` ganha o caso de pasta com espaço e acento, pelo mesmo motivo que `TestResourceRegistrationSurvivesPathsWithSpaces` existe: foi um panic no boot que derrubou o servidor antes de anunciar uma tool.
 
 ### A4. `Name` com caminho, `Title` com a folha
 
@@ -133,8 +133,10 @@ Forma:
 
 Hoje `Name` recebe `n.Title` com fallback para o caminho (`resources.go:72-76`) e `Title` fica vazio — ou seja, a informação hierárquica é jogada fora exatamente no campo que a carregaria.
 
-- [ ] A4.1 — Trocar o preenchimento. Fallback quando o título é vazio continua sendo a folha do caminho, não o caminho inteiro.
-- [ ] A4.2 — Teste: nota com título de frontmatter diferente do nome do arquivo publica `Title` = título e `Name` = caminho.
+- [x] A4.1 — Trocar o preenchimento. Fallback quando o título é vazio continua sendo a folha do caminho, não o caminho inteiro.
+- [x] A4.2 — Teste: nota com título de frontmatter diferente do nome do arquivo publica `Title` = título e `Name` = caminho.
+
+**Feito em 2026-09-25, na forma revista pela Parte E:** `Title` de nota = folha e pasta (`Dolo eventual · Direito/Penal`), de pasta = `📁 Penal · Direito`, da raiz = `📁 Cofre inteiro`; `Name` de nota = caminho sem extensão, de pasta = caminho com barra final. `TreeRequest` ganhou `Folder` e `Recursive` (a semântica de `index.Query`), e o read de pasta usa a mesma conta com `Recursive: false`. A lista continua montada no boot: nota criada depois é legível pelo template, e só entra na lista quando o servidor reinicia — não mudou nesta parte, e está escrito em `docs/TOOLS.md`.
 
 ### A5. Ícones — e a extensão da RNF-30 que eles exigem
 
@@ -180,7 +182,7 @@ O dono pediu "paginação em respostas, não só de recursos". A página `2026-0
 Então paginação de resposta de tool continua sendo conta nossa, no payload, e já é: `limit`/`offset` com teto único em `service.ComTeto`. O que falta não é protocolo, é honestidade de contrato — várias tools cortam sem dizer que cortaram.
 
 - [ ] C1.1 — Varrer `docs/TOOLS.md` e o código: toda tool que aplica `ComTeto` declara `total` e um sinal de "há mais"? Onde não declara, declarar. Um resultado cortado sem sinal é indistinguível de um resultado completo, que é a mesma classe do achado B4.
-- [ ] C1.2 — Corrigir `docs/TOOLS.md:564`, que diz "A listagem de resources é paginada e serve o índice em memória (...) limite fixo de 200 (`resources.go:66`)". Depois da Parte A, as duas metades estão erradas: a paginação é do SDK (`PageSize`, default 1000) e o limite de 200 deixou de existir. Doc que aponta linha de código é doc que envelhece em silêncio — apontar comportamento, não linha.
+- [x] C1.2 — Corrigir `docs/TOOLS.md:564`, que diz "A listagem de resources é paginada e serve o índice em memória (...) limite fixo de 200 (`resources.go:66`)". Depois da Parte A, as duas metades estão erradas: a paginação é do SDK (`PageSize`, default 1000) e o limite de 200 deixou de existir. Doc que aponta linha de código é doc que envelhece em silêncio — apontar comportamento, não linha. **Feito em 2026-09-25, junto da Parte A.**
 - [ ] C1.3 — Registrar em `docs/ESTADO.md` o fato medido: `tools/call` não pagina em nenhuma versão do protocolo, inclusive `2026-07-28`. É a pergunta que já foi feita duas vezes.
 
 ---
@@ -407,6 +409,39 @@ Esta parte vem **antes** de G: sem ela, cada rodada de teste da implementação 
 
 ---
 
+## Parte J — `--vault` aceita o nome do cofre, não só o caminho
+
+**Pedido do dono em 2026-09-25:** poder escrever `--vault Estudo` em vez do caminho inteiro.
+
+**O que já existe.** O nome de um cofre, para o Obsidian, é o nome da pasta, e o registro dele (`obsidian.json`) lista o caminho de cada cofre. O produto já lê esse registro em dois lugares, pela **mesma** função: `instalar.CofresDoObsidian` (`internal/instalar/cofres.go`), que descarta cofre cujo diretório sumiu, e a completação de `--vault` (`cmd/gobsidian/completar.go`, `valoresDeCofre`), que hoje oferece caminhos. Falta só a resolução: `config.Load` (`internal/config/config.go:77`) faz `filepath.Abs` no que vier, então `--vault Estudo` vira `<cwd>\Estudo` e só funciona por acaso.
+
+**Onde a resolução mora, e por que não é em `config`.** `config` é folha e não ganha import: ler `obsidian.json` exige a conta do `instalar`. A resolução roda em `cmd/gobsidian`, que já importa `instalar`, **antes** de `config.Load`, e entrega a `Flags.VaultPath` o caminho absoluto. O resultado é que nada abaixo muda: `VaultKey`, cache, socket, presença e o `--vault` que `daemon/spawn.go:57` repassa ao daemon continuam derivando do caminho. **Nenhuma aresta nova no grafo.** Os seis subcomandos que chamam `config.Load` (`serve`, `daemon`, `doctor`, `index`, `inspect`, `search`) passam pela mesma função — uma conta, chamada de um lugar só (junto de `flagsDeCofre`, ou num `PreRunE` comum), nunca seis cópias.
+
+**A regra de decisão, fechada antes do código:**
+
+1. Valor com separador de caminho (`/` ou `\`), absoluto, com letra de unidade, ou começando por `.`/`~` → **caminho**, como hoje. Nunca consulta o registro.
+2. Palavra solta → **nome**. Casa contra `filepath.Base` de cada cofre do registro com a chave de caminho que o índice já usa (`text.ChaveDeCaminho`: NFC + caixa). Sem tirar acento: `Revisao` não casa `Revisão`, porque um cofre `Revisao` e outro `Revisão` podem coexistir e o servidor nunca escolhe por você.
+3. Palavra solta que casa **um** cofre do registro **e** também existe como pasta no diretório corrente, apontando para lugares diferentes → **erro** listando os dois. Um host MCP roda com diretório corrente arbitrário; escolher em silêncio é o defeito.
+4. Palavra solta que casa **mais de um** cofre (duas pastas `Estudo` em lugares diferentes, que o Obsidian permite) → **erro** listando os caminhos. Mesma regra que as tools já seguem na resolução de nota.
+5. Palavra solta que não casa nenhum cofre e existe como pasta no diretório corrente → caminho, como hoje (compatível).
+6. Palavra solta que não casa nada → erro com os nomes que o registro conhece, e a sugestão de passar o caminho. Registro ausente (Obsidian não instalado) diz isso, em vez de "cofre não encontrado".
+
+Mensagens em `internal/textos`, com acento.
+
+- [ ] J1.1 — `instalar.ResolverCofre(valor, registro string, cwd string) (string, error)` com a regra acima, e o tipo de erro que carrega os candidatos. Reusa `CofresDoObsidian`; não abre o JSON de novo.
+- [ ] J1.2 — Testes de tabela, um caso por linha da regra, com `obsidian.json` de fixture em `t.TempDir()`: nome simples; nome com caixa diferente; nome em NFD contra pasta em NFC; nome acentuado contra pasta sem acento (**não** casa); dois cofres de mesmo nome (erro com os dois caminhos); nome que casa o registro e o cwd em lugares diferentes (erro); caminho relativo com `.\`; registro ausente; cofre do registro cujo diretório sumiu (não casa). Prova de mutação por linha da regra, colada no ledger.
+- [ ] J2.1 — `cmd/gobsidian` chama `ResolverCofre` antes de `config.Load` nos seis subcomandos, por um ponto só. Log `info` quando resolveu por nome (`cofre resolvido pelo nome`, com nome e caminho) — é a única pista de onde veio o caminho quando o registro do Obsidian mudar.
+- [ ] J2.2 — Teste de regressão da chave: `--vault Estudo` e `--vault <caminho de Estudo>` produzem **a mesma** `config.VaultKey`. Sem isso, nome e caminho abririam dois caches e dois daemons para o mesmo cofre — o pior defeito possível desta parte.
+- [ ] J3.1 — Completação de `--vault` oferece o **nome** de cada cofre (descrição: o caminho), depois os caminhos e `ActionDirectories`. Nome repetido no registro não é oferecido como nome — só os caminhos dele.
+- [ ] J3.2 — `textos.FlagVault` deixa de dizer só "caminho": "nome do cofre no Obsidian ou caminho da raiz (obrigatório)". README e `docs/OPERACAO.md` com um exemplo de cada.
+- [ ] J4.1 — `hosts.CofreDaEntrada` devolve o que está depois de `--vault`, e `instalar.ConfiguracaoAtual` o trata como caminho. Entrada escrita à mão com nome passa a ser comum: `ConfiguracaoAtual` resolve pelo `ResolverCofre` (a mesma conta), e entrada que não resolve é mostrada como veio, sem ser descartada.
+- [ ] J4.2 — `doctor` mostra, na linha do cofre, se veio por nome e para qual caminho resolveu.
+- [ ] J5 — **Decisão do dono, pendente:** o instalador continua gravando o **caminho** no config dos hosts (recomendado) ou passa a gravar o **nome**? Caminho: o host sobe sem depender do `obsidian.json` e de o Obsidian estar instalado. Nome: o config fica legível e sobrevive a mover o cofre pelo Obsidian, mas cada partida lê o registro e quebra se ele sumir ou ganhar um segundo cofre com o mesmo nome. Até a decisão, o instalador não muda.
+
+**Fora do escopo:** apelido de cofre definido pelo usuário, arquivo de config próprio do gobsidian e variável `GOBSIDIAN_VAULT` em `serve` (hoje só `install` a lê; estender é item separado, se o dono quiser).
+
+---
+
 ## Ordem de execução — tudo de uma vez
 
 Um lote, nesta ordem, com `verify.ps1` verde antes de cada commit e `docs/` junto do código que muda comportamento:
@@ -420,8 +455,9 @@ Um lote, nesta ordem, com `verify.ps1` verde antes de cada commit e `docs/` junt
 7. **A2**, depois **A1**, **A3** e **A4** (na forma revista pela Parte E).
 8. **A5** e **Parte B** — entram por decisão de fazer tudo, mas **não têm efeito visível no Claude Desktop 1.52386.6**. São os primeiros candidatos a corte se o lote precisar encolher; encolher é decisão do dono.
 9. **Parte C** — contrato e documentação.
-10. **G6** — verificação na máquina do dono, depois do release.
-11. **F1** continua esperando decisão; não entra no lote.
+10. **Parte J** — `--vault` por nome (acrescentada em 2026-09-25). Independe de A, B e C; pode subir antes delas se o dono preferir. J5 espera decisão e não bloqueia J1–J4.
+11. **G6** — verificação na máquina do dono, depois do release. Se a Parte J estiver no mesmo release, G6.1 inclui um host configurado à mão com `--vault Estudo`.
+12. **F1** — feito em 2026-09-15 (ver ledger).
 
 ## Riscos
 

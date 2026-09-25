@@ -89,3 +89,16 @@ func pathFromResourceURI(uri string) (string, error) {
 
 	return parser.PercentDecode(rest), nil
 }
+
+// ehPastaURI decide se a URI nomeia uma pasta: a barra final e o
+// discriminador, e esta e a unica conta dele. Nenhuma nota termina em barra,
+// entao nao ha caso ambiguo. A raiz, "gobsidian:///", e pasta.
+func ehPastaURI(uri string) bool {
+	return strings.HasSuffix(uri, "/")
+}
+
+// uriDePasta monta a URI publicada de uma pasta: a de resourceURI com a barra
+// final que ehPastaURI reconhece.
+func uriDePasta(p string) string {
+	return resourceURI(vault.CanonicalPath(p + "/"))
+}

@@ -546,14 +546,22 @@ Com `report_broken_links`, o retorno lista as notas que passarão a ter links qu
 
 # Resources
 
-Notas são expostas como *resources* MCP, permitindo que o host as anexe ao contexto sem chamada de tool.
+O cofre inteiro é exposto como *resources* MCP — cada nota e cada pasta —, permitindo que o host as anexe ao contexto sem chamada de tool.
 
-| Campo | Valor |
-|---|---|
-| URI | `gobsidian:///<caminho-canônico>`, com escape percent |
-| MIME | `text/markdown` |
-| Nome | Título da nota (H1, ou nome do arquivo) |
-| Descrição | Primeiros 200 caracteres do corpo |
+| Campo | Nota | Pasta |
+|---|---|---|
+| URI | `gobsidian:///Direito/Penal/Dolo.md` | `gobsidian:///Direito/Penal/` — a barra final é o que distingue pasta de nota |
+| `name` | caminho sem extensão: `Direito/Penal/Dolo` | caminho com barra final: `Direito/Penal/` |
+| `title` | folha primeiro, pasta depois: `Dolo eventual · Direito/Penal` | `📁 Penal · Direito` |
+| MIME | `text/markdown` | `inode/directory` |
+
+A raiz é publicada como `gobsidian:///`, com `name` `/` e `title` `📁 Cofre inteiro`.
+
+**Por que o `title` começa pela folha.** O Claude Desktop (1.52386.6, medido em 2026-09-14) mostra só o `title`, numa lista plana e estreita que corta pelo fim. Com só a folha, cem `Nota 001` de pastas diferentes ficam indistinguíveis; com a pasta primeiro, o corte come o que identifica a nota. A folha é o título da nota (frontmatter ou H1) e, sem título, o nome do arquivo sem extensão. O `name` carrega o caminho porque é por ele que a busca do cliente casa. O `📁` existe porque o mesmo cliente não desenha ícone de resource.
+
+**Ler uma pasta** devolve **um** conteúdo `text/markdown`: a contagem de notas e a lista dos filhos **diretos** — subpastas e notas —, cada um como link `gobsidian:///`. Nunca o texto das notas e nunca os netos: a raiz de um cofre de estudo seriam milhares de notas numa resposta. Pasta que não existe é erro de leitura, com a mensagem dizendo que ela não tem nota nenhuma no cofre.
+
+**O conjunto de pastas vem do índice, não do disco** (`service.VaultTree`, a conta única dele): respeita as mesmas exclusões da varredura (`.obsidian`, `.trash`), e por isso uma pasta sem nenhuma nota na subárvore — vazia, ou só com anexos — não é publicada.
 
 **Três barras, e o caminho vem escapado.** `gobsidian://` seguido do caminho parece natural e está errado: em RFC 3986, o que vem logo depois de `//` é a **autoridade**, não o caminho. Com duas barras, `Civil/PONTO 03.md` faz `Civil` virar nome de host — e uma nota na raiz do cofre com espaço no nome faz o host inteiro ser `Minha nota.md`, que é inválido. O servidor morria no boot, dentro do registro do resource, antes de anunciar qualquer tool.
 
@@ -561,7 +569,9 @@ A terceira barra declara autoridade vazia e faz o caminho começar onde deve. Os
 
 Na leitura o servidor também aceita a forma antiga de duas barras, para não transformar documentação desatualizada em nota inalcançável.
 
-A listagem de resources é paginada e serve o índice em memória. Em cofres grandes, listar todas as notas como resources é caro para o host; a listagem respeita um limite fixo de 200 (`resources.go:66`), ordenadas por data de modificação decrescente — não há flag nem parâmetro que o mude.
+A listagem publica o cofre inteiro, sem teto, e a paginação de `resources/list` é a do SDK: 1.000 itens por página, com `nextCursor`. Um cliente que siga o cursor vê tudo — o Claude Desktop segue (medido em 2026-09-14) —; um que não siga vê as primeiras 1.000 em ordem de URI.
+
+A lista é montada **no boot**, a partir do índice daquele momento. Nota criada depois continua legível pela URI, porque o template `gobsidian:///{+path}` atende qualquer caminho, mas só entra na lista quando o servidor reinicia.
 
 ---
 
