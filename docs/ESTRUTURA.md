@@ -11,6 +11,8 @@ gobsidian/
 │       ├── main.go               entrypoint; só constrói o context raiz e delega
 │       ├── flags.go              flagsDeCofre/flagsDeCache: flags compartilhadas
 │       │                         entre os subcomandos que abrem cofre e cache
+│       ├── cofre.go              carregarConfig: --vault pelo nome, e o único
+│       │                         caminho até config.Load
 │       ├── cli_log.go            loggerDeCLI: logger de search, index e inspect
 │       ├── serve.go              subcomando serve (stdio)
 │       ├── doctor.go             subcomando doctor (diagnóstico de ambiente)
@@ -226,6 +228,7 @@ gobsidian/
 │   │   ├── instalar.go           a sequência de sete passos, com as operações
 │   │   │                         perigosas injetáveis
 │   │   ├── cofres.go             lê o registro de cofres do próprio Obsidian
+│   │   ├── resolver_cofre.go     --vault pelo nome: ResolverCofre e CofresPorNome
 │   │   ├── cofres_windows.go     onde esse registro mora (build tag windows)
 │   │   ├── cofres_darwin.go      idem (build tag darwin)
 │   │   ├── cofres_other.go       idem (build tag !windows && !darwin)

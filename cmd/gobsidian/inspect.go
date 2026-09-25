@@ -35,7 +35,7 @@ func newInspectCmd() *cobra.Command {
 		Short: textos.ResumoInspect,
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			cfg, err := config.Load(flags)
+			cfg, err := carregarConfig(flags)
 			if err != nil {
 				return err
 			}

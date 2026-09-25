@@ -86,6 +86,12 @@ var iniciarDaemonFn = func(cfg config.Config) error {
 // um binario velho), e dar a quem opera o servidor um jeito de desligar o
 // daemon numa maquina onde ele nao e desejado (documentado no README).
 func servePonte(ctx context.Context, cfg config.Config, log *slog.Logger) error {
+	// A unica pista de onde veio o caminho, quando o registro do Obsidian
+	// mudar e o mesmo nome passar a apontar para outro lugar.
+	if cfg.CofrePorNome != "" {
+		log.Info("cofre resolvido pelo nome", "nome", cfg.CofrePorNome, "caminho", cfg.VaultPath)
+	}
+
 	if os.Getenv("GOBSIDIAN_NO_DAEMON") != "" {
 		log.Info("GOBSIDIAN_NO_DAEMON definida; servindo em processo sem tentar o daemon")
 		return serveEmProcesso(ctx, cfg, log)

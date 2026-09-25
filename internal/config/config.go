@@ -71,6 +71,13 @@ type Config struct {
 	// LogLevelExplicito e true quando GOBSIDIAN_LOG_LEVEL ou --log-level foi
 	// dado; os subcomandos de CLI so mostram log acima de Warn sem ele.
 	LogLevelExplicito bool
+
+	// CofrePorNome e o valor de --vault quando ele era o NOME de um cofre do
+	// Obsidian, e nao um caminho; vazio quando era caminho. Load nao o
+	// preenche: quem resolve o nome e cmd/gobsidian, antes de Load, porque ler
+	// o registro do Obsidian nao e conta de um pacote folha. Existe para o log
+	// e o doctor dizerem de onde veio VaultPath quando o registro mudar.
+	CofrePorNome string
 }
 
 // Load resolve a configuracao com precedencia flag > env > default.

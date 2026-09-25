@@ -62,7 +62,7 @@ const (
 
 // Ajuda das flags. O nome da flag fica no codigo; o que muda aqui e a frase.
 const (
-	FlagVault          = "caminho da raiz do cofre (obrigatório)"
+	FlagVault          = "nome do cofre no Obsidian ou caminho da raiz (obrigatório)"
 	FlagFollowSymlinks = "segue symlink dentro do cofre; o padrão recusa, porque o confinamento não alcança o alvo"
 	FlagCacheDir       = "diretório do cache de índice"
 	FlagLogLevel       = "debug, info, warn ou error"
@@ -107,6 +107,16 @@ const (
 	ErroAtivoAusente     = "o release %s não publica %q (plataforma %s/%s)"
 	ErroTemporario       = "criando diretório temporário: %w"
 	ErroGerandoScript    = "gerando o script de %s: %w"
+)
+
+// Erros de --vault dado pelo nome do cofre (instalar.ResolverCofre). Cada um
+// termina dizendo o que fazer, porque quem le e quem configurou o host.
+const (
+	ErroCofreAmbiguo      = "o nome %q casa mais de um cofre do Obsidian: %s; passe o caminho da raiz em --vault"
+	ErroCofreNomeEPasta   = "o nome %q é o cofre %s do Obsidian e também a pasta %s no diretório atual; passe o caminho da raiz em --vault"
+	ErroCofreSemRegistro  = "%q não é uma pasta e o Obsidian não tem registro de cofres (%s); passe o caminho da raiz do cofre em --vault"
+	ErroCofreDesconhecido = "nenhum cofre do Obsidian se chama %q; conhecidos: %s. Passe o nome de um deles ou o caminho da raiz em --vault"
+	CofreNenhumConhecido  = "nenhum"
 )
 
 // `gobsidian` sem argumento nenhum: a autoinstalacao da decisao D-11.

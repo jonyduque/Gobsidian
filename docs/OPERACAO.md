@@ -36,6 +36,16 @@ Exemplo de configuração para o servidor MCP:
 - O caminho do cofre com espaços **não deve** ter aspas adicionais incluídas na string, pois o JSON as tratará literalmente.
 - Nunca termine o caminho do `--vault` com uma barra (`\`), pois ela escapará a aspa do JSON.
 
+**`--vault` pelo nome.** Em vez do caminho, `--vault` aceita o nome do cofre como o Obsidian o conhece — o nome da pasta, lido do `obsidian.json` do Obsidian:
+
+```json
+"args": ["serve", "--vault", "Estudo"]
+```
+
+A regra de decisão: valor com barra, absoluto, com letra de unidade ou começando por `.` ou `~` é **caminho**, e nunca consulta o registro. Palavra solta é **nome**, e casa sem distinguir caixa nem forma Unicode, mas **distingue acento** (`Revisao` não casa `Revisão`). O servidor recusa, com os candidatos na mensagem, em vez de escolher: nome que dois cofres compartilham; nome de cofre que também é uma pasta no diretório corrente, em outro lugar; e nome que não casa cofre nenhum. Palavra que não é cofre mas é pasta no diretório corrente continua sendo caminho, como antes.
+
+O caminho é o mais robusto: o host sobe mesmo sem o Obsidian instalado. O nome depende do registro do Obsidian a cada partida, e o log registra `cofre resolvido pelo nome` com o caminho que ele deu — é a pista quando o registro mudar. Os dois dão o **mesmo** cache e o mesmo daemon.
+
 ## 2. Diagnóstico quando o servidor não carrega
 
 Se o servidor não for listado no Claude Desktop após a reinicialização:

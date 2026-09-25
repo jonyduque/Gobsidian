@@ -73,7 +73,18 @@ func checkRootExists(ctx context.Context, cfg config.Config) Result {
 			Detail: fmt.Sprintf("%q existe mas não é um diretório", cfg.VaultPath),
 		}
 	}
-	return Result{Name: name, Status: StatusOK}
+	return Result{Name: name, Status: StatusOK, Detail: origemDoCofre(cfg)}
+}
+
+// origemDoCofre diz, quando --vault foi o NOME do cofre, para que caminho o
+// registro do Obsidian o resolveu. E a pergunta de quem diagnostica depois de
+// o registro mudar: o mesmo nome pode passar a apontar para outro lugar.
+// Vazio quando --vault foi caminho, que ja esta na linha de comando.
+func origemDoCofre(cfg config.Config) string {
+	if cfg.CofrePorNome == "" {
+		return ""
+	}
+	return fmt.Sprintf("pelo nome %q, resolvido para %s", cfg.CofrePorNome, cfg.VaultPath)
 }
 
 // checkReadable verifica que o processo consegue listar a raiz do cofre.

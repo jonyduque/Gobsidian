@@ -38,7 +38,7 @@ func newDaemonCmd() *cobra.Command {
 			flags.DebounceMSSet = cmd.Flags().Changed("debounce-ms")
 			flags.MaxResultsSet = cmd.Flags().Changed("max-results")
 
-			cfg, err := config.Load(flags)
+			cfg, err := carregarConfig(flags)
 			if err != nil {
 				return err
 			}

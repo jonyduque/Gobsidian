@@ -31,7 +31,7 @@ func newDoctorCmd() *cobra.Command {
 			flags.ReadOnlySet = cmd.Flags().Changed("read-only")
 			flags.MaxResultsSet = cmd.Flags().Changed("max-results")
 
-			cfg, err := config.Load(flags)
+			cfg, err := carregarConfig(flags)
 			if err != nil {
 				return err
 			}

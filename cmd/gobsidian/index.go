@@ -31,7 +31,7 @@ func newIndexCmd() *cobra.Command {
 		Use:   "index",
 		Short: textos.ResumoIndex,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			cfg, err := config.Load(flags)
+			cfg, err := carregarConfig(flags)
 			if err != nil {
 				return err
 			}

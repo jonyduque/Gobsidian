@@ -531,12 +531,19 @@ func desempatarChaves(entradas []hosts.EntradaNomeada, cofres []string) {
 // So enxerga host de ARQUIVO. Claude Code, Gemini CLI e Codex guardam a
 // configuracao dentro do proprio CLI, e ler aquilo seria adivinhar um formato
 // que muda entre versoes -- o mesmo motivo de a escrita deles passar pelo CLI.
-func ConfiguracaoAtual(amb hosts.Ambiente) []string {
+//
+// Entrada escrita a mao com o NOME do cofre (`--vault Estudo`) e resolvida
+// pelo registro do Obsidian (`registro`), pela mesma conta que o servidor usa
+// ao subir -- ResolverCofre, sem diretorio corrente, porque o de quem le aqui
+// nao e o do host. Ate 2026-09-25 o nome passava por CaminhoCanonicoDeCofre e
+// virava <cwd>\Estudo. Nome que nao resolve aparece como veio, e nao e
+// descartado: sumir da lista aqui significaria ser desconfigurado.
+func ConfiguracaoAtual(amb hosts.Ambiente, registro string) []string {
 	var cofres []string
 	visto := map[string]bool{}
 	for _, h := range hosts.Detectar(amb) {
 		for _, en := range h.EntradasAtuais(amb) {
-			cofre := CaminhoCanonicoDeCofre(hosts.CofreDaEntrada(en.Entrada))
+			cofre := cofreConfigurado(hosts.CofreDaEntrada(en.Entrada), registro)
 			if cofre == "" || visto[cofre] {
 				continue
 			}
@@ -546,6 +553,20 @@ func ConfiguracaoAtual(amb hosts.Ambiente) []string {
 	}
 	sort.Strings(cofres)
 	return cofres
+}
+
+// cofreConfigurado e o cofre de uma entrada de host: caminho canonico quando e
+// caminho ou nome que resolve, e o valor como veio quando e nome que nao
+// resolve.
+func cofreConfigurado(valor, registro string) string {
+	caminho, porNome, err := ResolverCofre(valor, registro, "")
+	switch {
+	case err != nil:
+		return valor
+	case porNome:
+		return caminho
+	}
+	return CaminhoCanonicoDeCofre(caminho)
 }
 
 // ChaveDeCofre monta a chave sob a qual um cofre aparece no config do host,

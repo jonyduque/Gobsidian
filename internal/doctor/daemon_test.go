@@ -158,3 +158,17 @@ func TestCheckDaemonLogUsaACaminhoDoLogDoDaemon(t *testing.T) {
 		t.Fatalf("o log existe em %q e o doctor nao o achou: %q", esperado, r.Detail)
 	}
 }
+
+// J4.2: com --vault dado pelo nome, a linha do cofre diz o nome e o caminho
+// que o registro do Obsidian deu; com caminho, nao diz nada a mais.
+func TestRaizDoCofreDizQuandoVeioPeloNome(t *testing.T) {
+	dir := t.TempDir()
+	r := checkRootExists(t.Context(), config.Config{VaultPath: dir, CofrePorNome: "Estudo"})
+	if r.Status != StatusOK || !strings.Contains(r.Detail, `"Estudo"`) || !strings.Contains(r.Detail, dir) {
+		t.Errorf("pelo nome: %+v, quer OK com o nome e o caminho", r)
+	}
+	r = checkRootExists(t.Context(), config.Config{VaultPath: dir})
+	if r.Status != StatusOK || r.Detail != "" {
+		t.Errorf("pelo caminho: %+v, quer OK sem detalhe", r)
+	}
+}

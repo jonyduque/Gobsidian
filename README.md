@@ -201,6 +201,9 @@ Complete schema contracts and error definitions are detailed in [`docs/TOOLS.md`
 # Start MCP server over stdio
 gobsidian serve --vault "/path/to/vault" [--read-only]
 
+# --vault also takes the vault's NAME as Obsidian knows it
+gobsidian serve --vault Estudo
+
 # Install or reconfigure (no arguments at all also installs)
 gobsidian install [--vault <path>] [--hosts <list>] [--read-only] [--yes]
 
@@ -232,7 +235,8 @@ gobsidian version
 ### Shell completion
 
 Completion covers command names, flag names **and flag values** — `--vault`
-offers the vaults Obsidian knows about (marking the ones currently open),
+offers the vaults Obsidian knows about, by name and by path (marking the ones
+currently open; a name two vaults share is offered only by path),
 `--hosts` the nine host keys with their product names, `--log-level` the four
 levels.
 

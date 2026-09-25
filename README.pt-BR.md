@@ -202,6 +202,9 @@ O `gobsidian` traz ferramentas de linha de comando para instalação, diagnósti
 # Sobe o servidor MCP sobre stdio
 gobsidian serve --vault "/caminho/do/cofre" [--read-only]
 
+# --vault também aceita o NOME do cofre, como o Obsidian o conhece
+gobsidian serve --vault Estudo
+
 # Instala ou reconfigura (sem argumento nenhum também instala)
 gobsidian install [--vault <caminho>] [--hosts <lista>] [--read-only] [--yes]
 
@@ -233,8 +236,9 @@ gobsidian version
 ### Completação de shell
 
 A completação cobre nome de comando, nome de flag **e valor de flag** —
-`--vault` oferece os cofres que o Obsidian conhece, marcando os que estão
-abertos; `--hosts`, as nove chaves com o nome de cada produto; `--log-level`,
+`--vault` oferece os cofres que o Obsidian conhece, pelo nome e pelo caminho,
+marcando os que estão abertos (nome que dois cofres compartilham só aparece
+pelo caminho); `--hosts`, as nove chaves com o nome de cada produto; `--log-level`,
 os quatro níveis.
 
 ```bash

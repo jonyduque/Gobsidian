@@ -26,7 +26,7 @@ func newSearchCmd() *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			flags.MaxResultsSet = cmd.Flags().Changed("max-results")
 
-			cfg, err := config.Load(flags)
+			cfg, err := carregarConfig(flags)
 			if err != nil {
 				return err
 			}

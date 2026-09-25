@@ -170,7 +170,7 @@ func escolherCofres(con *console.Stream, entrada *bufio.Reader, o *opcoesDeInsta
 		return []string{o.vault}, nil
 	}
 
-	jaConfigurados := instalar.ConfiguracaoAtual(hosts.AmbienteReal())
+	jaConfigurados := instalar.ConfiguracaoAtual(hosts.AmbienteReal(), instalar.CaminhoDoRegistroDoObsidian())
 
 	// Manter o que ja existe e a resposta mais provavel de quem roda o
 	// instalador de novo -- e a unica que nao mexe em nada.

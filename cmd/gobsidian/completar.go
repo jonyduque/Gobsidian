@@ -60,16 +60,8 @@ func instalarCompletion(raiz *cobra.Command) {
 			if err != nil || len(cofres) == 0 {
 				return carapace.ActionDirectories()
 			}
-			var pares []string
-			for _, c := range cofres {
-				nota := textos.CompletarCofre
-				if c.Aberto {
-					nota = textos.CompletarCofreAberto
-				}
-				pares = append(pares, c.Caminho, nota)
-			}
 			return carapace.Batch(
-				carapace.ActionValuesDescribed(pares...),
+				carapace.ActionValuesDescribed(paresDeCofre(cofres)...),
 				carapace.ActionDirectories(),
 			).ToA()
 		})
@@ -108,4 +100,28 @@ func instalarCompletion(raiz *cobra.Command) {
 	}
 
 	carapace.Gen(raiz)
+}
+
+// paresDeCofre monta os pares valor/descricao de --vault: primeiro o NOME de
+// cada cofre, descrito pelo caminho, e depois os caminhos.
+//
+// Nome que o registro repete nao e oferecido como nome, so pelos caminhos:
+// --vault recusaria o nome ambiguo, e oferecer no Tab o que a flag recusa e
+// ensinar o erro. Quem decide o que e ambiguo e instalar.CofresPorNome, a
+// mesma conta de instalar.ResolverCofre.
+func paresDeCofre(cofres []instalar.Cofre) []string {
+	var pares []string
+	for _, g := range instalar.CofresPorNome(cofres) {
+		if len(g.Caminhos) == 1 {
+			pares = append(pares, g.Nome, g.Caminhos[0])
+		}
+	}
+	for _, c := range cofres {
+		nota := textos.CompletarCofre
+		if c.Aberto {
+			nota = textos.CompletarCofreAberto
+		}
+		pares = append(pares, c.Caminho, nota)
+	}
+	return pares
 }
