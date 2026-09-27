@@ -1,6 +1,6 @@
 # Textos da CLI
 
-Este documento reúne tudo o que o comando gobsidian escreve na tela para uma
+Este documento reúne tudo o que o comando *gobsidian* escreve na tela para uma
 pessoa ler, na ordem em que ela encontra cada tela, para que a redação possa
 ser revista num lugar só. Cada texto aparece como sai num terminal UTF-8, mas
 **sem as molduras** (os cantos e traços das caixas foram omitidos). O
@@ -38,9 +38,9 @@ Num console que não aguenta UTF-8 (CP-850), os marcadores saem escritos
 mesma. Os cabeçalhos de segundo e terceiro nível deste documento organizam as
 telas e não aparecem na tela.
 
-## gobsidian sem argumentos
+## *gobsidian* sem argumentos
 
-Com o gobsidian já instalado, ou sem um terminal do outro lado, o comando
+Com o *gobsidian* já instalado, ou sem um terminal do outro lado, o comando
 sozinho mostra a ajuda. Sem instalação e com terminal, ele se instala.
 
 ### Autoinstalação
@@ -75,13 +75,13 @@ Em seguida vem o fluxo de instalação (seção install abaixo).
 | update | Atualiza o **gobsidian**. <!-- textos.ResumoUpdate --> |
 | vaults | Configura o **gobisidian** como MCP de hosts de IA. <!-- textos.ResumoVaults --> |
 | version | Imprime versão. <!-- textos.ResumoVersion --> |
-| daemon (oculto) | Roda o daemon de cofre compartilhado (uso interno da ponte). <!-- textos.ResumoDaemon --> |
+| *daemon* (oculto) | Roda o *daemon* de cofre compartilhado (uso interno da ponte). <!-- textos.ResumoDaemon --> |
 
 **Flags:** <!-- internal/console/cobra.go:32 -->
 
 | Flag | Texto |
 |---|---|
-| -h, --help | Exibe a ajuda do **gobsidian**. <!-- internal/console/cobra.go:116 --> |
+| -h, `--help` | Exibe a ajuda do **gobsidian**. <!-- internal/console/cobra.go:116 --> |
 
 Use "gobsidian [comando] --help" para detalhes de um comando. <!-- internal/console/cobra.go:35 -->
 
@@ -93,12 +93,12 @@ Use "gobsidian [comando] --help" para detalhes de um comando. <!-- internal/cons
 |---|---|
 | (resumo) | Instala o **gobsidian**, ajusta o *PATH* e configura os hosts de IA. <!-- textos.ResumoInstall --> |
 | (descrição) | Instala o executável no perfil do usuário, sem elevação, pergunta se deve acrescentar o diretório ao *PATH* e registrar o servidor nos hosts de IA detectados. <!-- textos.DescricaoInstall --> |
-| --vault | Cofre a servir (padrão: listar cofres registrados no Obsidian para escolha). <!-- textos.FlagInstallVault --> |
-| --install-dir | Diretório onde o **gobsidian** será instalado (padrão: `‹diretório padrão›`). <!-- textos.FlagInstallDir + internal/instalar DiretorioPadrao + ")" em cmd/gobsidian/install.go:42 --> |
-| --hosts | Lista de hosts de IA (Claude, Codex, AGY, etc.) a configurar, separados por vírgula (`‹chaves dos hosts›`); 'none' não configura nenhum. <!-- textos.FlagInstallHosts + chaves + textos.FlagInstallHostsFim, cmd/gobsidian/install.go:44 --> |
-| --yes | Não pergunta nada: instala, ajusta o PATH e configura todos os hosts de IA detectados. <!-- textos.FlagInstallYes --> |
-| --read-only | Registra o servidor apenas para leitura. <!-- textos.FlagInstallReadOnly --> |
-| --no-path | Não altera o *PATH* <!-- textos.FlagInstallNoPath --> |
+| `--vault` | Cofre a servir (padrão: listar cofres registrados no Obsidian para escolha). <!-- textos.FlagInstallVault --> |
+| `--install-dir` | Diretório onde o **gobsidian** será instalado (padrão: `‹diretório padrão›`). <!-- textos.FlagInstallDir + internal/instalar DiretorioPadrao + ")" em cmd/gobsidian/install.go:42 --> |
+| `--hosts` | Lista de hosts de IA (Claude, Codex, AGY, etc.) a configurar, separados por vírgula (`‹chaves dos hosts›`); 'none' não configura nenhum. <!-- textos.FlagInstallHosts + chaves + textos.FlagInstallHostsFim, cmd/gobsidian/install.go:44 --> |
+| `--yes` | Não pergunta nada: instala, ajusta o PATH e configura todos os hosts de IA detectados. <!-- textos.FlagInstallYes --> |
+| `--read-only` | Registra o servidor apenas para leitura. <!-- textos.FlagInstallReadOnly --> |
+| `--no-path` | Não altera o *PATH* <!-- textos.FlagInstallNoPath --> |
 
 ### Sem terminal
 
@@ -146,7 +146,7 @@ Sem terminal, a lista é numerada e a escolha é digitada:
 
 **◆ Números separados por espaço, * para todos, vazio para nenhum ▸** <!-- textos.InstallEscolhaDigitada -->
 
-Com --yes e nenhum cofre configurado antes:
+Com `--yes` e nenhum cofre configurado antes:
 
 - ℹ️ Cofre: %s <!-- textos.InstallCofreEscolhido -->
 
@@ -195,9 +195,9 @@ Windsurf. <!-- internal/hosts/hosts.go:102 a :215 -->
 - ◕ Configurando os hosts de IA <!-- textos.PassoHosts -->
 - ● Gravando o manifesto <!-- textos.PassoManifesto -->
 
-Se houver processos do gobsidian rodando:
+Se houver processos do *gobsidian* rodando:
 
-**Encerrar estes processos do gobsidian para trocar o binario?** <!-- internal/instalar/instalar.go:279 -->
+**Encerrar estes processos do *gobsidian* para trocar o binario?** <!-- internal/instalar/instalar.go:279 -->
 
 - pid ‹pid›  ‹papel›  ‹cofre› <!-- internal/instalar/instalar.go:277 -->
 - ⊏ Sim ⊐ [•Não•] <!-- internal/console/confirmar.go:143 -->
@@ -251,11 +251,11 @@ O aviso de cada host configurado com sucesso:
 
 ### Erros
 
-- nenhum cofre encontrado; passe --vault com o caminho do cofre <!-- textos.ErroSemCofre -->
-- seleção cancelada; nada foi alterado <!-- textos.ErroSelecaoCancelada -->
-- host desconhecido %q; conhecidos: %s <!-- textos.ErroHostDesconhecido -->
-- escolha invalida: %q <!-- internal/console/selecao.go:345 -->
-- escolha fora da lista: %d <!-- internal/console/selecao.go:348 -->
+- Nenhum cofre encontrado. Passe `--vault` com o caminho do cofre. <!-- textos.ErroSemCofre -->
+- Seleção cancelada. Nada foi alterado. <!-- textos.ErroSelecaoCancelada -->
+- Host desconhecido %q. Conhecidos: %s <!-- textos.ErroHostDesconhecido -->
+- Escolha inválida: %q <!-- internal/console/selecao.go:345 -->
+- Escolha fora da lista: %d <!-- internal/console/selecao.go:348 -->
 
 Os erros de internal/instalar e internal/hosts que podem chegar aqui estão na
 última seção.
@@ -266,7 +266,7 @@ Os erros de internal/instalar e internal/hosts que podem chegar aqui estão na
 
 | Flag | Texto |
 |---|---|
-| (resumo) | Configura os hosts de IA para um cofre, sem reinstalar o binário <!-- textos.ResumoVaults --> |
+| (resumo) | Configura os hosts de IA para um cofre, sem reinstalar o binário. <!-- textos.ResumoVaults --> |
 
 As flags são as mesmas de install (--vault, --install-dir, --hosts, --yes,
 --read-only, --no-path), com o mesmo texto.
@@ -275,20 +275,20 @@ As flags são as mesmas de install (--vault, --install-dir, --hosts, --yes,
 
 A escolha de cofres e de hosts é a mesma de install. Depois:
 
-- ✅ Configuração mantida; nada foi alterado <!-- textos.VaultsMantido -->
+- ✅ Configuração mantida. Nada foi alterado. <!-- textos.VaultsMantido -->
 
 ou:
 
-- ✅ Hosts configurados <!-- textos.InstallHostsConfigurados -->
-  - cofres   nenhum configurado <!-- textos.InstallSemCofreNaLista -->
-  - cofre    %s <!-- textos.InstallCofreNaLista -->
+- ✅ Hosts configurados. <!-- textos.InstallHostsConfigurados -->
+  - Nenhum cofre configurado. <!-- textos.InstallSemCofreNaLista -->
+  - Cofre    %s <!-- textos.InstallCofreNaLista -->
   - %-16s %s <!-- textos.InstallHostNaLista: chave do host e o aviso da tabela de install -->
-- ⚠️ %s não pode ser configurado <!-- textos.InstallHostFalhou -->
+- ⚠️ %s não pode ser configurado. <!-- textos.InstallHostFalhou -->
   - ‹erro do host›
 
 ### Erros
 
-- %w -- rode `gobsidian install` primeiro <!-- textos.ErroSemManifesto; o %w é "nao ha manifesto de instalacao", internal/instalar/manifesto.go:50 -->
+- %w -- Rode `gobsidian install` primeiro <!-- textos.ErroSemManifesto; o %w é "nao ha manifesto de instalacao", internal/instalar/manifesto.go:50 -->
 
 ## update
 
@@ -296,47 +296,47 @@ ou:
 
 | Flag | Texto |
 |---|---|
-| (resumo) | Atualiza o gobsidian para a última versão publicada <!-- textos.ResumoUpdate --> |
-| (descrição) | Consulta a versão publicada, baixa o binário da plataforma corrente, CONFERE o SHA-256 publicado e -- só então -- encerra os processos em execução e troca o binário. Divergência de soma aborta sem instalar nada. <!-- textos.DescricaoUpdate --> |
-| --check | só diz se há versão nova, sem baixar nem instalar <!-- textos.FlagUpdateCheck --> |
-| --yes | não pergunta antes de encerrar os processos em execução <!-- textos.FlagUpdateYes --> |
+| (resumo) | Atualiza o **gobsidian**. <!-- textos.ResumoUpdate --> |
+| (descrição) | Consulta a versão publicada, baixa o binário da plataforma corrente, confere o SHA-256 publicado e só então encerra os processos em execução e troca o binário. Divergência de soma aborta sem instalar nada. <!-- textos.DescricaoUpdate --> |
+| `--check` | Só diz se há versão nova, sem baixar nem instalar. <!-- textos.FlagUpdateCheck --> |
+| `--yes` | Não pergunta antes de encerrar os processos em execução. <!-- textos.FlagUpdateYes --> |
 
 ### Na tela
 
 - ⏳ Consultando a última versão publicada <!-- textos.UpdateConsultando -->
-- ℹ️ instalada: %s <!-- textos.UpdateInstalada -->
-- ℹ️ publicada: %s <!-- textos.UpdatePublicada -->
-- ✅ Já está na última versão <!-- textos.UpdateJaAtual -->
+- ℹ️ Versão instalada: %s <!-- textos.UpdateInstalada -->
+- ℹ️ Versão publicada: %s <!-- textos.UpdatePublicada -->
+- ✅ Já está atualizado. <!-- textos.UpdateJaAtual -->
 
-Com --check e versão nova:
+Com `--check` e versão nova:
 
 - ⚠️ Há versão nova: %s <!-- textos.UpdateHaVersaoNova -->
-  - rode `gobsidian update` para instalar <!-- textos.UpdateComoInstalar -->
+  - Rode `gobsidian update` para instalar. <!-- textos.UpdateComoInstalar -->
 
 Sem --check:
 
-- ⏳ Baixando %s e conferindo o SHA-256 <!-- textos.UpdateBaixando -->
-- ❌ O binário baixado NÃO confere com a soma publicada <!-- textos.UpdateHashDiverge -->
-  - nada foi instalado; sua instalação continua intacta <!-- textos.UpdateNadaMudou -->
-- ✅ SHA-256 confere <!-- textos.UpdateHashConfere -->
-- ⏳ Trocando o binário <!-- textos.UpdateTrocando -->
+- ⏳ Baixando %s e conferindo o SHA-256. <!-- textos.UpdateBaixando -->
+- ❌ O binário baixado NÃO confere com a soma publicada. <!-- textos.UpdateHashDiverge -->
+  - nada foi instalado; sua instalação continua intacta. <!-- textos.UpdateNadaMudou -->
+- ✅ SHA-256 confere. <!-- textos.UpdateHashConfere -->
+- ⏳ Trocando o binário. <!-- textos.UpdateTrocando -->
 
 Seguem os passos, a pergunta sobre encerrar processos e o resumo, iguais aos de
 install. Se a resposta for não:
 
-- ⚠️ Atualização cancelada; nada foi alterado <!-- textos.UpdateCancelado -->
+- ⚠️ Atualização cancelada. Nada foi alterado. <!-- textos.UpdateCancelado -->
 
 No fim:
 
-- ✅ Atualizado para %s <!-- textos.UpdateConcluido -->
+- ✅ Atualizado para %s. <!-- textos.UpdateConcluido -->
 - (o resumo de install)
-  - os hosts reiniciam o servidor sozinhos; não há o que fazer à mão <!-- textos.UpdateHostsSozinho -->
+  - Os hosts reiniciam o servidor sozinhos. Não precisa reiniciar manualmente. <!-- textos.UpdateHostsSozinho -->
 
 ### Erros
 
-- consultando releases: %w <!-- textos.ErroConsultarRelease -->
-- o release %s não publica %q (plataforma %s/%s) <!-- textos.ErroAtivoAusente -->
-- criando diretório temporário: %w <!-- textos.ErroTemporario -->
+- Consultando releases: %w <!-- textos.ErroConsultarRelease -->
+- O release %s não publica %q (plataforma %s/%s) <!-- textos.ErroAtivoAusente -->
+- Criando diretório temporário: %w <!-- textos.ErroTemporario -->
 - %w -- rode `gobsidian install` primeiro <!-- textos.ErroSemManifesto -->
 
 Os erros de internal/selfupdate (download, soma) estão na última seção.
@@ -347,21 +347,21 @@ Os erros de internal/selfupdate (download, soma) estão na última seção.
 
 | Flag | Texto |
 |---|---|
-| (resumo) | Acrescenta ou remove o diretório de instalação do PATH do usuário <!-- textos.ResumoPath --> |
-| --add | acrescenta o diretório ao PATH <!-- textos.FlagPathAdd --> |
-| --remove | remove o diretório do PATH <!-- textos.FlagPathRemove --> |
+| (resumo) | Acrescenta ou remove o diretório de instalação do *PATH* do usuário <!-- textos.ResumoPath --> |
+| `--add` | Acrescenta o diretório ao *PATH* <!-- textos.FlagPathAdd --> |
+| `--remove` | Remove o diretório do *PATH* <!-- textos.FlagPathRemove --> |
 
 ### Na tela
 
-- ✅ PATH já estava como você pediu <!-- textos.PathJaEstava -->
+- ✅ *PATH* já estava como você pediu. <!-- textos.PathJaEstava -->
   - ‹diretório›
-- ✅ PATH atualizado <!-- textos.PathAtualizado -->
+- ✅ *PATH* atualizado. <!-- textos.PathAtualizado -->
   - ‹diretório›
   - ‹aviso de PATH da plataforma, o mesmo do resumo de install›
 
 ### Erros
 
-- escolha exatamente um: --add ou --remove <!-- textos.ErroAddOuRemove -->
+- Escolha exatamente um: `--add` ou `--remove` <!-- textos.ErroAddOuRemove -->
 
 ## doctor
 
@@ -369,12 +369,12 @@ Os erros de internal/selfupdate (download, soma) estão na última seção.
 
 | Flag | Texto |
 |---|---|
-| (resumo) | Diagnostica o ambiente: permissões, OneDrive, MAX_PATH, casing <!-- textos.ResumoDoctor --> |
-| --vault | nome do cofre no Obsidian ou caminho da raiz (obrigatório) <!-- textos.FlagVault --> |
-| --follow-symlinks | segue symlink dentro do cofre; o padrão recusa, porque o confinamento não alcança o alvo <!-- textos.FlagFollowSymlinks --> |
-| --read-only | não verifica permissão de escrita <!-- textos.FlagDoctorReadOnly --> |
-| --max-results | teto de resultados por consulta <!-- textos.FlagMaxResults --> |
-| --fix | além de diagnosticar, remove o lixo comprovadamente órfão do diretório de runtime e do cache <!-- textos.FlagDoctorFix --> |
+| (resumo) | Diagnostica o ambiente. <!-- textos.ResumoDoctor --> |
+| `--vault` | Nome do cofre no Obsidian ou caminho da raiz (obrigatório). <!-- textos.FlagVault --> |
+| `--follow-symlinks` | Segue *symlink* dentro do cofre. <!-- textos.FlagFollowSymlinks --> |
+| `--read-only` | Não verifica permissão de escrita. <!-- textos.FlagDoctorReadOnly --> |
+| `--max-results` | Teto de resultados por consulta. <!-- textos.FlagMaxResults --> |
+| `--fix` | Além de diagnosticar, remove o lixo de *runtime* e do cache. <!-- textos.FlagDoctorFix --> |
 
 ### Verificações
 
@@ -386,7 +386,7 @@ As verificações saem em quatro grupos, cada um com seu título:
 
 #### Cache e disco <!-- internal/doctor/doctor.go:45 -->
 
-#### Daemon <!-- internal/doctor/doctor.go:46 -->
+#### *daemon* <!-- internal/doctor/doctor.go:46 -->
 
 #### Windows <!-- internal/doctor/doctor.go:47 -->
 
@@ -402,82 +402,82 @@ constantes (com acento); onde o literal em uso difere, a diferença está na
 
 Grupo Cofre:
 
-- raiz do cofre existe <!-- textos.CheckRaizExiste; em uso: internal/doctor/checks.go:38 -->
-  - ✅ pelo nome %q, resolvido para %s <!-- internal/doctor/checks.go:87 -->
-  - ⚠️ varredura interrompida: %v <!-- textos.DetVarreduraInterrompida; em uso: internal/doctor/checks.go:44 -->
+- Raiz do cofre existe <!-- textos.CheckRaizExiste; em uso: internal/doctor/checks.go:38 -->
+  - ✅ Pelo nome %q, resolvido para %s <!-- internal/doctor/checks.go:87 -->
+  - ⚠️ Varredura interrompida: %v <!-- textos.DetVarreduraInterrompida; em uso: internal/doctor/checks.go:44 -->
   - ❌ %q: %v <!-- internal/doctor/checks.go:59 -->
-    - existe(m) ao lado, com grafia diferente: %s <!-- textos.DetGrafiaVizinha; em uso: internal/doctor/checks.go:61 -->
+    - Existe(m) ao lado, com grafia diferente: %s <!-- textos.DetGrafiaVizinha; em uso: internal/doctor/checks.go:61 -->
   - ❌ %q existe mas não é um diretório <!-- textos.DetNaoEhDiretorio; em uso: internal/doctor/checks.go:73 -->
-- permissão de leitura <!-- textos.CheckLeitura; em uso: internal/doctor/checks.go:92 -->
+- Permissão de leitura <!-- textos.CheckLeitura; em uso: internal/doctor/checks.go:92 -->
   - ✅ %d entradas na raiz <!-- textos.DetEntradasRaiz; em uso: internal/doctor/checks.go:106 -->
-  - ❌ não foi possível listar %q: %v <!-- textos.DetNaoListou; em uso: internal/doctor/checks.go:103 -->
-- permissão de escrita <!-- textos.CheckEscrita; em uso: internal/doctor/checks.go:115 -->
-  - ❌ não foi possível escrever em %q: %v (⚠️ com --read-only) <!-- textos.DetNaoEscreveu; em uso: internal/doctor/checks.go:136 -->
-- .obsidian presente <!-- textos.CheckObsidian; em uso: internal/doctor/checks.go:152 -->
-  - ⚠️ pasta .obsidian ausente: configurações, temas e plugins do Obsidian não serão detectados <!-- textos.DetObsidianAusente; em uso: internal/doctor/checks.go:165 -->
-  - ⚠️ não foi possível verificar %q: %v <!-- textos.DetNaoVerificou; em uso: internal/doctor/checks.go:171 -->
-  - ⚠️ %q existe mas não é um diretório <!-- textos.DetNaoEhDiretorio; em uso: internal/doctor/checks.go:177 -->
-- contagem de notas <!-- textos.CheckNotas; em uso: internal/doctor/checks.go:188 -->
-  - ✅ %d notas <!-- textos.DetNotas; em uso: internal/doctor/checks.go:196 -->
-  - ⚠️ nenhuma nota .md encontrada <!-- textos.DetSemNotas; em uso: internal/doctor/checks.go:194 -->
-  - ❌ cofre inacessível durante a varredura: %v <!-- textos.DetCofreInacessivel; em uso: internal/doctor/checks.go:327 -->
-- comprimento de caminho <!-- textos.CheckCaminho; em uso: internal/doctor/checks.go:206 -->
-  - ✅ maior caminho: %d caracteres <!-- textos.DetMaiorCaminho; em uso: internal/doctor/checks.go:218 -->
-  - ⚠️ %d caracteres, acima do limiar de %d: %s <!-- textos.DetCaminhoLongo; em uso: internal/doctor/checks.go:215 -->
+  - ❌ Não foi possível listar %q: %v <!-- textos.DetNaoListou; em uso: internal/doctor/checks.go:103 -->
+- Permissão de escrita <!-- textos.CheckEscrita; em uso: internal/doctor/checks.go:115 -->
+  - ❌ Não foi possível escrever em %q: %v (⚠️ com --read-only) <!-- textos.DetNaoEscreveu; em uso: internal/doctor/checks.go:136 -->
+- `.obsidian` presente. <!-- textos.CheckObsidian; em uso: internal/doctor/checks.go:152 -->
+  - ⚠️ Pasta `.obsidian` ausente: configurações, temas e plugins do Obsidian não serão detectados. <!-- textos.DetObsidianAusente; em uso: internal/doctor/checks.go:165 -->
+  - ⚠️ Não foi possível verificar %q: %v <!-- textos.DetNaoVerificou; em uso: internal/doctor/checks.go:171 -->
+  - ⚠️ %q existe mas não é um diretório. <!-- textos.DetNaoEhDiretorio; em uso: internal/doctor/checks.go:177 -->
+- Contagem de notas <!-- textos.CheckNotas; em uso: internal/doctor/checks.go:188 -->
+  - ✅ %d notas. <!-- textos.DetNotas; em uso: internal/doctor/checks.go:196 -->
+  - ⚠️ Nenhuma nota encontrada <!-- textos.DetSemNotas; em uso: internal/doctor/checks.go:194 -->
+  - ❌ Cofre inacessível durante a varredura: %v <!-- textos.DetCofreInacessivel; em uso: internal/doctor/checks.go:327 -->
+- Comprimento de caminho <!-- textos.CheckCaminho; em uso: internal/doctor/checks.go:206 -->
+  - ✅ Maior caminho: %d caracteres. <!-- textos.DetMaiorCaminho; em uso: internal/doctor/checks.go:218 -->
+  - ⚠️ %d caracteres. Acima do limiar de %d: %s <!-- textos.DetCaminhoLongo; em uso: internal/doctor/checks.go:215 -->
 
 Grupo Cache e disco:
 
-- diretório de cache <!-- textos.CheckCache; em uso: internal/doctor/checks.go:224 -->
-  - ✅ nenhum diretório de cache configurado <!-- textos.DetSemCacheDir; em uso: internal/doctor/checks.go:234 -->
-  - ⚠️ não foi possível criar %q: %v <!-- textos.DetNaoCriouCache; em uso: internal/doctor/checks.go:241 -->
-- espaço em disco <!-- textos.CheckEspaco; em uso: internal/doctor/checks.go:251 -->
+- Diretório de cache <!-- textos.CheckCache; em uso: internal/doctor/checks.go:224 -->
+  - ✅ Nenhum diretório de cache configurado. <!-- textos.DetSemCacheDir; em uso: internal/doctor/checks.go:234 -->
+  - ⚠️ Não foi possível criar %q: %v <!-- textos.DetNaoCriouCache; em uso: internal/doctor/checks.go:241 -->
+- Espaço em disco <!-- textos.CheckEspaco; em uso: internal/doctor/checks.go:251 -->
   - ✅ %d MB livres (⚠️ ou ❌ quando pouco) <!-- textos.DetEspacoLivre; em uso: internal/doctor/checks.go:262 -->
-  - ⚠️ não foi possível medir espaço livre: %v <!-- textos.DetNaoMediuEspaco; em uso: internal/doctor/checks.go:259 -->
+  - ⚠️ Não foi possível medir espaço livre: %v <!-- textos.DetNaoMediuEspaco; em uso: internal/doctor/checks.go:259 -->
 
 Grupo Daemon:
 
-- caminho do socket do daemon <!-- textos.CheckSocket; em uso: internal/doctor/daemon.go:79 -->
+- Caminho do socket do *daemon* <!-- textos.CheckSocket; em uso: internal/doctor/daemon.go:79 -->
   - ✅ %s -- %s <!-- textos.DetSocketEClasse; em uso: internal/doctor/daemon.go:87 -->
-  - ⚠️ não foi possível derivar: %v <!-- textos.DetNaoDerivou; em uso: internal/doctor/daemon.go:83 -->
-- diretório de sockets aceita conexão <!-- textos.CheckDiretorioSockets; em uso: internal/doctor/daemon.go:113 -->
-  - ✅ vale neste processo; num host o servidor roda noutro contexto, e a prova lá é a linha `conectado ao daemon` no log dele <!-- textos.DetSondaOK; em uso: internal/doctor/daemon.go:117 -->
-  - ⚠️ %v -- a ponte deste contexto vai servir em processo em vez de usar o daemon <!-- textos.DetSondaFalhou; em uso: internal/doctor/daemon.go:115 -->
-- daemon respondendo <!-- textos.CheckDaemonVivo; em uso: internal/doctor/daemon.go:130 -->
-  - ✅ handshake completo <!-- textos.DetHandshakeOK; em uso: internal/doctor/daemon.go:135 -->
-  - ✅ nenhum daemon rodando (a ponte servirá em processo) <!-- textos.DetSemDaemon; em uso: internal/doctor/daemon.go:148 -->
-  - ⚠️ arquivo existe mas o handshake falhou: %v <!-- textos.DetHandshakeFalhou; em uso: internal/doctor/daemon.go:154 -->
-- log do daemon <!-- textos.CheckLogDaemon; em uso: internal/doctor/daemon.go:164 -->
-  - ✅ ainda não existe (nenhum daemon rodou para este cofre) <!-- textos.DetLogAusente; em uso: internal/doctor/daemon.go:174 -->
+  - ⚠️ Não foi possível derivar: %v <!-- textos.DetNaoDerivou; em uso: internal/doctor/daemon.go:83 -->
+- Diretório de sockets aceita conexão <!-- textos.CheckDiretorioSockets; em uso: internal/doctor/daemon.go:113 -->
+  - ✅ Vale neste processo; num host o servidor roda noutro contexto, e a prova lá é a linha `conectado ao daemon` no log dele <!-- textos.DetSondaOK; em uso: internal/doctor/daemon.go:117 -->
+  - ⚠️ %v -- a ponte deste contexto vai servir em processo em vez de usar o *daemon* <!-- textos.DetSondaFalhou; em uso: internal/doctor/daemon.go:115 -->
+- *Daemon* respondendo. <!-- textos.CheckDaemonVivo; em uso: internal/doctor/daemon.go:130 -->
+  - ✅ *Handshake* completo. <!-- textos.DetHandshakeOK; em uso: internal/doctor/daemon.go:135 -->
+  - ✅ Nenhum *daemon* rodando (a ponte servirá em processo). <!-- textos.DetSemDaemon; em uso: internal/doctor/daemon.go:148 -->
+  - ⚠️ Arquivo existe mas o *handshake* falhou: %v <!-- textos.DetHandshakeFalhou; em uso: internal/doctor/daemon.go:154 -->
+- Log do *daemon* <!-- textos.CheckLogDaemon; em uso: internal/doctor/daemon.go:164 -->
+  - ✅ Ainda não existe (nenhum *daemon* rodou para este cofre). <!-- textos.DetLogAusente; em uso: internal/doctor/daemon.go:174 -->
   - ✅ %s (%d bytes, última escrita há %s) <!-- textos.DetLogResumo; em uso: internal/doctor/daemon.go:183 -->
     - | ‹uma das três últimas linhas do log› <!-- internal/doctor/daemon.go:185 -->
   - ⚠️ %s: %v <!-- textos.DetCaminhoEErro; em uso: internal/doctor/daemon.go:176 -->
-  - ⚠️ não foi possível derivar: %v <!-- textos.DetNaoDerivou; em uso: internal/doctor/daemon.go:168 -->
-- travas de daemon em uso <!-- textos.CheckTravas; em uso: internal/doctor/daemon.go:206 -->
-  - ✅ nenhuma trava em uso <!-- textos.DetSemTravas; em uso: internal/doctor/daemon.go:248 -->
-  - ✅ diretório de runtime ainda não existe <!-- textos.DetRuntimeAusente; em uso: internal/doctor/daemon.go:217 -->
+  - ⚠️ Não foi possível derivar: %v <!-- textos.DetNaoDerivou; em uso: internal/doctor/daemon.go:168 -->
+- Travas de *daemon* em uso <!-- textos.CheckTravas; em uso: internal/doctor/daemon.go:206 -->
+  - ✅ Nenhuma trava em uso. <!-- textos.DetSemTravas; em uso: internal/doctor/daemon.go:248 -->
+  - ✅ Diretório de *runtime* ainda não existe. <!-- textos.DetRuntimeAusente; em uso: internal/doctor/daemon.go:217 -->
   - ✅ %d em %s: %s <!-- textos.DetTravasEmUso; em uso: internal/doctor/daemon.go:253 -->
-  - cada trava da lista: %s (PID %d) <!-- textos.DetTravaComPID; em uso: internal/doctor/daemon.go:241 -->
-  - cada trava da lista: %s (não foi possível consultar: %v) <!-- textos.DetTravaIlegivel; em uso: internal/doctor/daemon.go:230 -->
+  - Cada trava da lista: %s (PID %d) <!-- textos.DetTravaComPID; em uso: internal/doctor/daemon.go:241 -->
+  - Cada trava da lista: %s (não foi possível consultar: %v) <!-- textos.DetTravaIlegivel; em uso: internal/doctor/daemon.go:230 -->
   - ⚠️ %s: %v <!-- textos.DetCaminhoEErro; em uso: internal/doctor/daemon.go:219 -->
-  - ⚠️ não foi possível derivar: %v <!-- textos.DetNaoDerivou; em uso: internal/doctor/daemon.go:210 -->
+  - ⚠️ Não foi possível derivar: %v <!-- textos.DetNaoDerivou; em uso: internal/doctor/daemon.go:210 -->
 
 O segundo %s de "caminho do socket do daemon" diz o que existe no caminho:
 
 - ausente <!-- textos.ClasseAusente; em uso: internal/doctor/daemon.go:55 -->
-- socket <!-- textos.ClasseSocket; em uso: internal/doctor/daemon.go:62 -->
-- DIRETÓRIO (nenhum daemon consegue usar este caminho) <!-- textos.ClasseDiretorio; em uso: internal/doctor/daemon.go:64 -->
-- symlink <!-- textos.ClasseSymlink; em uso: internal/doctor/daemon.go:66 -->
-- arquivo comum de %d bytes (resíduo; nenhum daemon escuta aqui) <!-- textos.ClasseArquivo; em uso: internal/doctor/daemon.go:68 -->
+- *socket* <!-- textos.ClasseSocket; em uso: internal/doctor/daemon.go:62 -->
+- DIRETÓRIO (nenhum *daemon* consegue usar este caminho) <!-- textos.ClasseDiretorio; em uso: internal/doctor/daemon.go:64 -->
+- *symlink* <!-- textos.ClasseSymlink; em uso: internal/doctor/daemon.go:66 -->
+- arquivo comum de %d bytes (resíduo, nenhum *daemon* escuta aqui) <!-- textos.ClasseArquivo; em uso: internal/doctor/daemon.go:68 -->
 - outro (modo=%v) <!-- textos.ClasseOutro; em uso: internal/doctor/daemon.go:70 -->
 - inacessível (%v) <!-- textos.ClasseInacessivel; em uso: internal/doctor/daemon.go:57 -->
 
 Grupo Windows (só no Windows):
 
-- caminhos longos habilitados <!-- textos.CheckCaminhosLongos; em uso: internal/doctor/checks_windows.go:65 -->
+- Caminhos longos habilitados <!-- textos.CheckCaminhosLongos; em uso: internal/doctor/checks_windows.go:65 -->
   - ⚠️ LongPathsEnabled != 1 no registro e há caminho de %d caracteres: %s <!-- textos.DetLongPaths; em uso: internal/doctor/checks_windows.go:78 -->
-- arquivos somente-nuvem <!-- textos.CheckSomenteNuvem; em uso: internal/doctor/checks_windows.go:107 -->
+- Arquivos somente-nuvem <!-- textos.CheckSomenteNuvem; em uso: internal/doctor/checks_windows.go:107 -->
   - ⚠️ %d nota(s) ainda não baixada(s) pelo sincronizador de nuvem <!-- textos.DetSomenteNuvem; em uso: internal/doctor/checks_windows.go:116 -->
-- colisões de casing <!-- textos.CheckCasing; em uso: internal/doctor/checks_windows.go:127 -->
+- Colisões de *casing* <!-- textos.CheckCasing; em uso: internal/doctor/checks_windows.go:127 -->
   - ⚠️ %d colisão(ões): %s <!-- textos.DetColisoes; em uso: internal/doctor/checks_windows.go:136 -->
 
 As verificações que dependem da varredura (contagem de notas, comprimento de
@@ -490,19 +490,19 @@ Depois dos grupos, a contagem:
 
 Cada %s é um número seguido de uma destas palavras:
 
-- ok <!-- textos.DoctorResumoOK -->
-- aviso <!-- textos.DoctorResumoAviso -->
-- avisos <!-- textos.DoctorResumoAvisos -->
-- falha <!-- textos.DoctorResumoFalha -->
-- falhas <!-- textos.DoctorResumoFalhas -->
+- ✅ <!-- textos.DoctorResumoOK -->
+- ⚠️ <!-- textos.DoctorResumoAviso -->
+- ⚠️ <!-- textos.DoctorResumoAvisos -->
+- ❌ <!-- textos.DoctorResumoFalha -->
+- ❌ <!-- textos.DoctorResumoFalhas -->
 
 ### Processos
 
-- ⚠️ processos e lixo: diretório de runtime indisponível (%v) <!-- textos.DoctorRuntimeIndisponivel -->
-- ⚠️ processos do gobsidian: %v <!-- textos.DoctorProcessosErro -->
-- ✅ processos do gobsidian <!-- textos.DoctorProcessos -->
-  - nenhum rodando <!-- textos.DoctorNenhumProcesso -->
-- ✅ %d processo(s) do gobsidian <!-- textos.DoctorProcessosContagem -->
+- ⚠️ Processos e lixo: diretório de *runtime* indisponível (%v) <!-- textos.DoctorRuntimeIndisponivel -->
+- ⚠️ Processos do gobsidian: %v <!-- textos.DoctorProcessosErro -->
+- ✅ Processos do *gobsidian* <!-- textos.DoctorProcessos -->
+  - Nenhum rodando <!-- textos.DoctorNenhumProcesso -->
+- ✅ %d processo(s) do *gobsidian* <!-- textos.DoctorProcessosContagem -->
 
 Bloco sem título, uma linha por cofre: ‹cofre›  ‹n› ‹modo›, ...  ‹versões›.
 O cofre pode ser:
@@ -511,27 +511,27 @@ O cofre pode ser:
 
 E o modo, no singular e no plural:
 
-- daemon <!-- textos.DoctorModoDaemon -->
-- daemons <!-- textos.DoctorModoDaemons -->
+- *daemon* <!-- textos.DoctorModoDaemon -->
+- *daemons* <!-- textos.DoctorModoDaemons -->
 - ponte <!-- textos.DoctorModoPonte -->
 - pontes <!-- textos.DoctorModoPontes -->
 - servidor em processo <!-- textos.DoctorModoEmProcesso -->
 - servidores em processo <!-- textos.DoctorModoEmProcessos -->
 - modo não registrado <!-- textos.DoctorModoNaoRegistrado -->
 
-*um servidor por sessão do host; o daemon é um só por cofre* <!-- textos.DoctorProcessosRodape -->
+*um servidor por sessão do host; o *daemon* é um só por cofre* <!-- textos.DoctorProcessosRodape -->
 
-- ⚠️ %d processos gravam o cache do mesmo cofre <!-- textos.DoctorGravadoresDuplos -->
-  - %s -- gravadores: %s; encerre os extras. Pontes não gravam e ficam fora desta conta <!-- textos.DoctorGravadoresDetalhe; a lista é "pid %d, pid %d", cmd/gobsidian/doctor.go:415 -->
-  - %s -- %s sem modo registrado (versão anterior): não dá para saber se gravam <!-- textos.DoctorSemModoDetalhe -->
+- ⚠️ %d processos gravam o cache do mesmo cofre. <!-- textos.DoctorGravadoresDuplos -->
+  - %s -- gravadores: %s. Encerre os extras. Pontes não gravam e ficam fora desta conta. <!-- textos.DoctorGravadoresDetalhe; a lista é "pid %d, pid %d", cmd/gobsidian/doctor.go:415 -->
+  - %s -- %s sem modo registrado (versão anterior): não dá para saber se gravam. <!-- textos.DoctorSemModoDetalhe -->
 
 ### Processos sem presença
 
-- processos do gobsidian sem presença: não verificado nesta plataforma (linha de detalhe) <!-- textos.DoctorSemPresencaPlataforma -->
-- ⚠️ processos do gobsidian sem presença: %v <!-- textos.DoctorSemPresencaErro -->
-- ✅ processos do gobsidian sem presença <!-- textos.DoctorSemPresencaNenhum -->
-  - nenhum <!-- textos.DoctorSemPresencaVazio -->
-- ⚠️ %d processo(s) do gobsidian sem presença <!-- textos.DoctorSemPresencaContagem -->
+- Processos do *gobsidian* sem presença: não verificado nesta plataforma (linha de detalhe). <!-- textos.DoctorSemPresencaPlataforma -->
+- ⚠️ Processos do *gobsidian* sem presença: %v <!-- textos.DoctorSemPresencaErro -->
+- ✅ Processos do *gobsidian* sem presença. <!-- textos.DoctorSemPresencaNenhum -->
+  - Nenhum <!-- textos.DoctorSemPresencaVazio -->
+- ⚠️ %d processo(s) do *gobsidian* sem presença. <!-- textos.DoctorSemPresencaContagem -->
 
 Bloco sem título: ‹quantidade›  ‹executável›, e abaixo "pid ‹n›, ‹n›" <!-- cmd/gobsidian/doctor.go:409 -->
 
@@ -539,23 +539,23 @@ Bloco sem título: ‹quantidade›  ‹executável›, e abaixo "pid ‹n›, �
 
 ### Binário dos hosts
 
-- binário dos hosts: sem instalação registrada, nada a comparar (linha de detalhe) <!-- textos.DoctorHostsSemManifesto -->
-- ⚠️ binário dos hosts: %v <!-- textos.DoctorHostsErro -->
-- ✅ binário dos hosts <!-- textos.DoctorHostsOK -->
-  - toda entrada do gobsidian nos configs de arquivo roda %s <!-- textos.DoctorHostsDetalhe -->
-- ⚠️ %d entrada(s) de host rodam outro binário <!-- textos.DoctorHostsOutroBinario -->
+- Binário dos hosts: sem instalação registrada, nada a comparar (linha de detalhe). <!-- textos.DoctorHostsSemManifesto -->
+- ⚠️ Binário dos hosts: %v <!-- textos.DoctorHostsErro -->
+- ✅ Binário dos hosts <!-- textos.DoctorHostsOK -->
+  - Toda entrada do *gobsidian* nos configs de arquivo roda %s. <!-- textos.DoctorHostsDetalhe -->
+- ⚠️ %d entrada(s) de host rodam outro binário. <!-- textos.DoctorHostsOutroBinario -->
 
 Bloco sem título: ‹host›  ‹chave›  ‹versão›  ‹comando›. A versão pode ser:
 
-- versão não medida <!-- textos.DoctorVersaoNaoMedida -->
-- comando não encontrado <!-- textos.DoctorComandoAusente -->
+- Versão não medida <!-- textos.DoctorVersaoNaoMedida -->
+- Comando não encontrado <!-- textos.DoctorComandoAusente -->
 
-*o instalado é %s (%s); `gobsidian install` reconfigura. Claude Code, Gemini CLI, Codex e VS Code guardam a config no próprio CLI e não entram aqui* <!-- textos.DoctorHostsRodape -->
+*O instalado é %s (%s); `gobsidian install` reconfigura. Claude Code, Gemini CLI, Codex e VS Code guardam a config no próprio CLI e não entram aqui.* <!-- textos.DoctorHostsRodape -->
 
 ### Chaves de cache
 
-- ⚠️ chaves de cache: %v <!-- textos.DoctorChavesErro -->
-- ⚠️ %d cache(s) sob chave superada <!-- textos.DoctorChavesSuperada -->
+- ⚠️ Chaves de cache: %v <!-- textos.DoctorChavesErro -->
+- ⚠️ %d cache(s) sob chave superada. <!-- textos.DoctorChavesSuperada -->
 
 Bloco sem título: ‹chave antiga› -> ‹chave nova›  ‹cofre› <!-- cmd/gobsidian/doctor.go:141 -->
 
@@ -563,10 +563,10 @@ Bloco sem título: ‹chave antiga› -> ‹chave nova›  ‹cofre› <!-- cmd/
 
 ### Lixo
 
-- ⚠️ lixo do diretório de runtime: %v <!-- textos.DoctorLixoErro -->
-- ✅ lixo de execuções anteriores <!-- textos.DoctorLixoNenhum -->
-  - nada a remover <!-- textos.DoctorLixoNadaARemover -->
-- ⚠️ lixo de execuções anteriores <!-- textos.DoctorLixoTitulo -->
+- ⚠️ Lixo do diretório de runtime: %v <!-- textos.DoctorLixoErro -->
+- ✅ Lixo de execuções anteriores. <!-- textos.DoctorLixoNenhum -->
+  - Nada a remover <!-- textos.DoctorLixoNadaARemover -->
+- ⚠️ Lixo de execuções anteriores. <!-- textos.DoctorLixoTitulo -->
 
 | Campo | Valor |
 |---|---|
@@ -582,17 +582,17 @@ Bloco sem título: ‹chave antiga› -> ‹chave nova›  ‹cofre› <!-- cmd/
 
 ### Fim do relatório
 
-- ❌ Há falhas bloqueantes acima <!-- textos.DoctorFalhasAcima -->
-- ✅ Ambiente apto <!-- textos.DoctorAmbienteApto -->
+- ❌ Há falhas bloqueantes acima. <!-- textos.DoctorFalhasAcima -->
+- ✅ Ambiente apto. <!-- textos.DoctorAmbienteApto -->
 
 ## version
 
-#### gobsidian ‹versão› <!-- cmd/gobsidian/main.go:100 -->
+#### *gobsidian* ‹versão› <!-- cmd/gobsidian/main.go:100 -->
 
 | Campo | Valor |
 |---|---|
-| commit <!-- textos.CampoCommit --> | ‹commit› |
-| build <!-- textos.CampoBuild --> | ‹data de build› |
+| *commit* <!-- textos.CampoCommit --> | ‹commit› |
+| *build* <!-- textos.CampoBuild --> | ‹data de build› |
 
 ## search, index e inspect
 
@@ -603,17 +603,17 @@ search, inspect); as duas últimas, nos que leem ou gravam o cache.
 
 | Flag | Texto |
 |---|---|
-| --vault | nome do cofre no Obsidian ou caminho da raiz (obrigatório) <!-- textos.FlagVault --> |
-| --follow-symlinks | segue symlink dentro do cofre; o padrão recusa, porque o confinamento não alcança o alvo <!-- textos.FlagFollowSymlinks --> |
-| --cache-dir | diretório do cache de índice <!-- textos.FlagCacheDir --> |
-| --log-level | debug, info, warn ou error <!-- textos.FlagLogLevel --> |
+| `--vault` | nome do cofre no Obsidian ou caminho da raiz (obrigatório) <!-- textos.FlagVault --> |
+| `--follow-symlinks` | segue symlink dentro do cofre; o padrão recusa, porque o confinamento não alcança o alvo <!-- textos.FlagFollowSymlinks --> |
+| `--cache-dir` | diretório do cache de índice <!-- textos.FlagCacheDir --> |
+| `--log-level` | debug, info, warn ou error <!-- textos.FlagLogLevel --> |
 
 ### index
 
 | Flag | Texto |
 |---|---|
 | (resumo) | Constrói o índice do cofre e exibe um resumo <!-- textos.ResumoIndex --> |
-| --json | saída estruturada em formato JSON <!-- textos.FlagJSON --> |
+| `--json` | saída estruturada em formato JSON <!-- textos.FlagJSON --> |
 
 - ✅ Indexação concluída em %d ms <!-- textos.IndexConcluido -->
 
@@ -632,9 +632,9 @@ search, inspect); as duas últimas, nos que leem ou gravam o cache.
 | Flag | Texto |
 |---|---|
 | (resumo) | Executa busca por texto completo no cofre <!-- textos.ResumoSearch --> |
-| --json | saída estruturada em formato JSON <!-- textos.FlagJSON --> |
-| --limit | limite máximo de resultados <!-- textos.FlagSearchLimit --> |
-| --max-results | teto de resultados por consulta <!-- textos.FlagMaxResults --> |
+| `--json` | saída estruturada em formato JSON <!-- textos.FlagJSON --> |
+| `--limit` | limite máximo de resultados <!-- textos.FlagSearchLimit --> |
+| `--max-results` | teto de resultados por consulta <!-- textos.FlagMaxResults --> |
 
 - ℹ️ Nenhum resultado para %q <!-- textos.SearchSemResultado -->
 
@@ -648,23 +648,23 @@ search, inspect); as duas últimas, nos que leem ou gravam o cache.
 | Flag | Texto |
 |---|---|
 | (resumo) | Exibe metadados, links e backlinks de uma nota <!-- textos.ResumoInspect --> |
-| --json | saída estruturada em formato JSON <!-- textos.FlagJSON --> |
+| `--json` | saída estruturada em formato JSON <!-- textos.FlagJSON --> |
 
 #### ‹caminho da nota›
 
 | Campo | Valor |
 |---|---|
-| título <!-- textos.CampoTitulo --> | ‹título› |
-| tamanho <!-- textos.CampoTamanho --> | ‹n›  bytes <!-- textos.NotaBytes --> |
-| tags <!-- textos.CampoTags --> | ‹tags›  (%d) <!-- cmd/gobsidian/inspect.go:115 --> |
-| headings <!-- textos.CampoHeadings --> | ‹headings›  (%d) <!-- cmd/gobsidian/inspect.go:121 --> |
-| links de saída <!-- textos.CampoLinksSaida --> | ‹n› |
-| backlinks <!-- textos.CampoBacklinks --> | ‹backlinks›  (%d) <!-- cmd/gobsidian/inspect.go:128 --> |
+| Título <!-- textos.CampoTitulo --> | ‹título› |
+| Tamanho <!-- textos.CampoTamanho --> | ‹n›  bytes <!-- textos.NotaBytes --> |
+| Tags <!-- textos.CampoTags --> | ‹tags›  (%d) <!-- cmd/gobsidian/inspect.go:115 --> |
+| *Headings* <!-- textos.CampoHeadings --> | ‹headings›  (%d) <!-- cmd/gobsidian/inspect.go:121 --> |
+| Links de saída <!-- textos.CampoLinksSaida --> | ‹n› |
+| *Backlinks* <!-- textos.CampoBacklinks --> | ‹backlinks›  (%d) <!-- cmd/gobsidian/inspect.go:128 --> |
 
 #### Erros
 
-- resolvendo nota %q: %w <!-- textos.ErroResolvendoNota -->
-- nota %q não encontrada no índice <!-- textos.ErroNotaNaoIndexada -->
+- Resolvendo nota %q: %w <!-- textos.ErroResolvendoNota -->
+- Nota %q não encontrada no índice. <!-- textos.ErroNotaNaoIndexada -->
 
 ## serve e daemon
 
@@ -674,28 +674,28 @@ lê deles é a ajuda e os erros de partida.
 
 ### Ajuda
 
-**Atenção:** as flags --read-only, --debounce-ms, --eager-search e
+**Atenção:** as flags --read-only, --debounce-ms, `--eager-search` e
 --idle-seconds têm constante em textos, mas serve.go e daemon.go ainda
 registram literais sem acento. O texto abaixo é o das constantes; editar a
 constante hoje não muda a tela.
 
 | Flag | Texto |
 |---|---|
-| serve (resumo) | Serve o cofre via MCP sobre stdio <!-- textos.ResumoServe --> |
-| daemon (resumo) | Roda o daemon de cofre compartilhado (uso interno da ponte) <!-- textos.ResumoDaemon --> |
-| --read-only | desabilita toda a superfície de escrita <!-- textos.FlagReadOnly; em uso: cmd/gobsidian/serve.go:46 e cmd/gobsidian/daemon.go:61 --> |
-| --debounce-ms | janela de coalescência de eventos do watcher <!-- textos.FlagDebounce; em uso: cmd/gobsidian/serve.go:47 e cmd/gobsidian/daemon.go:62 --> |
-| --max-results | teto de resultados por consulta <!-- textos.FlagMaxResults; em uso: literal em cmd/gobsidian/serve.go:48 e cmd/gobsidian/daemon.go:63 --> |
-| --eager-search | carrega o índice de busca no boot em vez de esperar a primeira vault_search <!-- textos.FlagEagerSearch; em uso: cmd/gobsidian/serve.go:50 e cmd/gobsidian/daemon.go:65 --> |
-| --idle-seconds (daemon) | segundos sem cliente conectado antes do daemon encerrar (decisão 3 da Task 92; padrão 15 minutos) <!-- textos.FlagIdleSeconds; em uso: cmd/gobsidian/daemon.go:67 --> |
+| *serve* (resumo) | Serve o cofre via MCP sobre stdio <!-- textos.ResumoServe --> |
+| *daemon* (resumo) | Roda o *daemon* de cofre compartilhado (uso interno da ponte) <!-- textos.ResumoDaemon --> |
+| `--read-only` | desabilita toda a superfície de escrita <!-- textos.FlagReadOnly; em uso: cmd/gobsidian/serve.go:46 e cmd/gobsidian/daemon.go:61 --> |
+| `--debounce-ms` | janela de coalescência de eventos do watcher <!-- textos.FlagDebounce; em uso: cmd/gobsidian/serve.go:47 e cmd/gobsidian/daemon.go:62 --> |
+| `--max-results` | teto de resultados por consulta <!-- textos.FlagMaxResults; em uso: literal em cmd/gobsidian/serve.go:48 e cmd/gobsidian/daemon.go:63 --> |
+| `--eager-search` | carrega o índice de busca no boot em vez de esperar a primeira vault_search <!-- textos.FlagEagerSearch; em uso: cmd/gobsidian/serve.go:50 e cmd/gobsidian/daemon.go:65 --> |
+| `--idle-seconds` (daemon) | segundos sem cliente conectado antes do *daemon* encerrar (decisão 3 da Task 92; padrão 15 minutos) <!-- textos.FlagIdleSeconds; em uso: cmd/gobsidian/daemon.go:67 --> |
 
 ### Erros
 
-- --idle-seconds precisa ser >= 1 (recebido %d) <!-- textos.ErroIdleSeconds -->
-- resolvendo caminho do log do daemon: %w <!-- textos.ErroLogCaminho; em uso: cmd/gobsidian/daemon.go:142 -->
-- criando diretório do log do daemon: %w <!-- textos.ErroLogDiretorio; em uso: cmd/gobsidian/daemon.go:145 -->
-- abrindo log do daemon %s: %w <!-- textos.ErroLogAbrir; em uso: cmd/gobsidian/daemon.go:150 -->
-- abrindo socket do daemon: %w <!-- textos.ErroSocketDaemon; em uso: cmd/gobsidian/daemon.go:210 -->
+- `--idle-seconds` precisa ser >= 1 (recebido %d) <!-- textos.ErroIdleSeconds -->
+- Resolvendo caminho do log do daemon: %w <!-- textos.ErroLogCaminho; em uso: cmd/gobsidian/daemon.go:142 -->
+- Criando diretório do log do daemon: %w <!-- textos.ErroLogDiretorio; em uso: cmd/gobsidian/daemon.go:145 -->
+- Abrindo log do *daemon* %s: %w <!-- textos.ErroLogAbrir; em uso: cmd/gobsidian/daemon.go:150 -->
+- Abrindo *socket* do *daemon*: %w <!-- textos.ErroSocketDaemon; em uso: cmd/gobsidian/daemon.go:210 -->
 
 ## completion
 
@@ -717,7 +717,7 @@ nushell <!-- textos.ShellNushell; em uso: cmd/gobsidian/completion_extra.go:29 -
 ```
 Acrescente ao seu config.nu:
 
-  let gobsidian_completer = {|spans| gobsidian _carapace nushell ...$spans | from json }
+  let gobsidian_completer = {|spans| *gobsidian* _carapace nushell ...$spans | from json }
   $env.config.completions.external = { enable: true, completer: $gobsidian_completer }
 ```
 
@@ -797,13 +797,13 @@ Todo erro que um comando devolve sai numa linha de falha, no stderr:
 
 - ❌ %v <!-- cmd/gobsidian/main.go:41 -->
 
-Os erros de --vault dado pelo nome do cofre, que qualquer comando que abre um
+Os erros de `--vault` dado pelo nome do cofre, que qualquer comando que abre um
 cofre pode devolver:
 
-- o nome %q casa mais de um cofre do Obsidian: %s; passe o caminho da raiz em --vault <!-- textos.ErroCofreAmbiguo -->
-- o nome %q é o cofre %s do Obsidian e também a pasta %s no diretório atual; passe o caminho da raiz em --vault <!-- textos.ErroCofreNomeEPasta -->
-- %q não é uma pasta e o Obsidian não tem registro de cofres (%s); passe o caminho da raiz do cofre em --vault <!-- textos.ErroCofreSemRegistro -->
-- nenhum cofre do Obsidian se chama %q; conhecidos: %s. Passe o nome de um deles ou o caminho da raiz em --vault <!-- textos.ErroCofreDesconhecido -->
+- o nome %q casa mais de um cofre do Obsidian: %s; passe o caminho da raiz em `--vault` <!-- textos.ErroCofreAmbiguo -->
+- o nome %q é o cofre %s do Obsidian e também a pasta %s no diretório atual; passe o caminho da raiz em `--vault` <!-- textos.ErroCofreNomeEPasta -->
+- %q não é uma pasta e o Obsidian não tem registro de cofres (%s); passe o caminho da raiz do cofre em `--vault` <!-- textos.ErroCofreSemRegistro -->
+- nenhum cofre do Obsidian se chama %q; conhecidos: %s. Passe o nome de um deles ou o caminho da raiz em `--vault` <!-- textos.ErroCofreDesconhecido -->
   - quando não há nenhum conhecido, o segundo %s é: nenhum <!-- textos.CofreNenhumConhecido -->
 
 Os erros de configuração (--vault ausente, --log-level, --debounce-ms,
@@ -848,9 +848,9 @@ nomes de flag e de comando, e mensagens de slog ficaram de fora.
 | Local | Texto | Situação |
 |---|---|---|
 | cmd/gobsidian/main.go:41 | %v (a linha de falha de todo erro) | formato |
-| cmd/gobsidian/main.go:100 | gobsidian ‹versão› (título de version) | sem constante |
-| cmd/gobsidian/install.go:42 | ")" que fecha a ajuda de --install-dir | metade do texto em textos, metade aqui |
-| cmd/gobsidian/install.go:44 | ", " entre as chaves de --hosts | formato |
+| cmd/gobsidian/main.go:100 | *gobsidian* ‹versão› (título de version) | sem constante |
+| cmd/gobsidian/install.go:42 | ")" que fecha a ajuda de `--install-dir` | metade do texto em textos, metade aqui |
+| cmd/gobsidian/install.go:44 | ", " entre as chaves de `--hosts` | formato |
 | cmd/gobsidian/install.go:259 | (aberto agora) | sem constante; textos.CompletarCofreAberto tem o mesmo sentido, sem parênteses |
 | cmd/gobsidian/install.go:262 | (ja configurado) | sem constante; sem acento |
 | cmd/gobsidian/install.go:269 | (ja configurado, fora do Obsidian) | sem constante; sem acento |
@@ -868,10 +868,10 @@ nomes de flag e de comando, e mensagens de slog ficaram de fora.
 | cmd/gobsidian/daemon.go:62 | janela de coalescencia de eventos do watcher | duplicata de textos.FlagDebounce; sem acento |
 | cmd/gobsidian/daemon.go:63 | teto de resultados por consulta | duplicata de textos.FlagMaxResults |
 | cmd/gobsidian/daemon.go:65 | carrega o indice de busca no boot em vez de esperar a primeira vault_search | duplicata de textos.FlagEagerSearch; sem acento |
-| cmd/gobsidian/daemon.go:67 | segundos sem cliente conectado antes do daemon encerrar (decisao 3 da Task 92; padrao 15 minutos) | duplicata de textos.FlagIdleSeconds; sem acento |
+| cmd/gobsidian/daemon.go:67 | segundos sem cliente conectado antes do *daemon* encerrar (decisao 3 da Task 92; padrao 15 minutos) | duplicata de textos.FlagIdleSeconds; sem acento |
 | cmd/gobsidian/daemon.go:142 | resolvendo caminho do log do daemon: %w | duplicata de textos.ErroLogCaminho |
 | cmd/gobsidian/daemon.go:145 | criando diretorio do log do daemon: %w | duplicata de textos.ErroLogDiretorio; sem acento |
-| cmd/gobsidian/daemon.go:150 | abrindo log do daemon %s: %w | duplicata de textos.ErroLogAbrir |
+| cmd/gobsidian/daemon.go:150 | abrindo log do *daemon* %s: %w | duplicata de textos.ErroLogAbrir |
 | cmd/gobsidian/daemon.go:210 | abrindo socket do daemon: %w | duplicata de textos.ErroSocketDaemon |
 | cmd/gobsidian/completion_extra.go:29 | Acrescente ao seu config.nu: ... (nushell) | duplicata de textos.ShellNushell |
 | cmd/gobsidian/completion_extra.go:32 | Acrescente ao seu rc.elv: ... (elvish) | duplicata de textos.ShellElvish |
@@ -901,7 +901,7 @@ Classe*) que o código não usa, exceto onde a Situação diz "sem constante".
 |---|---|---|
 | internal/doctor/doctor.go:44 | Cofre | sem constante (título de grupo) |
 | internal/doctor/doctor.go:45 | Cache e disco | sem constante (título de grupo) |
-| internal/doctor/doctor.go:46 | Daemon | sem constante (título de grupo) |
+| internal/doctor/doctor.go:46 | *daemon* | sem constante (título de grupo) |
 | internal/doctor/doctor.go:47 | Windows | sem constante (título de grupo; fora do Windows o grupo não tem verificação e não aparece) |
 | internal/doctor/checks.go:38 | raiz do cofre existe | duplicata de textos.CheckRaizExiste |
 | internal/doctor/checks.go:44 | varredura interrompida: %v | duplicata de textos.DetVarreduraInterrompida |
@@ -951,30 +951,30 @@ Classe*) que o código não usa, exceto onde a Situação diz "sem constante".
 | internal/doctor/daemon.go:55 | ausente | duplicata de textos.ClasseAusente |
 | internal/doctor/daemon.go:57 | inacessível (%v) | duplicata de textos.ClasseInacessivel |
 | internal/doctor/daemon.go:62 | socket | duplicata de textos.ClasseSocket |
-| internal/doctor/daemon.go:64 | DIRETÓRIO (nenhum daemon consegue usar este caminho) | duplicata de textos.ClasseDiretorio |
+| internal/doctor/daemon.go:64 | DIRETÓRIO (nenhum *daemon* consegue usar este caminho) | duplicata de textos.ClasseDiretorio |
 | internal/doctor/daemon.go:66 | symlink | duplicata de textos.ClasseSymlink |
-| internal/doctor/daemon.go:68 | arquivo comum de %d bytes (resíduo; nenhum daemon escuta aqui) | duplicata de textos.ClasseArquivo |
+| internal/doctor/daemon.go:68 | arquivo comum de %d bytes (resíduo; nenhum *daemon* escuta aqui) | duplicata de textos.ClasseArquivo |
 | internal/doctor/daemon.go:70 | outro (modo=%v) | duplicata de textos.ClasseOutro |
-| internal/doctor/daemon.go:79 | caminho do socket do daemon | duplicata de textos.CheckSocket |
+| internal/doctor/daemon.go:79 | caminho do socket do *daemon* | duplicata de textos.CheckSocket |
 | internal/doctor/daemon.go:83 | nao foi possivel derivar: %v | duplicata de textos.DetNaoDerivou; sem acento |
 | internal/doctor/daemon.go:87 | %s -- %s | duplicata de textos.DetSocketEClasse |
 | internal/doctor/daemon.go:113 | diretório de sockets aceita conexão | duplicata de textos.CheckDiretorioSockets |
-| internal/doctor/daemon.go:115 | %v -- a ponte deste contexto vai servir em processo em vez de usar o daemon | duplicata de textos.DetSondaFalhou |
+| internal/doctor/daemon.go:115 | %v -- a ponte deste contexto vai servir em processo em vez de usar o *daemon* | duplicata de textos.DetSondaFalhou |
 | internal/doctor/daemon.go:117 | vale neste processo; num host o servidor roda noutro contexto, e a prova lá é a linha ... no log dele | duplicata de textos.DetSondaOK |
-| internal/doctor/daemon.go:130 | daemon respondendo | duplicata de textos.CheckDaemonVivo |
+| internal/doctor/daemon.go:130 | *daemon* respondendo | duplicata de textos.CheckDaemonVivo |
 | internal/doctor/daemon.go:135 | handshake completo | duplicata de textos.DetHandshakeOK |
 | internal/doctor/daemon.go:140 | (caminho indisponível) | sem constante |
-| internal/doctor/daemon.go:148 | nenhum daemon rodando (a ponte servirá em processo) | duplicata de textos.DetSemDaemon |
+| internal/doctor/daemon.go:148 | nenhum *daemon* rodando (a ponte servirá em processo) | duplicata de textos.DetSemDaemon |
 | internal/doctor/daemon.go:154 | arquivo existe mas o handshake falhou: %v | duplicata de textos.DetHandshakeFalhou |
-| internal/doctor/daemon.go:164 | log do daemon | duplicata de textos.CheckLogDaemon |
+| internal/doctor/daemon.go:164 | log do *daemon* | duplicata de textos.CheckLogDaemon |
 | internal/doctor/daemon.go:168 | nao foi possivel derivar: %v | duplicata de textos.DetNaoDerivou; sem acento |
-| internal/doctor/daemon.go:174 | ainda não existe (nenhum daemon rodou para este cofre) | duplicata de textos.DetLogAusente |
+| internal/doctor/daemon.go:174 | ainda não existe (nenhum *daemon* rodou para este cofre) | duplicata de textos.DetLogAusente |
 | internal/doctor/daemon.go:176 | %s: %v | duplicata de textos.DetCaminhoEErro |
 | internal/doctor/daemon.go:183 | %s (%d bytes, última escrita há %s) | duplicata de textos.DetLogResumo |
 | internal/doctor/daemon.go:185 | \n      \| ‹linha do log› | formato |
-| internal/doctor/daemon.go:206 | travas de daemon em uso | duplicata de textos.CheckTravas |
+| internal/doctor/daemon.go:206 | travas de *daemon* em uso | duplicata de textos.CheckTravas |
 | internal/doctor/daemon.go:210 | nao foi possivel derivar: %v | duplicata de textos.DetNaoDerivou; sem acento |
-| internal/doctor/daemon.go:217 | diretório de runtime ainda não existe | duplicata de textos.DetRuntimeAusente |
+| internal/doctor/daemon.go:217 | diretório de *runtime* ainda não existe | duplicata de textos.DetRuntimeAusente |
 | internal/doctor/daemon.go:219 | %s: %v | duplicata de textos.DetCaminhoEErro |
 | internal/doctor/daemon.go:230 | %s (não foi possível consultar: %v) | duplicata de textos.DetTravaIlegivel |
 | internal/doctor/daemon.go:241 | %s (PID %d) | duplicata de textos.DetTravaComPID |
@@ -989,7 +989,7 @@ ou dentro de um aviso do doctor.
 | Local | Texto | Situação |
 |---|---|---|
 | internal/instalar/instalar.go:277 | pid %d  %s  %s | sem constante (itens da pergunta de encerrar) |
-| internal/instalar/instalar.go:279 | Encerrar estes processos do gobsidian para trocar o binario? | sem constante; sem acento |
+| internal/instalar/instalar.go:279 | Encerrar estes processos do *gobsidian* para trocar o binario? | sem constante; sem acento |
 | internal/instalar/path_other.go:116 | abra um terminal NOVO, ou rode `source ~/.profile`; fish e nushell leem outro arquivo e precisam da linha a mao | sem constante (o par Windows é textos.AvisoPathWindows); sem acento |
 | internal/instalar/cofres.go:42 | lendo %s: %w | sem constante |
 | internal/instalar/cofres.go:47 | %s nao e um JSON valido: %w | sem constante; sem acento |
@@ -1008,7 +1008,7 @@ ou dentro de um aviso do doctor.
 | internal/instalar/instalar.go:387 | abrindo %s para somar: %w | sem constante |
 | internal/instalar/instalar.go:392 | somando %s: %w | sem constante |
 | internal/instalar/limpeza.go:132 | lendo raiz do cache %s: %w | sem constante |
-| internal/instalar/limpeza.go:165 | lendo diretorio de runtime %s: %w | sem constante; sem acento |
+| internal/instalar/limpeza.go:165 | lendo diretorio de *runtime* %s: %w | sem constante; sem acento |
 | internal/instalar/limpeza.go:234 | %s: %v (item de "não removido") | formato |
 | internal/instalar/manifesto.go:50 | nao ha manifesto de instalacao | sem constante; sem acento (vira o %w de textos.ErroSemManifesto) |
 | internal/instalar/manifesto.go:59 | lendo manifesto: %w | sem constante |
@@ -1036,7 +1036,7 @@ ou dentro de um aviso do doctor.
 | internal/instalar/processos_windows.go:49 | percorrendo processos: %w | sem constante |
 | internal/instalar/trava_global.go:48 | travando instalacao: %w | sem constante; sem acento |
 | internal/instalar/trava_global.go:51 | ja ha uma instalacao em curso (%s) | sem constante; sem acento |
-| internal/instalar/presenca.go:73, :79, :85, :97, :101 | criando diretorio de runtime / travando presenca / presenca %s ja esta travada por outro processo / serializando presenca / gravando presenca | sem constante; sem acento; em serve vão para o log (cmd/gobsidian/serve.go:135), não à tela |
+| internal/instalar/presenca.go:73, :79, :85, :97, :101 | criando diretorio de *runtime* / travando presenca / presenca %s ja esta travada por outro processo / serializando presenca / gravando presenca | sem constante; sem acento; em serve vão para o log (cmd/gobsidian/serve.go:135), não à tela |
 
 ### internal/hosts
 
@@ -1094,7 +1094,7 @@ Chegam à tela como a linha de falha de qualquer comando que abre um cofre.
 
 | Local | Texto | Situação |
 |---|---|---|
-| internal/config/config.go:88 | caminho do cofre nao informado: use --vault | sem constante; sem acento |
+| internal/config/config.go:88 | caminho do cofre nao informado: use `--vault` | sem constante; sem acento |
 | internal/config/config.go:92 | resolvendo caminho do cofre %q: %w | sem constante |
 | internal/config/config.go:99 | GOBSIDIAN_LOG_LEVEL: %w | formato |
 | internal/config/config.go:107 | --log-level: %w | formato |
