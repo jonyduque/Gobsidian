@@ -126,7 +126,7 @@ As justificativas estão logo abaixo do bloco:
 ```
 text  vault  config  lifecycle  textos       folhas
 parser   → text
-console  → text
+console  → text, textos
 ipc      → config
 writer   → parser, text, vault
 index    → parser, text, vault
@@ -136,7 +136,7 @@ service  → index, parser, search, text, vault, writer
 mcpsrv   → config, index, parser, service, vault
 boot     → config, index, lifecycle, search, service, vault, watcher
 daemon   → config, ipc, lifecycle, mcpsrv
-doctor   → config, daemon, ipc, vault
+doctor   → config, daemon, ipc, textos, vault
 hosts      → textos
 selfupdate → (folha)
 instalar   → config, daemon, hosts, ipc, search, text, textos
@@ -240,6 +240,16 @@ conta que o índice, a chave de cofre e o `writer` usam. Uma tabela local em
 `console` seria a quarta cópia da mesma regra, e a menos consultada; foi o que
 `instalar` já tentou uma vez, produzindo `a-o-direta`. `console` deixou de ser
 folha por isso, e `text` continua sendo: a aresta é de mão única.
+
+`console → textos` e `doctor → textos` são de 2026-09-27 e a justificativa é a
+regra do próprio `textos`: **tudo o que o produto escreve na tela mora num
+arquivo só**. O dono revisou a redação inteira em `docs/TEXTOS.md`, e o
+documento mostrava onde a regra não valia: os nomes e os detalhes das
+verificações do `doctor` existiam como constantes em `textos`, mas o pacote
+imprimia os literais dele — editar a constante não mudava a tela. O mesmo
+com os rótulos da ajuda ("Uso:", "Comandos disponíveis:"), os botões Sim/Não
+e as teclas do rodapé, escritos dentro de `console`. `textos` continua folha
+de constantes, e as duas arestas são de mão única.
 
 Quatro arestas existem **só em teste**, e ficam fora do grafo acima de
 propósito — teste pode montar o mundo inteiro sem que isso vire acoplamento do

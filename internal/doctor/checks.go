@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/jonyduque/Gobsidian/internal/config"
+	"github.com/jonyduque/Gobsidian/internal/textos"
 	"github.com/jonyduque/Gobsidian/internal/vault"
 )
 
@@ -35,13 +36,13 @@ const (
 // unica verificacao cuja falha interrompe as demais: sem raiz acessivel, todo
 // resultado subsequente seria derivado e o relatorio viraria ruido.
 func checkRootExists(ctx context.Context, cfg config.Config) Result {
-	const name = "raiz do cofre existe"
+	const name = textos.CheckRaizExiste
 
 	// os.Stat bloqueia em um share de rede parado ou um mount de nuvem sem
 	// resposta. Nao da para interromper o syscall ja em voo, mas dá para nao
 	// nem comecar quando o chamador ja desistiu.
 	if err := ctx.Err(); err != nil {
-		return Result{Name: name, Status: StatusWarn, Detail: fmt.Sprintf("varredura interrompida: %v", err)}
+		return Result{Name: name, Status: StatusWarn, Detail: fmt.Sprintf(textos.DetVarreduraInterrompida, err)}
 	}
 
 	info, err := os.Stat(vault.LongPath(cfg.VaultPath))
@@ -56,9 +57,9 @@ func checkRootExists(ctx context.Context, cfg config.Config) Result {
 		// diferente -- socket, cache e daemon proprios -- e o servidor morria
 		// na partida. "nao existe" e verdadeiro e inutil; a diferenca entre as
 		// duas grafias e invisivel numa leitura apressada de JSON.
-		detalhe := fmt.Sprintf("%q: %v", cfg.VaultPath, err)
+		detalhe := fmt.Sprintf(textos.DetCaminhoEErroCitado, cfg.VaultPath, err)
 		if vizinhos := vizinhosParecidos(cfg.VaultPath); len(vizinhos) > 0 {
-			detalhe += fmt.Sprintf("\n     existe(m) ao lado, com grafia diferente: %s", strings.Join(vizinhos, ", "))
+			detalhe += fmt.Sprintf(textos.DetGrafiaVizinha, strings.Join(vizinhos, ", "))
 		}
 		return Result{
 			Name:   name,
@@ -70,7 +71,7 @@ func checkRootExists(ctx context.Context, cfg config.Config) Result {
 		return Result{
 			Name:   name,
 			Status: StatusFail,
-			Detail: fmt.Sprintf("%q existe mas não é um diretório", cfg.VaultPath),
+			Detail: fmt.Sprintf(textos.DetNaoEhDiretorio, cfg.VaultPath),
 		}
 	}
 	return Result{Name: name, Status: StatusOK, Detail: origemDoCofre(cfg)}
@@ -84,15 +85,15 @@ func origemDoCofre(cfg config.Config) string {
 	if cfg.CofrePorNome == "" {
 		return ""
 	}
-	return fmt.Sprintf("pelo nome %q, resolvido para %s", cfg.CofrePorNome, cfg.VaultPath)
+	return fmt.Sprintf(textos.DetPeloNome, cfg.CofrePorNome, cfg.VaultPath)
 }
 
 // checkReadable verifica que o processo consegue listar a raiz do cofre.
 func checkReadable(ctx context.Context, cfg config.Config) Result {
-	const name = "permissão de leitura"
+	const name = textos.CheckLeitura
 
 	if err := ctx.Err(); err != nil {
-		return Result{Name: name, Status: StatusWarn, Detail: fmt.Sprintf("varredura interrompida: %v", err)}
+		return Result{Name: name, Status: StatusWarn, Detail: fmt.Sprintf(textos.DetVarreduraInterrompida, err)}
 	}
 
 	entries, err := os.ReadDir(vault.LongPath(cfg.VaultPath))
@@ -100,10 +101,10 @@ func checkReadable(ctx context.Context, cfg config.Config) Result {
 		return Result{
 			Name:   name,
 			Status: StatusFail,
-			Detail: fmt.Sprintf("não foi possível listar %q: %v", cfg.VaultPath, err),
+			Detail: fmt.Sprintf(textos.DetNaoListou, cfg.VaultPath, err),
 		}
 	}
-	return Result{Name: name, Status: StatusOK, Detail: fmt.Sprintf("%d entradas na raiz", len(entries))}
+	return Result{Name: name, Status: StatusOK, Detail: fmt.Sprintf(textos.DetEntradasRaiz, len(entries))}
 }
 
 // checkWritable cria e apaga um arquivo temporario na raiz do cofre. A
@@ -112,10 +113,10 @@ func checkReadable(ctx context.Context, cfg config.Config) Result {
 // bloqueante quando o produto precisa escrever, aviso quando o usuario ja
 // pediu para nao escrever e portanto a resposta nao importa para o exit code.
 func checkWritable(ctx context.Context, cfg config.Config) Result {
-	const name = "permissão de escrita"
+	const name = textos.CheckEscrita
 
 	if err := ctx.Err(); err != nil {
-		return Result{Name: name, Status: StatusWarn, Detail: fmt.Sprintf("varredura interrompida: %v", err)}
+		return Result{Name: name, Status: StatusWarn, Detail: fmt.Sprintf(textos.DetVarreduraInterrompida, err)}
 	}
 
 	root := vault.LongPath(cfg.VaultPath)
@@ -133,7 +134,7 @@ func checkWritable(ctx context.Context, cfg config.Config) Result {
 	}
 
 	if err != nil {
-		detail := fmt.Sprintf("não foi possível escrever em %q: %v", cfg.VaultPath, err)
+		detail := fmt.Sprintf(textos.DetNaoEscreveu, cfg.VaultPath, err)
 		if cfg.ReadOnly {
 			return Result{Name: name, Status: StatusWarn, Detail: detail}
 		}
@@ -149,10 +150,10 @@ func checkWritable(ctx context.Context, cfg config.Config) Result {
 // situacao que uma .obsidian/ que nunca existiu, e reportar as duas como
 // "ausente" esconderia um problema de permissao real.
 func checkObsidianDir(ctx context.Context, cfg config.Config) Result {
-	const name = ".obsidian presente"
+	const name = textos.CheckObsidian
 
 	if err := ctx.Err(); err != nil {
-		return Result{Name: name, Status: StatusWarn, Detail: fmt.Sprintf("varredura interrompida: %v", err)}
+		return Result{Name: name, Status: StatusWarn, Detail: fmt.Sprintf(textos.DetVarreduraInterrompida, err)}
 	}
 
 	path := filepath.Join(cfg.VaultPath, ".obsidian")
@@ -162,19 +163,19 @@ func checkObsidianDir(ctx context.Context, cfg config.Config) Result {
 		return Result{
 			Name:   name,
 			Status: StatusWarn,
-			Detail: "pasta .obsidian ausente: configurações, temas e plugins do Obsidian não serão detectados",
+			Detail: textos.DetObsidianAusente,
 		}
 	case err != nil:
 		return Result{
 			Name:   name,
 			Status: StatusWarn,
-			Detail: fmt.Sprintf("não foi possível verificar %q: %v", path, err),
+			Detail: fmt.Sprintf(textos.DetNaoVerificou, path, err),
 		}
 	case !info.IsDir():
 		return Result{
 			Name:   name,
 			Status: StatusWarn,
-			Detail: fmt.Sprintf("%q existe mas não é um diretório", path),
+			Detail: fmt.Sprintf(textos.DetNaoEhDiretorio, path),
 		}
 	default:
 		return Result{Name: name, Status: StatusOK}
@@ -185,15 +186,15 @@ func checkObsidianDir(ctx context.Context, cfg config.Config) Result {
 // aviso, nao erro — um cofre vazio e um fato, nao uma quebra. Le do resultado
 // de scanVault em vez de varrer o cofre de novo.
 func checkNoteCount(scan vaultScan) Result {
-	const name = "contagem de notas"
+	const name = textos.CheckNotas
 
 	if res, failed := scanStatus(scan, name); failed {
 		return res
 	}
 	if scan.noteCount == 0 {
-		return Result{Name: name, Status: StatusWarn, Detail: "nenhuma nota .md encontrada"}
+		return Result{Name: name, Status: StatusWarn, Detail: textos.DetSemNotas}
 	}
-	return Result{Name: name, Status: StatusOK, Detail: fmt.Sprintf("%d notas", scan.noteCount)}
+	return Result{Name: name, Status: StatusOK, Detail: fmt.Sprintf(textos.DetNotas, scan.noteCount)}
 }
 
 // checkLongestPath mede o maior caminho absoluto entre as entradas do cofre,
@@ -203,7 +204,7 @@ func checkNoteCount(scan vaultScan) Result {
 // externas recebem, e por isso o limiar existe: o MAX_PATH de 260 delas. Le do
 // resultado de scanVault em vez de varrer o cofre de novo.
 func checkLongestPath(scan vaultScan) Result {
-	const name = "comprimento de caminho"
+	const name = textos.CheckCaminho
 
 	if res, failed := scanStatus(scan, name); failed {
 		return res
@@ -212,33 +213,33 @@ func checkLongestPath(scan vaultScan) Result {
 		return Result{
 			Name:   name,
 			Status: StatusWarn,
-			Detail: fmt.Sprintf("%d caracteres, acima do limiar de %d: %s", scan.longestPathLen, longPathThreshold, scan.longestPath),
+			Detail: fmt.Sprintf(textos.DetCaminhoLongo, scan.longestPathLen, longPathThreshold, scan.longestPath),
 		}
 	}
-	return Result{Name: name, Status: StatusOK, Detail: fmt.Sprintf("maior caminho: %d caracteres", scan.longestPathLen)}
+	return Result{Name: name, Status: StatusOK, Detail: fmt.Sprintf(textos.DetMaiorCaminho, scan.longestPathLen)}
 }
 
 // checkCacheDir verifica que o diretorio de cache pode ser criado. Nunca
 // falha: sem cache o produto reindexação do zero, mais lento, mas funcional.
 func checkCacheDir(ctx context.Context, cfg config.Config) Result {
-	const name = "diretório de cache"
+	const name = textos.CheckCache
 
 	if err := ctx.Err(); err != nil {
-		return Result{Name: name, Status: StatusWarn, Detail: fmt.Sprintf("varredura interrompida: %v", err)}
+		return Result{Name: name, Status: StatusWarn, Detail: fmt.Sprintf(textos.DetVarreduraInterrompida, err)}
 	}
 
 	if strings.TrimSpace(cfg.CacheDir) == "" {
 		// So acontece quando o chamador monta Config fora de config.Load
 		// (por exemplo, um teste que usa config.Defaults() direto). Em uso
 		// real config.Load sempre preenche um default fora do cofre.
-		return Result{Name: name, Status: StatusOK, Detail: "nenhum diretório de cache configurado"}
+		return Result{Name: name, Status: StatusOK, Detail: textos.DetSemCacheDir}
 	}
 
 	if err := os.MkdirAll(vault.LongPath(cfg.CacheDir), 0o755); err != nil {
 		return Result{
 			Name:   name,
 			Status: StatusWarn,
-			Detail: fmt.Sprintf("não foi possível criar %q: %v", cfg.CacheDir, err),
+			Detail: fmt.Sprintf(textos.DetNaoCriouCache, cfg.CacheDir, err),
 		}
 	}
 	return Result{Name: name, Status: StatusOK, Detail: cfg.CacheDir}
@@ -248,18 +249,18 @@ func checkCacheDir(ctx context.Context, cfg config.Config) Result {
 // cofre. Falha (bloqueante) abaixo de 10 MB, porque escritas atomicas podem
 // comecar a falhar; aviso abaixo de 100 MB.
 func checkFreeSpace(ctx context.Context, cfg config.Config) Result {
-	const name = "espaço em disco"
+	const name = textos.CheckEspaco
 
 	if err := ctx.Err(); err != nil {
-		return Result{Name: name, Status: StatusWarn, Detail: fmt.Sprintf("varredura interrompida: %v", err)}
+		return Result{Name: name, Status: StatusWarn, Detail: fmt.Sprintf(textos.DetVarreduraInterrompida, err)}
 	}
 
 	free, err := diskFreeBytes(cfg.VaultPath)
 	if err != nil {
-		return Result{Name: name, Status: StatusWarn, Detail: fmt.Sprintf("não foi possível medir espaço livre: %v", err)}
+		return Result{Name: name, Status: StatusWarn, Detail: fmt.Sprintf(textos.DetNaoMediuEspaco, err)}
 	}
 
-	detail := fmt.Sprintf("%d MB livres", free/(1<<20))
+	detail := fmt.Sprintf(textos.DetEspacoLivre, free/(1<<20))
 	switch {
 	case free < minFreeSpaceFailBytes:
 		return Result{Name: name, Status: StatusFail, Detail: detail}
@@ -318,13 +319,13 @@ func scanStatus(scan vaultScan, name string) (Result, bool) {
 		return Result{
 			Name:   name,
 			Status: StatusWarn,
-			Detail: fmt.Sprintf("varredura interrompida: %v", scan.err),
+			Detail: fmt.Sprintf(textos.DetVarreduraInterrompida, scan.err),
 		}, true
 	}
 	return Result{
 		Name:   name,
 		Status: StatusFail,
-		Detail: fmt.Sprintf("cofre inacessível durante a varredura: %v", scan.err),
+		Detail: fmt.Sprintf(textos.DetCofreInacessivel, scan.err),
 	}, true
 }
 

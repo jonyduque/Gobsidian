@@ -162,7 +162,7 @@ func limparRuntime(runtimeDir string, cofres map[string]estadoDoCofre, aplicar b
 		if errors.Is(err, fs.ErrNotExist) {
 			return nil
 		}
-		return fmt.Errorf("lendo diretorio de runtime %s: %w", runtimeDir, err)
+		return fmt.Errorf("lendo diretório de *runtime* %s: %w", runtimeDir, err)
 	}
 
 	for _, e := range entradas {

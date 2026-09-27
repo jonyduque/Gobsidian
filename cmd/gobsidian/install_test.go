@@ -83,7 +83,7 @@ func TestSemArgumentosSoAutoinstalaComAsDuasCondicoes(t *testing.T) {
 				if !instalou {
 					t.Fatalf("nao chamou a instalacao:\n%s", texto)
 				}
-				if !strings.Contains(texto, "ainda nao esta instalado") {
+				if !strings.Contains(texto, "instalado nesta m") {
 					t.Fatalf("nao anunciou a autoinstalacao antes de comecar:\n%s", texto)
 				}
 			}

@@ -124,7 +124,7 @@ type Resultado struct {
 }
 
 // ErrRecusado indica que o usuario disse nao. Nao e falha: e decisao dele.
-var ErrRecusado = errors.New("instalacao recusada pelo usuario")
+var ErrRecusado = errors.New("instalação recusada pelo usuário")
 
 // Instalar executa a sequencia inteira, sob a trava global.
 //
@@ -149,7 +149,7 @@ func Instalar(ctx context.Context, sis Sistema, o Opcoes) (Resultado, error) {
 	if runtimeDir == "" {
 		dir, err := DiretorioDeRuntime()
 		if err != nil {
-			return r, fmt.Errorf("resolvendo o diretorio de runtime: %w", err)
+			return r, fmt.Errorf("resolvendo o diretório de *runtime*: %w", err)
 		}
 		runtimeDir = dir
 	}
@@ -207,7 +207,7 @@ func Instalar(ctx context.Context, sis Sistema, o Opcoes) (Resultado, error) {
 		sis.anunciar(textos.PassoPath)
 		mudou, err := sis.ajustarPath(filepath.Dir(binario))
 		if err != nil {
-			return r, fmt.Errorf("ajustando o PATH: %w", err)
+			return r, fmt.Errorf("ajustando o *PATH*: %w", err)
 		}
 		r.PathMudou = mudou
 	}
@@ -274,9 +274,9 @@ func encerrarProcessos(sis Sistema, runtimeDir string, r *Resultado) error {
 
 	itens := make([]string, 0, len(vivos))
 	for _, p := range vivos {
-		itens = append(itens, fmt.Sprintf("pid %d  %s  %s", p.PID, p.Papel, p.Cofre))
+		itens = append(itens, fmt.Sprintf(textos.InstallProcessoItem, p.PID, p.Papel, p.Cofre))
 	}
-	if sis.Confirmar != nil && !sis.Confirmar("Encerrar estes processos do gobsidian para trocar o binario?", itens) {
+	if sis.Confirmar != nil && !sis.Confirmar(textos.InstallEncerrarProcessos, itens) {
 		return ErrRecusado
 	}
 
@@ -306,7 +306,7 @@ func instalarBinario(o Opcoes) (caminho, hash string, err error) {
 	if origem == "" {
 		exe, err := os.Executable()
 		if err != nil {
-			return "", "", fmt.Errorf("resolvendo o executavel corrente: %w", err)
+			return "", "", fmt.Errorf("resolvendo o executável corrente: %w", err)
 		}
 		origem = exe
 	}
@@ -332,7 +332,7 @@ func instalarBinario(o Opcoes) (caminho, hash string, err error) {
 	if _, err := os.Stat(destino); err == nil {
 		antigo := fmt.Sprintf("%s.antigo-%d", destino, time.Now().UnixNano())
 		if err := os.Rename(destino, antigo); err != nil {
-			return "", "", fmt.Errorf("tirando o binario antigo do caminho: %w", err)
+			return "", "", fmt.Errorf("tirando o binário antigo do caminho: %w", err)
 		}
 		// Best-effort: se o antigo ainda estiver mapeado, ele fica e a limpeza
 		// da proxima instalacao o alcanca. O que NAO pode e bloquear a troca.

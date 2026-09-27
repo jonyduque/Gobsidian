@@ -6,6 +6,7 @@ import (
 	"context"
 
 	"github.com/jonyduque/Gobsidian/internal/config"
+	"github.com/jonyduque/Gobsidian/internal/textos"
 )
 
 // Status e a gravidade de uma verificacao. A ordem importa: so StatusFail
@@ -41,10 +42,10 @@ type Result struct {
 
 // Os grupos do relatorio, na ordem em que o comando os mostra.
 const (
-	GrupoCofre  = "Cofre"
-	GrupoCache  = "Cache e disco"
-	GrupoDaemon = "Daemon"
-	GrupoSO     = "Windows"
+	GrupoCofre  = textos.GrupoCofre
+	GrupoCache  = textos.GrupoCache
+	GrupoDaemon = textos.GrupoDaemon
+	GrupoSO     = textos.GrupoWindows
 )
 
 type check func(context.Context, config.Config) Result

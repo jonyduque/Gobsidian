@@ -86,7 +86,7 @@ func newSearchCmd() *cobra.Command {
 					corpos = append(corpos, "    "+con.Dim("... "+m.Snippet+" ..."))
 				}
 			}
-			con.Bloco(fmt.Sprintf("%d de %d para %q", len(res.Results), res.Total, args[0]), corpos, "")
+			con.Bloco(fmt.Sprintf(textos.SearchTitulo, len(res.Results), res.Total, args[0]), corpos, "")
 			return nil
 		},
 	}

@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/jonyduque/Gobsidian/internal/textos"
 	"github.com/jonyduque/Gobsidian/internal/vault"
 	"golang.org/x/sys/windows"
 	"golang.org/x/sys/windows/registry"
@@ -62,7 +63,7 @@ func platformChecks(scan vaultScan) []Result {
 // dois, e apenas informativo: caminho curto nao precisa do opt-in, e opt-in
 // ligado ja resolve o caminho longo.
 func checkLongPathsEnabled(scan vaultScan) Result {
-	const name = "caminhos longos habilitados"
+	const name = textos.CheckCaminhosLongos
 
 	if res, failed := scanStatus(scan, name); failed {
 		return res
@@ -75,7 +76,7 @@ func checkLongPathsEnabled(scan vaultScan) Result {
 		return Result{
 			Name:   name,
 			Status: StatusWarn,
-			Detail: fmt.Sprintf("LongPathsEnabled != 1 no registro e há caminho de %d caracteres: %s", scan.longestPathLen, scan.longestPath),
+			Detail: fmt.Sprintf(textos.DetLongPaths, scan.longestPathLen, scan.longestPath),
 		}
 	}
 	return Result{Name: name, Status: StatusOK}
@@ -104,7 +105,7 @@ func longPathsEnabled() bool {
 // scanVault via vault.Walk) — nunca abre o arquivo, que e exatamente o que
 // dispararia a hidratacao que esta verificacao existe para evitar.
 func checkCloudOnlyFiles(scan vaultScan) Result {
-	const name = "arquivos somente-nuvem"
+	const name = textos.CheckSomenteNuvem
 
 	if res, failed := scanStatus(scan, name); failed {
 		return res
@@ -113,7 +114,7 @@ func checkCloudOnlyFiles(scan vaultScan) Result {
 		return Result{
 			Name:   name,
 			Status: StatusWarn,
-			Detail: fmt.Sprintf("%d nota(s) ainda não baixada(s) pelo sincronizador de nuvem", scan.platform.cloudOnlyCount),
+			Detail: fmt.Sprintf(textos.DetSomenteNuvem, scan.platform.cloudOnlyCount),
 		}
 	}
 	return Result{Name: name, Status: StatusOK}
@@ -124,7 +125,7 @@ func checkCloudOnlyFiles(scan vaultScan) Result {
 // padrao, mas preserva a grafia — duas notas assim colidem de formas sutis em
 // qualquer ferramenta que normalize o caminho antes de usar como chave.
 func checkCasingCollisions(scan vaultScan) Result {
-	const name = "colisões de casing"
+	const name = textos.CheckCasing
 
 	if res, failed := scanStatus(scan, name); failed {
 		return res
@@ -133,7 +134,7 @@ func checkCasingCollisions(scan vaultScan) Result {
 		return Result{
 			Name:   name,
 			Status: StatusWarn,
-			Detail: fmt.Sprintf("%d colisão(ões): %s", len(scan.platform.casingCollisions), strings.Join(scan.platform.casingCollisions, "; ")),
+			Detail: fmt.Sprintf(textos.DetColisoes, len(scan.platform.casingCollisions), strings.Join(scan.platform.casingCollisions, "; ")),
 		}
 	}
 	return Result{Name: name, Status: StatusOK}

@@ -7,13 +7,15 @@ import (
 	"os"
 	"strings"
 	"unicode"
+
+	"github.com/jonyduque/Gobsidian/internal/textos"
 )
 
 // Opcao e um item de uma lista de selecao.
 type Opcao struct {
 	// Rotulo e o texto principal.
 	Rotulo string
-	// Nota e um sufixo esmaecido -- "(aberto agora)", "(ja configurado)".
+	// Nota e um sufixo esmaecido -- o caminho de um cofre, a chave de um host.
 	Nota string
 	// Marcada e o estado INICIAL da caixa.
 	Marcada bool
@@ -23,14 +25,14 @@ type Opcao struct {
 // a entrada e um pipe, um redirecionamento ou um console sem modo bruto.
 //
 // E um erro esperado, e nao uma falha: quem chama cai numa pergunta digitada.
-var ErrSemTerminal = errors.New("a entrada nao e um terminal interativo")
+var ErrSemTerminal = errors.New("a entrada não é um terminal interativo")
 
 // ErrCancelado diz que o usuario saiu da lista com Esc, q ou Ctrl-C.
 //
 // Distinto de "nao marcou nada": nao marcar nada e uma ESCOLHA, e cancelar e
 // desistir. Quem chama trata as duas diferente -- a primeira configura zero
 // cofres, a segunda aborta a instalacao.
-var ErrCancelado = errors.New("selecao cancelada")
+var ErrCancelado = errors.New("seleção cancelada")
 
 // Selecionar mostra uma lista de caixas e devolve os indices marcados.
 //
@@ -227,15 +229,25 @@ func desenhar(s *Stream, opcoes []Opcao, marcadas []bool, cursor int, titulo str
 		// Terminal sem cor -- NO_COLOR, redirecionamento, conhost antigo --
 		// continua distinguindo os dois estados, que e a mesma regra dos
 		// marcadores [OK]/[!].
-		caixa := s.style("["+g.Desmarcada+"]", corNota...)
+		caixa := s.style(g.Desmarcada, corNota...)
 		if marcadas[i] {
-			caixa = s.style("["+g.Marcada+"]", corMarcada...)
+			caixa = s.style(g.Marcada, corMarcada...)
 		}
 		ponta := " "
 		rotulo := o.Rotulo
 		if i == cursor {
 			ponta = s.style(g.Cursor, corDestaque...)
 			rotulo = s.style(rotulo, corDestaque...)
+			// Em foco, a caixa vira o glifo de foco, e a COR continua dizendo
+			// se a linha esta marcada. O conjunto ASCII nao tem glifo de foco
+			// e mostra o estado.
+			if g.Foco != "" {
+				cor := corDestaque
+				if marcadas[i] {
+					cor = corMarcada
+				}
+				caixa = s.style(g.Foco, cor...)
+			}
 		}
 		corpo := " " + ponta + " " + caixa + " " + rotulo
 		if o.Nota != "" {
@@ -245,8 +257,11 @@ func desenhar(s *Stream, opcoes []Opcao, marcadas []bool, cursor int, titulo str
 	}
 	corpos = append(corpos, "")
 
-	rodape := g.Setas + " mover " + g.Separador + " espaco marcar " + g.Separador +
-		" a todos " + g.Separador + " " + g.Enter + " confirmar"
+	rodape := rodapeDeTeclas(g,
+		[2]string{g.Setas, textos.TeclaMover},
+		[2]string{"[ " + textos.TeclaEspaco + " ]", textos.TeclaMarcar},
+		[2]string{textos.TeclaTodosLetra, textos.TeclaTodos},
+		[2]string{g.Enter, textos.TeclaConfirmar})
 
 	linhas := s.Moldura(titulo, corpos, rodape)
 
@@ -307,6 +322,17 @@ func cortar(conteudo string, largura int) string {
 	return b.String()
 }
 
+// rodapeDeTeclas monta o rodape de uma pergunta: cada tecla em negrito e o que
+// ela faz em italico, separados pelo glifo de separacao. Sai com marcacao, e
+// quem a desenha e a Moldura -- a mesma conta de todo texto do produto.
+func rodapeDeTeclas(g Glifos, teclas ...[2]string) string {
+	partes := make([]string, 0, len(teclas))
+	for _, t := range teclas {
+		partes = append(partes, "**"+t[0]+"** *"+t[1]+"*")
+	}
+	return strings.Join(partes, " "+g.Separador+" ")
+}
+
 func repetir(s string, n int) string {
 	if n <= 0 {
 		return ""
@@ -342,10 +368,10 @@ func SelecionarDigitando(resposta string, opcoes []Opcao) ([]int, error) {
 	for _, c := range campos {
 		var n int
 		if _, err := fmt.Sscanf(c, "%d", &n); err != nil {
-			return nil, fmt.Errorf("escolha invalida: %q", c)
+			return nil, fmt.Errorf(textos.ErroEscolhaInvalida, c)
 		}
 		if n < 1 || n > len(opcoes) {
-			return nil, fmt.Errorf("escolha fora da lista: %d", n)
+			return nil, fmt.Errorf(textos.ErroEscolhaForaDaLista, n)
 		}
 		if !vistos[n-1] {
 			vistos[n-1] = true

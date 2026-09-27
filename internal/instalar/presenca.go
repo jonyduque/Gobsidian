@@ -70,19 +70,19 @@ type Presenca struct {
 // um morto, que e o comportamento desejado.
 func Registrar(runtimeDir, cofre, papel, modo, versao string) (liberar func(), err error) {
 	if err := os.MkdirAll(runtimeDir, 0o700); err != nil {
-		return nil, fmt.Errorf("criando diretorio de runtime: %w", err)
+		return nil, fmt.Errorf("criando diretório de *runtime*: %w", err)
 	}
 
 	caminho := CaminhoDePresenca(runtimeDir, papel, os.Getpid())
 	trava, tomou, err := daemon.TentarTravar(caminho)
 	if err != nil {
-		return nil, fmt.Errorf("travando presenca: %w", err)
+		return nil, fmt.Errorf("travando presença: %w", err)
 	}
 	if !tomou {
 		// So acontece se outro processo VIVO tiver exatamente este PID, o que
 		// o sistema operacional nao permite. Se acontecer, nao registrar e
 		// melhor que registrar por cima de alguem.
-		return nil, fmt.Errorf("presenca %s ja esta travada por outro processo", caminho)
+		return nil, fmt.Errorf("presença %s já está travada por outro processo", caminho)
 	}
 
 	conteudo, err := json.Marshal(Presenca{
@@ -94,11 +94,11 @@ func Registrar(runtimeDir, cofre, papel, modo, versao string) (liberar func(), e
 	})
 	if err != nil {
 		trava.Liberar()
-		return nil, fmt.Errorf("serializando presenca: %w", err)
+		return nil, fmt.Errorf("serializando presença: %w", err)
 	}
 	if err := trava.Gravar(conteudo); err != nil {
 		trava.Liberar()
-		return nil, fmt.Errorf("gravando presenca: %w", err)
+		return nil, fmt.Errorf("gravando presença: %w", err)
 	}
 
 	// A liberacao solta a trava E REMOVE o arquivo.
@@ -220,7 +220,7 @@ func lerPresencas(runtimeDir string) (vivos []Presenca, orfas []string, err erro
 		if errors.Is(err, fs.ErrNotExist) {
 			return nil, nil, nil
 		}
-		return nil, nil, fmt.Errorf("lendo diretorio de runtime %s: %w", runtimeDir, err)
+		return nil, nil, fmt.Errorf("lendo diretório de *runtime* %s: %w", runtimeDir, err)
 	}
 
 	for _, e := range entradas {

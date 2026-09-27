@@ -38,7 +38,7 @@ func AdicionarAoPath(dir string) (mudou bool, err error) {
 
 	atual, tipo, err := k.GetStringValue(valorDoPath)
 	if err != nil && !errors.Is(err, registry.ErrNotExist) {
-		return false, fmt.Errorf("lendo o PATH do usuario: %w", err)
+		return false, fmt.Errorf("lendo o *PATH* do usuário: %w", err)
 	}
 	if errors.Is(err, registry.ErrNotExist) {
 		tipo = registry.EXPAND_SZ
@@ -60,7 +60,7 @@ func AdicionarAoPath(dir string) (mudou bool, err error) {
 		err = k.SetStringValue(valorDoPath, novo)
 	}
 	if err != nil {
-		return false, fmt.Errorf("gravando o PATH do usuario: %w", err)
+		return false, fmt.Errorf("gravando o *PATH* do usuário: %w", err)
 	}
 	return true, nil
 }
@@ -78,7 +78,7 @@ func RemoverDoPath(dir string) (mudou bool, err error) {
 		return false, nil
 	}
 	if err != nil {
-		return false, fmt.Errorf("lendo o PATH do usuario: %w", err)
+		return false, fmt.Errorf("lendo o *PATH* do usuário: %w", err)
 	}
 
 	var mantidos []string
@@ -99,7 +99,7 @@ func RemoverDoPath(dir string) (mudou bool, err error) {
 		err = k.SetStringValue(valorDoPath, novo)
 	}
 	if err != nil {
-		return false, fmt.Errorf("gravando o PATH do usuario: %w", err)
+		return false, fmt.Errorf("gravando o *PATH* do usuário: %w", err)
 	}
 	return true, nil
 }

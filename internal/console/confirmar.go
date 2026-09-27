@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"io"
 	"os"
+
+	"github.com/jonyduque/Gobsidian/internal/textos"
 )
 
 // Confirmar faz uma pergunta de sim ou nao com dois BOTOES, na mesma moldura
@@ -125,24 +127,28 @@ func desenharBotoes(s *Stream, pergunta string, itens []string, sim, redesenhar 
 
 	corpos := make([]string, 0, len(itens)+2)
 	for _, i := range itens {
-		corpos = append(corpos, "  "+s.Dim(i))
+		corpos = append(corpos, "  "+s.style(s.marcar(adaptarTexto(i), codeDim), codeDim))
 	}
 	if len(itens) > 0 {
 		corpos = append(corpos, "")
 	}
 
-	// Os dois botoes tem a MESMA largura em foco e fora dele: o glifo de foco
-	// ocupa a coluna que, no outro, e espaco. Sem isso a linha muda de
+	// Os dois botoes tem a MESMA largura em foco e fora dele: os dois pares de
+	// delimitadores tem a mesma largura (ver Glifos). Sem isso a linha muda de
 	// comprimento a cada seta e a moldura pisca.
 	botao := func(rotulo string, focado bool) string {
+		rotulo = adaptarTexto(rotulo)
 		if focado {
-			return s.style("[ "+g.Cursor+" "+rotulo+" ]", corDestaque...)
+			return s.style(g.BotaoFocoEsq+rotulo+g.BotaoFocoDir, corDestaque...)
 		}
-		return s.style("[   "+rotulo+" ]", corNota...)
+		return s.style(g.BotaoEsq+rotulo+g.BotaoDir, corNota...)
 	}
-	corpos = append(corpos, "  "+botao("Sim", sim)+"   "+botao("Não", !sim))
+	corpos = append(corpos, "  "+botao(textos.BotaoSim, sim)+"  "+botao(textos.BotaoNao, !sim))
 
-	rodape := g.SetasLado + " mover " + g.Separador + " s/n responder " + g.Separador + " " + g.Enter + " confirmar"
+	rodape := rodapeDeTeclas(g,
+		[2]string{g.SetasLado, textos.TeclaMover},
+		[2]string{textos.TeclaSimNao, textos.TeclaResponder},
+		[2]string{g.Enter, textos.TeclaConfirmar})
 
 	linhas := s.Moldura(pergunta, corpos, rodape)
 	if redesenhar && s.Colored() {

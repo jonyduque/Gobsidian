@@ -33,7 +33,22 @@ type Glifos struct {
 	Cursor     string
 	Marcada    string
 	Desmarcada string
+	// Foco e a caixa da linha sob o cursor, marcada ou nao -- desenho do dono
+	// em 2026-09-27: marcada, em foco e vazia sao tres glifos, e a cor diz se
+	// a linha em foco esta marcada. Vazio no conjunto ASCII: la a linha em foco
+	// mostra o proprio estado, e o cursor basta para dizer onde se esta.
+	Foco string
 
+	// Os botoes da pergunta de sim ou nao: o em foco entre BotaoFocoEsq e
+	// BotaoFocoDir, o outro entre BotaoEsq e BotaoDir. Os dois pares tem a
+	// MESMA largura, para a linha nao mudar de comprimento a cada seta.
+	BotaoFocoEsq string
+	BotaoFocoDir string
+	BotaoEsq     string
+	BotaoDir     string
+
+	// As teclas do rodape, ja entre colchetes. A palavra que diz o que cada
+	// uma faz e texto, e mora em textos.
 	Separador string
 	Enter     string
 	Setas     string
@@ -60,9 +75,11 @@ var glifosUnicode = Glifos{
 	CantoInfEsq: "╰", CantoInfDir: "╯",
 	Horizontal: "─", Vertical: "│",
 
-	Cursor: "▸", Marcada: "◉", Desmarcada: "○",
+	Cursor: "▸", Marcada: "■", Desmarcada: "▢", Foco: "▣",
 
-	Separador: "·", Enter: "⏎", Setas: "↑↓", SetasLado: "←→",
+	BotaoFocoEsq: "[•", BotaoFocoDir: "•]", BotaoEsq: "⊏ ", BotaoDir: " ⊐",
+
+	Separador: "·", Enter: "[⏎ enter]", Setas: "[↑]/[↓]", SetasLado: "[←]/[→]",
 
 	Pergunta: "◆", Resposta: "✓", Secao: "▪",
 
@@ -77,9 +94,11 @@ var glifosASCII = Glifos{
 	CantoInfEsq: "+", CantoInfDir: "+",
 	Horizontal: "-", Vertical: "|",
 
-	Cursor: ">", Marcada: "x", Desmarcada: " ",
+	Cursor: ">", Marcada: "[x]", Desmarcada: "[ ]", Foco: "",
 
-	Separador: "|", Enter: "enter", Setas: "setas", SetasLado: "setas",
+	BotaoFocoEsq: "[>", BotaoFocoDir: "<]", BotaoEsq: "( ", BotaoDir: " )",
+
+	Separador: "|", Enter: "[enter]", Setas: "[setas]", SetasLado: "[setas]",
 
 	Pergunta: "?", Resposta: ">", Secao: "*",
 
@@ -151,6 +170,13 @@ func MarcadoresDaSaida() Marcadores {
 		return marcadoresEmoji
 	}
 	return marcadoresTexto
+}
+
+// EmojiNaSaida diz se esta saida usa o conjunto de emoji. Quem monta uma
+// contagem por estado precisa saber: no conjunto escrito, aviso e falha sao o
+// mesmo "[!]", e um numero seguido dele nao diz qual dos dois conta.
+func EmojiNaSaida() bool {
+	return MarcadoresDaSaida() == marcadoresEmoji
 }
 
 // VarDeEstilo permite decidir na mao quando a deteccao erra.

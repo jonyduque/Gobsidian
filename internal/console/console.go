@@ -74,6 +74,7 @@ var (
 	corBorda    = []string{codeDim}                     // a moldura em si
 	corNota     = []string{codeDim}                     // sufixo explicativo
 	corPergunta = []string{codeBold, codeBrightMagenta} // marcador de pergunta
+	corCodigo   = []string{codeCyan}                    // `comando` dentro do texto
 )
 
 // sgr monta uma sequencia ANSI unica com todos os codigos, em vez de
@@ -162,7 +163,7 @@ func (s *Stream) Italic(text string) string { return s.style(text, codeItalic) }
 // o texto vai como veio: colorir a mensagem inteira de vermelho torna
 // ilegivel um caminho longo, e o que precisa saltar aos olhos e o estado.
 func (s *Stream) printf(marker string, codes []string, format string, a ...any) {
-	_, _ = fmt.Fprintf(s.w, "%s %s\n", s.style(marker, codes...), adaptarTexto(fmt.Sprintf(format, a...)))
+	_, _ = fmt.Fprintf(s.w, "%s %s\n", s.style(marker, codes...), s.texto(format, a...))
 }
 
 // OK marca sucesso.
@@ -201,13 +202,41 @@ func (s *Stream) Step(format string, a ...any) {
 
 // Line imprime sem marcador nenhum, respeitando o destino do Stream.
 func (s *Stream) Line(format string, a ...any) {
-	_, _ = fmt.Fprintln(s.w, adaptarTexto(fmt.Sprintf(format, a...)))
+	_, _ = fmt.Fprintln(s.w, s.texto(format, a...))
 }
 
 // Detail imprime uma linha de detalhe indentada sob o item anterior, em tom
 // apagado. E o segundo nivel do relatorio do doctor.
 func (s *Stream) Detail(format string, a ...any) {
-	_, _ = fmt.Fprintf(s.w, "     %s\n", s.Dim(adaptarTexto(fmt.Sprintf(format, a...))))
+	_, _ = fmt.Fprintf(s.w, "     %s\n", s.textoCom([]string{codeDim}, format, a...))
+}
+
+// texto monta a linha como ela sai: formatada, adaptada ao que o console
+// aguenta e com a marcacao desenhada, nessa ordem -- adaptar antes de marcar,
+// porque a marcacao acrescenta sequencias ANSI que a adaptacao nao deve ver.
+func (s *Stream) texto(format string, a ...any) string {
+	return s.marcar(adaptarTexto(fmt.Sprintf(format, a...)))
+}
+
+// textoCom e texto para uma linha que sai inteira num estilo, como a de
+// Detail: o estilo de fora e religado depois de cada trecho marcado. Ver
+// marcar.
+func (s *Stream) textoCom(externo []string, format string, a ...any) string {
+	return s.style(s.marcar(adaptarTexto(fmt.Sprintf(format, a...)), externo...), externo...)
+}
+
+// Apagado e Dim para texto do produto: apaga o trecho E desenha a marcacao
+// dele, religando o apagado depois de cada realce. Dim sozinho perderia o tom
+// no primeiro trecho marcado.
+func (s *Stream) Apagado(t string) string {
+	return s.textoCom([]string{codeDim}, "%s", t)
+}
+
+// Marcado devolve um texto com a marcacao desenhada, para quem monta uma
+// linha em pedacos -- o corpo de um bloco, uma linha de lista -- antes de
+// entrega-la a Moldura.
+func (s *Stream) Marcado(t string) string {
+	return s.marcar(adaptarTexto(t))
 }
 
 // SupportsColor decide se w aceita sequencias ANSI.

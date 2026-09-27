@@ -99,14 +99,14 @@ func MigrarChaves(cacheRaiz string, aplicar bool) ([]MigracaoDeChave, error) {
 		if _, err := os.Stat(h.VaultPath); err != nil {
 			// Cofre sumido: isto e trabalho da limpeza, sob a regra dela.
 			// Renomear lixo so o deixa com nome novo.
-			m.Motivo = "o cofre do cabecalho nao existe mais; assunto da limpeza"
+			m.Motivo = "o cofre do cabeçalho não existe mais. Assunto da limpeza"
 			saida = append(saida, m)
 			continue
 		}
 		if ocupado[esperada] {
 			// Ja existe cache sob a chave nova. Ele e o valido; este e um
 			// resto. Nao apagamos nada (D-05) e nao sobrescrevemos nada.
-			m.Motivo = "ja existe diretorio sob a chave nova; nada foi tocado"
+			m.Motivo = "já existe diretório sob a chave nova. Nada foi tocado"
 			saida = append(saida, m)
 			continue
 		}

@@ -25,6 +25,7 @@ import (
 	"github.com/jonyduque/Gobsidian/internal/config"
 	"github.com/jonyduque/Gobsidian/internal/daemon"
 	"github.com/jonyduque/Gobsidian/internal/ipc"
+	"github.com/jonyduque/Gobsidian/internal/textos"
 )
 
 // prazoDeSondaDoDaemon limita o dial de diagnóstico. Curto: D-M7-6 mediu 25,7 us
@@ -52,22 +53,22 @@ func classeDoCaminhoDoSocket(path string) string {
 	fi, err := os.Lstat(path)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return "ausente"
+			return textos.ClasseAusente
 		}
-		return fmt.Sprintf("inacessível (%v)", err)
+		return fmt.Sprintf(textos.ClasseInacessivel, err)
 	}
 	modo := fi.Mode()
 	switch {
 	case modo&os.ModeSocket != 0:
-		return "socket"
+		return textos.ClasseSocket
 	case modo.IsDir():
-		return "DIRETÓRIO (nenhum daemon consegue usar este caminho)"
+		return textos.ClasseDiretorio
 	case modo&os.ModeSymlink != 0:
-		return "symlink"
+		return textos.ClasseSymlink
 	case modo.IsRegular():
-		return fmt.Sprintf("arquivo comum de %d bytes (resíduo; nenhum daemon escuta aqui)", fi.Size())
+		return fmt.Sprintf(textos.ClasseArquivo, fi.Size())
 	default:
-		return fmt.Sprintf("outro (modo=%v)", modo)
+		return fmt.Sprintf(textos.ClasseOutro, modo)
 	}
 }
 
@@ -76,20 +77,20 @@ func classeDoCaminhoDoSocket(path string) string {
 // Não recebe ctx: Lstat não é espera real, e ctx que nenhum corpo verifica
 // ensina revisor a ignorar ctx.
 func checkSocketPath(_ context.Context, cfg config.Config) Result {
-	const name = "caminho do socket do daemon"
+	const name = textos.CheckSocket
 
 	path, err := ipc.SocketPath(cfg.VaultPath)
 	if err != nil {
-		return Result{Name: name, Status: StatusWarn, Detail: fmt.Sprintf("nao foi possivel derivar: %v", err)}
+		return Result{Name: name, Status: StatusWarn, Detail: fmt.Sprintf(textos.DetNaoDerivou, err)}
 	}
 
 	classe := classeDoCaminhoDoSocket(path)
-	detalhe := fmt.Sprintf("%s -- %s", path, classe)
+	detalhe := fmt.Sprintf(textos.DetSocketEClasse, path, classe)
 
 	// Ausente e socket sao os dois estados saudaveis: sem daemon ainda, ou com
 	// um daemon que abriu o socket. Qualquer outra coisa e residuo que impede o
 	// daemon de subir, e e informacao acionavel.
-	if classe == "ausente" || classe == "socket" {
+	if classe == textos.ClasseAusente || classe == textos.ClasseSocket {
 		return Result{Name: name, Status: StatusOK, Detail: detalhe}
 	}
 	return Result{Name: name, Status: StatusWarn, Detail: detalhe}
@@ -110,11 +111,11 @@ var sondarSocketDoCofre = ipc.SondarSocketDoCofre
 //
 // Nao recebe ctx util: criar e conectar num socket local nao e espera real.
 func checkDiretorioDeSockets(_ context.Context, cfg config.Config) Result {
-	const name = "diretório de sockets aceita conexão"
+	const name = textos.CheckDiretorioSockets
 	if err := sondarSocketDoCofre(cfg.VaultPath); err != nil {
-		return Result{Name: name, Status: StatusWarn, Detail: fmt.Sprintf("%v -- a ponte deste contexto vai servir em processo em vez de usar o daemon", err)}
+		return Result{Name: name, Status: StatusWarn, Detail: fmt.Sprintf(textos.DetSondaFalhou, err)}
 	}
-	return Result{Name: name, Status: StatusOK, Detail: "vale neste processo; num host o servidor roda noutro contexto, e a prova lá é a linha `conectado ao daemon` no log dele"}
+	return Result{Name: name, Status: StatusOK, Detail: textos.DetSondaOK}
 }
 
 // checkDaemonVivo tenta o handshake, que é o ÚNICO critério de "há daemon
@@ -127,31 +128,31 @@ func checkDiretorioDeSockets(_ context.Context, cfg config.Config) Result {
 //
 // Recebe ctx porque há espera real: um dial pode bloquear até o prazo.
 func checkDaemonVivo(ctx context.Context, cfg config.Config) Result {
-	const name = "daemon respondendo"
+	const name = textos.CheckDaemonVivo
 
 	conn, err := ipc.DialAndHandshake(ctx, cfg.VaultPath, cfg.ReadOnly, cfg.MaxResults, prazoDeSondaDoDaemon)
 	if err == nil {
 		_ = conn.Close()
-		return Result{Name: name, Status: StatusOK, Detail: "handshake completo"}
+		return Result{Name: name, Status: StatusOK, Detail: textos.DetHandshakeOK}
 	}
 
 	path, perr := ipc.SocketPath(cfg.VaultPath)
 	if perr != nil {
-		path = "(caminho indisponível)"
+		path = textos.DetCaminhoIndisponivel
 	}
 	// Sem daemon nao e falha: o modo em processo e um caminho suportado, e a
 	// ponte cai nele de proposito quando nao ha daemon.
-	if classeDoCaminhoDoSocket(path) == "ausente" {
+	if classeDoCaminhoDoSocket(path) == textos.ClasseAusente {
 		return Result{
 			Name:   name,
 			Status: StatusOK,
-			Detail: "nenhum daemon rodando (a ponte servirá em processo)",
+			Detail: textos.DetSemDaemon,
 		}
 	}
 	return Result{
 		Name:   name,
 		Status: StatusWarn,
-		Detail: fmt.Sprintf("arquivo existe mas o handshake falhou: %v", err),
+		Detail: fmt.Sprintf(textos.DetHandshakeFalhou, err),
 	}
 }
 
@@ -161,26 +162,26 @@ func checkDaemonVivo(ctx context.Context, cfg config.Config) Result {
 // morreram deixando a linha "daemon iniciado" e mais nada — e um log com uma
 // linha só continua sendo o sintoma que essa checagem torna visível.
 func checkDaemonLog(_ context.Context, cfg config.Config) Result {
-	const name = "log do daemon"
+	const name = textos.CheckLogDaemon
 
 	path, err := daemon.CaminhoDoLog(cfg.VaultPath)
 	if err != nil {
-		return Result{Name: name, Status: StatusWarn, Detail: fmt.Sprintf("nao foi possivel derivar: %v", err)}
+		return Result{Name: name, Status: StatusWarn, Detail: fmt.Sprintf(textos.DetNaoDerivou, err)}
 	}
 
 	fi, err := os.Stat(path)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return Result{Name: name, Status: StatusOK, Detail: "ainda não existe (nenhum daemon rodou para este cofre)"}
+			return Result{Name: name, Status: StatusOK, Detail: textos.DetLogAusente}
 		}
-		return Result{Name: name, Status: StatusWarn, Detail: fmt.Sprintf("%s: %v", path, err)}
+		return Result{Name: name, Status: StatusWarn, Detail: fmt.Sprintf(textos.DetCaminhoEErro, path, err)}
 	}
 
 	linhas, _ := daemon.UltimasLinhasDoLog(cfg.VaultPath, 3)
 
 	idade := time.Since(fi.ModTime()).Round(time.Minute)
 	var b strings.Builder
-	fmt.Fprintf(&b, "%s (%d bytes, última escrita há %s)", path, fi.Size(), idade)
+	fmt.Fprintf(&b, textos.DetLogResumo, path, fi.Size(), idade)
 	for _, l := range linhas {
 		b.WriteString("\n      | ")
 		b.WriteString(l)
@@ -203,20 +204,20 @@ func checkDaemonLog(_ context.Context, cfg config.Config) Result {
 // O arquivo remanescente não é achado nem defeito: é o token da trava, e ele
 // persistir entre execuções é o que elimina a corrida de remover-e-recriar.
 func checkLocksDeDaemon(_ context.Context, cfg config.Config) Result {
-	const name = "travas de daemon em uso"
+	const name = textos.CheckTravas
 
 	sock, err := ipc.SocketPath(cfg.VaultPath)
 	if err != nil {
-		return Result{Name: name, Status: StatusWarn, Detail: fmt.Sprintf("nao foi possivel derivar: %v", err)}
+		return Result{Name: name, Status: StatusWarn, Detail: fmt.Sprintf(textos.DetNaoDerivou, err)}
 	}
 	dir := filepath.Dir(sock)
 
 	entradas, err := os.ReadDir(dir)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return Result{Name: name, Status: StatusOK, Detail: "diretório de runtime ainda não existe"}
+			return Result{Name: name, Status: StatusOK, Detail: textos.DetRuntimeAusente}
 		}
-		return Result{Name: name, Status: StatusWarn, Detail: fmt.Sprintf("%s: %v", dir, err)}
+		return Result{Name: name, Status: StatusWarn, Detail: fmt.Sprintf(textos.DetCaminhoEErro, dir, err)}
 	}
 
 	var emUso []string
@@ -227,7 +228,7 @@ func checkLocksDeDaemon(_ context.Context, cfg config.Config) Result {
 		caminho := filepath.Join(dir, e.Name())
 		ocupada, err := daemon.TravaEmUso(caminho)
 		if err != nil {
-			emUso = append(emUso, fmt.Sprintf("%s (não foi possível consultar: %v)", e.Name(), err))
+			emUso = append(emUso, fmt.Sprintf(textos.DetTravaIlegivel, e.Name(), err))
 			continue
 		}
 		if !ocupada {
@@ -238,19 +239,19 @@ func checkLocksDeDaemon(_ context.Context, cfg config.Config) Result {
 		detalhe := e.Name()
 		if dados, err := os.ReadFile(caminho); err == nil {
 			if pid, err := strconv.Atoi(strings.TrimSpace(string(dados))); err == nil {
-				detalhe = fmt.Sprintf("%s (PID %d)", e.Name(), pid)
+				detalhe = fmt.Sprintf(textos.DetTravaComPID, e.Name(), pid)
 			}
 		}
 		emUso = append(emUso, detalhe)
 	}
 
 	if len(emUso) == 0 {
-		return Result{Name: name, Status: StatusOK, Detail: "nenhuma trava em uso"}
+		return Result{Name: name, Status: StatusOK, Detail: textos.DetSemTravas}
 	}
 	return Result{
 		Name:   name,
 		Status: StatusOK,
-		Detail: fmt.Sprintf("%d em %s: %s", len(emUso), dir, strings.Join(emUso, ", ")),
+		Detail: fmt.Sprintf(textos.DetTravasEmUso, len(emUso), dir, strings.Join(emUso, ", ")),
 	}
 }
 

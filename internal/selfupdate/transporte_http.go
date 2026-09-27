@@ -45,7 +45,7 @@ func (t TransporteHTTP) cliente() *http.Client {
 func (t TransporteHTTP) Buscar(ctx context.Context, url string) (io.ReadCloser, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
-		return nil, fmt.Errorf("montando requisicao para %s: %w", url, err)
+		return nil, fmt.Errorf("montando requisição para %s: %w", url, err)
 	}
 	// A API do GitHub versiona por header. Sem ele, uma mudanca de default do
 	// lado deles muda o formato da resposta sem aviso.

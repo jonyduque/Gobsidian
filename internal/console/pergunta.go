@@ -22,7 +22,7 @@ import "fmt"
 // concordando.
 func (s *Stream) Pergunta(pergunta, padrao string) {
 	g := GlifosDaSaida()
-	linha := s.style(g.Pergunta, corPergunta...) + " " + s.style(adaptarTexto(pergunta), corTitulo...)
+	linha := s.style(g.Pergunta, corPergunta...) + " " + s.textoCom(corTitulo, "%s", pergunta)
 	if padrao != "" {
 		linha += " " + s.style("("+padrao+")", corNota...)
 	}
@@ -38,7 +38,7 @@ func (s *Stream) Pergunta(pergunta, padrao string) {
 // que torna a instalacao auditavel sem virar log.
 func (s *Stream) Resposta(escolha string) {
 	g := GlifosDaSaida()
-	s.Line("%s %s", s.style(g.Resposta, corMarcada...), s.style(escolha, corNota...))
+	_, _ = fmt.Fprintf(s.w, "%s %s\n", s.style(g.Resposta, corMarcada...), s.textoCom(corNota, "%s", escolha))
 }
 
 // Titulo abre uma secao da interface interativa.
@@ -48,8 +48,8 @@ func (s *Stream) Resposta(escolha string) {
 // confundiam qual estava em curso.
 func (s *Stream) Titulo(format string, a ...any) {
 	g := GlifosDaSaida()
-	s.Line("")
-	s.Line("%s %s", s.style(g.Secao, corDestaque...), s.style(fmt.Sprintf(format, a...), corTitulo...))
+	_, _ = fmt.Fprintln(s.w)
+	_, _ = fmt.Fprintf(s.w, "%s %s\n", s.style(g.Secao, corDestaque...), s.textoCom(corTitulo, format, a...))
 }
 
 // Passo anuncia uma etapa em andamento dentro de uma sequencia.
@@ -60,5 +60,5 @@ func (s *Stream) Titulo(format string, a ...any) {
 // -- quem le quer saber que algo esta acontecendo.
 func (s *Stream) Passo(format string, a ...any) {
 	g := GlifosDaSaida()
-	s.Line("  %s %s", s.style(g.Cursor, corDestaque...), s.Dim(fmt.Sprintf(format, a...)))
+	_, _ = fmt.Fprintf(s.w, "  %s %s\n", s.style(g.Cursor, corDestaque...), s.textoCom([]string{codeDim}, format, a...))
 }

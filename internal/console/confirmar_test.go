@@ -64,10 +64,10 @@ func TestBotoesMostramOsDoisEstados(t *testing.T) {
 	}
 
 	comSim, comNao := desenho(true), desenho(false)
-	if !strings.Contains(comSim, "[ > Sim ]") || !strings.Contains(comSim, "[   Nao ]") {
+	if !strings.Contains(comSim, "[>Sim<]") || !strings.Contains(comSim, "( Nao )") {
 		t.Errorf("com foco em Sim, a linha de botoes saiu:\n%s", comSim)
 	}
-	if !strings.Contains(comNao, "[ > Nao ]") || !strings.Contains(comNao, "[   Sim ]") {
+	if !strings.Contains(comNao, "[>Nao<]") || !strings.Contains(comNao, "( Sim )") {
 		t.Errorf("com foco em Nao, a linha de botoes saiu:\n%s", comNao)
 	}
 	if !strings.Contains(comSim, "pid 42") {

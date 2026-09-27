@@ -32,7 +32,7 @@ func TestAjudaRedirecionadaNaoSaiFormatada(t *testing.T) {
 		{
 			nome:    "raiz",
 			args:    []string{"--help"},
-			trechos: []string{"Comandos disponiveis:", "doctor", "serve", "Flags:", "--help"},
+			trechos: []string{"Comandos dispon", "doctor", "serve", "Flags:", "--help"},
 		},
 		{
 			// Subcomando e executavel, entao aqui a secao de uso aparece.

@@ -34,19 +34,25 @@ func (s *Stream) Campos(titulo string, campos []Campo) {
 		return
 	}
 
+	// A chave e a nota sao texto do produto e levam marcacao ("*Commit*"); o
+	// valor e dado -- um titulo de nota com asterisco sai como esta. A largura
+	// e medida DEPOIS de desenhar: sem cor, "*Commit*" vira "Commit" e ocupa
+	// duas colunas a menos.
+	chaves := make([]string, len(campos))
 	maior := 0
-	for _, c := range campos {
-		if l := larguraVisivel(c.Chave); l > maior {
+	for i, c := range campos {
+		chaves[i] = s.style(s.marcar(adaptarTexto(c.Chave), corNota...), corNota...)
+		if l := larguraVisivel(chaves[i]); l > maior {
 			maior = l
 		}
 	}
 
 	corpos := make([]string, 0, len(campos))
-	for _, c := range campos {
-		enchimento := strings.Repeat(" ", maior-larguraVisivel(c.Chave))
-		linha := "  " + s.style(c.Chave, corNota...) + enchimento + "  " + c.Valor
+	for i, c := range campos {
+		enchimento := strings.Repeat(" ", maior-larguraVisivel(chaves[i]))
+		linha := "  " + chaves[i] + enchimento + "  " + c.Valor
 		if c.Nota != "" {
-			linha += "  " + s.style(c.Nota, corNota...)
+			linha += "  " + s.style(s.marcar(adaptarTexto(c.Nota), corNota...), corNota...)
 		}
 		corpos = append(corpos, linha)
 	}

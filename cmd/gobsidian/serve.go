@@ -43,11 +43,11 @@ func newServeCmd() *cobra.Command {
 
 	flagsDeCofre(cmd, &flags)
 	flagsDeCache(cmd, &flags)
-	cmd.Flags().BoolVar(&flags.ReadOnly, "read-only", false, "desabilita toda a superficie de escrita")
-	cmd.Flags().IntVar(&flags.DebounceMS, "debounce-ms", 0, "janela de coalescencia de eventos do watcher")
-	cmd.Flags().IntVar(&flags.MaxResults, "max-results", 0, "teto de resultados por consulta")
+	cmd.Flags().BoolVar(&flags.ReadOnly, "read-only", false, textos.FlagReadOnly)
+	cmd.Flags().IntVar(&flags.DebounceMS, "debounce-ms", 0, textos.FlagDebounce)
+	cmd.Flags().IntVar(&flags.MaxResults, "max-results", 0, textos.FlagMaxResults)
 	cmd.Flags().BoolVar(&flags.EagerSearch, "eager-search", false,
-		"carrega o indice de busca no boot em vez de esperar a primeira vault_search")
+		textos.FlagEagerSearch)
 
 	return cmd
 }

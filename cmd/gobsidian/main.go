@@ -9,12 +9,16 @@ package main
 
 import (
 	"errors"
-	"github.com/jonyduque/Gobsidian/internal/textos"
+	"fmt"
 	"os"
+	"strings"
+	"unicode"
+	"unicode/utf8"
 
 	"github.com/jonyduque/Gobsidian/internal/console"
 	"github.com/jonyduque/Gobsidian/internal/instalar"
 	"github.com/jonyduque/Gobsidian/internal/mcpsrv"
+	"github.com/jonyduque/Gobsidian/internal/textos"
 	"github.com/spf13/cobra"
 )
 
@@ -34,13 +38,35 @@ func main() {
 
 	root := newRootCmd()
 
+	// O autocompletar mostra o resumo de cada comando e a descricao de cada
+	// flag, e quem os escreve e o cobra, direto para o shell: ali a marcacao
+	// dos textos sairia com os asteriscos.
+	if len(os.Args) > 1 && (strings.HasPrefix(os.Args[1], "__complete") || os.Args[1] == "_carapace") {
+		console.TirarMarcacaoDaArvore(root)
+	}
+
 	if err := root.Execute(); err != nil {
 		// Erro vai para o stderr, e a decisao de cor sai do PROPRIO stderr.
 		// Se stdout estiver redirecionado e o stderr for um terminal, o erro
 		// continua colorido -- e o inverso tambem vale.
-		console.New(os.Stderr).Err("%v", err)
+		console.New(os.Stderr).Err("%s", comMaiuscula(err.Error()))
 		os.Exit(1)
 	}
+}
+
+// comMaiuscula poe em maiuscula a primeira letra da linha de falha.
+//
+// Os erros de textos ja comecam com maiuscula, mas o de um pacote-folha --
+// config, selfupdate -- nao pode: ele nao importa textos, e chega aqui cru
+// ("caminho do cofre não informado"). A frase que abre a linha e decidida
+// aqui, uma vez, e nao em cada literal -- e os literais continuam minusculos
+// porque quase sempre aparecem no MEIO de uma linha, embrulhados por outro.
+func comMaiuscula(s string) string {
+	r, n := utf8.DecodeRuneInString(s)
+	if r == utf8.RuneError {
+		return s
+	}
+	return string(unicode.ToUpper(r)) + s[n:]
 }
 
 // newRootCmd monta a arvore de comandos completa.
@@ -97,7 +123,7 @@ func newVersionCmd() *cobra.Command {
 		Short: textos.ResumoVersion,
 		Run: func(cmd *cobra.Command, _ []string) {
 			con := console.New(cmd.OutOrStdout())
-			con.Campos("gobsidian "+version, []console.Campo{
+			con.Campos(fmt.Sprintf(textos.VersionTitulo, version), []console.Campo{
 				console.Campof(textos.CampoCommit, "%s", commit),
 				console.Campof(textos.CampoBuild, "%s", buildDate),
 			})

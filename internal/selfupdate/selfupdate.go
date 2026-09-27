@@ -64,7 +64,7 @@ var ErrHostProibido = errors.New("host fora da lista permitida")
 // ErrHashDivergente e devolvido quando o arquivo baixado nao casa com a soma
 // publicada. Nunca e recuperavel: um binario que nao confere nao e instalado
 // (decisao D-03 do dono).
-var ErrHashDivergente = errors.New("SHA-256 do arquivo baixado nao confere com o publicado")
+var ErrHashDivergente = errors.New("SHA-256 do arquivo baixado não confere com o publicado")
 
 // ValidarHost recusa qualquer URL fora da lista.
 //
@@ -126,10 +126,10 @@ func UltimaVersao(ctx context.Context, t Transporte, repo string) (Release, erro
 
 	var resp respostaDaAPI
 	if err := json.NewDecoder(corpo).Decode(&resp); err != nil {
-		return Release{}, fmt.Errorf("lendo resposta da API de releases: %w", err)
+		return Release{}, fmt.Errorf("lendo resposta da API de *releases*: %w", err)
 	}
 	if resp.TagName == "" {
-		return Release{}, errors.New("a API devolveu um release sem tag")
+		return Release{}, errors.New("a API devolveu um *release* sem *tag*")
 	}
 
 	r := Release{Tag: resp.TagName, Ativos: map[string]string{}}
@@ -157,7 +157,7 @@ func UltimaVersao(ctx context.Context, t Transporte, repo string) (Release, erro
 func Baixar(ctx context.Context, t Transporte, r Release, nomeDoAtivo, destino string) error {
 	url, ok := r.Ativos[nomeDoAtivo]
 	if !ok {
-		return fmt.Errorf("release %s nao tem o ativo %q", r.Tag, nomeDoAtivo)
+		return fmt.Errorf("*release* %s não tem o ativo %q", r.Tag, nomeDoAtivo)
 	}
 
 	esperado, err := somaPublicada(ctx, t, r, nomeDoAtivo)
@@ -172,11 +172,11 @@ func Baixar(ctx context.Context, t Transporte, r Release, nomeDoAtivo, destino s
 	defer func() { _ = corpo.Close() }()
 
 	if err := os.MkdirAll(filepath.Dir(destino), 0o700); err != nil {
-		return fmt.Errorf("criando diretorio de destino: %w", err)
+		return fmt.Errorf("criando diretório de destino: %w", err)
 	}
 	tmp, err := os.CreateTemp(filepath.Dir(destino), ".gobsidian-baixado-*")
 	if err != nil {
-		return fmt.Errorf("criando temporario de download: %w", err)
+		return fmt.Errorf("criando temporário de *download*: %w", err)
 	}
 	tmpNome := tmp.Name()
 	defer func() { _ = os.Remove(tmpNome) }() // no-op depois do rename
@@ -184,10 +184,10 @@ func Baixar(ctx context.Context, t Transporte, r Release, nomeDoAtivo, destino s
 	h := sha256.New()
 	if _, err := io.Copy(io.MultiWriter(tmp, h), corpo); err != nil {
 		_ = tmp.Close()
-		return fmt.Errorf("gravando download: %w", err)
+		return fmt.Errorf("gravando *download*: %w", err)
 	}
 	if err := tmp.Close(); err != nil {
-		return fmt.Errorf("fechando download: %w", err)
+		return fmt.Errorf("fechando *download*: %w", err)
 	}
 
 	obtido := hex.EncodeToString(h.Sum(nil))
@@ -196,7 +196,7 @@ func Baixar(ctx context.Context, t Transporte, r Release, nomeDoAtivo, destino s
 	}
 
 	if err := os.Rename(tmpNome, destino); err != nil {
-		return fmt.Errorf("movendo download para %s: %w", destino, err)
+		return fmt.Errorf("movendo *download* para %s: %w", destino, err)
 	}
 	return nil
 }
@@ -213,7 +213,7 @@ const NomeDoArquivoDeSomas = "SHA256SUMS.txt"
 func somaPublicada(ctx context.Context, t Transporte, r Release, nomeDoAtivo string) (string, error) {
 	url, ok := r.Ativos[NomeDoArquivoDeSomas]
 	if !ok {
-		return "", fmt.Errorf("release %s nao publica %s; sem ele nao ha o que conferir", r.Tag, NomeDoArquivoDeSomas)
+		return "", fmt.Errorf("*release* %s não publica %s. Sem ele, não há o que conferir", r.Tag, NomeDoArquivoDeSomas)
 	}
 	corpo, err := buscarValidando(ctx, t, url)
 	if err != nil {
@@ -236,7 +236,7 @@ func somaPublicada(ctx context.Context, t Transporte, r Release, nomeDoAtivo str
 			return campos[0], nil
 		}
 	}
-	return "", fmt.Errorf("%s nao lista %q", NomeDoArquivoDeSomas, nomeDoAtivo)
+	return "", fmt.Errorf("%s não lista %q", NomeDoArquivoDeSomas, nomeDoAtivo)
 }
 
 // buscarValidando e o unico caminho por onde uma URL sai deste pacote.

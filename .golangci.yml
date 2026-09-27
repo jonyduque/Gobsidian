@@ -11,3 +11,15 @@ linters:
     - errorlint
     - gocritic
     - revive
+  exclusions:
+    rules:
+      # Os erros de internal/textos sao frases que o usuario le na linha de
+      # falha, e seguem a redacao revista pelo dono em docs/TEXTOS.md (decisao
+      # de 2026-09-27): maiuscula no comeco e ponto no fim. ST1005 pede o
+      # contrario, que e a convencao de Go para erro embrulhado no meio de uma
+      # linha. A isencao vale SO na linha que usa uma constante de textos; o
+      # literal escrito direto no codigo continua sob a regra.
+      - linters:
+          - staticcheck
+        text: "ST1005"
+        source: "textos\\."

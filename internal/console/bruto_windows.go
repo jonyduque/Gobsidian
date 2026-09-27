@@ -37,7 +37,7 @@ func entrarNoModoBruto(f *os.File) (restaurar func(), err error) {
 	if err := windows.GetConsoleMode(h, &antes); err != nil {
 		// Nao e console: pipe, redirecionamento, terminal de IDE sem console
 		// real. Quem chama cai no modo digitado.
-		return nil, errors.New("a entrada nao e um console")
+		return nil, errors.New("a entrada não é um console")
 	}
 
 	depois := (antes &^ entradaASair) | entradaAEntrar

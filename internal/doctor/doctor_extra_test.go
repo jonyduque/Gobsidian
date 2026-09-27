@@ -16,6 +16,7 @@ import (
 
 	"github.com/jonyduque/Gobsidian/internal/config"
 	"github.com/jonyduque/Gobsidian/internal/doctor"
+	"github.com/jonyduque/Gobsidian/internal/textos"
 )
 
 // TestCheckCacheDirCreatable confirma o ramo real de sucesso: um CacheDir
@@ -35,7 +36,7 @@ func TestCheckCacheDirCreatable(t *testing.T) {
 
 	results := doctor.Run(context.Background(), cfg)
 
-	if !hasStatus(results, "diretório de cache", doctor.StatusOK) {
+	if !hasStatus(results, textos.CheckCache, doctor.StatusOK) {
 		t.Errorf("esperava [OK] para diretorio de cache criavel: %+v", results)
 	}
 	if _, err := os.Stat(cfg.CacheDir); err != nil {
@@ -64,7 +65,7 @@ func TestCheckCacheDirUncreatable(t *testing.T) {
 
 	results := doctor.Run(context.Background(), cfg)
 
-	if !hasStatus(results, "diretório de cache", doctor.StatusWarn) {
+	if !hasStatus(results, textos.CheckCache, doctor.StatusWarn) {
 		t.Errorf("esperava aviso para diretorio de cache nao-criavel: %+v", results)
 	}
 	if doctor.ExitCode(results) != 0 {
@@ -119,7 +120,7 @@ func TestRunContextCancelledStopsWalk(t *testing.T) {
 
 	found := false
 	for _, r := range results {
-		if r.Name != "contagem de notas" {
+		if r.Name != textos.CheckNotas {
 			continue
 		}
 		found = true
@@ -181,7 +182,7 @@ func TestCheckLongestPathMeasuresAbsolutePath(t *testing.T) {
 	relLen := len(name)
 
 	for _, r := range results {
-		if r.Name != "comprimento de caminho" {
+		if r.Name != textos.CheckCaminho {
 			continue
 		}
 		wantSubstr := strconv.Itoa(wantLen)

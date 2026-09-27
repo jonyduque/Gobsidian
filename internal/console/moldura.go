@@ -1,6 +1,9 @@
 package console
 
-import "strings"
+import (
+	"fmt"
+	"strings"
+)
 
 // Moldura desenha um bloco com titulo na borda de cima e, opcionalmente, um
 // rodape na de baixo.
@@ -37,11 +40,11 @@ func (s *Stream) Moldura(titulo string, corpos []string, rodape string) []string
 
 	tituloDeco := ""
 	if titulo != "" {
-		tituloDeco = g.Horizontal + " " + s.style(titulo, corTitulo...) + " "
+		tituloDeco = g.Horizontal + " " + s.style(s.marcar(titulo, corTitulo...), corTitulo...) + " "
 	}
 	rodapeDeco := ""
 	if rodape != "" {
-		rodapeDeco = g.Horizontal + " " + s.style(rodape, corNota...) + " "
+		rodapeDeco = g.Horizontal + " " + s.style(s.marcar(rodape, corNota...), corNota...) + " "
 	}
 
 	// Uma linha de conteudo tem de ser UMA linha. Trecho de busca traz quebra
@@ -98,9 +101,13 @@ func ajustarComEstilo(s *Stream, conteudo string, largura int, traco string) str
 //
 // E o que os comandos usam para mostrar um resumo; a lista interativa nao
 // passa por aqui porque ela precisa das linhas para se redesenhar.
+//
+// Escreve as linhas como a moldura as montou, e nao por Line: o titulo e o
+// rodape ja estao marcados, e o corpo e de quem chama -- um trecho de nota com
+// asterisco nao e marcacao do produto e nao pode ser desenhado como se fosse.
 func (s *Stream) Bloco(titulo string, corpos []string, rodape string) {
 	for _, l := range s.Moldura(titulo, corpos, rodape) {
-		s.Line("%s", l)
+		_, _ = fmt.Fprintln(s.w, l)
 	}
 }
 

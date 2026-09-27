@@ -32,7 +32,7 @@ func entrarNoModoBruto(f *os.File) (restaurar func(), err error) {
 	if err != nil {
 		// Nao e terminal: pipe, redirecionamento, CI. Quem chama cai no modo
 		// digitado.
-		return nil, errors.New("a entrada nao e um terminal")
+		return nil, errors.New("a entrada não é um terminal")
 	}
 
 	depois := *antes

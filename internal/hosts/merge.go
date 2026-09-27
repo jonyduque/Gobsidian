@@ -93,7 +93,7 @@ func Fundir(caminho string, e Entrada) error {
 // que este pacote escreveu antes sai e mais nada entra.
 func FundirVarias(caminho string, entradas []EntradaNomeada) error {
 	if err := os.MkdirAll(filepath.Dir(caminho), 0o700); err != nil {
-		return fmt.Errorf("criando diretorio de %s: %w", caminho, err)
+		return fmt.Errorf("criando diretório de %s: %w", caminho, err)
 	}
 
 	bruto, err := os.ReadFile(caminho)
@@ -117,7 +117,7 @@ func FundirVarias(caminho string, entradas []EntradaNomeada) error {
 			// agora, ou um formato que este pacote nao entende. Nos dois casos,
 			// escrever por cima destroi o que havia -- e o backup so ajuda quem
 			// souber que ele existe.
-			return fmt.Errorf("%s nao e um JSON valido; nada foi alterado (backup em %s%s): %w",
+			return fmt.Errorf("%s não é um JSON válido. Nada foi alterado (*backup* em %s%s): %w",
 				caminho, caminho, SufixoDeBackup, err)
 		}
 	}
@@ -125,7 +125,7 @@ func FundirVarias(caminho string, entradas []EntradaNomeada) error {
 	servidores := map[string]json.RawMessage{}
 	if bruta, ok := doc["mcpServers"]; ok && len(bruta) > 0 {
 		if err := json.Unmarshal(bruta, &servidores); err != nil {
-			return fmt.Errorf("mcpServers de %s nao e um objeto; nada foi alterado: %w", caminho, err)
+			return fmt.Errorf("`mcpServers` de %s não é um objeto. Nada foi alterado: %w", caminho, err)
 		}
 	}
 
@@ -146,7 +146,7 @@ func FundirVarias(caminho string, entradas []EntradaNomeada) error {
 
 	novosServidores, err := json.Marshal(servidores)
 	if err != nil {
-		return fmt.Errorf("serializando mcpServers: %w", err)
+		return fmt.Errorf("serializando `mcpServers`: %w", err)
 	}
 	doc["mcpServers"] = novosServidores
 
@@ -168,7 +168,7 @@ func FundirVarias(caminho string, entradas []EntradaNomeada) error {
 // escreveu a mao nao vale a conveniencia.
 func fazerBackup(caminho string, conteudo []byte) error {
 	if err := os.WriteFile(caminho+SufixoDeBackup, conteudo, 0o600); err != nil {
-		return fmt.Errorf("gravando backup de %s: %w", caminho, err)
+		return fmt.Errorf("gravando *backup* de %s: %w", caminho, err)
 	}
 	return nil
 }
@@ -185,7 +185,7 @@ func definicaoParaVSCode(en EntradaNomeada) (string, error) {
 	}{Name: en.Chave, Command: en.Command, Args: en.Args}
 	b, err := json.Marshal(def)
 	if err != nil {
-		return "", fmt.Errorf("serializando a definicao para o VS Code: %w", err)
+		return "", fmt.Errorf("serializando a definição para o VS Code: %w", err)
 	}
 	return string(b), nil
 }

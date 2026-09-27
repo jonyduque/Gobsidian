@@ -27,7 +27,10 @@ func TestRelatarVerificacoesAgrupaEResume(t *testing.T) {
 	saida := buf.String()
 
 	// As secoes saem na ordem, e cada uma aparece uma vez.
-	iCofre, iCache, iDaemon := strings.Index(saida, doctor.GrupoCofre), strings.Index(saida, doctor.GrupoCache), strings.Index(saida, doctor.GrupoDaemon)
+	// O titulo do grupo sai com a marcacao desenhada: "*Daemon*." vira
+	// "Daemon." num Stream sem cor.
+	grupo := func(g string) int { return strings.Index(saida, console.SemMarcacao(g)) }
+	iCofre, iCache, iDaemon := grupo(doctor.GrupoCofre), grupo(doctor.GrupoCache), grupo(doctor.GrupoDaemon)
 	if iCofre < 0 || iCache < 0 || iDaemon < 0 {
 		t.Fatalf("faltam secoes na saida:\n%s", saida)
 	}
@@ -35,7 +38,7 @@ func TestRelatarVerificacoesAgrupaEResume(t *testing.T) {
 		t.Errorf("secoes fora de ordem (cofre=%d, cache=%d, daemon=%d):\n%s", iCofre, iCache, iDaemon, saida)
 	}
 	// Nenhum grupo vazio: "Windows" nao foi passado e nao pode aparecer.
-	if strings.Contains(saida, doctor.GrupoSO) {
+	if strings.Contains(saida, console.SemMarcacao(doctor.GrupoSO)) {
 		t.Errorf("secao sem nenhuma verificacao apareceu:\n%s", saida)
 	}
 
@@ -53,8 +56,26 @@ func TestRelatarVerificacoesAgrupaEResume(t *testing.T) {
 	}
 
 	// O resumo e o que responde "e isso tudo esta bem?" sem recontar as linhas.
-	if !strings.Contains(saida, "4 verificações: 2 ok, 1 aviso, 1 falha") {
+	// Onde o console aguenta emoji, cada numero vem com o marcador do estado.
+	if !strings.Contains(saida, "4 verificações: 2 ✅, 1 ⚠️, 1 ❌") {
 		t.Errorf("resumo ausente ou errado:\n%s", saida)
+	}
+}
+
+// TestResumoPorExtensoOndeNaoHaEmoji: no conjunto escrito, aviso e falha sao
+// o mesmo "[!]", e "1 [!], 1 [!]" nao diria qual e qual. La a contagem sai por
+// extenso.
+func TestResumoPorExtensoOndeNaoHaEmoji(t *testing.T) {
+	t.Setenv(console.VarDeEstilo, "0")
+
+	var buf bytes.Buffer
+	relatarVerificacoes(console.NewPlain(&buf), []doctor.Result{
+		{Name: "raiz do cofre existe", Status: doctor.StatusOK, Grupo: doctor.GrupoCofre},
+		{Name: "espaco em disco", Status: doctor.StatusFail, Detail: "8 MB livres", Grupo: doctor.GrupoCache},
+		{Name: "daemon respondendo", Status: doctor.StatusWarn, Grupo: doctor.GrupoDaemon},
+	})
+	if saida := buf.String(); !strings.Contains(saida, "3 verificacoes: 1 ok, 1 aviso, 1 falha") {
+		t.Errorf("resumo por extenso ausente ou errado:\n%s", saida)
 	}
 }
 
@@ -79,16 +100,16 @@ func TestResumoPintaSoOQueExiste(t *testing.T) {
 		vermelho = "\x1b[1;31m"
 		apagado  = "\x1b[2m"
 	)
-	if !strings.Contains(saida, verde+"2 ok") {
+	if !strings.Contains(saida, verde+"2 ✅") {
 		t.Errorf("a contagem de ok nao saiu em verde:\n%q", saida)
 	}
-	if !strings.Contains(saida, vermelho+"1 falha") {
+	if !strings.Contains(saida, vermelho+"1 ❌") {
 		t.Errorf("a contagem de falhas nao saiu em vermelho:\n%q", saida)
 	}
-	if !strings.Contains(saida, apagado+"0 avisos") {
+	if !strings.Contains(saida, apagado+"0 ⚠️") {
 		t.Errorf("o zero de avisos nao saiu apagado:\n%q", saida)
 	}
-	if strings.Contains(saida, verde+"0 avisos") || strings.Contains(saida, "\x1b[1;33m0 avisos") {
+	if strings.Contains(saida, verde+"0 ⚠️") || strings.Contains(saida, "\x1b[1;33m0 ⚠️") {
 		t.Errorf("o zero ganhou cor de estado:\n%q", saida)
 	}
 }

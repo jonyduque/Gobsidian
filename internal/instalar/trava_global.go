@@ -45,10 +45,10 @@ func TomarTravaGlobal(runtimeDir string) (liberar func(), err error) {
 	caminho := filepath.Join(runtimeDir, NomeDaTravaGlobal)
 	trava, tomou, err := daemon.TentarTravar(caminho)
 	if err != nil {
-		return nil, fmt.Errorf("travando instalacao: %w", err)
+		return nil, fmt.Errorf("travando instalação: %w", err)
 	}
 	if !tomou {
-		return nil, fmt.Errorf("ja ha uma instalacao em curso (%s)", caminho)
+		return nil, fmt.Errorf("já há uma instalação em curso (%s)", caminho)
 	}
 	return trava.Liberar, nil
 }

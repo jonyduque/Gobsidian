@@ -58,13 +58,13 @@ func newDaemonCmd() *cobra.Command {
 
 	flagsDeCofre(cmd, &flags)
 	flagsDeCache(cmd, &flags)
-	cmd.Flags().BoolVar(&flags.ReadOnly, "read-only", false, "desabilita toda a superficie de escrita")
-	cmd.Flags().IntVar(&flags.DebounceMS, "debounce-ms", 0, "janela de coalescencia de eventos do watcher")
-	cmd.Flags().IntVar(&flags.MaxResults, "max-results", 0, "teto de resultados por consulta")
+	cmd.Flags().BoolVar(&flags.ReadOnly, "read-only", false, textos.FlagReadOnly)
+	cmd.Flags().IntVar(&flags.DebounceMS, "debounce-ms", 0, textos.FlagDebounce)
+	cmd.Flags().IntVar(&flags.MaxResults, "max-results", 0, textos.FlagMaxResults)
 	cmd.Flags().BoolVar(&flags.EagerSearch, "eager-search", false,
-		"carrega o indice de busca no boot em vez de esperar a primeira vault_search")
+		textos.FlagEagerSearch)
 	cmd.Flags().IntVar(&idleSeconds, "idle-seconds", daemon.DefaultIdleSeconds,
-		"segundos sem cliente conectado antes do daemon encerrar (decisao 3 da Task 92; padrao 15 minutos)")
+		textos.FlagIdleSeconds)
 
 	return cmd
 }
@@ -139,15 +139,15 @@ func rotacionarLogDoDaemon(path string) {
 func novoLoggerDoDaemon(vaultPath string, level slog.Level) (*slog.Logger, func() error, error) {
 	path, err := daemonLogPath(vaultPath)
 	if err != nil {
-		return nil, nil, fmt.Errorf("resolvendo caminho do log do daemon: %w", err)
+		return nil, nil, fmt.Errorf(textos.ErroLogCaminho, err)
 	}
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
-		return nil, nil, fmt.Errorf("criando diretorio do log do daemon: %w", err)
+		return nil, nil, fmt.Errorf(textos.ErroLogDiretorio, err)
 	}
 	rotacionarLogDoDaemon(path)
 	f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
 	if err != nil {
-		return nil, nil, fmt.Errorf("abrindo log do daemon %s: %w", path, err)
+		return nil, nil, fmt.Errorf(textos.ErroLogAbrir, path, err)
 	}
 
 	// pid e versao em TODA linha, e nao so na de partida.
@@ -207,7 +207,7 @@ func runDaemon(parent context.Context, cfg config.Config, ociosidade time.Durati
 		// era especifica; nunca chegou a ninguem.
 		log.Error("daemon nao pode abrir o socket",
 			"vault", cfg.VaultPath, "err", err)
-		return fmt.Errorf("abrindo socket do daemon: %w", err)
+		return fmt.Errorf(textos.ErroSocketDaemon, err)
 	}
 
 	ctx, lc := lifecycle.New(parent, lifecycle.Options{Logger: log})

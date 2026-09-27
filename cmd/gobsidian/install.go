@@ -14,6 +14,7 @@ import (
 	"fmt"
 	"github.com/jonyduque/Gobsidian/internal/textos"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/jonyduque/Gobsidian/internal/console"
@@ -39,9 +40,9 @@ func registrarFlagsDeInstalacao(cmd *cobra.Command, o *opcoesDeInstalacao) {
 	cmd.Flags().StringVar(&o.vault, "vault", os.Getenv("GOBSIDIAN_VAULT"),
 		textos.FlagInstallVault)
 	cmd.Flags().StringVar(&o.installDir, "install-dir", os.Getenv("GOBSIDIAN_INSTALL_DIR"),
-		textos.FlagInstallDir+instalar.DiretorioPadrao()+")")
+		fmt.Sprintf(textos.FlagInstallDir, instalar.DiretorioPadrao()))
 	cmd.Flags().StringVar(&o.hostsCSV, "hosts", "",
-		textos.FlagInstallHosts+strings.Join(hosts.Chaves(), ", ")+textos.FlagInstallHostsFim)
+		fmt.Sprintf(textos.FlagInstallHosts, strings.Join(hosts.Chaves(), ", ")))
 	cmd.Flags().BoolVar(&o.sim, "yes", false,
 		textos.FlagInstallYes)
 	cmd.Flags().BoolVar(&o.readOnly, "read-only", false, textos.FlagInstallReadOnly)
@@ -239,9 +240,13 @@ func escolherCofres(con *console.Stream, entrada *bufio.Reader, o *opcoesDeInsta
 	// aparecem la. Um cofre configurado a mao, ou aberto por um Obsidian que
 	// nao e este, sumiria da lista -- e sumir da lista aqui significa ser
 	// desconfigurado.
+	//
+	// Cada linha mostra o NOME e o caminho, sem nota: desenho do dono em
+	// 2026-09-27. O nome e o que se reconhece -- e o que o Obsidian mostra --, e
+	// "ja configurado" ja esta dito pela caixa, que vem marcada. O nome de um
+	// cofre do Obsidian e o nome da pasta, e o de um cofre fora dele tambem.
 	type item struct {
 		caminho string
-		nota    string
 		marcado bool
 	}
 	// A comparacao e sobre o caminho CANONICO dos dois lados. O registro do
@@ -253,20 +258,12 @@ func escolherCofres(con *console.Stream, entrada *bufio.Reader, o *opcoesDeInsta
 	visto := map[string]bool{}
 	for _, c := range doObsidian {
 		canonico := instalar.CaminhoCanonicoDeCofre(c.Caminho)
-		configurado := contem(jaConfigurados, canonico)
-		nota := ""
-		if c.Aberto {
-			nota = "(aberto agora)"
-		}
-		if configurado {
-			nota = "(ja configurado)"
-		}
-		itens = append(itens, item{canonico, nota, configurado})
+		itens = append(itens, item{canonico, contem(jaConfigurados, canonico)})
 		visto[canonico] = true
 	}
 	for _, c := range jaConfigurados {
 		if !visto[c] {
-			itens = append(itens, item{c, "(ja configurado, fora do Obsidian)", true})
+			itens = append(itens, item{c, true})
 		}
 	}
 
@@ -284,7 +281,7 @@ func escolherCofres(con *console.Stream, entrada *bufio.Reader, o *opcoesDeInsta
 
 	opcoes := make([]console.Opcao, 0, len(itens))
 	for _, it := range itens {
-		opcoes = append(opcoes, console.Opcao{Rotulo: it.caminho, Nota: it.nota, Marcada: it.marcado})
+		opcoes = append(opcoes, console.Opcao{Rotulo: filepath.Base(it.caminho), Nota: it.caminho, Marcada: it.marcado})
 	}
 
 	indices, err := console.Selecionar(con, arquivoDaEntrada(), textos.InstallQuaisCofres, opcoes)
@@ -296,7 +293,7 @@ func escolherCofres(con *console.Stream, entrada *bufio.Reader, o *opcoesDeInsta
 		// Sem terminal de verdade (pipe, IDE, CI): a MESMA pergunta, digitada.
 		con.Titulo("%s", textos.InstallQuaisCofres)
 		for i, it := range itens {
-			con.Detail(textos.InstallItemNumerado, i+1, it.caminho, it.nota)
+			con.Detail(textos.InstallItemNumerado, i+1, filepath.Base(it.caminho), it.caminho)
 		}
 		resposta := perguntar(con, entrada, textos.InstallEscolhaDigitada, "")
 		indices, err = console.SelecionarDigitando(resposta, opcoes)
@@ -415,8 +412,9 @@ func imprimirResumo(con *console.Stream, r instalar.Resultado, cofres []string) 
 // direto (como era ate 2026-09-09) nao permite isso.
 func resumoEmLinhas(con *console.Stream, r instalar.Resultado, cofres []string) []string {
 	var l []string
-	add := func(f string, a ...any) { l = append(l, "  "+fmt.Sprintf(f, a...)) }
-	_ = con
+	// O corpo de um bloco e de quem chama, e a moldura nao desenha marcacao
+	// nele; estas linhas sao texto do produto ("*PATH*") e sao marcadas aqui.
+	add := func(f string, a ...any) { l = append(l, "  "+con.Marcado(fmt.Sprintf(f, a...))) }
 	add(textos.ResumoBinario, r.Binario)
 	if len(cofres) == 0 {
 		add("%s", textos.ResumoCofres)
@@ -589,7 +587,7 @@ func decidir(con *console.Stream, entrada *bufio.Reader, pergunta string, itens 
 	case err == nil:
 		return resposta
 	case errors.Is(err, console.ErrCancelado):
-		con.Resposta("cancelado")
+		con.Resposta(textos.RespostaCancelado)
 		return false
 	case errors.Is(err, console.ErrSemTerminal):
 		for _, i := range itens {
@@ -602,9 +600,9 @@ func decidir(con *console.Stream, entrada *bufio.Reader, pergunta string, itens 
 }
 
 func simOuNaoDigitado(con *console.Stream, entrada *bufio.Reader, pergunta string, padrao bool) bool {
-	sufixo := "s/N"
+	sufixo := textos.SufixoNaoPadrao
 	if padrao {
-		sufixo = "S/n"
+		sufixo = textos.SufixoSimPadrao
 	}
 	// O padrao mostrado e o par inteiro, com a letra maiuscula marcando qual
 	// deles o Enter escolhe -- e a convencao que todo instalador de linha de
@@ -617,7 +615,7 @@ func simOuNaoDigitado(con *console.Stream, entrada *bufio.Reader, pergunta strin
 		// sozinho devolve o sufixo e cai no padrao.
 		sim = resposta == "s" || resposta == "sim" || resposta == "y" || resposta == "yes"
 	}
-	con.Resposta(map[bool]string{true: "sim", false: "nao"}[sim])
+	con.Resposta(map[bool]string{true: textos.RespostaSim, false: textos.RespostaNao}[sim])
 	return sim
 }
 

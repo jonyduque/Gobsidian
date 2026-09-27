@@ -8,6 +8,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/jonyduque/Gobsidian/internal/textos"
 )
 
 // Fora do Windows nao ha registro: o PATH do usuario vem de um arquivo de
@@ -23,7 +25,7 @@ const marcaDoBloco = "# gobsidian (adicionado pelo instalador)"
 func arquivoDePerfil() (string, error) {
 	home, err := os.UserHomeDir()
 	if err != nil {
-		return "", fmt.Errorf("resolvendo o home do usuario: %w", err)
+		return "", fmt.Errorf("resolvendo o home do usuário: %w", err)
 	}
 	return filepath.Join(home, ".profile"), nil
 }
@@ -113,7 +115,7 @@ func RemoverDoPath(dir string) (mudou bool, err error) {
 
 // AvisoDePath e o que o usuario precisa saber depois de o PATH mudar.
 func AvisoDePath() string {
-	return "abra um terminal NOVO, ou rode `source ~/.profile`; fish e nushell leem outro arquivo e precisam da linha a mao"
+	return textos.AvisoPathUnix
 }
 
 // DiretorioPadrao e onde o binario vai sem elevacao (decisao D-04).

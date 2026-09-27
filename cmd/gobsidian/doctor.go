@@ -174,7 +174,7 @@ func relatarProcessosELixo(con *console.Stream, aplicar bool) {
 		{Chave: textos.DoctorLixoPresencas, Valor: numero(len(r.Presencas))},
 		{Chave: textos.DoctorLixoCaches, Valor: numero(len(r.Caches)), Nota: textos.DoctorLixoCachesNota},
 		{Chave: textos.DoctorLixoLogs, Valor: numero(len(r.LogsRotacionados))},
-		{Chave: textos.DoctorLixoTotal, Valor: fmt.Sprintf("%d KB", r.Bytes/1024), Nota: verbo},
+		{Chave: textos.DoctorLixoTotal, Valor: fmt.Sprintf(textos.DoctorLixoKB, r.Bytes/1024), Nota: verbo},
 	})
 	if !aplicar {
 		con.Detail("%s", textos.DoctorLixoComoLimpar)
@@ -251,7 +251,7 @@ func relatarVerificacoes(con *console.Stream, results []doctor.Result) {
 			nome := r.Name
 			detalheAbaixo := r.Detail
 			if r.Status == doctor.StatusOK && cabeNaLinha(r.Detail) {
-				nome += "  " + con.Dim(r.Detail)
+				nome += "  " + con.Apagado(r.Detail)
 				detalheAbaixo = ""
 			}
 			switch r.Status {
@@ -272,10 +272,22 @@ func relatarVerificacoes(con *console.Stream, results []doctor.Result) {
 	}
 
 	con.Line("")
+	// Onde o console aguenta emoji, cada numero e seguido do proprio marcador
+	// do estado -- o mesmo que abriu as linhas acima. Onde nao aguenta, aviso e
+	// falha teriam o mesmo "[!]", e a contagem sai por extenso.
+	okS, okP := textos.DoctorResumoOK, textos.DoctorResumoOK
+	avS, avP := textos.DoctorResumoAviso, textos.DoctorResumoAvisos
+	faS, faP := textos.DoctorResumoFalha, textos.DoctorResumoFalhas
+	if console.EmojiNaSaida() {
+		m := console.MarcadoresDaSaida()
+		okS, okP = strings.TrimSpace(m.OK), strings.TrimSpace(m.OK)
+		avS, avP = strings.TrimSpace(m.Aviso), strings.TrimSpace(m.Aviso)
+		faS, faP = strings.TrimSpace(m.Erro), strings.TrimSpace(m.Erro)
+	}
 	con.Info(textos.DoctorResumo, ok+avisos+falhas,
-		contagem(con, ok, textos.DoctorResumoOK, textos.DoctorResumoOK, con.Verde),
-		contagem(con, avisos, textos.DoctorResumoAviso, textos.DoctorResumoAvisos, con.Amarelo),
-		contagem(con, falhas, textos.DoctorResumoFalha, textos.DoctorResumoFalhas, con.Vermelho))
+		contagem(con, ok, okS, okP, con.Verde),
+		contagem(con, avisos, avS, avP, con.Amarelo),
+		contagem(con, falhas, faS, faP, con.Vermelho))
 }
 
 // contagem escreve "N rótulo" e PINTA o número quando ele não é zero.
@@ -360,7 +372,7 @@ func linhasPorCofre(con *console.Stream, vivos []instalar.Presenca) []string {
 			if n > 1 {
 				contador = con.Amarelo(contador)
 			}
-			partes = append(partes, contador+" "+rotuloDeModo(m, n))
+			partes = append(partes, contador+" "+con.Marcado(rotuloDeModo(m, n)))
 		}
 		versoes := make([]string, 0, len(r.versoes))
 		for v := range r.versoes {
@@ -406,13 +418,13 @@ func listarNumeros(pids []int) string {
 	for _, p := range pids {
 		partes = append(partes, fmt.Sprintf("%d", p))
 	}
-	return "pid " + strings.Join(partes, ", ")
+	return fmt.Sprintf(textos.DoctorPids, strings.Join(partes, ", "))
 }
 
 func listarPIDs(ps []instalar.Presenca) string {
 	partes := make([]string, 0, len(ps))
 	for _, p := range ps {
-		partes = append(partes, fmt.Sprintf("pid %d", p.PID))
+		partes = append(partes, fmt.Sprintf(textos.DoctorPid, p.PID))
 	}
 	return strings.Join(partes, ", ")
 }

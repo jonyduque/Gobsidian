@@ -157,6 +157,7 @@ gobsidian/
 │   ├── console/
 │   │   ├── console.go            marcadores e cores da saída de CLI; decide sobre cor por destino
 │   │   ├── texto.go              acento sai onde o console aguenta; cai para ASCII onde não
+│   │   ├── marcacao.go           desenha **negrito**, *itálico* e `código` dos textos; sem cor, fica a crase
 │   │   ├── confirmar.go          sim ou não em botões, com a mesma pergunta digitada sem terminal
 │   │   ├── cobra.go              template de ajuda realçado
 │   │   ├── vt_windows.go         habilita terminal virtual (build tag windows)

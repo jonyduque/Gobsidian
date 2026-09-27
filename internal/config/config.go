@@ -85,7 +85,7 @@ func Load(f Flags) (Config, error) {
 	cfg := Defaults()
 
 	if strings.TrimSpace(f.VaultPath) == "" {
-		return Config{}, fmt.Errorf("caminho do cofre nao informado: use --vault")
+		return Config{}, fmt.Errorf("caminho do cofre não informado: use `--vault`")
 	}
 	abs, err := filepath.Abs(f.VaultPath)
 	if err != nil {
@@ -171,7 +171,7 @@ func parseLevel(s string) (slog.Level, error) {
 	case "error":
 		return slog.LevelError, nil
 	default:
-		return 0, fmt.Errorf("nivel de log desconhecido: %q (use debug, info, warn ou error)", s)
+		return 0, fmt.Errorf("nível de log desconhecido: %q (use `debug`, `info`, `warn` ou `error`)", s)
 	}
 }
 
@@ -195,7 +195,7 @@ func parseReadOnly(s string) (bool, error) {
 func parseDebounceMS(v string) (int, error) {
 	n, err := strconv.Atoi(v)
 	if err != nil {
-		return 0, fmt.Errorf("valor invalido %q (use um inteiro >= 1): %w", v, err)
+		return 0, fmt.Errorf("valor inválido %q (use um inteiro >= 1): %w", v, err)
 	}
 	if err := validateDebounceMS(n); err != nil {
 		return 0, err
@@ -211,7 +211,7 @@ func parseDebounceMS(v string) (int, error) {
 // pedir por engano, entao a recusa mora aqui e nao no watcher.
 func validateDebounceMS(n int) error {
 	if n < 1 {
-		return fmt.Errorf("valor invalido %d (use um inteiro >= 1)", n)
+		return fmt.Errorf("valor inválido %d (use um inteiro >= 1)", n)
 	}
 	return nil
 }
@@ -219,7 +219,7 @@ func validateDebounceMS(n int) error {
 func parseMaxResults(v string) (int, error) {
 	n, err := strconv.Atoi(v)
 	if err != nil {
-		return 0, fmt.Errorf("valor invalido %q (use um inteiro de 1 a %d): %w", v, MaxResultsCeiling, err)
+		return 0, fmt.Errorf("valor inválido %q (use um inteiro de 1 a %d): %w", v, MaxResultsCeiling, err)
 	}
 	if err := validateMaxResults(n); err != nil {
 		return 0, err
@@ -229,7 +229,7 @@ func parseMaxResults(v string) (int, error) {
 
 func validateMaxResults(n int) error {
 	if n < 1 || n > MaxResultsCeiling {
-		return fmt.Errorf("valor invalido %d (deve ser entre 1 e %d)", n, MaxResultsCeiling)
+		return fmt.Errorf("valor inválido %d (deve ser entre 1 e %d)", n, MaxResultsCeiling)
 	}
 	return nil
 }

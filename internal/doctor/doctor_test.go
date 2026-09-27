@@ -19,7 +19,7 @@ func TestRunFlagsMissingVault(t *testing.T) {
 	if doctor.ExitCode(results) == 0 {
 		t.Fatal("doctor deveria falhar com raiz inexistente")
 	}
-	if !hasFailure(results, "raiz do cofre") {
+	if !hasFailure(results, "Raiz do cofre") {
 		t.Errorf("nenhuma verificacao de raiz falhou: %+v", results)
 	}
 

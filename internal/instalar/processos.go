@@ -31,7 +31,7 @@ type ProcessoDoSistema struct {
 
 // ErrProcessosNaoVerificados diz que esta plataforma nao lista processos. O
 // `doctor` escreve isso em vez de fingir que nao ha nenhum.
-var ErrProcessosNaoVerificados = errors.New("listagem de processos nao verificada nesta plataforma")
+var ErrProcessosNaoVerificados = errors.New("listagem de processos não verificada nesta plataforma")
 
 // SemPresenca devolve os processos do sistema que nao registraram presenca,
 // tirando o proprio processo que pergunta -- o `doctor` tambem e um

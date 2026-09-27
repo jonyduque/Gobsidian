@@ -44,7 +44,7 @@ func CofresDoObsidian(caminhoDoRegistro string) ([]Cofre, error) {
 
 	var reg registroDoObsidian
 	if err := json.Unmarshal(b, &reg); err != nil {
-		return nil, fmt.Errorf("%s nao e um JSON valido: %w", caminhoDoRegistro, err)
+		return nil, fmt.Errorf("%s não é um JSON válido: %w", caminhoDoRegistro, err)
 	}
 
 	var cofres []Cofre

@@ -8,6 +8,8 @@ import (
 	"os"
 	"path/filepath"
 	"time"
+
+	"github.com/jonyduque/Gobsidian/internal/textos"
 )
 
 // NomeDoManifesto e o arquivo que registra o que a instalacao fez.
@@ -47,7 +49,7 @@ func CaminhoDoManifesto() string {
 //
 // Sentinela: "nunca instalou" e "nao consegui ler" pedem respostas diferentes
 // -- a primeira leva a autoinstalacao, a segunda a uma mensagem de erro.
-var ErrSemManifesto = errors.New("nao ha manifesto de instalacao")
+var ErrSemManifesto = errors.New(textos.ErroManifestoAusente)
 
 // LerManifesto devolve o manifesto da instalacao corrente.
 func LerManifesto() (Manifesto, error) {
@@ -60,7 +62,7 @@ func LerManifesto() (Manifesto, error) {
 	}
 	var m Manifesto
 	if err := json.Unmarshal(b, &m); err != nil {
-		return Manifesto{}, fmt.Errorf("manifesto ilegivel em %s: %w", CaminhoDoManifesto(), err)
+		return Manifesto{}, fmt.Errorf("manifesto ilegível em %s: %w", CaminhoDoManifesto(), err)
 	}
 	return m, nil
 }
@@ -69,7 +71,7 @@ func LerManifesto() (Manifesto, error) {
 func GravarManifesto(m Manifesto) error {
 	caminho := CaminhoDoManifesto()
 	if err := os.MkdirAll(filepath.Dir(caminho), 0o700); err != nil {
-		return fmt.Errorf("criando diretorio do manifesto: %w", err)
+		return fmt.Errorf("criando diretório do manifesto: %w", err)
 	}
 	b, err := json.MarshalIndent(m, "", "  ")
 	if err != nil {
@@ -102,12 +104,12 @@ func EstaInstalado() (bool, Manifesto, error) {
 
 	atual, err := os.Executable()
 	if err != nil {
-		return false, m, fmt.Errorf("resolvendo o executavel corrente: %w", err)
+		return false, m, fmt.Errorf("resolvendo o executável corrente: %w", err)
 	}
 
 	infoAtual, err := os.Stat(atual)
 	if err != nil {
-		return false, m, fmt.Errorf("consultando o executavel corrente: %w", err)
+		return false, m, fmt.Errorf("consultando o executável corrente: %w", err)
 	}
 	infoManifesto, err := os.Stat(m.Binario)
 	if err != nil {

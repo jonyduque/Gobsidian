@@ -99,7 +99,7 @@ func Todos() []Host {
 	hosts := []Host{
 		{
 			Chave: "claude-desktop",
-			Nome:  "Claude Desktop",
+			Nome:  textos.HostNomeClaudeDesktop,
 			detectar: func(a Ambiente) bool {
 				return a.Existe(diretorioDoClaudeDesktop(a)) || a.Existe(instalacaoDoClaudeDesktop(a))
 			},
@@ -113,7 +113,7 @@ func Todos() []Host {
 		},
 		{
 			Chave:    "claude-code",
-			Nome:     "Claude Code (CLI)",
+			Nome:     textos.HostNomeClaudeCode,
 			detectar: func(a Ambiente) bool { return a.TemComando("claude") },
 			configurar: func(a Ambiente, ens []EntradaNomeada) (string, error) {
 				// O proprio CLI escreve a config dele -- melhor do que adivinhar
@@ -132,7 +132,7 @@ func Todos() []Host {
 		},
 		{
 			Chave:    "gemini-cli",
-			Nome:     "Gemini CLI",
+			Nome:     textos.HostNomeGeminiCLI,
 			detectar: func(a Ambiente) bool { return a.TemComando("gemini") },
 			configurar: func(a Ambiente, ens []EntradaNomeada) (string, error) {
 				// O remove do gemini assume escopo de PROJETO por padrao, entao
@@ -147,7 +147,7 @@ func Todos() []Host {
 		},
 		{
 			Chave: "antigravity",
-			Nome:  "Antigravity",
+			Nome:  textos.HostNomeAntigravity,
 			detectar: func(a Ambiente) bool {
 				return a.Existe(filepath.Join(a.LocalAppData, "Programs", "Antigravity"))
 			},
@@ -159,7 +159,7 @@ func Todos() []Host {
 		},
 		{
 			Chave: "antigravity-ide",
-			Nome:  "Antigravity IDE",
+			Nome:  textos.HostNomeAntigravityIDE,
 			detectar: func(a Ambiente) bool {
 				return a.Existe(filepath.Join(a.LocalAppData, "Programs", "Antigravity IDE"))
 			},
@@ -171,7 +171,7 @@ func Todos() []Host {
 		},
 		{
 			Chave:    "codex",
-			Nome:     "Codex CLI",
+			Nome:     textos.HostNomeCodex,
 			detectar: func(a Ambiente) bool { return a.TemComando("codex") },
 			configurar: func(a Ambiente, ens []EntradaNomeada) (string, error) {
 				for _, chave := range chavesAPodar(ens) {
@@ -184,7 +184,7 @@ func Todos() []Host {
 		},
 		{
 			Chave:    "vscode",
-			Nome:     "VS Code",
+			Nome:     textos.HostNomeVSCode,
 			detectar: func(a Ambiente) bool { return a.TemComando("code") },
 			configurar: func(a Ambiente, ens []EntradaNomeada) (string, error) {
 				for _, en := range ens {
@@ -201,7 +201,7 @@ func Todos() []Host {
 		},
 		{
 			Chave: "cursor",
-			Nome:  "Cursor",
+			Nome:  textos.HostNomeCursor,
 			detectar: func(a Ambiente) bool {
 				return a.TemComando("cursor") || a.Existe(filepath.Join(a.LocalAppData, "Programs", "cursor"))
 			},
@@ -212,7 +212,7 @@ func Todos() []Host {
 		},
 		{
 			Chave: "windsurf",
-			Nome:  "Windsurf",
+			Nome:  textos.HostNomeWindsurf,
 			detectar: func(a Ambiente) bool {
 				return a.Existe(filepath.Join(a.Home, ".codeium", "windsurf"))
 			},
@@ -253,7 +253,7 @@ func PorChave(chave string) (Host, bool) {
 // Configurar registra o gobsidian neste host.
 func (h Host) Configurar(a Ambiente, ens []EntradaNomeada) (aviso string, err error) {
 	if h.configurar == nil {
-		return "", fmt.Errorf("host %s nao sabe se configurar", h.Chave)
+		return "", fmt.Errorf("host %s não sabe se configurar", h.Chave)
 	}
 	return h.configurar(a, ens)
 }
