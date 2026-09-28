@@ -89,7 +89,8 @@ Em seguida vem o fluxo de instalação (seção install abaixo).
 | path | Acrescenta ou remove o diretório de instalação do *PATH* do usuário. <!-- textos.ResumoPath --> |
 | search | Busca um texto no cofre. <!-- textos.ResumoSearch --> |
 | update | Atualiza o **gobsidian**. <!-- textos.ResumoUpdate --> |
-| vaults | Configura o **gobsidian** como MCP de hosts de IA. <!-- textos.ResumoVaults --> |
+| config | Configura o **gobsidian** como MCP de hosts de IA. <!-- textos.ResumoConfig --> |
+| vaults | Lista os cofres do Obsidian e os configurados nos hosts de IA. <!-- textos.ResumoVaults --> |
 | version | Imprime versão. <!-- textos.ResumoVersion --> |
 | serve (oculto) | Serve o cofre via MCP sobre stdio. <!-- textos.ResumoServe --> |
 | daemon (oculto) | Roda o *daemon* de cofre compartilhado (uso interno da ponte). <!-- textos.ResumoDaemon --> |
@@ -280,13 +281,15 @@ O aviso de cada host configurado com sucesso:
 Os erros de internal/instalar e internal/hosts que podem chegar aqui estão na
 última seção.
 
-## vaults
+## config
+
+Até 2026-09-27 este comando se chamava `vaults`.
 
 ### Ajuda
 
 | Flag | Texto |
 |---|---|
-| (resumo) | Configura o **gobsidian** como MCP de hosts de IA. <!-- textos.ResumoVaults --> |
+| (resumo) | Configura o **gobsidian** como MCP de hosts de IA. <!-- textos.ResumoConfig --> |
 
 As flags são as mesmas de install (`--vault`, `--install-dir`, `--hosts`,
 `--yes`, `--read-only`, `--no-path`), com o mesmo texto.
@@ -310,6 +313,41 @@ ou:
 
 - %w -- Rode `gobsidian install` primeiro. <!-- textos.ErroSemManifesto; o %w é textos.ErroManifestoAusente -->
 - Não há manifesto de instalação <!-- textos.ErroManifestoAusente -->
+
+## vaults
+
+### Ajuda
+
+| Flag | Texto |
+|---|---|
+| (resumo) | Lista os cofres do Obsidian e os configurados nos hosts de IA. <!-- textos.ResumoVaults --> |
+| `--json` | Força a saída em JSON, mesmo no terminal. <!-- textos.FlagJSON --> |
+| `--texto` | Força a saída para ler, mesmo fora do terminal. <!-- textos.FlagTexto --> |
+
+### Na tela
+
+Fora do terminal (pipe ou arquivo), sai a lista em JSON numa linha, sem texto nenhum.
+
+#### Cofres. <!-- textos.VaultsTitulo -->
+
+- **‹nome do cofre›**  ‹estado›
+  - ‹caminho do cofre›
+
+O estado junta, separados por vírgula:
+
+- aberto no Obsidian <!-- textos.VaultsAberto -->
+- configurado <!-- textos.VaultsConfigurado -->
+- fora do Obsidian <!-- textos.VaultsForaDoObsidian -->
+
+*Rode `gobsidian config` para registrar um cofre nos hosts de IA.* <!-- textos.VaultsRodape -->
+
+Sem cofre nenhum:
+
+- ℹ️ Nenhum cofre encontrado no Obsidian nem nos hosts de IA. <!-- textos.VaultsNenhum -->
+
+### Erros
+
+- `--json` e `--texto` não podem ser usados juntos. <!-- textos.ErroJSONETexto -->
 
 ## update
 
@@ -632,7 +670,7 @@ search, inspect); as duas últimas, nos que leem ou gravam o cache.
 | Flag | Texto |
 |---|---|
 | (resumo) | Constrói o índice do cofre e exibe um resumo. <!-- textos.ResumoIndex --> |
-| `--json` | Saída estruturada em formato JSON. <!-- textos.FlagJSON --> |
+| `--json` | Força a saída em JSON, mesmo no terminal. <!-- textos.FlagJSON --> |
 
 - ✅ Indexação concluída em %d ms. <!-- textos.IndexConcluido -->
 
@@ -651,7 +689,7 @@ search, inspect); as duas últimas, nos que leem ou gravam o cache.
 | Flag | Texto |
 |---|---|
 | (resumo) | Busca um texto no cofre. <!-- textos.ResumoSearch --> |
-| `--json` | Saída estruturada em formato JSON. <!-- textos.FlagJSON --> |
+| `--json` | Força a saída em JSON, mesmo no terminal. <!-- textos.FlagJSON --> |
 | `--limit` | Limite máximo de resultados. <!-- textos.FlagSearchLimit --> |
 | `--max-results` | Teto de resultados por consulta. <!-- textos.FlagMaxResults --> |
 
@@ -667,7 +705,7 @@ search, inspect); as duas últimas, nos que leem ou gravam o cache.
 | Flag | Texto |
 |---|---|
 | (resumo) | Exibe metadados, links e *backlinks* de uma nota. <!-- textos.ResumoInspect --> |
-| `--json` | Saída estruturada em formato JSON. <!-- textos.FlagJSON --> |
+| `--json` | Força a saída em JSON, mesmo no terminal. <!-- textos.FlagJSON --> |
 
 #### ‹caminho da nota›
 

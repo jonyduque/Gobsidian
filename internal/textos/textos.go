@@ -74,7 +74,8 @@ const (
 		"acrescentar o diretório ao *PATH* e registrar o servidor nos hosts de IA detectados."
 
 	ResumoPath   = "Acrescenta ou remove o diretório de instalação do *PATH* do usuário."
-	ResumoVaults = "Configura o **gobsidian** como MCP de hosts de IA."
+	ResumoConfig = "Configura o **gobsidian** como MCP de hosts de IA."
+	ResumoVaults = "Lista os cofres do Obsidian e os configurados nos hosts de IA."
 
 	ResumoUpdate    = "Atualiza o **gobsidian**."
 	DescricaoUpdate = "Consulta a versão publicada, baixa o binário da plataforma corrente, " +
@@ -94,7 +95,8 @@ const (
 	FlagFollowSymlinks = "Segue *symlink* dentro do cofre."
 	FlagCacheDir       = "Diretório do cache de índice."
 	FlagLogLevel       = "Nível de log: `debug`, `info`, `warn` ou `error`."
-	FlagJSON           = "Saída estruturada em formato JSON."
+	FlagJSON           = "Força a saída em JSON, mesmo no terminal."
+	FlagTexto          = "Força a saída para ler, mesmo fora do terminal."
 	FlagReadOnly       = "Desabilita toda a superfície de escrita."
 	FlagDebounce       = "Janela de coalescência de eventos do *watcher*."
 	FlagMaxResults     = "Teto de resultados por consulta."
@@ -137,6 +139,7 @@ const (
 	ErroAtivoAusente       = "O *release* %s não publica %q (plataforma %s/%s)."
 	ErroTemporario         = "Criando diretório temporário: %w"
 	ErroGerandoScript      = "Gerando o script de %s: %w"
+	ErroJSONETexto         = "`--json` e `--texto` não podem ser usados juntos."
 )
 
 // Erros de --vault dado pelo nome do cofre (instalar.ResolverCofre). Cada um
@@ -243,6 +246,16 @@ const (
 
 	PathJaEstava   = "*PATH* já estava como você pediu."
 	PathAtualizado = "*PATH* atualizado."
+)
+
+// `vaults`: a lista de cofres.
+const (
+	VaultsTitulo         = "Cofres."
+	VaultsNenhum         = "Nenhum cofre encontrado no Obsidian nem nos hosts de IA."
+	VaultsAberto         = "aberto no Obsidian"
+	VaultsConfigurado    = "configurado"
+	VaultsForaDoObsidian = "fora do Obsidian"
+	VaultsRodape         = "Rode `gobsidian config` para registrar um cofre nos hosts de IA."
 )
 
 // `update`.

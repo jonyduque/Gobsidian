@@ -49,8 +49,11 @@ func main() {
 		// Erro vai para o stderr, e a decisao de cor sai do PROPRIO stderr.
 		// Se stdout estiver redirecionado e o stderr for um terminal, o erro
 		// continua colorido -- e o inverso tambem vale.
-		console.New(os.Stderr).Err("%s", comMaiuscula(err.Error()))
-		os.Exit(1)
+		codigo, imprimir := codigoDeSaida(err)
+		if imprimir {
+			console.New(os.Stderr).Err("%s", comMaiuscula(err.Error()))
+		}
+		os.Exit(codigo)
 	}
 }
 
@@ -83,11 +86,12 @@ func newRootCmd() *cobra.Command {
 		SilenceUsage:  true,
 		SilenceErrors: true,
 	}
+	root.SetFlagErrorFunc(erroDeFlag)
 
 	root.AddCommand(
 		newServeCmd(), newDoctorCmd(), newVersionCmd(), newIndexCmd(),
 		newSearchCmd(), newInspectCmd(), newDaemonCmd(),
-		newInstallCmd(), newUpdateCmd(), newPathCmd(), newVaultsCmd(),
+		newInstallCmd(), newUpdateCmd(), newPathCmd(), newConfigCmd(), newVaultsCmd(),
 	)
 
 	// Sem argumentos: autoinstala, ou mostra a ajuda (decisao D-11 do dono).

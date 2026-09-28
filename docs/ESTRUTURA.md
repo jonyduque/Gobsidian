@@ -16,6 +16,8 @@ gobsidian/
 │       ├── cli_log.go            loggerDeCLI: logger de search, index e inspect
 │       ├── serve.go              subcomando serve (stdio)
 │       ├── doctor.go             subcomando doctor (diagnóstico de ambiente)
+│       ├── vaults.go             subcomando vaults (lista os cofres do Obsidian e os configurados)
+│       ├── saida.go              texto ou JSON pelo destino, --json/--texto, e os códigos de saída 0/1/2
 │       ├── index.go              subcomando index (indexar e sair)
 │       ├── search.go             subcomando search (busca via CLI)
 │       ├── inspect.go            subcomando inspect (dump do parse de uma nota)

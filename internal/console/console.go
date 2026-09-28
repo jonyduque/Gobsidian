@@ -265,6 +265,24 @@ func SupportsColor(w io.Writer) bool {
 	return enableVirtualTerminal(f)
 }
 
+// EhTerminal diz se w e um terminal, independente de cor.
+//
+// Existe separado de SupportsColor porque as duas perguntas tem respostas
+// diferentes: com NO_COLOR, a saida continua indo para um terminal -- e quem
+// escolhe entre tabela e JSON pergunta ISSO, e nao se ha cor. Um comando que
+// imprimisse JSON so porque o usuario desligou a cor seria uma surpresa.
+func EhTerminal(w io.Writer) bool {
+	f, ok := w.(*os.File)
+	if !ok {
+		return false
+	}
+	info, err := f.Stat()
+	if err != nil {
+		return false
+	}
+	return ehTerminal(info)
+}
+
 // ambienteProibeCor responde a parte da decisao que depende SO do ambiente,
 // separada do resto de proposito.
 //

@@ -460,7 +460,7 @@ func newPathCmd() *cobra.Command {
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			con := console.New(cmd.OutOrStdout())
 			if adicionar == remover {
-				return errors.New(textos.ErroAddOuRemove)
+				return erroDeUso(errors.New(textos.ErroAddOuRemove))
 			}
 
 			dir := instalar.DiretorioPadrao()
@@ -494,12 +494,15 @@ func newPathCmd() *cobra.Command {
 	return cmd
 }
 
-func newVaultsCmd() *cobra.Command {
+// newConfigCmd registra o servidor nos hosts de IA para um ou mais cofres,
+// sem reinstalar o binario. Ate 2026-09-27 era `vaults`; o dono decidiu que
+// `vaults` lista os cofres, e configurar ganhou o nome do que faz.
+func newConfigCmd() *cobra.Command {
 	var o opcoesDeInstalacao
 
 	cmd := &cobra.Command{
-		Use:   "vaults",
-		Short: textos.ResumoVaults,
+		Use:   "config",
+		Short: textos.ResumoConfig,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			con := console.New(cmd.OutOrStdout())
 			entrada := bufio.NewReader(cmd.InOrStdin())

@@ -26,9 +26,10 @@ func carregarConfig(f config.Flags) (config.Config, error) {
 }
 
 func carregarConfigCom(f config.Flags, registro, cwd string) (config.Config, error) {
+	// Cofre que nao resolve e configuracao errada sao uso errado: codigo 2.
 	caminho, porNome, err := instalar.ResolverCofre(f.VaultPath, registro, cwd)
 	if err != nil {
-		return config.Config{}, err
+		return config.Config{}, erroDeUso(err)
 	}
 	nome := ""
 	if porNome {
@@ -37,7 +38,7 @@ func carregarConfigCom(f config.Flags, registro, cwd string) (config.Config, err
 	}
 	cfg, err := config.Load(f)
 	if err != nil {
-		return config.Config{}, err
+		return config.Config{}, erroDeUso(err)
 	}
 	cfg.CofrePorNome = nome
 	return cfg, nil

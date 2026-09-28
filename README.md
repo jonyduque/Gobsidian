@@ -123,7 +123,7 @@ The installer configures detected hosts for you. To (re)configure a vault later
 without reinstalling the binary:
 
 ```bash
-gobsidian vaults --vault "/path/to/vault"
+gobsidian config --vault "/path/to/vault"
 ```
 
 To register `gobsidian` by hand instead:
@@ -211,7 +211,10 @@ gobsidian install [--vault <path>] [--hosts <list>] [--read-only] [--yes]
 gobsidian update [--check] [--yes]
 
 # Configure hosts for a vault, without reinstalling the binary
-gobsidian vaults --vault "/path/to/vault"
+gobsidian config --vault "/path/to/vault"
+
+# List the vaults Obsidian knows and the ones configured in hosts
+gobsidian vaults [--json]
 
 # Add or remove the install directory from your user PATH
 gobsidian path [--add|--remove]

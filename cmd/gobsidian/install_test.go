@@ -99,7 +99,7 @@ func TestSubcomandosDoInstaladorEstaoRegistrados(t *testing.T) {
 	for _, c := range root.Commands() {
 		registrados[c.Name()] = true
 	}
-	for _, nome := range []string{"install", "update", "path", "vaults"} {
+	for _, nome := range []string{"install", "update", "path", "config", "vaults"} {
 		if !registrados[nome] {
 			t.Errorf("subcomando %q nao esta registrado na arvore", nome)
 		}

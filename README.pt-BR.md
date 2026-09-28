@@ -124,7 +124,7 @@ O instalador configura os hosts detectados. Para (re)configurar um cofre depois,
 sem reinstalar o binário:
 
 ```bash
-gobsidian vaults --vault "/caminho/do/cofre"
+gobsidian config --vault "/caminho/do/cofre"
 ```
 
 Para registrar o `gobsidian` à mão:
@@ -212,7 +212,10 @@ gobsidian install [--vault <caminho>] [--hosts <lista>] [--read-only] [--yes]
 gobsidian update [--check] [--yes]
 
 # Configura os hosts para um cofre, sem reinstalar o binário
-gobsidian vaults --vault "/caminho/do/cofre"
+gobsidian config --vault "/caminho/do/cofre"
+
+# Lista os cofres que o Obsidian conhece e os configurados nos hosts
+gobsidian vaults [--json]
 
 # Acrescenta ou remove o diretório de instalação do PATH do usuário
 gobsidian path [--add|--remove]
