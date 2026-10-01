@@ -15,10 +15,12 @@ import (
 
 // transporteFalso devolve bytes de memoria.
 //
-// Nenhum teste deste pacote importa net, e isso e requisito e nao estilo: a
-// RNF-30 e sobre o que o produto abre, e um teste que sobe servidor para
-// exercitar o cliente testaria o servidor junto -- alem de violar, no proprio
-// pacote da excecao, a regra que ele existe para respeitar.
+// Nenhum teste deste pacote abre socket, e isso e requisito e nao estilo: a
+// RNF-30 e sobre o que o produto abre, e subir servidor de verdade no proprio
+// pacote da excecao violaria a regra que ele existe para respeitar. A unica
+// rede dos testes daqui e a em memoria de httptest.NewTestServer, em
+// transporte_http_test.go -- e tools/netcheck recusa os construtores que abrem
+// socket (PRD 6.4, item 5, 2026-10-01). O resto usa este transporte falso.
 type transporteFalso struct {
 	corpos   map[string]string
 	buscadas []string

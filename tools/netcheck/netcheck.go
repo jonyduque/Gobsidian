@@ -92,6 +92,14 @@ func run(pass *analysis.Pass) (any, error) {
 			if path == "net/http" && ehPacoteDaExcecao(pass) {
 				continue
 			}
+			// httptest so em TESTE do pacote da excecao, e la so a rede em memoria
+			// de NewTestServer (Go 1.27) -- os construtores que abrem socket sao
+			// recusados abaixo, em construtorDeSocketDoHttptest. Decisao do dono
+			// em 2026-10-01: TransporteHTTP, o unico codigo do produto que faz rede,
+			// nao tinha teste do caminho HTTP real.
+			if path == "net/http/httptest" && ehPacoteDaExcecao(pass) && ehArquivoDeTeste(pass, file) {
+				continue
+			}
 			pass.Reportf(imp.Pos(), "pacote de rede proibido: %s", path)
 		}
 
@@ -129,7 +137,14 @@ func run(pass *analysis.Pass) (any, error) {
 				return true
 			}
 			ident, ok := sel.X.(*ast.Ident)
-			if !ok || !isPacoteNet(pass, ident) {
+			if !ok {
+				return true
+			}
+			if construtorDeSocketDoHttptest(pass, ident, sel.Sel.Name) {
+				pass.Reportf(call.Pos(), "httptest.%s abre socket -- so httptest.NewTestServer, que roda numa rede em memoria, e permitido", sel.Sel.Name)
+				return true
+			}
+			if !isPacoteNet(pass, ident) {
 				return true
 			}
 
@@ -159,6 +174,22 @@ func run(pass *analysis.Pass) (any, error) {
 		})
 	}
 	return nil, nil
+}
+
+// construtorDeSocketDoHttptest diz se a chamada e um construtor do httptest que
+// sobe um servidor num socket de verdade. O import do httptest so passa pela
+// regra de importacao em teste do pacote da excecao; esta e a outra metade, que
+// impede que la dentro ele vire um listener.
+func construtorDeSocketDoHttptest(pass *analysis.Pass, ident *ast.Ident, nome string) bool {
+	pkgName, ok := pass.TypesInfo.Uses[ident].(*types.PkgName)
+	if !ok || pkgName.Imported().Path() != "net/http/httptest" {
+		return false
+	}
+	switch nome {
+	case "NewServer", "NewTLSServer", "NewUnstartedServer":
+		return true
+	}
+	return false
 }
 
 // isSubpacoteDeRede bane qualquer pacote net/* — net/http incluido. O

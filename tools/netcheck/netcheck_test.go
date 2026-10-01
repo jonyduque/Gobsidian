@@ -8,7 +8,7 @@ import (
 )
 
 func TestNetCheck(t *testing.T) {
-	analysistest.Run(t, analysistest.TestData(), netcheck.Analyzer, "a", "tcp", "redevar", "unixok", "outronet")
+	analysistest.Run(t, analysistest.TestData(), netcheck.Analyzer, "a", "tcp", "redevar", "unixok", "outronet", "x/selfupdate", "httptestfora")
 }
 
 // TestNetcheckRecusaRedeVariavel isola o caso que a Task 90 existe para
@@ -18,4 +18,13 @@ func TestNetCheck(t *testing.T) {
 // precisa falhar, é quem tem de acusar.
 func TestNetcheckRecusaRedeVariavel(t *testing.T) {
 	analysistest.Run(t, analysistest.TestData(), netcheck.Analyzer, "redevar")
+}
+
+// TestNetcheckHttptestSoEmMemoria: a excecao de 2026-10-01. net/http/httptest
+// entra so em _test.go de internal/selfupdate, e la so NewTestServer, que roda
+// numa rede em memoria; os construtores que abrem socket continuam recusados,
+// e o import segue recusado no codigo de producao do pacote e em teste de
+// qualquer outro.
+func TestNetcheckHttptestSoEmMemoria(t *testing.T) {
+	analysistest.Run(t, analysistest.TestData(), netcheck.Analyzer, "x/selfupdate", "httptestfora")
 }

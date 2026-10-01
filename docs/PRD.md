@@ -407,12 +407,13 @@ O resultado é honesto: `net/http` está compilado no binário porque o SDK o ca
 
 A garantia que a RNF-30 protege **não muda**: o produto não vira serviço de rede, não escuta em porta, não fala com terceiros durante a operação normal. Um cliente HTTPS **de saída**, para um host literal, num pacote só, alcançável apenas por um subcomando que o usuário digitou, é coisa diferente de abrir socket para receber conexão. A alternativa considerada e descartada foi deixar o download no script de bootstrap — ela mantém a regra intacta, mas devolve ao shell a metade da lógica que o instalador existe para trazer para dentro do produto, onde há teste.
 
-A exceção é estreita, e as quatro coisas que a estreitam são verificadas:
+A exceção é estreita, e as cinco coisas que a estreitam são verificadas:
 
 1. **Um pacote só.** `net/http` pode ser importado por `internal/selfupdate` e por mais nada. Todo outro pacote continua recusado pela regra 1 acima. Verificado por `tools/netcheck`.
 2. **Lista fechada de hosts.** Todo literal de URL escrito dentro de `internal/selfupdate` tem de apontar para um host da lista do analisador — hoje `api.github.com`, `objects.githubusercontent.com` e `github.com`. Host novo exige tocar no analisador, e tocar nele exige explicar aqui. Verificado por `tools/netcheck`.
 3. **URL montada em tempo de execução é recusada em tempo de execução.** O analisador estático não prova para onde uma URL vinda de variável aponta — é a mesma limitação que a regra 2 do IPC já registra. Quem prova é uma guarda no próprio pacote, com teste que a exercita. Análise estática e guarda de runtime cobrem metades diferentes, e dizer que uma cobre a outra seria mentira.
 4. **Só o subcomando `update` alcança o pacote.** `serve`, `daemon` e as tools MCP não o importam: servir um cofre nunca toca a rede.
+5. **Teste do pacote sem socket** (2026-10-01, autorização do dono). `net/http/httptest` pode ser importado **só** em arquivo de teste de `internal/selfupdate` (hoje, `transporte_http_test.go`), e lá **só** `httptest.NewTestServer`, do Go 1.27, que roda numa rede em memória. `NewServer`, `NewTLSServer` e `NewUnstartedServer`, que abrem socket, continuam recusados, e o import segue recusado no código de produção do pacote e no teste de qualquer outro. Motivo: `TransporteHTTP`, o único código do produto que faz rede, não tinha teste do caminho HTTP real. Verificado por `tools/netcheck` (`TestNetcheckHttptestSoEmMemoria`, com os três casos).
 
 Os três casos correspondentes vivem em `scripts/check_gates.ps1` — o que aceita, o que recusa e o inverso —, pela regra do projeto de que gate novo entra com os três. Exceção sem gate vira porta escancarada.
 

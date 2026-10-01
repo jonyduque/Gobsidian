@@ -345,7 +345,9 @@ onde aparece.
 e isso é esperado. O pacote `net` em si é permitido **só** para
 `net.Dial`/`net.Listen` com a rede na constante literal `"unix"` — o IPC local do
 daemon, reaberto com autorização do dono em 2026-08-05 (Task 90). Rede vinda de
-variável é recusada por `tools/netcheck`. Redação normativa em `PRD.md` §6.4.
+variável é recusada por `tools/netcheck`. Em teste, `net/http/httptest` entra
+**só** em `internal/selfupdate` e só pelo `NewTestServer` (rede em memória,
+sem socket; 2026-10-01). Redação normativa em `PRD.md` §6.4.
 
 **Nenhum tipo do SDK MCP cruza para fora de `internal/mcpsrv`.**
 `internal/service` fala tipos de domínio. Torna migração de protocolo mudança de

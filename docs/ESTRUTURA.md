@@ -225,7 +225,9 @@ gobsidian/
 │   ├── selfupdate/               FOLHA. ÚNICO pacote com net/http (PRD §6.4)
 │   │   ├── selfupdate.go         release, SHA-256 e ValidarHost — a guarda de
 │   │   │                         runtime que a análise estática não alcança
-│   │   └── transporte_http.go    o único arquivo do produto que fala HTTP
+│   │   ├── transporte_http.go    o único arquivo do produto que fala HTTP
+│   │   └── transporte_http_test.go  pela rede em memória de httptest.NewTestServer:
+│   │                            headers da API e status, sem socket
 │   │
 │   ├── instalar/                 o instalador dentro do binário
 │   │   ├── presenca.go           quem está rodando, por trava de kernel — sem
@@ -283,6 +285,7 @@ gobsidian/
 │                                 com as DUAS exceções nomeadas da RNF-30 —
 │                                 net.Dial/Listen com "unix" literal, e net/http
 │                                 só em internal/selfupdate, com host da lista
+│                                 (em teste dele, httptest só via NewTestServer)
 │
 ├── scripts/
 │   ├── build.ps1                 build local com informação de versão
