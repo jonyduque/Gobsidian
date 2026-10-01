@@ -544,8 +544,9 @@ func (s *Service) ListNotes(_ context.Context, req ListRequest) (ListResult, err
 	}
 
 	// O teto e os enums são conferidos AQUI, e não no boundary MCP, porque o
-	// CLI (`gobsidian index`, `search`) chega pelo mesmo caminho. Validar só na
-	// borda deixaria a segunda porta sem guarda (achado B4).
+	// serviço é a última porta comum: a CLI das tools passa hoje pela borda
+	// MCP (mcpsrv.ChamarLocal), mas a primeira CLI chamava o serviço direto, e
+	// validar só na borda deixou essa porta sem guarda (achado B4).
 	q := req.Query
 	q.Limit = ComTeto(q.Limit)
 	var err error

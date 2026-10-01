@@ -37,7 +37,7 @@ type opcoesDeInstalacao struct {
 // equivalentes -- as mesmas que `install.ps1` ja aceitava, para nao quebrar
 // quem automatiza.
 func registrarFlagsDeInstalacao(cmd *cobra.Command, o *opcoesDeInstalacao) {
-	cmd.Flags().StringVar(&o.vault, "vault", os.Getenv("GOBSIDIAN_VAULT"),
+	cmd.Flags().StringVar(&o.vault, "vault", os.Getenv(varDoCofrePadrao),
 		textos.FlagInstallVault)
 	cmd.Flags().StringVar(&o.installDir, "install-dir", os.Getenv("GOBSIDIAN_INSTALL_DIR"),
 		fmt.Sprintf(textos.FlagInstallDir, instalar.DiretorioPadrao()))

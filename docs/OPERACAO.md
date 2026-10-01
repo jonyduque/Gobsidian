@@ -2883,3 +2883,54 @@ roda só em quem lê o índice do cache — `index`, `inspect`, `search`, `serve
 e `daemon` — e não em `doctor`, que não abre índice nenhum. Duas funções
 para que o texto de ajuda pare de divergir quando alguém edita um dos
 arquivos e esquece os outros.
+
+---
+
+## Um comando de CLI por tool (2026-09-27)
+
+`index`, `inspect` e o `search` antigo saíram; no lugar deles, cada uma das 14
+tools do servidor é um comando: `gobsidian note read|list|outline|metadata|
+create|append|patch|move|delete`, `stats`, `search`, `broken-links`,
+`tag list` e `graph`. Desenho e tabela tool → comando em
+[`docs/superpowers/specs/2026-09-25-cli-das-tools-design.md`](superpowers/specs/2026-09-25-cli-das-tools-design.md).
+
+**Como a chamada anda.** O comando abre o serviço por
+`boot.AbrirServicoDeCLI` — cofre, índice de metadados pelo cache (a mesma conta
+de `AbrirIndice` que as duas seções acima descrevem) e a busca preguiçosa — e
+chama a tool por `mcpsrv.ChamarLocal`, pelo transporte em memória. O servidor
+é o mesmo do host, sem os resources: publicá-los percorreria o cofre inteiro a
+cada chamada. O índice de busca só carrega em `search`, pelo `CarregarBusca`
+do serviço, e grava o cache como o `search` antigo gravava.
+
+**`index` não existe mais para aquecer o cache.** Qualquer comando de tool
+abre o índice de metadados pelo cache e o grava quando está velho; `search`
+faz o mesmo com o índice de busca.
+
+**Saída.** Terminal recebe texto; pipe ou arquivo recebe o JSON da tool numa
+linha, o mesmo `structuredContent` que o host recebe. `--json` e `--texto`
+forçam um dos dois. A pergunta é se o destino é um terminal, e não se há cor:
+`NO_COLOR` desliga a cor sem transformar o terminal num pipe.
+
+**Códigos de saída**, os mesmos de `vaults` e dos outros comandos de CLI:
+
+| Código | Quando |
+|---|---|
+| 0 | Sucesso |
+| 1 | A tool devolveu erro; no JSON, `{"error":{"code","message"}}` em stdout |
+| 2 | Uso errado (flag, posicional, `--json` com `--texto`, `--args` inválido), cofre que não resolve, ou tool de escrita com `--read-only`/`GOBSIDIAN_READ_ONLY` |
+
+**`GOBSIDIAN_VAULT`** é o `--vault` padrão dos comandos de CLI (as tools,
+`doctor`, `install`, `config`). `serve` e `daemon` a ignoram: um host herda o
+ambiente do usuário, e um `--vault` esquecido no config dele serviria em
+silêncio o cofre da variável. `TestGobsidianVaultValeNaCLIENaoNoServe` prova as
+duas metades.
+
+**Flags que só existem onde valem.** `--max-results` só em `search`, a única
+tool que o teto administrativo limita; `--read-only` só nas cinco tools de
+escrita. É o achado 5.8 de novo: flag declarada e ignorada é pior que ausente.
+
+**Custo na partida.** Montar os comandos exige ler o schema das tools, e isso
+levou **30 ms** medidos em 2026-09-27 (`TestLerEsquemasCustaPouco`, 0,03 s).
+`serve` e `daemon` não montam esses comandos (`montarFerramentas` em
+`cmd/gobsidian/ferramentas.go`): um servidor aberto pelo host a cada sessão
+não paga pela árvore da CLI.

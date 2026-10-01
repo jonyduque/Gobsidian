@@ -62,7 +62,7 @@ func newDoctorCmd() *cobra.Command {
 		},
 	}
 
-	flagsDeCofre(cmd, &flags)
+	flagsDeCofreDaCLI(cmd, &flags)
 	cmd.Flags().BoolVar(&flags.ReadOnly, "read-only", false, textos.FlagDoctorReadOnly)
 	cmd.Flags().IntVar(&flags.MaxResults, "max-results", 0, textos.FlagMaxResults)
 	cmd.Flags().BoolVar(&corrigir, "fix", false,

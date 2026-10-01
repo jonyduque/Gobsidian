@@ -34,6 +34,14 @@ type Server struct {
 // um host que ve a tool anunciada vai tentar usa-la, e a recusa vira uma
 // rodada desperdicada (PRD RF-55).
 func New(ctx context.Context, svc *service.Service, cfg config.Config, log *slog.Logger) *Server {
+	return novo(ctx, svc, cfg, log, true)
+}
+
+// novo e a montagem unica do servidor. comResources e falso so para a CLI
+// (ChamarLocal, EsquemasDeEntrada): publicar os resources percorre o cofre
+// inteiro, e nenhum comando os le. As tools registradas sao as MESMAS nos dois
+// casos -- e isso que faz a CLI devolver o que o host recebe.
+func novo(ctx context.Context, svc *service.Service, cfg config.Config, log *slog.Logger, comResources bool) *Server {
 	s := &Server{
 		mcp: mcp.NewServer(&mcp.Implementation{Name: "gobsidian", Version: Version},
 			&mcp.ServerOptions{Instructions: montarInstrucoes(cfg)}),
@@ -42,7 +50,9 @@ func New(ctx context.Context, svc *service.Service, cfg config.Config, log *slog
 	}
 	s.registerReadTools()
 	s.registerReadToolsInternal()
-	s.registerResources(ctx)
+	if comResources {
+		s.registerResources(ctx)
+	}
 	if !cfg.ReadOnly {
 		s.registerWriteTools()
 	}

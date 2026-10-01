@@ -268,7 +268,7 @@ RF-40 a RF-42 são três mecanismos redundantes para o mesmo objetivo. A redund�
 |---|---|---|
 | RF-50 | Subcomando `serve` (stdio) | P0 |
 | RF-51 | Subcomando `doctor` com verificação de ambiente | P0 |
-| RF-52 | Subcomandos `index`, `search`, `inspect` para uso fora do MCP | P1 |
+| RF-52 | Um comando de CLI por tool, para uso fora do MCP (2026-09-27: substitui `index`, `search` e `inspect`; ver `docs/TOOLS.md`) | P1 |
 | RF-53 | Log estruturado em stderr via `log/slog`, nível configurável | P0 |
 | RF-54 | Transporte HTTP/SSE além de stdio | P2 |
 | RF-55 | Flag global `--read-only`, que remove as tools de escrita da lista anunciada ao host, não apenas as rejeita em tempo de chamada | P0 |

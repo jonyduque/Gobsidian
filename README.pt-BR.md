@@ -223,18 +223,29 @@ gobsidian path [--add|--remove]
 # Diagnóstico do ambiente e do cofre (permissão, colisão de caixa, MAX_PATH)
 gobsidian doctor --vault "/caminho/do/cofre"
 
-# Constrói o cache de índice
-gobsidian index --vault "/caminho/do/cofre" [--json]
-
-# Busca pela linha de comando
-gobsidian search "consulta" --vault "/caminho/do/cofre" [--limit 20]
-
-# Inspeciona a representação analisada de um arquivo
-gobsidian inspect "Nota.md" --vault "/caminho/do/cofre" [--json]
+# Cada tool do MCP é um comando, com a mesma entrada, padrões e erros
+gobsidian note read "Civil/Dolo.md" --heading Conceito --vault "/caminho/do/cofre"
+gobsidian note list --folder Civil --tags penal
+gobsidian note outline|metadata <nota>
+gobsidian note create|append|patch <nota> --content -    # "-" lê do stdin
+gobsidian note move <origem> <destino>
+gobsidian note delete <nota>
+gobsidian stats | search "consulta" | broken-links
+gobsidian tag list [--prefix direito]
+gobsidian graph <nota> [--depth 2]
 
 # Imprime versão, commit e data de build
 gobsidian version
 ```
+
+Os comandos das tools imprimem texto no terminal e uma linha com o JSON da
+tool em pipe ou arquivo (`--json` e `--texto` forçam um dos dois). Cada
+parâmetro da tool é uma flag (`heading_level` vira `--heading-level`);
+`--args '<json>'` passa a entrada inteira, e as flags passadas vencem.
+Códigos de saída: `0` sucesso, `1` a tool devolveu erro (com o código, como
+`NOTE_NOT_FOUND`), `2` uso errado ou cofre que não resolve.
+`GOBSIDIAN_VAULT` define o `--vault` padrão de todo comando de CLI; `serve`
+a ignora, para um host nunca servir um cofre por acidente.
 
 ### Completação de shell
 

@@ -8,7 +8,7 @@ import (
 	"github.com/jonyduque/Gobsidian/internal/config"
 )
 
-// loggerDeCLI e o logger dos subcomandos de CLI (search, index, inspect):
+// loggerDeCLI e o logger dos comandos das tools (ferramentas.go):
 // escreve em cmd.ErrOrStderr() para que teste capture, e cala tudo abaixo de
 // Warn a menos que o operador tenha pedido um nivel — um subcomando que
 // imprime "servidor pronto" a cada chamada polui o terminal de quem so

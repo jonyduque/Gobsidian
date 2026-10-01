@@ -2,6 +2,8 @@
 
 Contrato de cada *tool*. Schemas em JSON Schema, como declarados ao host.
 
+**Cada tool tem um comando de CLI** (desde 2026-09-27): `gobsidian note read`, `note list`, `stats`, `search`, `broken-links`, `tag list`, `graph` e os demais. O comando chama a tool pelo mesmo servidor, então a entrada, os padrões, os tetos e os códigos de erro são os deste documento. A tabela tool → comando e as regras de flag estão em [`docs/superpowers/specs/2026-09-25-cli-das-tools-design.md`](superpowers/specs/2026-09-25-cli-das-tools-design.md).
+
 ---
 
 ## Convenções gerais
@@ -353,12 +355,10 @@ plano e hierárquico. `note_metadata.tags` e `note_list.tags` continuam
 devolvendo a grafia original da nota (ver `:216` acima para `note_list`): a
 dobra é da chave de agrupamento, não do conteúdo da nota.
 
-A mesma chave dobrada é o que o subcomando `index` da CLI conta:
-`len(idx.Tags("", 1))` (`cmd/gobsidian/index.go:53`) soma entradas de
-`idx.tags`, cujas chaves já passam por `ChaveDeTag` — então grafias que só
-diferem em caixa, forma Unicode ou `#` inicial contam como uma tag só na
-contagem de tags distintas que `index --json` reporta. De quanto isso reduz a
-contagem num cofre com tags gravadas de formas diferentes: **não medido**.
+O subcomando `index` da CLI contava tags distintas pela mesma chave dobrada
+até 2026-09-27, quando saiu: a contagem de tags pela CLI hoje é a de
+`gobsidian tag list`, que é esta tool. De quanto a dobra reduz a contagem num
+cofre com tags gravadas de formas diferentes: **não medido**.
 
 **`prefix` não é o filtro `tags`.** São duas operações diferentes, de propósito.
 O `tags` de `note_list` e de `vault_search` casa por SEGMENTO — a tag pedida e

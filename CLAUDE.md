@@ -59,13 +59,14 @@ lugar do seu contexto.
 ## Estrutura do projeto
 
 ```
-cmd/gobsidian/     entrypoint fino e subcomandos: serve, doctor, index, search,
-                   inspect, daemon (oculto). ponte.go escolhe daemon vs
-                   em-processo; a montagem que serve e daemon compartilham
-                   mora em internal/boot. index, inspect e search também
-                   passam por lá para abrir o índice (boot.AbrirIndice; search
-                   também chama boot.PrepararBusca), sem montar watcher nem
-                   Service
+cmd/gobsidian/     entrypoint fino e subcomandos: serve, doctor, daemon
+                   (oculto), install, update, config, vaults, path, version e
+                   um comando por tool (ferramentas.go: note read, stats,
+                   search...). ponte.go escolhe daemon vs em-processo; a
+                   montagem que serve e daemon compartilham mora em
+                   internal/boot, e os comandos das tools abrem o serviço
+                   por boot.AbrirServicoDeCLI e chamam a tool por
+                   mcpsrv.ChamarLocal, sem watcher
 internal/
   config/          struct de configuração, flags cobra, defaults, VaultKey
   lifecycle/       stdin-eof, sinais, vigília do PID pai, shutdown com orçamento

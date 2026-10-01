@@ -36,6 +36,10 @@ func main() {
 	// o cliente ve sempre "dev", mesmo em build de release.
 	mcpsrv.Version = version
 
+	// serve e daemon nao montam os comandos das tools: ver montarFerramentas.
+	if len(os.Args) > 1 && (os.Args[1] == "serve" || os.Args[1] == "daemon") {
+		montarFerramentas = false
+	}
 	root := newRootCmd()
 
 	// O autocompletar mostra o resumo de cada comando e a descricao de cada
@@ -89,8 +93,7 @@ func newRootCmd() *cobra.Command {
 	root.SetFlagErrorFunc(erroDeFlag)
 
 	root.AddCommand(
-		newServeCmd(), newDoctorCmd(), newVersionCmd(), newIndexCmd(),
-		newSearchCmd(), newInspectCmd(), newDaemonCmd(),
+		newServeCmd(), newDoctorCmd(), newVersionCmd(), newDaemonCmd(),
 		newInstallCmd(), newUpdateCmd(), newPathCmd(), newConfigCmd(), newVaultsCmd(),
 	)
 
@@ -101,6 +104,11 @@ func newRootCmd() *cobra.Command {
 	// E haver um terminal do outro lado. A segunda existe porque um host MCP
 	// que invocasse o binario sem argumento -- nenhum faz hoje, todos passam
 	// `serve --vault` -- dispararia uma instalacao no meio de uma sessao.
+	// Um comando por tool do servidor MCP: ver ferramentas.go.
+	if montarFerramentas {
+		acrescentarFerramentas(root)
+	}
+
 	root.RunE = func(cmd *cobra.Command, _ []string) error {
 		return semArgumentos(cmd)
 	}
@@ -188,7 +196,7 @@ func semArgumentos(cmd *cobra.Command) error {
 	con.Detail("%s", textos.AutoinstalarAjuda)
 
 	var o opcoesDeInstalacao
-	o.vault = os.Getenv("GOBSIDIAN_VAULT")
+	o.vault = os.Getenv(varDoCofrePadrao)
 	o.installDir = os.Getenv("GOBSIDIAN_INSTALL_DIR")
 	return rodarInstalacaoFn(cmd.Context(), cmd, &o, "")
 }

@@ -32,10 +32,17 @@ import (
 // e o que a RNF-30 cobra -- a mesma situacao do SDK de MCP, registrada no
 // CLAUDE.md.
 func instalarCompletion(raiz *cobra.Command) {
-	porNome := map[string]*cobra.Command{}
-	for _, c := range raiz.Commands() {
-		porNome[c.Name()] = c
+	// Todos os comandos da arvore, e nao so os do primeiro nivel: os das
+	// tools moram em grupos (`note read`), e --vault neles completa igual.
+	var todos []*cobra.Command
+	var andar func(c *cobra.Command)
+	andar = func(c *cobra.Command) {
+		for _, f := range c.Commands() {
+			todos = append(todos, f)
+			andar(f)
+		}
 	}
+	andar(raiz)
 
 	// --hosts: as chaves reais, com o nome do host como descricao.
 	//
@@ -76,7 +83,7 @@ func instalarCompletion(raiz *cobra.Command) {
 		)
 	}
 
-	for nome, cmd := range porNome {
+	for _, cmd := range todos {
 		flags := carapace.ActionMap{}
 		if cmd.Flags().Lookup("vault") != nil {
 			flags["vault"] = valoresDeCofre()
@@ -96,7 +103,6 @@ func instalarCompletion(raiz *cobra.Command) {
 		if len(flags) > 0 {
 			carapace.Gen(cmd).FlagCompletion(flags)
 		}
-		_ = nome
 	}
 
 	carapace.Gen(raiz)

@@ -222,18 +222,29 @@ gobsidian path [--add|--remove]
 # Run system and vault health check (permissions, case collisions, MAX_PATH)
 gobsidian doctor --vault "/path/to/vault"
 
-# Build index cache directly
-gobsidian index --vault "/path/to/vault" [--json]
-
-# Execute CLI search
-gobsidian search "query" --vault "/path/to/vault" [--limit 20]
-
-# Inspect parsed representation of a file
-gobsidian inspect "Note.md" --vault "/path/to/vault" [--json]
+# Every MCP tool is a command, with the same input, defaults and errors
+gobsidian note read "Civil/Dolo.md" --heading Concept --vault "/path/to/vault"
+gobsidian note list --folder Civil --tags penal
+gobsidian note outline|metadata <note>
+gobsidian note create|append|patch <note> --content -    # "-" reads stdin
+gobsidian note move <from> <to>
+gobsidian note delete <note>
+gobsidian stats | search "query" | broken-links
+gobsidian tag list [--prefix law]
+gobsidian graph <note> [--depth 2]
 
 # Print version, commit and build date
 gobsidian version
 ```
+
+The tool commands print text in a terminal and one line of the tool's JSON
+in a pipe or file (`--json` and `--texto` force either). Every parameter of
+the tool is a flag (`heading_level` is `--heading-level`); `--args '<json>'`
+passes the whole input, and the flags you pass win over it. Exit codes: `0`
+success, `1` the tool returned an error (with its code, e.g.
+`NOTE_NOT_FOUND`), `2` wrong usage or a vault that does not resolve.
+`GOBSIDIAN_VAULT` sets the default `--vault` for every CLI command; `serve`
+ignores it, so a host never serves a vault by accident.
 
 ### Shell completion
 

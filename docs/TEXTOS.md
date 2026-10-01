@@ -82,12 +82,15 @@ Em seguida vem o fluxo de instalação (seção install abaixo).
 |---|---|
 | completion | Gera o script de autocompletar do shell. <!-- textos.ResumoCompletion --> |
 | doctor | Diagnostica o ambiente. <!-- textos.ResumoDoctor --> |
+| broken-links | Lista os links quebrados do cofre. <!-- textos.ResumoBrokenLinks --> |
+| graph | Mostra a vizinhança de links de uma nota. <!-- textos.ResumoGraph --> |
 | help | Exibe a ajuda sobre qualquer comando. <!-- textos.ResumoHelp --> |
-| index | Constrói o índice do cofre e exibe um resumo. <!-- textos.ResumoIndex --> |
-| inspect | Exibe metadados, links e *backlinks* de uma nota. <!-- textos.ResumoInspect --> |
 | install | Instala o **gobsidian**. <!-- textos.ResumoInstall --> |
+| note | Lê, lista e escreve notas. <!-- textos.ResumoGrupoNote --> |
 | path | Acrescenta ou remove o diretório de instalação do *PATH* do usuário. <!-- textos.ResumoPath --> |
 | search | Busca um texto no cofre. <!-- textos.ResumoSearch --> |
+| stats | Mostra o estado do cofre: notas, anexos, órfãs e links quebrados. <!-- textos.ResumoStats --> |
+| tag | Tags do cofre. <!-- textos.ResumoGrupoTag --> |
 | update | Atualiza o **gobsidian**. <!-- textos.ResumoUpdate --> |
 | config | Configura o **gobsidian** como MCP de hosts de IA. <!-- textos.ResumoConfig --> |
 | vaults | Lista os cofres do Obsidian e os configurados nos hosts de IA. <!-- textos.ResumoVaults --> |
@@ -642,6 +645,138 @@ Bloco sem título: ‹chave antiga› -> ‹chave nova›  ‹cofre›
 - ❌ Há falhas bloqueantes acima. <!-- textos.DoctorFalhasAcima -->
 - ✅ Ambiente apto. <!-- textos.DoctorAmbienteApto -->
 
+## Os comandos das tools
+
+Cada tool do servidor MCP é um comando. Fora do terminal (pipe ou arquivo), o
+comando imprime o JSON da tool numa linha, sem texto nenhum; os textos abaixo
+são os do terminal. A descrição de cada **flag de parâmetro** é a do schema da
+tool, o mesmo texto que o modelo lê, e não mora em textos.
+
+### Comandos
+
+| Comando | Texto |
+|---|---|
+| note (grupo) | Lê, lista e escreve notas. <!-- textos.ResumoGrupoNote --> |
+| note read | Lê uma nota inteira, uma seção ou um bloco. <!-- textos.ResumoNoteRead --> |
+| note list | Lista notas por pasta, tags e frontmatter. <!-- textos.ResumoNoteList --> |
+| note outline | Mostra os *headings* e os candidatos a título de uma nota. <!-- textos.ResumoNoteOutline --> |
+| note metadata | Mostra os metadados de uma nota, sem o corpo. <!-- textos.ResumoNoteMetadata --> |
+| note create | Cria uma nota. <!-- textos.ResumoNoteCreate --> |
+| note append | Acrescenta conteúdo a uma nota. <!-- textos.ResumoNoteAppend --> |
+| note patch | Substitui uma seção ou um bloco de uma nota. <!-- textos.ResumoNotePatch --> |
+| note move | Move ou renomeia uma nota e reescreve os links para ela. <!-- textos.ResumoNoteMove --> |
+| note delete | Exclui uma nota, para a lixeira por padrão. <!-- textos.ResumoNoteDelete --> |
+| stats | Mostra o estado do cofre: notas, anexos, órfãs e links quebrados. <!-- textos.ResumoStats --> |
+| search | Busca um texto no cofre. <!-- textos.ResumoSearch --> |
+| broken-links | Lista os links quebrados do cofre. <!-- textos.ResumoBrokenLinks --> |
+| tag (grupo) | Tags do cofre. <!-- textos.ResumoGrupoTag --> |
+| tag list | Lista as tags do cofre. <!-- textos.ResumoTagList --> |
+| graph | Mostra a vizinhança de links de uma nota. <!-- textos.ResumoGraph --> |
+
+### Flags de todo comando de tool
+
+| Flag | Texto |
+|---|---|
+| `--vault` | Nome do cofre no Obsidian ou caminho da raiz (obrigatório). <!-- textos.FlagVault --> |
+| `--follow-symlinks` | Segue *symlink* dentro do cofre. <!-- textos.FlagFollowSymlinks --> |
+| `--cache-dir` | Diretório do cache de índice. <!-- textos.FlagCacheDir --> |
+| `--log-level` | Nível de log: `debug`, `info`, `warn` ou `error`. <!-- textos.FlagLogLevel --> |
+| `--args` | Entrada da tool em JSON. As flags passadas vencem. <!-- textos.FlagArgs --> |
+| `--json` | Força a saída em JSON, mesmo no terminal. <!-- textos.FlagJSON --> |
+| `--texto` | Força a saída para ler, mesmo fora do terminal. <!-- textos.FlagTexto --> |
+| `--max-results` (só search) | Teto de resultados por consulta. <!-- textos.FlagMaxResults --> |
+| `--read-only` (só as de escrita) | Desabilita toda a superfície de escrita. <!-- textos.FlagReadOnly --> |
+
+O que se acrescenta à descrição do schema:
+
+- Parâmetro sem descrição no schema: Parâmetro `%s` da tool (ver `docs/TOOLS.md`). <!-- textos.FlagSemDescricao -->
+- Em `--content`: Com `-`, o conteúdo vem do stdin. <!-- textos.FlagContentStdin -->
+- Em `--frontmatter`: Repita `--frontmatter chave=valor` para cada campo. <!-- textos.FlagFrontmatter -->
+- Em `note read`, parâmetro `paths`: Pela linha de comando, cada caminho é um posicional; a forma objeto vai por `--args`. <!-- textos.FlagPathsComoArgs -->
+
+### Na tela
+
+- ⚠️ Resultado cortado: use `--offset` e `--limit` para ver o resto. <!-- textos.TextoCortado -->
+
+`note read` imprime o conteúdo da nota como está. Lendo várias, cada uma
+abre com o caminho como título, e um item com erro sai assim:
+
+- ❌ %s: %s (%s) <!-- textos.TextoLoteItemErro: caminho, mensagem, código -->
+- ⚠️ Leitura cortada em %d de %d bytes. Continue com `--offset %d`. <!-- textos.TextoLidoCortado -->
+
+`note list` e `search`:
+
+#### %d de %d notas. <!-- textos.TextoNotasTitulo -->
+
+- ℹ️ Nenhuma nota. <!-- textos.TextoSemNotas -->
+
+`note outline`:
+
+#### %s: %d *headings* e %d candidatos a título. <!-- textos.TextoOutlineTitulo -->
+
+- Candidatos a título <!-- textos.TextoCandidatos -->
+
+`note metadata` é uma tabela de campos com o caminho como título: Título,
+*Hash*, Frontmatter <!-- textos.CampoFrontmatter -->, Tags, Aliases <!-- textos.CampoAliases -->,
+*Headings*, Blocos <!-- textos.CampoBlocos -->, Links de saída, *Backlinks*.
+
+As tools de escrita:
+
+- ✅ Nota criada: %s. <!-- textos.TextoCriada -->
+- ✅ Conteúdo acrescentado: %s. <!-- textos.TextoAcrescentada -->
+- ✅ Trecho substituído: %s. <!-- textos.TextoSubstituida -->
+  - *hash* %s <!-- textos.TextoHash -->
+- ✅ Nota movida: %s -> %s. %d links reescritos em %d notas. <!-- textos.TextoMovida -->
+- ✅ Nota excluída: %s. <!-- textos.TextoExcluida -->
+- ✅ Nota movida para a lixeira: %s. <!-- textos.TextoParaLixeira -->
+- ⚠️ Links que vão quebrar: %s <!-- textos.TextoLinksQuebrar -->
+- ℹ️ Simulação (`--dry-run`): nada foi alterado. <!-- textos.TextoSimulacao -->
+
+Com `--dry-run`, o diff sai logo abaixo, como está.
+
+`stats` é uma tabela de campos:
+
+#### Cofre. <!-- textos.TextoStatsTitulo -->
+
+| Campo | Valor |
+|---|---|
+| Notas <!-- textos.CampoNotas --> | ‹n› |
+| Anexos <!-- textos.CampoAnexos --> | ‹n› |
+| Tamanho <!-- textos.CampoTamanho --> | ‹n›  bytes <!-- textos.NotaBytes --> |
+| Órfãs <!-- textos.CampoOrfas --> | ‹n› |
+| Links quebrados <!-- textos.CampoLinksQuebrados --> | ‹n› |
+| Âncoras quebradas <!-- textos.CampoAncorasQuebradas --> | ‹n› |
+| Erros de frontmatter <!-- textos.CampoErrosFrontmatter --> | ‹n› |
+| Colisões de alias <!-- textos.CampoColisoes --> | ‹n› |
+
+`broken-links`:
+
+#### %d de %d links quebrados. <!-- textos.TextoQuebrados -->
+
+- ✅ Nenhum link quebrado. <!-- textos.TextoSemQuebrados -->
+
+`tag list`:
+
+#### %d tags. <!-- textos.TextoTagsTitulo -->
+
+- ℹ️ Nenhuma tag. <!-- textos.TextoSemTags -->
+
+`graph`:
+
+#### %d notas e %d links a partir de %s. <!-- textos.TextoGrafoTitulo -->
+
+### Erros
+
+- ❌ %s (%s) <!-- textos.ErroDaTool: a mensagem da tool e o código, como NOTE_NOT_FOUND -->
+- `%s` escreve no cofre, e o cofre está em modo somente leitura (`--read-only` ou `GOBSIDIAN_READ_ONLY`). <!-- textos.ErroToolSomenteLeitura -->
+- `--args` não é um objeto JSON válido: %v <!-- textos.ErroArgsInvalido -->
+- `--frontmatter` espera `chave=valor`, recebido %q. <!-- textos.ErroFrontmatterFlag -->
+- Lendo o conteúdo do stdin: %w <!-- textos.ErroLendoStdin -->
+- `--json` e `--texto` não podem ser usados juntos. <!-- textos.ErroJSONETexto -->
+
+A mensagem da tool vem do serviço, escrita para o modelo, e fica fora de
+textos.
+
 ## version
 
 #### **gobsidian** ‹versão› <!-- textos.VersionTitulo -->
@@ -650,78 +785,6 @@ Bloco sem título: ‹chave antiga› -> ‹chave nova›  ‹cofre›
 |---|---|
 | *Commit* <!-- textos.CampoCommit --> | ‹commit› |
 | *Build* <!-- textos.CampoBuild --> | ‹data de build› |
-
-## search, index e inspect
-
-### Flags de cofre e de cache
-
-Registradas em todo comando que abre um cofre (serve, daemon, doctor, index,
-search, inspect); as duas últimas, nos que leem ou gravam o cache.
-
-| Flag | Texto |
-|---|---|
-| `--vault` | Nome do cofre no Obsidian ou caminho da raiz (obrigatório). <!-- textos.FlagVault --> |
-| `--follow-symlinks` | Segue *symlink* dentro do cofre. <!-- textos.FlagFollowSymlinks --> |
-| `--cache-dir` | Diretório do cache de índice. <!-- textos.FlagCacheDir --> |
-| `--log-level` | Nível de log: `debug`, `info`, `warn` ou `error`. <!-- textos.FlagLogLevel --> |
-
-### index
-
-| Flag | Texto |
-|---|---|
-| (resumo) | Constrói o índice do cofre e exibe um resumo. <!-- textos.ResumoIndex --> |
-| `--json` | Força a saída em JSON, mesmo no terminal. <!-- textos.FlagJSON --> |
-
-- ✅ Indexação concluída em %d ms. <!-- textos.IndexConcluido -->
-
-#### Índice. <!-- textos.IndexTitulo -->
-
-| Campo | Valor |
-|---|---|
-| Origem <!-- textos.CampoOrigem --> | ‹cache ou build› |
-| Notas <!-- textos.CampoNotas --> | ‹n› |
-| Anexos <!-- textos.CampoAnexos --> | ‹n› |
-| Tags <!-- textos.CampoTags --> | ‹n› |
-| Tamanho <!-- textos.CampoTamanho --> | ‹n›  bytes <!-- textos.NotaBytes --> |
-
-### search
-
-| Flag | Texto |
-|---|---|
-| (resumo) | Busca um texto no cofre. <!-- textos.ResumoSearch --> |
-| `--json` | Força a saída em JSON, mesmo no terminal. <!-- textos.FlagJSON --> |
-| `--limit` | Limite máximo de resultados. <!-- textos.FlagSearchLimit --> |
-| `--max-results` | Teto de resultados por consulta. <!-- textos.FlagMaxResults --> |
-
-- ℹ️ Nenhum resultado para %q. <!-- textos.SearchSemResultado -->
-
-#### %d de %d para %q. <!-- textos.SearchTitulo -->
-
-- ‹caminho da nota›  ‹pontuação›
-  - ... ‹trecho› ...
-
-### inspect
-
-| Flag | Texto |
-|---|---|
-| (resumo) | Exibe metadados, links e *backlinks* de uma nota. <!-- textos.ResumoInspect --> |
-| `--json` | Força a saída em JSON, mesmo no terminal. <!-- textos.FlagJSON --> |
-
-#### ‹caminho da nota›
-
-| Campo | Valor |
-|---|---|
-| Título <!-- textos.CampoTitulo --> | ‹título› |
-| Tamanho <!-- textos.CampoTamanho --> | ‹n›  bytes <!-- textos.NotaBytes --> |
-| Tags <!-- textos.CampoTags --> | ‹tags›  (%d) |
-| *Headings* <!-- textos.CampoHeadings --> | ‹headings›  (%d) |
-| Links de saída <!-- textos.CampoLinksSaida --> | ‹n› |
-| *Backlinks* <!-- textos.CampoBacklinks --> | ‹backlinks›  (%d) |
-
-#### Erros
-
-- Resolvendo nota %q: %w <!-- textos.ErroResolvendoNota -->
-- Nota %q não encontrada no índice. <!-- textos.ErroNotaNaoIndexada -->
 
 ## serve e daemon
 

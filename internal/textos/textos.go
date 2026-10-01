@@ -62,8 +62,6 @@ const (
 	ResumoServe      = "Serve o cofre via MCP sobre stdio."
 	ResumoDaemon     = "Roda o *daemon* de cofre compartilhado (uso interno da ponte)."
 	ResumoDoctor     = "Diagnostica o ambiente."
-	ResumoIndex      = "Constrói o índice do cofre e exibe um resumo."
-	ResumoInspect    = "Exibe metadados, links e *backlinks* de uma nota."
 	ResumoSearch     = "Busca um texto no cofre."
 	ResumoVersion    = "Imprime versão."
 	ResumoHelp       = "Exibe a ajuda sobre qualquer comando."
@@ -105,8 +103,6 @@ const (
 
 	FlagDoctorReadOnly = "Não verifica permissão de escrita."
 	FlagDoctorFix      = "Além de diagnosticar, remove o lixo de *runtime* e do cache."
-
-	FlagSearchLimit = "Limite máximo de resultados."
 
 	FlagInstallVault    = "Cofre a servir (padrão: listar cofres registrados no Obsidian para escolha)."
 	FlagInstallDir      = "Diretório onde o **gobsidian** será instalado (padrão: `%s`)."
@@ -159,15 +155,12 @@ const (
 	AutoinstalarAjuda        = "Para ver apenas a ajuda, rode `gobsidian --help`."
 )
 
-// `version`, `index`, `inspect` e `search`.
+// `version`, e os campos das tabelas das tools.
 const (
 	VersionTitulo = "**gobsidian** %s"
 	CampoCommit   = "*Commit*"
 	CampoBuild    = "*Build*"
 
-	IndexConcluido  = "Indexação concluída em %d ms."
-	IndexTitulo     = "Índice."
-	CampoOrigem     = "Origem"
 	CampoNotas      = "Notas"
 	CampoAnexos     = "Anexos"
 	CampoTags       = "Tags"
@@ -177,9 +170,6 @@ const (
 	CampoHeadings   = "*Headings*"
 	CampoLinksSaida = "Links de saída"
 	CampoBacklinks  = "*Backlinks*"
-
-	SearchSemResultado = "Nenhum resultado para %q."
-	SearchTitulo       = "%d de %d para %q."
 )
 
 // As perguntas da conversa: botoes, teclas e respostas. As teclas e as setas
@@ -246,6 +236,77 @@ const (
 
 	PathJaEstava   = "*PATH* já estava como você pediu."
 	PathAtualizado = "*PATH* atualizado."
+)
+
+// Os comandos das tools: o resumo de cada um na ajuda. A descricao de cada
+// PARAMETRO vem do schema da tool -- e o mesmo texto que o modelo le, e uma
+// segunda redacao aqui divergiria dele.
+const (
+	ResumoGrupoNote    = "Lê, lista e escreve notas."
+	ResumoGrupoTag     = "Tags do cofre."
+	ResumoNoteRead     = "Lê uma nota inteira, uma seção ou um bloco."
+	ResumoNoteList     = "Lista notas por pasta, tags e frontmatter."
+	ResumoNoteOutline  = "Mostra os *headings* e os candidatos a título de uma nota."
+	ResumoNoteMetadata = "Mostra os metadados de uma nota, sem o corpo."
+	ResumoNoteCreate   = "Cria uma nota."
+	ResumoNoteAppend   = "Acrescenta conteúdo a uma nota."
+	ResumoNotePatch    = "Substitui uma seção ou um bloco de uma nota."
+	ResumoNoteMove     = "Move ou renomeia uma nota e reescreve os links para ela."
+	ResumoNoteDelete   = "Exclui uma nota, para a lixeira por padrão."
+	ResumoStats        = "Mostra o estado do cofre: notas, anexos, órfãs e links quebrados."
+	ResumoBrokenLinks  = "Lista os links quebrados do cofre."
+	ResumoTagList      = "Lista as tags do cofre."
+	ResumoGraph        = "Mostra a vizinhança de links de uma nota."
+
+	FlagArgs          = "Entrada da tool em JSON. As flags passadas vencem."
+	FlagSemDescricao  = "Parâmetro `%s` da tool (ver `docs/TOOLS.md`)."
+	FlagContentStdin  = " Com `-`, o conteúdo vem do stdin."
+	FlagFrontmatter   = " Repita `--frontmatter chave=valor` para cada campo."
+	FlagPathsComoArgs = " Pela linha de comando, cada caminho é um posicional; a forma objeto vai por `--args`."
+
+	ErroToolSomenteLeitura = "`%s` escreve no cofre, e o cofre está em modo somente leitura (`--read-only` ou `GOBSIDIAN_READ_ONLY`)."
+	ErroArgsInvalido       = "`--args` não é um objeto JSON válido: %v"
+	ErroFrontmatterFlag    = "`--frontmatter` espera `chave=valor`, recebido %q."
+	ErroLendoStdin         = "Lendo o conteúdo do stdin: %w"
+	ErroDaTool             = "%s (%s)"
+)
+
+// O que os comandos das tools imprimem no terminal. Fora dele, sai o JSON da
+// tool, sem texto nenhum.
+const (
+	TextoCortado       = "Resultado cortado: use `--offset` e `--limit` para ver o resto."
+	TextoNotasTitulo   = "%d de %d notas."
+	TextoQuebrados     = "%d de %d links quebrados."
+	TextoSemQuebrados  = "Nenhum link quebrado."
+	TextoSemNotas      = "Nenhuma nota."
+	TextoTagsTitulo    = "%d tags."
+	TextoSemTags       = "Nenhuma tag."
+	TextoGrafoTitulo   = "%d notas e %d links a partir de %s."
+	TextoOutlineTitulo = "%s: %d *headings* e %d candidatos a título."
+	TextoCandidatos    = "Candidatos a título"
+	TextoStatsTitulo   = "Cofre."
+	TextoLoteItemErro  = "%s: %s (%s)"
+	TextoLidoCortado   = "Leitura cortada em %d de %d bytes. Continue com `--offset %d`."
+	TextoCriada        = "Nota criada: %s."
+	TextoNaoCriada     = "Nota não criada: %s."
+	TextoAcrescentada  = "Conteúdo acrescentado: %s."
+	TextoSubstituida   = "Trecho substituído: %s."
+	TextoMovida        = "Nota movida: %s -> %s. %d links reescritos em %d notas."
+	TextoExcluida      = "Nota excluída: %s."
+	TextoParaLixeira   = "Nota movida para a lixeira: %s."
+	TextoSimulacao     = "Simulação (`--dry-run`): nada foi alterado."
+	TextoLinksQuebrar  = "Links que vão quebrar: %s"
+	TextoHash          = "*hash* %s"
+
+	CampoOrfas            = "Órfãs"
+	CampoLinksQuebrados   = "Links quebrados"
+	CampoAncorasQuebradas = "Âncoras quebradas"
+	CampoErrosFrontmatter = "Erros de frontmatter"
+	CampoColisoes         = "Colisões de alias"
+	CampoCaminho          = "Caminho"
+	CampoAliases          = "Aliases"
+	CampoFrontmatter      = "Frontmatter"
+	CampoBlocos           = "Blocos"
 )
 
 // `vaults`: a lista de cofres.

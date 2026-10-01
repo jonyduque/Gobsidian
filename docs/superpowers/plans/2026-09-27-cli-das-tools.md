@@ -22,18 +22,18 @@ Decisão do dono: `vaults` lista os cofres; `config` configura os hosts de IA (o
 
 ## Parte L — as 14 tools pela CLI
 
-- [ ] L1 — `mcpsrv`: `NovoParaCLI` (tools sem resources), `EsquemasDeEntrada()` e `ChamarLocal`. `EsquemaDeTool`/`Parametro` em tipos do domínio: nome, descrição, tipo (`string`, `integer`, `boolean`, `array`, `object`), tipo do item de array, enum, obrigatório, e se o item aceita objeto (`oneOf`). `ChamarLocal` devolve `Resultado{JSON json.RawMessage}` ou `*ErroDeTool{Codigo, Mensagem}`; o código sai do prefixo `CODIGO: ` que `toolErr` já escreve.
-- [ ] L2 — `boot.AbrirServicoDeCLI(ctx, cfg, log) (*service.Service, func(), error)`: cofre, `AbrirIndice`, `search.NewInverted` marcado em construção e `CarregarBusca` preguiçoso, como `Montar` faz sem `EagerSearch`. O `func()` fecha o índice invertido.
-- [ ] L3 — `cmd/gobsidian/ferramentas.go`: a tabela tool → caminho de comando → posicionais; grupos `note` e `tag`; `stats`, `search`, `broken-links`, `graph` na raiz. Cada comando é montado do schema: flags (`ferramentas_flags.go`), `--args`, `--json`, `--texto`, as flags de cofre e de cache. `note read` aceita N posicionais: um vira `path`, dois ou mais viram `paths`.
-- [ ] L4 — Saída: terminal → formatador; senão → JSON numa linha. Erro da tool: terminal `❌` com mensagem e código; JSON `{"error":{"code","message"}}` em stdout; código 1.
-- [ ] L5 — Códigos de saída: `erroComCodigo` com o código; `main` sai com ele. Uso errado (flag do cobra, posicional, `--json` com `--texto`, `--args` inválido) e cofre que não resolve saem 2. Tool de escrita com `--read-only`/`GOBSIDIAN_READ_ONLY`: 2, dizendo que a tool não existe nesse modo.
-- [ ] L6 — `GOBSIDIAN_VAULT`: `flagsDeCofre` ganha o padrão da variável para os comandos de CLI; `serve` e `daemon` registram sem ele. Teste das duas metades.
-- [ ] L7 — `ferramentas_texto.go`: um formatador por tool, sobre os tipos de `service` decodificados do JSON.
-- [ ] L8 — Saem `index.go`, `inspect.go` e o `search.go` antigo, com os testes que só os exercitavam (`cli_subcommands_test.go`, `index_origem_test.go`, `search_cache_test.go`); o que eles provavam e ainda vale (o cache gravado pela CLI, a origem do índice) é reescrito sobre o comando novo quando ainda for comportamento do produto.
-- [ ] L9 — Testes: gate de cobertura (tool ↔ comando ↔ flag), paridade por tool (comando `--json` × chamada em memória), `GOBSIDIAN_VAULT` nas duas metades, um por linha da tabela de códigos, formatador por tool com modo fixado e um teste que reprova tool sem formatador.
-- [ ] L10 — Textos em `textos` e `docs/TEXTOS.md`; README (en e pt-BR), `docs/OPERACAO.md`, `docs/ESTRUTURA.md`, `docs/TOOLS.md`.
-- [ ] L11 — Mutação por regra (flag omitida não viaja; flag vence `--args`; `note read` com N posicionais vira `paths`; JSON fora do terminal; erro de tool sai 1 e uso sai 2; escrita recusada em somente leitura; `serve` ignora `GOBSIDIAN_VAULT`; gate de cobertura acusa parâmetro sem flag).
-- [ ] L12 — `verify.ps1`, ledger, commit.
+- [x] L1 — `mcpsrv`: `NovoParaCLI` (tools sem resources), `EsquemasDeEntrada()` e `ChamarLocal`. `EsquemaDeTool`/`Parametro` em tipos do domínio: nome, descrição, tipo (`string`, `integer`, `boolean`, `array`, `object`), tipo do item de array, enum, obrigatório, e se o item aceita objeto (`oneOf`). `ChamarLocal` devolve `Resultado{JSON json.RawMessage}` ou `*ErroDeTool{Codigo, Mensagem}`; o código sai do prefixo `CODIGO: ` que `toolErr` já escreve.
+- [x] L2 — `boot.AbrirServicoDeCLI(ctx, cfg, log) (*service.Service, func(), error)`: cofre, `AbrirIndice`, `search.NewInverted` marcado em construção e `CarregarBusca` preguiçoso, como `Montar` faz sem `EagerSearch`. O `func()` fecha o índice invertido.
+- [x] L3 — `cmd/gobsidian/ferramentas.go`: a tabela tool → caminho de comando → posicionais; grupos `note` e `tag`; `stats`, `search`, `broken-links`, `graph` na raiz. Cada comando é montado do schema: flags (`ferramentas_flags.go`), `--args`, `--json`, `--texto`, as flags de cofre e de cache. `note read` aceita N posicionais: um vira `path`, dois ou mais viram `paths`.
+- [x] L4 — Saída: terminal → formatador; senão → JSON numa linha. Erro da tool: terminal `❌` com mensagem e código; JSON `{"error":{"code","message"}}` em stdout; código 1.
+- [x] L5 — Códigos de saída: `erroComCodigo` com o código; `main` sai com ele. Uso errado (flag do cobra, posicional, `--json` com `--texto`, `--args` inválido) e cofre que não resolve saem 2. Tool de escrita com `--read-only`/`GOBSIDIAN_READ_ONLY`: 2, dizendo que a tool não existe nesse modo.
+- [x] L6 — `GOBSIDIAN_VAULT`: `flagsDeCofre` ganha o padrão da variável para os comandos de CLI; `serve` e `daemon` registram sem ele. Teste das duas metades.
+- [x] L7 — `ferramentas_texto.go`: um formatador por tool, sobre os tipos de `service` decodificados do JSON.
+- [x] L8 — Saem `index.go`, `inspect.go` e o `search.go` antigo, com os testes que só os exercitavam (`cli_subcommands_test.go`, `index_origem_test.go`, `search_cache_test.go`); o que eles provavam e ainda vale (o cache gravado pela CLI, a origem do índice) é reescrito sobre o comando novo quando ainda for comportamento do produto.
+- [x] L9 — Testes: gate de cobertura (tool ↔ comando ↔ flag), paridade por tool (comando `--json` × chamada em memória), `GOBSIDIAN_VAULT` nas duas metades, um por linha da tabela de códigos, formatador por tool com modo fixado e um teste que reprova tool sem formatador.
+- [x] L10 — Textos em `textos` e `docs/TEXTOS.md`; README (en e pt-BR), `docs/OPERACAO.md`, `docs/ESTRUTURA.md`, `docs/TOOLS.md`.
+- [x] L11 — Mutação por regra (flag omitida não viaja; flag vence `--args`; `note read` com N posicionais vira `paths`; JSON fora do terminal; erro de tool sai 1 e uso sai 2; escrita recusada em somente leitura; `serve` ignora `GOBSIDIAN_VAULT`; gate de cobertura acusa parâmetro sem flag).
+- [x] L12 — `verify.ps1`, ledger, commit.
 
 ## Riscos
 

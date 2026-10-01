@@ -11,3 +11,24 @@ BASE inicial: d877840. Branch: master (o dono trabalha em master). Executado pel
 - Mutacoes K (mutate.ps1, restauracao por SHA-256): MK1 uniao pela grafia crua -> TestListarCofresUnePelaGrafiaCanonica FAIL ("quer 3 cofres (Estudo uma vez so)", saiu 4); MK2 configurado fora do Obsidian some -> mesmo teste FAIL (saiu 2); MK3 fora do terminal sai texto -> TestVaultsForaDoTerminalSaiEmJSON FAIL; MK4 --json e --texto juntos aceitos -> TestJSONETextoJuntosSaoUsoErrado FAIL ("codigo = 1; quer erro de uso (2)").
 - Docs K: README (en e pt-BR: config no lugar de vaults, e a linha de vaults), TEXTOS.md (secao config, secao vaults nova, FlagJSON/FlagTexto), ESTRUTURA.md (vaults.go, saida.go).
 - verify.ps1 da K: EXIT=0, "Bateria completa. Pode commitar." (7 testes pulados, informativo).
+- Parte L (L1-L12), executada em 2026-09-27 e fechada em 2026-10-01 (sessao seguinte, que achou o codigo inteiro na arvore sem commit, ledger e plano sem nada da L). O que a sessao de fechamento conferiu e acrescentou:
+  - L8: os testes apagados provavam duas coisas que continuam comportamento do produto, e nenhum teste novo as cobria. Reescritas sobre os comandos novos: TestSegundaChamadaLeOCache (primeira chamada origem=build + origem=construcao; segunda, origem=cache duas vezes -- metadados e busca; para isso boot.AbrirServicoDeCLI passou a logar "indice de metadados aberto" origem=... em Info) e TestSearchRespeitaMaxResults (5 notas, --max-results 2, 2 resultados).
+  - L4: TestFerramentaForaDoTerminalSaiEmJSON -- nenhum teste exercitava o comando de tool sem --json/--texto.
+  - Defeito do proprio teste, achado pela mutacao ML8: TestGobsidianVaultValeNaCLIENaoNoServe EXECUTAVA `serve`. Com a regra quebrada, serve servia o cofre da variavel, a ponte subia daemon com o executavel do teste e o teste rodava de novo: 18 processos gobsidian.test em 10 s (encerrados a mao; nenhum arquivo novo no runtime real). A metade do servidor passou a inspecionar a flag --vault de serve E de daemon, sem executar.
+  - ML6 sobreviveu na primeira rodada: "posicional faltando" usava `note read`, que passa pelo ramo plural da validacao. Casos novos: `note outline` sem posicional e `note move` com tres.
+  - Gate: TestLerEsquemasCustaPouco (teto de 500 ms) reprovou sob -race com 0,52 s; ganhou a guarda !raceEnabled (raceflag_on/off_test.go em mcpsrv), como todo teto de latencia do projeto.
+  - Comentarios velhos: cli_log.go citava search/index/inspect; ferramentas_flags.go citava TestServeIgnoraGobsidianVault, que nao existe; service/graph.go citava `gobsidian index`.
+- Mutacoes L (mutate.ps1, restauracao por SHA-256 conferida em todas), todas EXIT=0 (o teste reprovou):
+  ML1 flag omitida viaja (apaga o `continue` de flag nao passada) -> TestMontarEntrada FAIL
+  ML2 --args vence a flag -> TestMontarEntrada FAIL
+  ML3 N posicionais nao viram paths (`> 1` -> `> 99`) -> TestMontarEntrada FAIL
+  ML4 emJSON so pela flag -> TestFerramentaForaDoTerminalSaiEmJSON FAIL ("invalid character '╭'", saiu a moldura)
+  ML5 erro da tool sai 2 -> TestCodigosDeSaida/erro_da_tool FAIL
+  ML6 RangeArgs sem erroDeUso -> TestCodigosDeSaida/posicional_faltando FAIL ("codigo = 1, quer 2") e /posicional_sobrando FAIL
+  ML7 escrita aceita em somente leitura -> TestCodigosDeSaida/escrita_em_somente_leitura FAIL
+  ML8 serve com flagsDeCofreDaCLI -> TestGobsidianVaultValeNaCLIENaoNoServe FAIL ("serve: --vault vale ...")
+  ML8b daemon com flagsDeCofreDaCLI -> mesmo teste FAIL ("daemon: --vault vale ...")
+  ML9 parametro depth sem flag -> TestCadaToolTemComando FAIL
+  ML10 busca da CLI sem cache-dir -> TestSegundaChamadaLeOCache FAIL
+  ML11 --max-results ignorada -> TestSearchRespeitaMaxResults FAIL
+- verify.ps1 da L (2026-10-01), arvore com a L e o conserto do cache juntos: 22 de 23 etapas [OK] no gate completo, -race inclusive. A etapa 4 (tetos de latencia, sem -race) REPROVOU: TestRNF04VaultSearchLatencyP95, "limit maximo do schema" p95 103,8 / 139,6 ms contra 100 ms em 3 rodadas. Nao e regressao, e o motivo foi medido: A/B intercalado com uma worktree do HEAD 9f546a8 (codigo ja commitado, que passou essa etapa no primeiro gate do dia) deu medianas de 33 a 169 ms e p95 de 80 a 605 ms no HEAD, e 49 a 143 ms / 135 a 289 ms na arvore -- os dois lados estouram juntos. Amostra de CPU no mesmo momento: SearchIndexer 3,2 nucleos, svchost 2,1, MsMpEng 1,9 (indexador e Defender varrendo os cofres temporarios dos testes). Reexecucao isolada da etapa 4, mesmo comando do verify.ps1: primeira EXIT=1, segunda EXIT=0 ("ok internal/service 129.538s"). Registrado assim, e nao como gate verde de ponta a ponta.

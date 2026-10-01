@@ -18,9 +18,9 @@ gobsidian/
 │       ├── doctor.go             subcomando doctor (diagnóstico de ambiente)
 │       ├── vaults.go             subcomando vaults (lista os cofres do Obsidian e os configurados)
 │       ├── saida.go              texto ou JSON pelo destino, --json/--texto, e os códigos de saída 0/1/2
-│       ├── index.go              subcomando index (indexar e sair)
-│       ├── search.go             subcomando search (busca via CLI)
-│       ├── inspect.go            subcomando inspect (dump do parse de uma nota)
+│       ├── ferramentas.go        um comando por tool do MCP: a tabela tool → comando e a chamada por mcpsrv.ChamarLocal
+│       ├── ferramentas_flags.go  schema da tool → flags; GOBSIDIAN_VAULT como --vault padrão da CLI
+│       ├── ferramentas_texto.go  um formatador por tool para o terminal
 │       ├── ponte.go              escolhe entre daemon e modo em processo; proxy de bytes
 │       └── daemon.go             subcomando daemon (oculto; quem o inicia é a ponte)
 │
@@ -139,6 +139,7 @@ gobsidian/
 │   │
 │   ├── mcpsrv/
 │   │   ├── server.go             construção do servidor, registro de tools
+│   │   ├── cli.go                EsquemasDeEntrada e ChamarLocal: o servidor sem resources, para a CLI
 │   │   ├── instrucoes.go         `instructions` do initialize: nome do cofre, aviso de somente-leitura
 │   │   ├── instrucoes.txt        o texto das instruções, embutido — cópia única (ver docs/PROMPT.md)
 │   │   ├── tools_read.go         handlers e schemas das tools de leitura
@@ -168,6 +169,7 @@ gobsidian/
 │   ├── boot/                     a sequência de boot e a vigília do host que
 │   │   │                         serve, ponte e daemon compartilham; não importa mcpsrv
 │   │   ├── doc.go                por que o pacote existe e o que ele não decide
+│   │   ├── cli.go                AbrirServicoDeCLI: cofre, índice pelo cache e busca preguiçosa, sem watcher
 │   │   ├── indice.go             AbrirIndice: cache fresco ou construção, e grava
 │   │   ├── busca.go              PrepararBusca: adota o cache, retoma ou constrói
 │   │   ├── montar.go             Montar: cofre, varredura, índices, watcher, Service;

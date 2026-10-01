@@ -23,7 +23,7 @@ Todo log vai para **stderr**, via `log/slog`. Um `fmt.Println` em código
 alcançável de `serve` corrompe a sessão, e o sintoma é o servidor **sumir do host
 sem erro nenhum**.
 
-`doctor`, `version`, `index`, `search` e `inspect` imprimem em stdout de
+`doctor`, `version`, `vaults` e os comandos das tools imprimem em stdout de
 propósito — são comandos de CLI, não servidores. A distinção merece comentário
 onde aparece.
 

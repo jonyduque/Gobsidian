@@ -13,6 +13,10 @@ import (
 // Arquivo _test.go: nada disso existe no binario.
 const MaxPathsPorLote = maxPathsPorLote
 
+// LerEsquemas le os esquemas sem o cache por processo de EsquemasDeEntrada,
+// para o teste de custo medir a leitura de verdade.
+var LerEsquemas = lerEsquemas
+
 // RegisterPanicProbeForTest registra uma tool que sempre entra em panic.
 // Existe para provar que RNF-13 vale — nao e registrada em producao.
 func (s *Server) RegisterPanicProbeForTest() {

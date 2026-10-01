@@ -19,7 +19,7 @@ updated_at: '2026-08-31'
 
 ## Subcomandos
 
-Registrados em `cmd/gobsidian/main.go:59`.
+Registrados em `cmd/gobsidian/main.go:95`; os das tools, em `cmd/gobsidian/ferramentas.go`.
 
 | Comando | Para quê |
 |---|---|
@@ -27,11 +27,16 @@ Registrados em `cmd/gobsidian/main.go:59`.
 | `daemon` | Processo de vida longa que serve N sessões por socket. |
 | `doctor` | Diagnóstico de ambiente. Sai ≠ 0 quando o cofre está inacessível. |
 | `version` | Versão, injetada pelo linker. |
-| `index` | Constrói o índice e reporta, sem servir. |
-| `search` | Busca pela linha de comando. |
-| `inspect <nota>` | Despeja o que o índice sabe de uma nota. |
+| `note read\|list\|outline\|metadata\|create\|append\|patch\|move\|delete` | As tools de nota pela linha de comando. |
+| `stats`, `search`, `broken-links`, `graph`, `tag list` | As outras tools. |
+| `vaults` | Lista os cofres do Obsidian e os configurados nos hosts. |
+| `config` | Registra o servidor nos hosts de IA. |
 
-**`doctor`, `version`, `index`, `search` e `inspect` imprimem em stdout de
+Um comando por tool, montado do schema dela em `cmd/gobsidian/ferramentas.go`
+(desde 2026-09-27; `index` e `inspect` saíram). Texto no terminal, JSON
+numa linha em pipe ou arquivo.
+
+**Os comandos de CLI imprimem em stdout de
 propósito** — são comandos de CLI, não servidores. Só `serve` e `daemon` têm o
 stdout reservado ao JSON-RPC.
 
