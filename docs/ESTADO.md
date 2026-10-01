@@ -860,7 +860,8 @@ o quarto, que é exatamente o defeito que ela existe para impedir.
   **100 ciclos no CI e passa**. Ele não pega este defeito — a hipótese, **não
   medida**, é que o cofre sintético do cenário é pequeno demais para exercitar
   watcher e índice reais.
-- **O estado de socket que produz `dial 10022` + `remove 1920` foi
+- **Fechado em 2026-10-01 (verificado na máquina do dono, ver o fim do item).**
+  **O estado de socket que produz `dial 10022` + `remove 1920` foi
   reproduzido em 2026-09-14, e a causa é o Claude Desktop.** O Desktop
   (`app_version 1.52386.6`, pacote MSIX) declara
   `virtualization:FileSystemWriteVirtualization` no manifesto, e os processos que
@@ -945,10 +946,16 @@ o quarto, que é exatamente o defeito que ela existe para impedir.
   o daemon, a ponte em processo e agora a CLI, e o boot de um deles não é
   momento sem escrita em voo para os outros. Varrer ali exige outra regra — por
   idade, ou sob a trava do cofre. **Não feito**; decisão do dono.
-- **A moldura do console não trata largura dupla.** Desde 2026-09-14 marca
-  combinante (NFD) conta zero em `console.larguraVisivel`, mas ideograma
-  CJK ocupa duas colunas e é contado como uma: um cofre com nome em japonês
-  desalinha a borda. Não medido em terminal real; custa desalinho, não lixo.
+- ~~**A moldura do console não trata largura dupla.**~~ **Fechado em
+  2026-10-01.** `console.larguraDaRuna` conta duas colunas para East Asian
+  Width W e F (`golang.org/x/text/width`) e zero para marca combinante, e é a
+  conta única de `larguraVisivel` e de `cortar`. Eram duas: `cortar` contava a
+  marca combinante como coluna, e "Ação" em NFD cortado em duas colunas perdia
+  a cedilha. O corte não parte ideograma e preenche a coluna que sobra.
+  Testado contra uma conta própria do teste, não contra `larguraVisivel`
+  (`largura_dupla_test.go`). **Não medido em terminal real**, e fica de fora o
+  emoji com seletor de variação (`⚠️` = U+26A0 + U+FE0F), que conta uma
+  coluna e muitos terminais desenham em duas.
 - **O pico de memória da reconstrução do índice não tem requisito, por decisão.**
   Com cache frio o `servindo` fica de 5× a 12× acima do alvo de cache quente —
   Estudo 58 → 706 MB, TJSP 127 → 1.180 MB. O RNF-07 passou a nomear "com cache

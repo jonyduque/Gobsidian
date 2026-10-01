@@ -8,6 +8,8 @@ import (
 	"strings"
 	"unicode"
 
+	"golang.org/x/text/width"
+
 	"github.com/jonyduque/Gobsidian/internal/textos"
 )
 
@@ -186,11 +188,8 @@ func interpretar(b []byte, cursor, total int) (acaoDeTecla, int) {
 //
 // Sem isso a moldura nao fecha: `s.Dim("(ja configurado)")` tem 16 caracteres
 // visiveis e ~24 bytes, e alinhar pelo len() empurraria a barra da direita
-// para dentro do texto. Conta runas, e nao bytes, pelo mesmo motivo -- um
-// caminho com acento ocupa uma celula por runa, nao por byte.
-//
-// Nao trata largura dupla (CJK): um caminho de cofre em japones desalinharia a
-// moldura. E a limitacao conhecida, e ela custa desalinho -- nao lixo.
+// para dentro do texto. Conta por runa, e nao por byte, pelo mesmo motivo -- e
+// quanto cada runa ocupa e larguraDaRuna que diz.
 func larguraVisivel(s string) int {
 	largura, dentroDeEscape := 0, false
 	for _, r := range s {
@@ -202,15 +201,36 @@ func larguraVisivel(s string) int {
 			}
 		case r == 0x1b:
 			dentroDeEscape = true
-		case unicode.In(r, unicode.Mn, unicode.Me):
-			// Marca combinante nao ocupa coluna: "ç" em NFD e "c" mais
-			// U+0327. Medido em 2026-09-14: um caminho em NFD saia 4 colunas
-			// mais curto que a borda da moldura.
 		default:
-			largura++
+			largura += larguraDaRuna(r)
 		}
 	}
 	return largura
+}
+
+// larguraDaRuna e quantas colunas uma runa visivel ocupa no terminal. Uma
+// conta so para larguraVisivel e cortar: ate 2026-10-01 eram duas, e cortar
+// contava a marca combinante como coluna -- "Ação" em NFD cortado em duas
+// colunas perdia a cedilha.
+//
+//   - Marca combinante nao ocupa coluna: "ç" em NFD e "c" mais U+0327.
+//     Medido em 2026-09-14: um caminho em NFD saia 4 colunas mais curto que a
+//     borda da moldura.
+//   - Ideograma, kana e forma de largura total ocupam duas (East Asian Width W
+//     e F): um cofre com nome em japones desalinhava a borda.
+//
+// O seletor de variacao de emoji (U+FE0F) e marca, e conta zero: um terminal
+// que desenhe "⚠️" em duas colunas desalinha a borda em uma. Nao medido em
+// terminal real.
+func larguraDaRuna(r rune) int {
+	if unicode.In(r, unicode.Mn, unicode.Me) {
+		return 0
+	}
+	switch width.LookupRune(r).Kind() {
+	case width.EastAsianWide, width.EastAsianFullwidth:
+		return 2
+	}
+	return 1
 }
 
 // desenhar escreve a lista dentro de uma moldura. Com redesenhar, sobe o
@@ -289,7 +309,11 @@ func ajustar(conteudo string, largura int, enchimento string) string {
 		// cortado no teto parece um trecho que simplesmente acaba ali, e quem
 		// le nao sabe se falta conteudo ou se a nota e assim.
 		fim := GlifosDaSaida().Reticencia
-		return cortar(conteudo, largura-larguraVisivel(fim)) + fim
+		cortado := cortar(conteudo, largura-larguraVisivel(fim)) + fim
+		// Um ideograma que nao cabe inteiro fica de fora, e a coluna que
+		// sobra e preenchida: sem isto a linha cortada sai mais curta que a
+		// borda.
+		return cortado + repetir(enchimento, largura-larguraVisivel(cortado))
 	}
 	return conteudo + repetir(enchimento, largura-l)
 }
@@ -313,11 +337,12 @@ func cortar(conteudo string, largura int) string {
 			dentroDeEscape = true
 			continue
 		}
-		if visiveis >= largura {
+		w := larguraDaRuna(r)
+		if visiveis+w > largura {
 			break
 		}
 		b.WriteRune(r)
-		visiveis++
+		visiveis += w
 	}
 	return b.String()
 }
