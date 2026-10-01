@@ -75,6 +75,8 @@ internal/
                    (ReplaceFile/WriteAtomic) e varredura de temporários órfãos
   vaulttest/       apoio a teste: condições de ambiente do Windows; só _test.go
                    importa
+  vazamentotest/   apoio a teste: reprova o pacote que deixa goroutine vazada
+                   (perfil goroutineleak); todo TestMain chama Conferir
   parser/          goldmark + extensões [[wikilink]], ^blockid, #tag,
                    campo::inline; headings com offsets de byte; candidatos a
                    título (negrito, setext) que NUNCA viram Heading
@@ -281,7 +283,15 @@ externo desses pacotes.
 
 ```
 vaulttest → vault             (pacote só de teste; ninguém em produção o importa)
+vazamentotest                 (pacote só de teste, folha; ninguém em produção o importa)
 ```
+
+`vazamentotest` é de 2026-10-01 e não importa nada do projeto, de propósito:
+é o que deixa todo pacote — folhas inclusive — chamá-lo no próprio `TestMain`
+sem ciclo. `check_graph` o ignora como ignora `vaulttest`, e isso não abre
+brecha, o que foi medido: um import de produção dele em `text` reprovou o gate
+com `text -> vazamentotest`. Que todo pacote com teste o chama é o gate
+`TestTodoPacoteComTesteConfere`, no próprio pacote.
 
 A versão anterior deste bloco somava as duas listas numa só e, com isso,
 atribuía ao `daemon` um conhecimento de `service` e de `vault` que ele não tem —

@@ -252,6 +252,7 @@ func TestWatcherUpdatesSearchIndex(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	t.Cleanup(func() { _ = w.Close() })
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	go func() { _ = w.Run(ctx) }()

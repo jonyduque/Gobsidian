@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/jonyduque/Gobsidian/internal/ipc"
+	"github.com/jonyduque/Gobsidian/internal/vazamentotest"
 )
 
 // TestMain isola o diretorio de runtime da suite: socket, trava e log do
@@ -13,4 +14,4 @@ import (
 //
 // Vale tambem para o ajudante de trava_test.go, que reexecuta este binario: o
 // processo filho passa por aqui e ganha o proprio desvio.
-func TestMain(m *testing.M) { os.Exit(ipc.RodarComRuntimeIsolado(m)) }
+func TestMain(m *testing.M) { os.Exit(vazamentotest.Conferir(ipc.RodarComRuntimeIsolado(m))) }

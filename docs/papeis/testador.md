@@ -193,6 +193,31 @@ simula um placeholder de nuvem).
 
 ---
 
+## Goroutine vazada reprova o pacote: `internal/vazamentotest`
+
+Todo pacote com teste termina o `TestMain` em `vazamentotest.Conferir`, que lê o
+perfil `goroutineleak` do Go 1.27 e reprova o binário se sobrar goroutine presa
+numa primitiva que nada mais alcança — canal, mutex, `WaitGroup`. Pacote novo
+sem isso reprova `TestTodoPacoteComTesteConfere`.
+
+Ao ligar, em 2026-10-01: 9 de 11 pacotes medidos sem vazamento nenhum.
+`internal/watcher` deixava 1, porque três testes paravam o `Run` com `cancel` e
+nunca chamavam `w.Close()`: cancelar o `Run` não fecha o `fsnotify`, e a
+goroutine dele ficava presa entregando um evento que ninguém lia. Feche o que
+você abre, com `t.Cleanup` registrado logo depois do construtor.
+
+**Exceção é nomeada, com o motivo medido, no próprio `TestMain`.** A única hoje é
+`lifecycle.(*Lifecycle).watchStdin` em `cmd/gobsidian`: as saídas antecipadas de
+`serveEmProcesso` retornam sem fechar o espelho do stdin, e em produção o
+processo acaba logo depois — a saída documentada daquela goroutine. Antes de
+permitir uma pilha, descubra **qual teste** a deixa (rodar teste a teste) e se o
+caminho é de produção.
+
+O perfil não vê goroutine parada em syscall — `Read` num arquivo, `accept` num
+socket. Ele não substitui o gate de órfãos.
+
+---
+
 ## Handle exclusivo e placeholder de nuvem: `internal/vaulttest`
 
 As condições de ambiente que só o sistema operacional cria — um arquivo que

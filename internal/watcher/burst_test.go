@@ -28,6 +28,10 @@ func TestWatcher_Burst(t *testing.T) {
 	if err != nil {
 		t.Fatalf("watcher.New: %v", err)
 	}
+	// Sem o Close o fsnotify segue vivo depois do teste, preso entregando um
+	// evento que ninguem mais le -- o vazamento que vazamentotest acusou em
+	// 2026-10-01. Cancelar o Run nao fecha o fsnotify; so Close fecha.
+	t.Cleanup(func() { _ = w.Close() })
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()

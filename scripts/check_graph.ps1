@@ -139,7 +139,10 @@ try {
     # `vaulttest` fica FORA: o CLAUDE.md o documenta em bloco proprio, com a
     # justificativa de que nenhum arquivo de producao o importa. Inclui-lo aqui
     # exigiria que o bloco principal o listasse, contradizendo o documento.
-    $Ignorados = @('vaulttest')
+    # `vazamentotest` (2026-10-01) fica fora pelo mesmo motivo. Ignorar a linha
+    # DELE nao abre brecha: se um arquivo de producao o importar, a aresta aparece
+    # na linha do importador, que nao e ignorada, e o gate reprova ali.
+    $Ignorados = @('vaulttest', 'vazamentotest')
 
     $Problemas = @()
 

@@ -87,13 +87,19 @@ func setupTestWatcher(t *testing.T) (*Watcher, context.CancelFunc, string, *inde
 	if err != nil {
 		t.Fatalf("watcher.New: %v", err)
 	}
+	// O cancel abaixo para o Run e NAO fecha o fsnotify; so Close fecha. Sem
+	// isto o handle e a goroutine do fsnotify ficavam ate o fim do binario de
+	// teste em cada um dos testes que usam este helper (vazamentotest,
+	// 2026-10-01). Registrado antes do cancel: t.Cleanup roda na ordem
+	// inversa, entao o Run para primeiro e o fsnotify fecha depois.
+	t.Cleanup(func() { _ = w.Close() })
 
 	ctx, cancel := context.WithCancel(context.Background())
 	go func() { _ = w.Run(ctx) }()
 	// Registrado ANTES da espera, e nao so devolvido ao chamador: se
 	// EsperarWatcherAtivo reprovar, ela reprova antes do return, o chamador
-	// nunca recebe o cancel para pôr em defer, e a goroutine de Run mais o
-	// handle do fsnotify ficam ate o fim do binario de teste — multiplicado
+	// nunca recebe o cancel para pôr em defer, e a goroutine de Run fica ate o
+	// fim do binario de teste — multiplicado
 	// por 20 sob `-count=20`. O sleep anterior nao tinha esse caminho porque
 	// nao podia falhar. O cancel continua sendo devolvido: chamar duas vezes
 	// um CancelFunc e no-op.

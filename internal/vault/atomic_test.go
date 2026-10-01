@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/jonyduque/Gobsidian/internal/vault"
+	"github.com/jonyduque/Gobsidian/internal/vazamentotest"
 )
 
 // avisoPronto e o que o processo filho imprime imediatamente antes de chamar
@@ -39,7 +40,7 @@ func TestMain(m *testing.M) {
 		}
 		os.Exit(0)
 	}
-	os.Exit(m.Run())
+	os.Exit(vazamentotest.Conferir(m.Run()))
 }
 
 // rodarEscritorEMatar roda o escritor num processo filho e o mata `jitter`

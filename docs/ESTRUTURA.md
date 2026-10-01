@@ -67,6 +67,13 @@ gobsidian/
 │   │   ├── somentenuvem_other.go    t.Skip: o atributo é do NTFS
 │   │   └── prazo.go              Prazo: o único limite de espera dos testes (5 s)
 │   │
+│   ├── vazamentotest/            APOIO A TESTE: só _test.go o importa, e ele não
+│   │   │                         importa nada do projeto (folhas o usam sem ciclo)
+│   │   ├── vazamento.go          Conferir: reprova o binário de teste se o perfil
+│   │   │                         goroutineleak acusar goroutine fora das permitidas
+│   │   └── vazamento_test.go     prova que acusa; gate de que todo pacote com
+│   │                             teste chama Conferir no TestMain
+│   │
 │   ├── parser/
 │   │   ├── parser.go             fachada: []byte → ParsedNote
 │   │   ├── frontmatter.go        separação e decodificação do bloco YAML
