@@ -1,7 +1,8 @@
 #Requires -Version 7.0
 <#
 .SYNOPSIS
-    Mede indexacao a frio (RNF-01) e heap vivo em repouso (RNF-07) contra um cofre.
+    Mede a carga do indice (RNF-01 a frio, RNF-02 com cache) e o heap vivo em
+    repouso (RNF-07) contra um cofre.
 
 .DESCRIPTION
     Existe para que os numeros de docs/OPERACAO.md sejam medidos, e nao
@@ -12,7 +13,8 @@
 
     index_ms  vem do proprio servidor, do log "servidor pronto". Recorta so a
               construcao do indice — nao inclui boot do runtime do Go, leitura
-              de config nem handshake do MCP. E o que RNF-01 nomeia.
+              de config nem handshake do MCP. Com index_origin=build e o que
+              RNF-01 nomeia; com index_origin=cache, e RNF-02.
 
     heap vivo e o que RNF-07 nomeia desde 2026-08-28. Vem do gctrace: na linha
               "gc N ... A->B->C MB, D MB goal", C e o heap vivo ao fim do ciclo.
@@ -231,10 +233,17 @@ Write-Output "=== medicao ==="
 Write-Output ("    cofre           : {0}" -f $Vault)
 Write-Output ("    notas / anexos  : {0} / {1}" -f $Servindo.Notes, $Servindo.Assets)
 Write-Output ("    origem do indice: {0}" -f $Servindo.Origin)
+# index_ms com indice lido do cache e boot com cache valido (RNF-02, 300 ms),
+# e nao indexacao a frio (RNF-01, 3.000 ms). Ate 2026-10-01 o numero saia
+# sempre como RNF-01: a carga de cache de 810 a 1.079 ms medida em 2026-08-26
+# (docs/OPERACAO.md, RNF-02) saia folgada contra o teto de 3.000, quando
+# estourava o de 300 que de fato a cobre.
+$Requisito = if ($Pronto.Origin -eq 'cache') { 'RNF-02' } else { 'RNF-01' }
+$TetoIndiceMs = if ($Requisito -eq 'RNF-02') { 300 } else { 3000 }
 if ($null -ne $Pronto.IndexMs) {
-    Write-Output ("    RNF-01 indice   : {0} ms (alvo <= 3000)" -f $Pronto.IndexMs)
+    Write-Output ("    {0} indice   : {1} ms, origem {2} (alvo <= {3})" -f $Requisito, $Pronto.IndexMs, $Pronto.Origin, $TetoIndiceMs)
 } else {
-    Write-Output "    RNF-01 indice   : NAO MEDIDO (campo index_ms ausente do log)"
+    Write-Output ("    {0} indice   : NAO MEDIDO (campo index_ms ausente do log)" -f $Requisito)
 }
 if ($null -ne $Pronto.HeapVivoMB -and $null -ne $Servindo.HeapVivoMB) {
     Write-Output ("    RNF-07 heap vivo: pronto {0} MB / servindo {1} MB (alvo <= {2} MB)" -f `
@@ -252,8 +261,8 @@ Write-Output ("    maquina         : {0} / {1} nucleos" -f $env:COMPUTERNAME, [E
 Write-Output ("    binario         : {0}" -f $Binary)
 
 $Fail = $false
-if ($null -ne $Pronto.IndexMs -and $Pronto.IndexMs -gt 3000) {
-    Write-Warning "[!] RNF-01 estourado: $($Pronto.IndexMs)ms > 3000ms"
+if ($null -ne $Pronto.IndexMs -and $Pronto.IndexMs -gt $TetoIndiceMs) {
+    Write-Warning "[!] $Requisito estourado: $($Pronto.IndexMs)ms > ${TetoIndiceMs}ms"
     $Fail = $true
 }
 if ($null -ne $Servindo.HeapVivoMB -and $null -ne $TetoMB -and $Servindo.HeapVivoMB -gt $TetoMB) {

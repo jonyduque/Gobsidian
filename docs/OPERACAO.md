@@ -2824,6 +2824,11 @@ cofre, e o TJSP está em OneDrive**; não vira número publicado sem repetição
 É a mesma classe que este documento já registra duas vezes: medir o que é fácil
 em vez do que o requisito nomeia.
 
+**Corrigido em 2026-10-01.** O script decide o requisito pela `index_origin` da
+partida `pronto` — a mesma partida de onde vem o número: `build` sai como RNF-01
+contra 3.000 ms, `cache` sai como RNF-02 contra 300 ms, e a linha mostra a
+origem. Os números acima não foram re-medidos com o script novo.
+
 ---
 
 ## `search` de CLI passou a reaproveitar o cache do `serve` (2026-09-06, Task 175)
