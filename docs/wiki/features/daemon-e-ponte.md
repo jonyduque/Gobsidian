@@ -72,6 +72,15 @@ recebendo uma sessão que escreve no cofre é bug de segurança. A resposta cert
 não é negociar — é recusar o daemon e cair para o modo em processo, que só pode
 servir a configuração de quem o está rodando.
 
+**A saudação sai antes do índice.** O daemon abre o socket, aceita e saúda
+logo; quem espera `boot.Montar` é a sessão MCP de cada conexão
+(`daemon.Pronto`), e com ela o `initialize` do host. Até 2026-10-01 o daemon
+montava e só então aceitava: com cache frio a saudação saía 37 s depois da
+conexão (Estudo, 2026-09-26), a ponte desistia aos 10 s e servia em processo
+construindo o mesmo índice outra vez. Se a montagem falha, o daemon encerra
+(`reason=montagem-falhou`) em vez de seguir aceitando conexões que nunca vão
+ser servidas.
+
 ## Fallback obrigatório
 
 Em **qualquer** dos três pontos onde pode falhar — socket ausente, `EnsureStarted`

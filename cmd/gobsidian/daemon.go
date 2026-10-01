@@ -88,6 +88,11 @@ func daemonLogPath(vaultPath string) (string, error) {
 // docs/ARMADILHAS.md. Producao nunca troca esta variavel.
 var caminhoDoLogFn = daemon.CaminhoDoLog
 
+// montarFn e boot.Montar numa variavel, para o teste segurar a montagem e
+// provar o que o daemon faz enquanto ela dura. Producao nunca a troca -- o
+// mesmo padrao de iniciarDaemonFn em ponte.go.
+var montarFn = boot.Montar
+
 // tetoDoLogDoDaemon e o tamanho a partir do qual o log e rotacionado.
 //
 // 5 MB. Medido em 2026-09-08: o log do cofre Estudo tinha 727 261 bytes e
@@ -244,7 +249,19 @@ func runDaemon(parent context.Context, cfg config.Config, ociosidade time.Durati
 		"read_only", cfg.ReadOnly,
 		"ociosidade_s", ociosidade.Seconds())
 
-	c, err := boot.Montar(ctx, cfg, service.ModoDaemon, log)
+	// O daemon aceita e sauda ANTES de montar o servico, e cada sessao espera
+	// por ele (daemon.Pronto). Ate 2026-10-01 a ordem era montar e so entao
+	// aceitar: com cache frio a saudacao saia depois do indice inteiro -- 37 s
+	// em Estudo, medido em 2026-09-26 --, a ponte desistia aos 10 s e servia
+	// em processo, construindo o mesmo indice uma segunda vez ao lado deste.
+	d := daemon.New(ln, nil, daemon.Config{Vault: cfg, OciosidadeMax: ociosidade}, log)
+	rodando := make(chan struct{})
+	go func() {
+		d.Run(ctx, lc.Trigger)
+		close(rodando)
+	}()
+
+	c, err := montarFn(ctx, cfg, service.ModoDaemon, log)
 	if err != nil {
 		// Este e o ramo que matou os dois daemons de 2026-08-26: e aqui que
 		// vault.New recusa o cofre (internal/vault/vault.go:90-95, "raiz do
@@ -252,14 +269,16 @@ func runDaemon(parent context.Context, cfg config.Config, ociosidade time.Durati
 		// caminho -- o defeito era o erro nao chegar ao log.
 		log.Error("daemon nao pode montar o servico",
 			"vault", cfg.VaultPath, "err", err)
-		_ = ln.Close()
+		// Encerrar, e nao seguir aceitando: as conexoes ja saudadas esperam
+		// um servico que nao vai existir. O cancelamento as solta e fecha o
+		// socket (Run).
+		lc.Trigger("montagem-falhou")
+		<-rodando
 		return err
 	}
 
-	srv := mcpsrv.New(ctx, c.Service, cfg, log)
-
-	d := daemon.New(ln, srv, daemon.Config{Vault: cfg, OciosidadeMax: ociosidade}, log)
-	d.Run(ctx, lc.Trigger)
+	d.Pronto(mcpsrv.New(ctx, c.Service, cfg, log))
+	<-rodando
 
 	lifecycle.Shutdown(ctx, log, lifecycle.OrcamentoDeEncerramento,
 		c.PassoWatcher(),

@@ -36,11 +36,13 @@ import (
 const ipcDialTimeout = 300 * time.Millisecond
 
 // daemonStartTimeout limita quanto tempo a ponte espera o daemon recem-
-// pedido abrir o socket -- o que inclui o tempo de montar o indice de
-// metadados (RNF-01 mediu ~900ms num cofre de 109 MB via varredura, bem
-// abaixo deste orcamento). Generoso o suficiente para o boot real, mas
-// finito: um daemon que nunca sobe nao pode travar a ponte para sempre --
-// o fallback em processo continua valendo (ver o comentario de servePonte).
+// pedido abrir o socket e saudar. NAO inclui montar o indice: desde
+// 2026-10-01 o daemon sauda antes de montar, e e o initialize do host que
+// espera o indice (ver daemon.Pronto). Ate entao o prazo cobria a montagem, e
+// com cache frio ela passava dele -- 37 s em Estudo --, e a ponte servia em
+// processo construindo o mesmo indice outra vez. Finito: um daemon que nunca
+// sobe nao pode travar a ponte para sempre -- o fallback em processo continua
+// valendo (ver o comentario de servePonte).
 //
 // Variavel, nao const: os testes deste pacote encolhem este numero para nao
 // esperar segundos por um daemon que o teste nunca deixa subir de verdade.

@@ -927,17 +927,26 @@ o quarto, que é exatamente o defeito que ela existe para impedir.
   plano, G2. Não medido: trava em `%USERPROFILE%`
   entre os contextos.
 
-- **Com cache frio, a saudação do daemon espera o índice inteiro.** Medido em
-  2026-09-26 no log do daemon de Estudo: `daemon iniciado` às 13:29:59,
-  `servidor pronto` (`index_ms=37291`) às 13:30:38, e as cinco sessões que
-  esperavam a saudação encerradas no mesmo milissegundo — a ponte desistira aos
-  10 s e servira em processo, **construindo o mesmo índice uma segunda vez** ao
-  lado do daemon. Com o cache de metadados legível de novo (2026-10-01) isto só
-  acontece na primeira partida depois de mudança no cofre fora do watcher, e
-  não a cada partida. O que fecharia: saudar antes do índice e responder
-  `INDEX_BUILDING` até ele ficar pronto, como a busca já faz; ou a ponte esperar
-  enquanto o daemon disser que está construindo. **Não feito**; decisão do dono.
-- **Temporário órfão no diretório de cache nunca é varrido.** Medido em
+- ~~**Com cache frio, a saudação do daemon espera o índice inteiro.**~~
+  **Fechado em 2026-10-01: o daemon saúda antes de montar** (`daemon.Pronto`;
+  `TestDaemonSaudaEnquantoMonta`). Medido em 2026-09-26 no log do daemon de
+  Estudo: `daemon iniciado` às 13:29:59, `servidor pronto` (`index_ms=37291`)
+  às 13:30:38, e as cinco sessões que esperavam a saudação encerradas no mesmo
+  milissegundo — a ponte desistira aos 10 s e servira em processo,
+  construindo o mesmo índice uma segunda vez ao lado do daemon. Agora a ponte
+  conecta na hora, e quem espera a montagem é o `initialize` do host.
+
+  **O que sobra, medido:** o Claude Desktop cancela o `initialize` em **60 s**
+  (log de 2026-09-14: `initialize` às 19:53:48.546, `notifications/cancelled`
+  às 19:54:48.431). A montagem de Estudo com cache frio mediu de 22 a 64,6 s
+  em 12 partidas (2026-09-21 a 2026-10-01). As duas maiores, 37,3 s em
+  2026-09-26 e 64,6 s em 2026-09-27, correram ao lado da construção da ponte em
+  processo; quanto a de 64,6 s levaria sozinha **não foi medido**. Com o cache
+  legível isto só acontece na primeira partida depois de mudança no cofre
+  com o daemon desligado. Fecharia de vez anunciar as tools antes do índice de
+  metadados e responder `INDEX_BUILDING` até ele ficar pronto, como a busca já
+  faz — mudança da decisão de que as 13 tools só existem com o índice pronto.
+  **Não feito**; decisão do dono.- **Temporário órfão no diretório de cache nunca é varrido.** Medido em
   2026-10-01 em `%LOCALAPPDATA%\gobsidian\db03d9f55cea7459` (Estudo): dois
   `.gobsidian-tmp-*` de 49 MB gravados no mesmo segundo de 2026-09-21 09:22 e
   um `.gobsidian-tmp-cache-*.gob` de 132 MB de 2026-09-04 — 230 MB que nada

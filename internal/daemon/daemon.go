@@ -48,21 +48,51 @@ type Daemon struct {
 	mu             sync.Mutex
 	conexoesAtivas int
 	ultimoCliente  time.Time
+
+	// pronto fecha quando srv passa a existir. Ate la, cada conexao e saudada e
+	// espera -- ver Pronto.
+	pronto   chan struct{}
+	umaVezSo sync.Once
 }
 
-// New monta o daemon em cima de um listener e um servidor MCP ja
-// construidos. Nao abre nada sozinho -- ln vem de ipc.Listen, chamado por
+// New monta o daemon em cima de um listener e, se ja existir, do servidor MCP.
+// srv nil e o daemon cujo servico ainda esta em montagem: ele aceita e sauda
+// desde ja, e a sessao de cada conexao espera Pronto.
+// Nao abre nada sozinho -- ln vem de ipc.Listen, chamado por
 // quem orquestra o boot (cmd/gobsidian/daemon.go), porque abrir o socket
 // cedo e o que permite ao arquivo de lock (lock.go) ser liberado assim que
 // o processo esta de fato escutando, nao antes.
 func New(ln net.Listener, srv *mcpsrv.Server, cfg Config, log *slog.Logger) *Daemon {
-	return &Daemon{
+	d := &Daemon{
 		ln:            ln,
-		srv:           srv,
 		cfg:           cfg,
 		log:           log,
 		ultimoCliente: time.Now(),
+		pronto:        make(chan struct{}),
 	}
+	if srv != nil {
+		d.Pronto(srv)
+	}
+	return d
+}
+
+// Pronto entrega o servidor MCP as conexoes que esperavam por ele, e as que
+// vierem depois. Chamadas seguintes nao fazem nada.
+//
+// # Por que o daemon sauda antes do servico existir
+//
+// Medido em 2026-09-26 no daemon do cofre Estudo: o socket abria antes de
+// boot.Montar, mas o accept so comecava depois dele, e a saudacao saiu 37 s
+// depois da conexao. A ponte desistiu aos 10 s (daemonStartTimeout) e serviu
+// em processo, construindo o MESMO indice uma segunda vez ao lado do daemon,
+// com a memoria dos dois. Saudando na hora, a ponte conecta, e e o initialize
+// do host que espera o indice -- a mesma espera que o modo em processo ja
+// impunha, sem a construcao dobrada.
+func (d *Daemon) Pronto(srv *mcpsrv.Server) {
+	d.umaVezSo.Do(func() {
+		d.srv = srv
+		close(d.pronto)
+	})
 }
 
 // intervaloMinimoDeChecagem evita um intervalo de checagem de ociosidade
@@ -237,6 +267,15 @@ func (d *Daemon) handleConn(ctx context.Context, conn net.Conn) {
 	}
 	if err := ipc.Greet(conn, saudacao); err != nil {
 		d.log.Warn("saudacao ao cliente falhou", "err", err)
+		return
+	}
+
+	// A sessao espera o servico, e o cancelamento a solta: uma conexao presa
+	// aqui seguraria o wg.Wait de Run, a espera que manteve o PID 42856 vivo
+	// 20 h em 2026-09-07.
+	select {
+	case <-d.pronto:
+	case <-ctx.Done():
 		return
 	}
 
