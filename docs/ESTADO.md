@@ -1001,6 +1001,18 @@ o quarto, que é exatamente o defeito que ela existe para impedir.
   teste de concorrência do recorte passou a cobrar a razão mediana
   concorrente / mediana sequencial ≤ 0,6, medida sob a mesma carga (ver
   `OPERACAO.md`, "o teto de 22 ms virou razão"); os outros dois tetos seguem.
+- **O cache de busca de Estudo tem 1,25 GB, e é o texto, não lixo.** Medido em
+  2026-10-01 sobre uma cópia do `inverted_cache.gob` (gravado em 2026-09-20,
+  4.770 notas): 179.322 termos, 8,45 milhões de postings e **63,6 milhões de
+  posições × 16 bytes = 970 MB** do arquivo. As posições existem para a busca
+  por frase. Os `data:` URIs (imagens base64) **não** são a causa: somam 3,47 MB
+  em 5 notas, 0,65% dos 533 MB de Markdown do cofre, e só 3.692 termos têm mais
+  de 40 caracteres. As 20 notas mais longas somam 6,7 milhões de tokens, e as
+  notas de capítulo de "Interesses Difusos e Coletivos – Vol. 1" têm ~365 mil
+  tokens cada, quase a mesma contagem — sugere que cada capítulo traz o livro
+  inteiro, o que é conteúdo do cofre e não do produto. Reduzir exigiria posição
+  menor que 16 bytes, que é mudança de formato sem requisito pedindo.
+  **Não feito**; decisão do dono.
 - **A folga do RNF-07 em Jurisprudência é de 15%, a mais apertada das cinco.**
   O requisito foi redefinido em 2026-08-30 — heap vivo ≤ 8 MB + 32 KB × notas,
   nos estados `pronto` e `servindo`, decisão do dono — e **os cinco cofres reais

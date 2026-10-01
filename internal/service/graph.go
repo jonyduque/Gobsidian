@@ -628,15 +628,50 @@ type MetadataResult struct {
 	// ancora; sem os offsets nao da para planejar leitura seletiva. O campo
 	// existia e respondia menos do que o contrato dizia, que e a mesma classe do
 	// achado A8.
-	Headings  []parser.Heading     `json:"headings,omitempty"`
-	Blocks    []string             `json:"blocks,omitempty"`
-	Links     []index.ResolvedLink `json:"links,omitempty"`
-	Backlinks []index.Backlink     `json:"backlinks,omitempty"`
+	Headings []parser.Heading `json:"headings,omitempty"`
+	Blocks   []string         `json:"blocks,omitempty"`
+	// Links e Backlinks sao os DTOs abaixo, e nao index.ResolvedLink e
+	// index.Backlink crus: ate 2026-10-01 eram os crus, sem tag JSON e com os
+	// estados como inteiro, e o modelo recebia "State":3 e "Via":2 onde
+	// docs/TOOLS.md promete "state":"external" e "via":"name".
+	Links     []MetadataLink     `json:"links,omitempty"`
+	Backlinks []MetadataBacklink `json:"backlinks,omitempty"`
 	// InlineFields atende o valor "inline_fields" do enum de include, que era
 	// aceito pelo schema e descartado pelo codigo (achado M4). Schema que
 	// promete e codigo que ignora e pior que parametro ausente: o modelo do
 	// outro lado le o schema para decidir o que pedir.
 	InlineFields map[string][]string `json:"inline_fields,omitempty"`
+}
+
+// MetadataLink e um link de saida em note_metadata, na forma de docs/TOOLS.md.
+// kind, state e via saem como palavra pelas MESMAS contas que
+// vault_broken_links usa (parser.LinkKind.String, index.LinkState.String,
+// index.ResolveVia.String): uma conta por regra.
+type MetadataLink struct {
+	Raw      string `json:"raw"`
+	Target   string `json:"target"`
+	Alias    string `json:"alias,omitempty"`
+	Anchor   string `json:"anchor,omitempty"`
+	Kind     string `json:"kind"`
+	Start    int64  `json:"start"`
+	End      int64  `json:"end"`
+	Resolved string `json:"resolved,omitempty"`
+	// Via vem vazio quando nada resolveu -- alvo ausente ou URL externa.
+	Via     string `json:"via,omitempty"`
+	State   string `json:"state"`
+	Context string `json:"context,omitempty"`
+}
+
+// MetadataBacklink e uma referencia chegando na nota. Heading sai sempre,
+// vazio quando a referencia vem antes do primeiro titulo da nota de origem --
+// e o que docs/TOOLS.md descreve.
+type MetadataBacklink struct {
+	From    string `json:"from"`
+	Anchor  string `json:"anchor,omitempty"`
+	Alias   string `json:"alias,omitempty"`
+	Kind    string `json:"kind"`
+	Context string `json:"context,omitempty"`
+	Heading string `json:"heading"`
 }
 
 // CamposDeMetadata sao os valores aceitos em MetadataRequest.Include. A lista
@@ -711,10 +746,30 @@ func (s *Service) NoteMetadata(_ context.Context, req MetadataRequest) (Metadata
 		res.Blocks = blocks
 	}
 	if includeSet["links"] {
-		res.Links = n.Links
+		res.Links = make([]MetadataLink, len(n.Links))
+		for i, l := range n.Links {
+			res.Links[i] = MetadataLink{
+				Raw: l.Raw, Target: l.Target, Alias: l.Alias, Anchor: l.Anchor,
+				Kind:  l.Kind.String(),
+				Start: l.Start, End: l.End,
+				Resolved: string(l.Resolved),
+				Via:      l.Via.String(),
+				State:    l.State.String(),
+				Context:  l.Context,
+			}
+		}
 	}
 	if includeSet["backlinks"] {
-		res.Backlinks = s.index.Backlinks(cp)
+		bls := s.index.Backlinks(cp)
+		res.Backlinks = make([]MetadataBacklink, len(bls))
+		for i, b := range bls {
+			res.Backlinks[i] = MetadataBacklink{
+				From: string(b.From), Anchor: b.Anchor, Alias: b.Alias,
+				Kind:    b.Kind.String(),
+				Context: b.Context,
+				Heading: b.Heading,
+			}
+		}
 	}
 	if includeSet["inline_fields"] {
 		res.InlineFields = n.Inline

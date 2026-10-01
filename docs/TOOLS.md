@@ -240,13 +240,18 @@ Metadados estruturais completos de uma nota, sem o corpo.
 
 **Retorno.** Sempre `path`, `title` e `hash`. Os demais campos conforme pedido em `include`. `headings` traz nível, texto, slug e offsets — o que permite planejar uma leitura ou uma escrita seletiva antes de fazê-la. `inline_fields` traz os campos `chave:: valor` do corpo, agrupados por chave. `links` distingue wikilink, embed e link Markdown, e marca os não resolvidos. `backlinks` traz origem, o contexto textual ao redor de cada referência (~80 bytes de cada lado, em `context`) e o título da seção da nota de origem em que a referência está (`heading`, vazio quando ela vem antes do primeiro título). O `heading` é derivado dos headings já indexados e não custa espaço no cache; ele existe porque saber *em que seção* a nota cita você costuma decidir mais que prosa adicional, e porque não custa espaço.
 
-Cada entrada de `links` traz `state` com um de três valores, e `via` com a forma pela qual resolveu:
+Cada entrada de `links` traz `raw`, `target`, `alias` e `anchor` quando há, `kind` (`wikilink`, `embed` ou `markdown`), `start` e `end` (offsets de byte no arquivo), `resolved` (o caminho do alvo, quando resolveu), `context`, `state` com um de quatro valores, e `via` com a forma pela qual resolveu — vazio quando nada resolveu:
 
 | `state` | Significado |
 |---|---|
 | `ok` | Alvo existe; se há âncora, a âncora existe |
 | `target_missing` | Nota ou anexo alvo não existe |
 | `anchor_missing` | Alvo existe, mas o heading ou bloco da âncora não |
+| `external` | O alvo tem esquema de URI (`https:`, `data:`...) e nunca foi para o cofre; não conta como quebrado |
+
+Cada entrada de `backlinks` traz `from`, `anchor` e `alias` quando há, `kind`, `context` e `heading`.
+
+Até 2026-10-01 `links` e `backlinks` saíam com os tipos internos do índice: `"State":3`, `"Via":2`, `"kind":0`, `"From"`, `"Context"` — chaves com maiúscula e estados como número, contra a tabela acima. `TestNoteMetadataLinksSeguemOContrato` fixa a forma documentada.
 
 | `via` | Resolveu por |
 |---|---|

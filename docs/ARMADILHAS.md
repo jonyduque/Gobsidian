@@ -569,6 +569,20 @@ quente, 765 ms.
 
 ## Contratos de API
 
+**Tipo interno exposto como DTO herda a forma interna.** `note_metadata` devolvia
+`[]index.ResolvedLink` e `[]index.Backlink` direto no resultado. Os campos que o
+índice acrescenta ao `parser.Link` não tinham tag JSON, e os estados eram `int`:
+o modelo recebia `"State":3`, `"Via":2`, `"kind":0`, `"From"`, `"Context"`,
+enquanto `docs/TOOLS.md` prometia `state` em `ok|target_missing|anchor_missing`
+e `via` em `path|name|asset|alias`. `vault_broken_links`, escrito depois, tinha
+DTO próprio e saía certo — duas tools descrevendo o mesmo link de dois jeitos.
+Ninguém viu porque nenhum teste olhava o JSON, só os structs Go. Achado em
+2026-10-01, quando a CLI nova passou a imprimir o `structuredContent` cru.
+Fechado com `MetadataLink` e `MetadataBacklink`, que usam as mesmas
+`String()` de `vault_broken_links`, e um teste que afirma sobre o **JSON**
+(`TestNoteMetadataLinksSeguemOContrato`). O contrato também não listava
+`external`, que o código sempre devolveu.
+
 **O SDK de MCP valida a entrada contra o `InputSchema` ANTES de chamar o seu
 `UnmarshalJSON`.** Um `UnmarshalJSON` que aceita duas formas — string ou objeto —
 não basta: se o schema declarar só uma, a outra é reprovada na validação e o seu
