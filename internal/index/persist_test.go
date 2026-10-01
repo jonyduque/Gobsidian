@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 
@@ -55,6 +56,41 @@ func TestSaveAndLoadIndexCache(t *testing.T) {
 	}
 	if len(n.Links) != 1 || n.Links[0].Resolved != "B.md" {
 		t.Errorf("link de A.md nao resolveu apos o load: %+v", n.Links)
+	}
+}
+
+// TestCacheComLinkGiganteRecarrega: o cache que o processo grava tem de ser
+// o que ele le. Medido em 2026-10-01 no cofre Estudo: uma nota com uma imagem
+// embutida em base64 -- `![](data:image/png;base64,...)`, um link de
+// 2.002.404 bytes -- fez o leitor recusar como "corrupted" todo cache que o
+// gravador produzia, porque so o leitor tinha teto de 1 MiB por string. De
+// 2026-09-21 em diante o daemon reconstruiu o indice em toda partida (22 a
+// 64 s), a saudacao estourou os 10 s da ponte e o host caiu para o modo em
+// processo -- que reconstruiu de novo.
+func TestCacheComLinkGiganteRecarrega(t *testing.T) {
+	root := t.TempDir()
+	imagem := strings.Repeat("iVBORw0KGgo", (2<<20)/11)
+	writeFile(t, root, "A.md", "# A\n\n![](data:image/png;base64,"+imagem+")\n\n[[B]]\n")
+	writeFile(t, root, "B.md", "# B\n")
+
+	v, err := vault.New(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	idx := index.New()
+	if err := idx.Build(context.Background(), v); err != nil {
+		t.Fatal(err)
+	}
+	cacheDir := t.TempDir()
+	if err := index.SaveIndexCache(context.Background(), cacheDir, root, idx); err != nil {
+		t.Fatalf("SaveIndexCache: %v", err)
+	}
+	loaded, _, err := index.LoadIndexCache(context.Background(), cacheDir, root)
+	if err != nil {
+		t.Fatalf("o cache recem-gravado foi recusado: %v", err)
+	}
+	if loaded.NoteCount() != 2 {
+		t.Errorf("notas = %d, quer 2", loaded.NoteCount())
 	}
 }
 
@@ -330,6 +366,13 @@ func TestIndexCacheTruncatedRefused(t *testing.T) {
 	}
 	if !errors.Is(err, index.ErrIndexCacheCorrupted) {
 		t.Fatalf("err = %v, quer ErrIndexCacheCorrupted", err)
+	}
+	// O erro diz POR QUE. A linha de log "index cache file corrupted", sem mais
+	// nada, foi tudo o que o daemon de Estudo registrou em 12 partidas
+	// seguidas, de 2026-09-21 a 2026-10-01, enquanto o leitor sabia dizer
+	// "note links raw (tamanho) = 2002394, acima do limite de 1048576".
+	if err.Error() == index.ErrIndexCacheCorrupted.Error() {
+		t.Errorf("err = %q: a causa da recusa se perdeu no caminho ate o log", err)
 	}
 }
 

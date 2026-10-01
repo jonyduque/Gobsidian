@@ -92,7 +92,6 @@ const (
 	limiteNotas        = 10_000_000
 	limiteSliceLen     = 1_000_000
 	limiteMapLen       = 1_000_000
-	limiteString       = 1 << 20
 	limiteTimeBlob     = 64
 	limiteValorProfund = 64
 )
@@ -429,7 +428,8 @@ func (l *leitor) uvarint(limite uint64, oque string) uint64 {
 // (o valor solto de frontmatter e o hash da nota) nao tem limite real: o
 // dado ocupa o uint64 inteiro, e chamar uvarint com limite=math.MaxUint64
 // era uma guarda que nunca disparava, porque nenhum uint64 decodificado por
-// binary.Uvarint pode superar o proprio tipo.
+// binary.Uvarint pode superar o proprio tipo. O terceiro, str, tem teto -- o
+// que resta do arquivo --, e o confere ele mesmo.
 func (l *leitor) uvarintLivre(oque string) uint64 {
 	if l.err != nil {
 		return 0
@@ -469,8 +469,14 @@ func (l *leitor) fixed64() uint64 {
 	return v
 }
 
+// str le uma string. O teto do tamanho e o que resta do arquivo, e nao uma
+// constante: a guarda contra alocacao gigante e o arquivo ja estar inteiro em
+// memoria, e o gravador nao tem teto nenhum. Ate 2026-10-01 havia um teto de
+// 1 MiB so aqui, e um link com imagem base64 de 2 MB fazia o leitor recusar
+// todo cache que o gravador produzia -- reconstrucao completa a cada partida
+// (TestCacheComLinkGiganteRecarrega).
 func (l *leitor) str(oque string) string {
-	n := l.uvarint(limiteString, oque+" (tamanho)")
+	n := l.uvarintLivre(oque + " (tamanho)")
 	if l.err != nil || n == 0 {
 		return ""
 	}

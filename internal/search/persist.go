@@ -194,10 +194,8 @@ func LoadInvertedCache(ctx context.Context, cacheDir string, vaultPath string) (
 		h, base, err := leCacheComArena(arena.dados, arena.pos)
 		if err != nil {
 			_ = arena.fechar()
-			if errors.Is(err, ErrCacheVersionMismatch) {
-				return nil, nil, err
-			}
-			return nil, nil, ErrCacheCorrupted
+			// Versao incompativel ou corrompido, o erro ja diz qual e por que.
+			return nil, nil, err
 		}
 		if h.FormatVersion != CacheFormatVersion || h.ParserVersion != CacheParserVersion || h.AnalyzerVersion != CacheAnalyzerVersion || (vaultPath != "" && h.VaultPath != vaultPath) {
 			_ = arena.fechar()
@@ -223,10 +221,8 @@ func LoadInvertedCache(ctx context.Context, cacheDir string, vaultPath string) (
 
 	h, base, err := leCache(dados)
 	if err != nil {
-		if errors.Is(err, ErrCacheVersionMismatch) {
-			return nil, nil, err
-		}
-		return nil, nil, ErrCacheCorrupted
+		// Versao incompativel ou corrompido, o erro ja diz qual e por que.
+		return nil, nil, err
 	}
 
 	if h.FormatVersion != CacheFormatVersion || h.ParserVersion != CacheParserVersion || h.AnalyzerVersion != CacheAnalyzerVersion || (vaultPath != "" && h.VaultPath != vaultPath) {

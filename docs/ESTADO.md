@@ -848,6 +848,14 @@ o quarto, que é exatamente o defeito que ela existe para impedir.
   usuário roda. Isto **não foi tentado ainda** — é um caminho anotado, não um
   resultado.
 
+  **Medido em 2026-10-01 nos logs do daemon da máquina do dono**
+  (`%USERPROFILE%\.gobsidian\run\*.sock.log`, quatro cofres, de 2026-09-16 a
+  2026-10-01): **15 de 15** encerramentos pedidos registraram `daemon
+  encerrado`, e o guarda-chuva não disparou nenhuma vez. Não reproduziu desde
+  o anteparo; a causa segue não encontrada, e o despejo de pilhas mais o perfil
+  `goroutineleak` (`lifecycle.DespejarPilhas`) já estão no caminho de saída
+  para quando reproduzir.
+
   Nota de escopo: o cenário `daemon-idle` de `scripts/test_orphans.ps1` roda
   **100 ciclos no CI e passa**. Ele não pega este defeito — a hipótese, **não
   medida**, é que o cofre sintético do cenário é pequeno demais para exercitar
@@ -884,9 +892,15 @@ o quarto, que é exatamente o defeito que ela existe para impedir.
   relata. A outra metade também está feita desde 2026-09-14: o diretório de
   runtime do Windows é `%USERPROFILE%\.gobsidian\run` (socket, travas, log,
   presença e `instalacao.lock`), com transição para daemon de versão anterior
-  vivo no diretório antigo e limpeza dos dois. **Não verificado ainda na máquina
-  do dono:** a linha `conectado ao daemon` no log do Desktop depende de
-  instalar o binário novo e reiniciar os hosts (plano, G2.5 e G6).
+  vivo no diretório antigo e limpeza dos dois. **Verificado em 2026-10-01 na
+  máquina do dono:** `%LOCALAPPDATA%\Claude\logs\mcp-server-gobsidian.log`
+  tem **30** linhas `conectado ao daemon` entre 2026-09-17 e 2026-09-27, contra
+  zero antes da mudança. As 3 quedas para o modo em processo no mesmo período
+  (`motivo=daemon-nao-subiu`, 2026-09-26 e 2026-09-27) não são deste defeito:
+  o socket conectou e a saudação estourou os 10 s porque o daemon reconstruía
+  o índice de Estudo do zero — o cache de metadados era recusado em toda
+  partida (ver `ARMADILHAS.md`, "Teto que só o leitor tem", fechado em
+  2026-10-01).
 
   A saída de 2026-09-08 (Task 192, `rename` quando `remove` falha) continua no
   código e não resolve este caso: no processo do Desktop o `rename` também
@@ -912,6 +926,25 @@ o quarto, que é exatamente o defeito que ela existe para impedir.
   plano, G2. Não medido: trava em `%USERPROFILE%`
   entre os contextos.
 
+- **Com cache frio, a saudação do daemon espera o índice inteiro.** Medido em
+  2026-09-26 no log do daemon de Estudo: `daemon iniciado` às 13:29:59,
+  `servidor pronto` (`index_ms=37291`) às 13:30:38, e as cinco sessões que
+  esperavam a saudação encerradas no mesmo milissegundo — a ponte desistira aos
+  10 s e servira em processo, **construindo o mesmo índice uma segunda vez** ao
+  lado do daemon. Com o cache de metadados legível de novo (2026-10-01) isto só
+  acontece na primeira partida depois de mudança no cofre fora do watcher, e
+  não a cada partida. O que fecharia: saudar antes do índice e responder
+  `INDEX_BUILDING` até ele ficar pronto, como a busca já faz; ou a ponte esperar
+  enquanto o daemon disser que está construindo. **Não feito**; decisão do dono.
+- **Temporário órfão no diretório de cache nunca é varrido.** Medido em
+  2026-10-01 em `%LOCALAPPDATA%\gobsidian\db03d9f55cea7459` (Estudo): dois
+  `.gobsidian-tmp-*` de 49 MB gravados no mesmo segundo de 2026-09-21 09:22 e
+  um `.gobsidian-tmp-cache-*.gob` de 132 MB de 2026-09-04 — 230 MB que nada
+  apaga. `vault.SweepStaleTempFiles` só percorre o cofre, de propósito (ver o
+  comentário em `boot/montar.go`): no diretório de cache gravam ao mesmo tempo
+  o daemon, a ponte em processo e agora a CLI, e o boot de um deles não é
+  momento sem escrita em voo para os outros. Varrer ali exige outra regra — por
+  idade, ou sob a trava do cofre. **Não feito**; decisão do dono.
 - **A moldura do console não trata largura dupla.** Desde 2026-09-14 marca
   combinante (NFD) conta zero em `console.larguraVisivel`, mas ideograma
   CJK ocupa duas colunas e é contado como uma: um cofre com nome em japonês
@@ -926,9 +959,11 @@ o quarto, que é exatamente o defeito que ela existe para impedir.
   O que atacaria a causa, e não tem prazo nem requisito: construir o índice
   invertido direto na forma achatada, em vez de montar mapas e só depois
   compactar. Mecanismo inferido, **não perfilado**.
-- **`measure.ps1` rotula como RNF-01 um número que, com cache quente, é RNF-02.**
-  O `index_ms` da partida `pronto` mede carga de cache e é comparado ao teto de
-  3.000 ms em vez do de 300 ms. Registrado em `OPERACAO.md`.
+- ~~**`measure.ps1` rotulava como RNF-01 um número que, com cache quente, é RNF-02.**~~
+  **Fechado em 2026-10-01.** O rótulo e o teto saem da `index_origin` da partida
+  `pronto`: `build` é RNF-01 contra 3.000 ms, `cache` é RNF-02 contra 300 ms.
+  Não rodado contra cofre real depois da mudança — o script passa no parser do
+  PowerShell, e a linha que muda é só o rótulo e o teto.
 - **`scripts/measure.ps1` continua fora de gate nenhum.** É o único instrumento
   que responde por RNF-01 e RNF-07, e roda quando alguém lembra. A forma de
   fechar existe — `gen_vault.ps1` produz cofre determinístico, e `bench.yml` já

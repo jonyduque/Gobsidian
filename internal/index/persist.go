@@ -155,7 +155,11 @@ func LoadIndexCache(ctx context.Context, cacheDir, vaultPath string) (*Index, *C
 		if errors.Is(err, ErrIndexCacheVersionMismatch) {
 			return nil, &h, err
 		}
-		return nil, nil, ErrIndexCacheCorrupted
+		// O erro do decodificador ja embrulha ErrIndexCacheCorrupted e diz
+		// qual campo recusou. Devolver so o sentinela custou dez dias: "index
+		// cache file corrupted" foi tudo o que o daemon de Estudo registrou
+		// enquanto o leitor sabia dizer qual campo e qual tamanho.
+		return nil, nil, err
 	}
 
 	if h.FormatVersion != IndexCacheFormatVersion || h.ParserVersion != IndexCacheParserVersion ||

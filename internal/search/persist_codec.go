@@ -93,7 +93,6 @@ const (
 	limiteTermos   = 200_000_000
 	limitePostings = 200_000_000
 	limitePosicoes = 200_000_000
-	limiteString   = 1 << 20
 )
 
 // Guarda de COMPILAÇÃO para a regra acima: converter uma constante negativa para
@@ -405,8 +404,13 @@ func (l *leitor) varint() int64 {
 	return v
 }
 
+// str le uma string. O teto do tamanho e o que resta do arquivo, e nao uma
+// constante: o gravador nao tem teto, e um teto de 1 MiB so aqui fazia um
+// termo maior que isso tornar o cache inteiro ilegivel para o proprio
+// processo que o gravou (TestCacheComTermoGiganteRecarrega; a mesma classe de
+// defeito que derrubou o cache de metadados do cofre Estudo em 2026-09-21).
 func (l *leitor) str(oque string) string {
-	n := l.uvarint(limiteString, oque+" (tamanho)")
+	n := l.uvarint(uint64(len(l.b)-l.i), oque+" (tamanho)")
 	if l.err != nil || n == 0 {
 		return ""
 	}

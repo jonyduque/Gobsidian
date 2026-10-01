@@ -17,6 +17,30 @@ import (
 	"github.com/jonyduque/Gobsidian/internal/vault"
 )
 
+// TestCacheComTermoGiganteRecarrega: a mesma regra do cache de metadados
+// (index.TestCacheComLinkGiganteRecarrega) -- o que o gravador grava, o leitor
+// le. Um bloco alfanumerico de mais de 1 MiB sem separador vira um termo so, e
+// ate 2026-10-01 o leitor recusava como corrompido o cache que o continha.
+func TestCacheComTermoGiganteRecarrega(t *testing.T) {
+	cacheDir := t.TempDir()
+	vaultPath := t.TempDir()
+
+	inv := search.NewInverted()
+	gigante := make([]byte, (1<<20)+16)
+	for i := range gigante {
+		gigante[i] = 'a' + byte(i%26)
+	}
+	inv.Add("a.md", search.Analyze("# A\n\n"+string(gigante)+"\n"))
+	if err := search.SaveInvertedCache(context.Background(), cacheDir, vaultPath, inv); err != nil {
+		t.Fatalf("SaveInvertedCache: %v", err)
+	}
+	carregado, _, err := search.LoadInvertedCache(context.Background(), cacheDir, vaultPath)
+	if err != nil {
+		t.Fatalf("o cache recem-gravado foi recusado: %v", err)
+	}
+	defer func() { _ = carregado.Close() }()
+}
+
 func TestSaveAndLoadInvertedCache(t *testing.T) {
 	cacheDir := t.TempDir()
 	vaultPath := t.TempDir()
@@ -197,6 +221,10 @@ func TestTruncatedCacheRefused(t *testing.T) {
 	}
 	if !errors.Is(err, search.ErrCacheCorrupted) {
 		t.Fatalf("err = %v, want ErrCacheCorrupted", err)
+	}
+	// O erro diz POR QUE -- a mesma regra de index.TestIndexCacheTruncatedRefused.
+	if err.Error() == search.ErrCacheCorrupted.Error() {
+		t.Errorf("err = %q: a causa da recusa se perdeu no caminho ate o log", err)
 	}
 }
 

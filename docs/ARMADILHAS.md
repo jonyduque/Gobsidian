@@ -315,6 +315,36 @@ borda são as que ninguém percebe**. Fechado em 2026-08-27 (achado M14);
 
 ---
 
+**Teto que só o leitor tem recusa o que o gravador grava.** O decodificador dos
+dois caches tinha `limiteString = 1 << 20` contra alocação gigante, e o
+codificador não tinha teto nenhum. Em 2026-09-20 entrou no cofre Estudo uma nota
+com 29 imagens embutidas em base64 — `![](data:image/png;base64,...)` —, a maior
+com **2.002.404 bytes** num link só. A partir de 2026-09-21 o cache de metadados
+foi gravado sem erro e recusado como `corrupted` na partida seguinte, **em todas
+as 12 partidas do daemon até 2026-10-01**: reconstrução de 22 a 64 s a cada vez,
+saudação além dos 10 s da ponte, e o host caindo para o modo em processo — que
+reconstruía de novo. É a mesma forma do B11 acima: o sintoma parece "cache
+lento", e não "cache quebrado".
+
+Dois defeitos somados, e o segundo é o que fez o primeiro durar dez dias:
+`LoadIndexCache` e `LoadInvertedCache` trocavam o erro do decodificador — que
+dizia `note links raw (tamanho) = 2002394, acima do limite de 1048576` — pelo
+sentinela puro. O log registrava `index cache file corrupted` e nada mais. A
+causa só apareceu quando um teste de diagnóstico chamou `leIndexCache` direto
+sobre uma cópia do arquivo.
+
+Fechado em 2026-10-01: o teto de uma string é **o que resta do arquivo**, que já
+está inteiro em memória — esta é a guarda real contra alocação, e não recusa
+nada que o gravador produza. O erro viaja até o log com a causa. Os testes são
+round-trips com o dado que quebrou (`TestCacheComLinkGiganteRecarrega`,
+`TestCacheComTermoGiganteRecarrega`) e a recusa de arquivo truncado conferindo
+que a mensagem não é só o sentinela. Medido depois do conserto, sobre o arquivo
+real (82 MB): 8.620 notas lidas e decodificadas em 0,47 s. **Toda guarda de leitura precisa
+responder se o gravador pode produzir aquilo**; se pode, ela não é guarda, é
+defeito.
+
+---
+
 ## Watcher
 
 **A falha na raiz da varredura de diretório novo era engolida — a mesma

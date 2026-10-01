@@ -180,11 +180,16 @@ func TestCodecTagDesconhecidaERecusada(t *testing.T) {
 	}
 }
 
-func TestCodecStringAcimaDoLimiteERecusada(t *testing.T) {
+// TestCodecStringMaiorQueOArquivoERecusada: o teto de uma string e o que resta
+// do arquivo. Um tamanho adulterado para 1 TiB e recusado antes de qualquer
+// alocacao -- a guarda que o teto fixo de 1 MiB fazia, sem recusar o que o
+// gravador grava (TestCacheComLinkGiganteRecarrega).
+func TestCodecStringMaiorQueOArquivoERecusada(t *testing.T) {
 	var buf bytes.Buffer
 	bw := bufio.NewWriter(&buf)
 	e := &escritor{w: bw}
-	e.uvarint(uint64(limiteString + 1))
+	e.uvarint(1 << 40)
+	_, _ = bw.WriteString("abc")
 	if e.err != nil {
 		t.Fatal(e.err)
 	}
@@ -193,8 +198,8 @@ func TestCodecStringAcimaDoLimiteERecusada(t *testing.T) {
 	}
 	l := &leitor{b: buf.Bytes()}
 	_ = l.str("teste")
-	if l.err == nil || !strings.Contains(l.err.Error(), "acima do limite") {
-		t.Fatalf("string de %d bytes devia ser recusada, tenho %v", limiteString+1, l.err)
+	if l.err == nil || !errors.Is(l.err, ErrIndexCacheCorrupted) || !strings.Contains(l.err.Error(), "faltam bytes") {
+		t.Fatalf("string de 1 TiB num arquivo de %d bytes devia ser recusada, tenho %v", buf.Len(), l.err)
 	}
 }
 
