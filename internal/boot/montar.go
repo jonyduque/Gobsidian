@@ -45,6 +45,13 @@ func (c *Componentes) PassoWatcher() lifecycle.Step {
 	}}
 }
 
+// IdadeDeTemporarioOrfao e a idade a partir da qual um temporario do diretorio
+// de cache e dado como orfao: uma gravacao em voo tem de ter comecado depois
+// disso. Quanto dura a maior gravacao real -- o inverted_cache.gob de 1,25 GB
+// do cofre Estudo -- NAO foi medido; uma hora e a folga escolhida, e o custo
+// de errar para cima e so o lixo durar uma hora a mais.
+const IdadeDeTemporarioOrfao = time.Hour
+
 // Montar monta o indice de metadados, o watcher e o indice de busca (em
 // segundo plano) para cfg.VaultPath, e devolve o servico de dominio pronto
 // para ser exposto por um *mcpsrv.Server -- uma sessao (serveEmProcesso) ou N
@@ -101,6 +108,18 @@ func Montar(ctx context.Context, cfg config.Config, modo string, log *slog.Logge
 		r, err := vault.SweepStaleTempFiles(ctx, cfg.VaultPath)
 		varredura <- varreduraFeita{res: r, err: err}
 	}()
+
+	// O diretorio de cache e varrido por IDADE, e nao pela regra do boot: ali
+	// gravam tambem os outros processos do mesmo cofre. Ver
+	// vault.VarrerTemporariosAntigos. Um ReadDir so, antes do indice -- e o
+	// temporario que AbrirIndice vai gravar logo abaixo nasce com segundos,
+	// longe do limite.
+	if lixo, err := vault.VarrerTemporariosAntigos(ctx, cfg.CacheDir, IdadeDeTemporarioOrfao); err != nil {
+		log.Warn("varredura de temporarios do cache interrompida", "err", err)
+	} else if lixo.Removidos > 0 || lixo.NaoRemovidos > 0 {
+		log.Warn("temporarios orfaos removidos do cache",
+			"removidos", lixo.Removidos, "nao_removidos", lixo.NaoRemovidos)
+	}
 
 	buildStart := time.Now()
 	idx, indexOrigin, err := AbrirIndice(ctx, v, cfg, log)

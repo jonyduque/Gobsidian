@@ -2,6 +2,7 @@ package vault
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"os"
@@ -94,6 +95,48 @@ func SweepStaleTempFiles(ctx context.Context, root string) (SweepResult, error) 
 		return nil
 	})
 	return res, err
+}
+
+// VarrerTemporariosAntigos remove, de UM diretorio e sem descer a
+// subdiretorios, os temporarios de ReplaceFile mais velhos que idadeMinima.
+//
+// E a varredura do diretorio de cache, que SweepStaleTempFiles nao alcanca de
+// proposito: ali gravam ao mesmo tempo o daemon, a ponte em processo e a CLI,
+// e o boot de um deles nao e momento sem escrita em voo para os outros. A
+// regra que substitui "nada em voo" e a idade -- uma gravacao de cache leva
+// segundos, e o temporario mais velho que idadeMinima nao e de ninguem. Medido
+// em 2026-10-01 no cache do cofre Estudo: 230 MB em tres temporarios, de
+// 2026-09-04 e 2026-09-21, que nada apagava.
+//
+// Diretorio ausente nao e erro: cofre que nunca gravou cache nao o tem.
+func VarrerTemporariosAntigos(ctx context.Context, dir string, idadeMinima time.Duration) (SweepResult, error) {
+	var res SweepResult
+	entradas, err := os.ReadDir(dir)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return res, nil
+		}
+		return res, fmt.Errorf("varrendo temporarios em %q: %w", dir, err)
+	}
+	limite := time.Now().Add(-idadeMinima)
+	for _, e := range entradas {
+		if err := ctx.Err(); err != nil {
+			return res, err
+		}
+		if e.IsDir() || !strings.HasPrefix(e.Name(), TempFilePrefix) {
+			continue
+		}
+		info, err := e.Info()
+		if err != nil || !info.ModTime().Before(limite) {
+			continue
+		}
+		if os.Remove(filepath.Join(dir, e.Name())) == nil {
+			res.Removidos++
+		} else {
+			res.NaoRemovidos++
+		}
+	}
+	return res, nil
 }
 
 // ReplaceFile substitui o arquivo em targetPath de forma atomica:

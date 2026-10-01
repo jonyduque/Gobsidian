@@ -946,7 +946,13 @@ o quarto, que é exatamente o defeito que ela existe para impedir.
   com o daemon desligado. Fecharia de vez anunciar as tools antes do índice de
   metadados e responder `INDEX_BUILDING` até ele ficar pronto, como a busca já
   faz — mudança da decisão de que as 13 tools só existem com o índice pronto.
-  **Não feito**; decisão do dono.- **Temporário órfão no diretório de cache nunca é varrido.** Medido em
+  **Não feito**; decisão do dono.- ~~**Temporário órfão no diretório de cache nunca é varrido.**~~ **Fechado em
+  2026-10-01:** `vault.VarrerTemporariosAntigos` remove, do diretório de cache
+  e sem descer a subdiretórios, os temporários de `ReplaceFile` com mais de
+  `boot.IdadeDeTemporarioOrfao` (uma hora), e `boot.Montar` a chama em todo
+  boot de `serve` e do daemon. A regra é a idade, e não `nada em voo`: os
+  outros processos do cofre seguem gravando. Quanto dura a maior gravação real
+  não foi medido. Os 230 MB de Estudo saem no primeiro boot com o binário novo. Medido em
   2026-10-01 em `%LOCALAPPDATA%\gobsidian\db03d9f55cea7459` (Estudo): dois
   `.gobsidian-tmp-*` de 49 MB gravados no mesmo segundo de 2026-09-21 09:22 e
   um `.gobsidian-tmp-cache-*.gob` de 132 MB de 2026-09-04 — 230 MB que nada
