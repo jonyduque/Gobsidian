@@ -1020,8 +1020,11 @@ o quarto, que é exatamente o defeito que ela existe para impedir.
   execuções do CI desde 2026-09-16.** Causa e conserto em `ARMADILHAS.md`
   ("O conserto de 2026-09-09 encolheu a janela"): `lifecycle.ArmarSinais` na
   primeira linha de `main`. A metade do sinal real é provada por
-  `TestSinalRealAntesDoLifecycle`, que só roda fora do Windows; **fechado só
-  quando o CI de Linux confirmar** e o cenário `signal` passar.
+  `TestSinalRealAntesDoLifecycle`, que só roda fora do Windows. Primeira
+  execução do CI depois do conserto (`de47ada`, 2026-10-01): os 14 jobs verdes,
+  `test (ubuntu-latest)` e `test (macos-latest)` inclusive, e o cenário
+  `signal` com `signal: 100x`. **Uma execução não fecha** uma falha que aparecia em
+  4 de 15: o item sai daqui quando o histórico do `orphans` seguir verde.
 - **O cache de busca de Estudo tem 1,25 GB, e é o texto, não lixo.** Medido em
   2026-10-01 sobre uma cópia do `inverted_cache.gob` (gravado em 2026-09-20,
   4.770 notas): 179.322 termos, 8,45 milhões de postings e **63,6 milhões de
