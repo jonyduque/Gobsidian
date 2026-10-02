@@ -38,6 +38,20 @@ func (s *Stream) Moldura(titulo string, corpos []string, rodape string) []string
 	// acentuado continuava indo para a tela de um console que nao o aguenta.
 	titulo, rodape = adaptarTexto(titulo), adaptarTexto(rodape)
 
+	// Titulo maior que a borda: o primeiro pedaco fica nela, e o resto desce
+	// para as primeiras linhas do corpo, com a cor do titulo. A borda era
+	// cortada, e o titulo do `graph` traz o caminho da nota de origem -- que
+	// saia como "... Especial - V" (medido em 2026-10-01). Os 3 sao o traco e
+	// os dois espacos em volta do titulo na borda.
+	if partes := quebrar(titulo, teto-3); len(partes) > 1 {
+		titulo = strings.TrimSpace(partes[0])
+		resto := make([]string, 0, len(partes)-1+len(corpos))
+		for _, p := range partes[1:] {
+			resto = append(resto, s.style(s.marcar(strings.TrimRight(p, " "), corTitulo...), corTitulo...))
+		}
+		corpos = append(resto, corpos...)
+	}
+
 	tituloDeco := ""
 	if titulo != "" {
 		tituloDeco = g.Horizontal + " " + s.style(s.marcar(titulo, corTitulo...), corTitulo...) + " "
@@ -52,9 +66,14 @@ func (s *Stream) Moldura(titulo string, corpos []string, rodape string) []string
 	// do texto para fora da moldura -- foi o que aconteceu com `search` na
 	// primeira vez que ele passou por aqui. Achatar mora AQUI e nao em cada
 	// chamador: quem monta um bloco nao deveria precisar saber disso.
-	for i, c := range corpos {
-		corpos[i] = adaptarTexto(achatar(c))
+	//
+	// E linha mais larga que a moldura e QUEBRADA, e nao cortada -- ver
+	// quebrar. Depois de adaptar, porque a quebra mede o texto que vai a tela.
+	quebrados := make([]string, 0, len(corpos))
+	for _, c := range corpos {
+		quebrados = append(quebrados, quebrar(adaptarTexto(achatar(c)), teto-margem)...)
 	}
+	corpos = quebrados
 
 	interno := larguraVisivel(tituloDeco)
 	if l := larguraVisivel(rodapeDeco); l > interno {

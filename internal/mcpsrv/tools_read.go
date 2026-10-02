@@ -354,8 +354,8 @@ type vaultSearchInput struct {
 	ModifiedAfter  string                 `json:"modified_after,omitempty" jsonschema:"Data mínima de modificação. Aceita RFC3339 ('2006-01-02T15:04:05Z07:00') ou data curta ('2006-01-02')."`
 	ModifiedBefore string                 `json:"modified_before,omitempty" jsonschema:"Data máxima de modificação. Aceita RFC3339 ('2006-01-02T15:04:05Z07:00') ou data curta ('2006-01-02')."`
 	SnippetChars   *int                   `json:"snippet_chars,omitempty" jsonschema:"Tamanho máximo do trecho em caracteres. Teto máximo: 1000."`
-	Limit          *int                   `json:"limit,omitempty"`
-	Offset         *int                   `json:"offset,omitempty"`
+	Limit          *int                   `json:"limit,omitempty" jsonschema:"Máximo de resultados. Padrão 20, teto 200; o teto administrativo max_results pode reduzir ainda mais."`
+	Offset         *int                   `json:"offset,omitempty" jsonschema:"Quantos resultados pular, para paginar. Padrão 0."`
 }
 
 type noteReadInput struct {
@@ -365,7 +365,7 @@ type noteReadInput struct {
 	HeadingLevel       int            `json:"heading_level,omitempty" jsonschema:"Desambigua quando o mesmo texto aparece em níveis diferentes."`
 	BlockID            string         `json:"block_id,omitempty" jsonschema:"Identificador de bloco, sem o circunflexo."`
 	Offset             *int64         `json:"offset,omitempty" jsonschema:"Offset de byte a partir do inicio da nota (byte 0). Mutuamente exclusivo com heading e block_id. Ignora include_frontmatter."`
-	IncludeFrontmatter *bool          `json:"include_frontmatter,omitempty"`
+	IncludeFrontmatter *bool          `json:"include_frontmatter,omitempty" jsonschema:"Inclui o bloco de frontmatter no conteúdo devolvido. Padrão: true."`
 	MaxBytes           *int           `json:"max_bytes,omitempty" jsonschema:"Aplica-se por nota, não ao lote inteiro."`
 }
 
@@ -383,31 +383,31 @@ func noteReadValidationError(msg string) (*mcp.CallToolResult, any, error) {
 }
 
 type noteListInput struct {
-	Folder      string                 `json:"folder,omitempty"`
+	Folder      string                 `json:"folder,omitempty" jsonschema:"Restringe a uma pasta; com recursive, também às subpastas."`
 	Glob        string                 `json:"glob,omitempty" jsonschema:"Padrão de caminho, ex.: 'Civil/PONTO *.md'"`
 	Tags        []string               `json:"tags,omitempty" jsonschema:"A tag pedida casa a si mesma e suas subtags; '#' inicial é opcional; comparação insensível a caixa e a forma Unicode (NFC)."`
-	TagMode     string                 `json:"tag_mode,omitempty"`
-	Frontmatter map[string]interface{} `json:"frontmatter,omitempty"`
-	Recursive   *bool                  `json:"recursive,omitempty"`
-	Sort        string                 `json:"sort,omitempty"`
-	Order       string                 `json:"order,omitempty"`
+	TagMode     string                 `json:"tag_mode,omitempty" jsonschema:"Com várias tags: 'all' exige todas, 'any' basta uma. Padrão: 'all'."`
+	Frontmatter map[string]interface{} `json:"frontmatter,omitempty" jsonschema:"Pares chave/valor que devem casar no frontmatter."`
+	Recursive   *bool                  `json:"recursive,omitempty" jsonschema:"Com folder, inclui as subpastas. Padrão: true."`
+	Sort        string                 `json:"sort,omitempty" jsonschema:"Ordenação: 'path', 'modified', 'size' ou 'title'. Padrão: 'path'."`
+	Order       string                 `json:"order,omitempty" jsonschema:"Sentido da ordenação: 'asc' ou 'desc'. Padrão: 'asc'."`
 	Fields      []string               `json:"fields,omitempty" jsonschema:"Campos de frontmatter a incluir no retorno."`
-	Limit       *int                   `json:"limit,omitempty"`
-	Offset      *int                   `json:"offset,omitempty"`
+	Limit       *int                   `json:"limit,omitempty" jsonschema:"Máximo de notas devolvidas. Padrão 100, teto 500."`
+	Offset      *int                   `json:"offset,omitempty" jsonschema:"Quantas notas pular, para paginar. Padrão 0."`
 }
 
 type noteMetadataInput struct {
-	Path    string   `json:"path"`
+	Path    string   `json:"path" jsonschema:"Caminho da nota."`
 	Include []string `json:"include,omitempty" jsonschema:"campos a devolver; aceitos: frontmatter, tags, headings, blocks, links, backlinks, inline_fields; omitido devolve frontmatter, tags, headings, links, backlinks"`
 }
 
 type linkGraphInput struct {
-	Path          string `json:"path"`
-	Direction     string `json:"direction,omitempty"`
-	Depth         *int   `json:"depth,omitempty"`
-	IncludeBroken *bool  `json:"include_broken,omitempty"`
-	IncludeEmbeds *bool  `json:"include_embeds,omitempty"`
-	Limit         *int   `json:"limit,omitempty"`
+	Path          string `json:"path" jsonschema:"Caminho da nota de partida."`
+	Direction     string `json:"direction,omitempty" jsonschema:"Sentido: 'outgoing' (as notas que ela cita), 'incoming' (as que a citam) ou 'both'. Padrão: 'both'."`
+	Depth         *int   `json:"depth,omitempty" jsonschema:"Quantos saltos a partir da nota. Padrão 1; menor que 1 vira 1, acima de 3 vira 3."`
+	IncludeBroken *bool  `json:"include_broken,omitempty" jsonschema:"Inclui links para notas que não existem, como aresta com resolved falso. Padrão: true."`
+	IncludeEmbeds *bool  `json:"include_embeds,omitempty" jsonschema:"Inclui embeds (![[...]]) como arestas. Padrão: true."`
+	Limit         *int   `json:"limit,omitempty" jsonschema:"Máximo de notas no resultado. Padrão 100, teto 500; 'truncated' diz quando cortou."`
 }
 
 type vaultBrokenLinksInput struct {
@@ -419,7 +419,7 @@ type vaultBrokenLinksInput struct {
 
 type tagListInput struct {
 	Prefix       string `json:"prefix,omitempty" jsonschema:"Restringe por prefixo de string sobre a chave dobrada da tag, não por segmento: 'civil/' devolve as subtags de civil e não a própria civil; 'proj/al' devolve proj/alpha."`
-	MinCount     *int   `json:"min_count,omitempty"`
+	MinCount     *int   `json:"min_count,omitempty" jsonschema:"Só tags usadas em pelo menos esse número de notas. Padrão: 1."`
 	Sort         string `json:"sort,omitempty" jsonschema:"Ordenação: 'name' (crescente por nome) ou 'count' (decrescente por contagem, desempate por nome). Padrão: 'name'."`
 	Hierarchical bool   `json:"hierarchical,omitempty" jsonschema:"Retorna árvore em vez de lista plana."`
 }

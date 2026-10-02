@@ -37,7 +37,7 @@ const helpTemplate = `
 {{range .Commands}}{{if (or .IsAvailableCommand (eq .Name "help"))}}  {{forte (rpad .Name .NamePadding)}}  {{leve .Short}}
 {{end}}{{end}}
 {{end}}{{if .HasAvailableLocalFlags}}{{subtitulo txtFlags}}
-{{.LocalFlags.FlagUsages | realcaFlags | trimTrailingWhitespaces}}
+{{usosDasFlags . | realcaFlags | trimTrailingWhitespaces}}
 {{end}}{{if .HasAvailableSubCommands}}
 {{detalhes .CommandPath}}
 {{end}}
@@ -88,6 +88,8 @@ func registraFuncoes(root *cobra.Command) {
 		return saidaDeAjuda(root).Marcado(fmt.Sprintf(textos.AjudaDetalhes, caminho))
 	})
 
+	cobra.AddTemplateFunc("usosDasFlags", usosDasFlags)
+
 	// A descricao de cada flag leva marcacao, e ela e desenhada com ou sem
 	// cor: sem cor, "*PATH*" precisa virar "PATH", e nao sair com os
 	// asteriscos. So o nome da flag ganha negrito, e so com cor.
@@ -103,6 +105,40 @@ func registraFuncoes(root *cobra.Command) {
 		}
 		return strings.Join(linhas, "\n")
 	})
+}
+
+// crasePreservada guarda o lugar da crase enquanto o pflag monta a ajuda. E um
+// caractere de uso privado: nenhuma descricao o escreve.
+const crasePreservada = ""
+
+// usosDasFlags e pflag.FlagSet.FlagUsages sem o roubo da crase.
+//
+// O pflag toma a PRIMEIRA palavra entre crases da descricao como nome do
+// valor da flag (pflag.UnquoteUsage), e aqui a crase e marcacao de codigo, que
+// realcaFlags desenha. Medido em 2026-10-01: a ajuda mostrava "--log-level
+// debug" e "--include-broken include_broken" -- um booleano com nome de valor.
+// Trocando a crase durante a chamada, o pflag nomeia o valor pelo tipo (int,
+// string; nada para booleano) e a marcacao volta intacta depois.
+//
+// A --help de todo comando sai com textos.FlagHelp. O cobra cria essa flag
+// sozinho em cada subcomando, em ingles ("help for graph"), e
+// traduzComandosNativos so alcanca a da raiz.
+//
+// As flags sao ponteiros compartilhados com o comando, e a descricao de cada
+// uma e restaurada antes de devolver.
+func usosDasFlags(cmd *cobra.Command) string {
+	fs := cmd.LocalFlags()
+	originais := map[*pflag.Flag]string{}
+	fs.VisitAll(func(f *pflag.Flag) {
+		originais[f] = f.Usage
+		uso := f.Usage
+		if f.Name == "help" {
+			uso = fmt.Sprintf(textos.FlagHelp, cmd.Name())
+		}
+		f.Usage = strings.ReplaceAll(uso, "`", crasePreservada)
+	})
+	defer fs.VisitAll(func(f *pflag.Flag) { f.Usage = originais[f] })
+	return strings.ReplaceAll(fs.FlagUsages(), crasePreservada, "`")
 }
 
 // traduzComandosNativos poe em portugues os dois comandos que o cobra cria

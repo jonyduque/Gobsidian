@@ -6,6 +6,7 @@ import (
 	"errors"
 	"io"
 	"log/slog"
+	"strings"
 	"testing"
 	"time"
 
@@ -147,5 +148,23 @@ func TestChamarLocalDevolveOCodigoDoErro(t *testing.T) {
 	}
 	if et.Codigo != string(service.CodeNoteNotFound) {
 		t.Errorf("codigo = %q, quer %q (mensagem: %s)", et.Codigo, service.CodeNoteNotFound, et.Mensagem)
+	}
+}
+
+// TestTodoParametroTemDescricao: a descricao do parametro e o que o modelo le
+// no host para decidir o que mandar, e e o texto da flag no --help da CLI. Ate
+// 2026-10-01, 19 parametros de 6 tools nao tinham nenhuma, e a ajuda mostrava
+// "Parametro depth da tool (ver docs/TOOLS.md)".
+func TestTodoParametroTemDescricao(t *testing.T) {
+	es, err := mcpsrv.EsquemasDeEntrada()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, e := range es {
+		for _, p := range e.Parametros {
+			if strings.TrimSpace(p.Descricao) == "" {
+				t.Errorf("%s.%s nao tem descricao no schema", e.Nome, p.Nome)
+			}
+		}
 	}
 }

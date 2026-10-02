@@ -318,6 +318,139 @@ func ajustar(conteudo string, largura int, enchimento string) string {
 	return conteudo + repetir(enchimento, largura-l)
 }
 
+// resetANSI fecha toda cor e todo estilo.
+const resetANSI = "\x1b[0m"
+
+// quebrar divide conteudo em pedacos de no maximo `largura` colunas, quebrando
+// em espaco quando da e no meio da palavra quando ela sozinha nao cabe. A
+// continuacao fica recuada dois espacos alem do recuo da linha original, para
+// se ler que e a mesma linha.
+//
+// # Por que quebrar, e nao cortar
+//
+// A moldura cortava no teto com reticencia. Medido em 2026-10-01 no `graph` do
+// dono: os caminhos das notas saiam com "…" no lugar do fim -- e o fim do
+// caminho e o nome da nota. Cortar so serve onde a linha precisa ser uma so: a
+// lista interativa, que conta linhas para se redesenhar, continua usando
+// ajustar, que corta.
+//
+// # Cor
+//
+// estilo guarda as sequencias SGR desde o ultimo reset. Uma quebra no meio de um
+// trecho colorido fecha a cor no fim do pedaco e repete estilo no comeco do
+// seguinte: reaplicar em ordem as mesmas sequencias reproduz o estado exato.
+func quebrar(conteudo string, largura int) []string {
+	if largura <= 0 || larguraVisivel(conteudo) <= largura {
+		return []string{conteudo}
+	}
+
+	recuo := 0
+	for _, r := range conteudo {
+		if r != ' ' {
+			break
+		}
+		recuo++
+	}
+	continuacao := strings.Repeat(" ", min(recuo+2, largura/2))
+
+	var (
+		pedacos []string
+		linha   strings.Builder
+		estilo  strings.Builder
+		usado   int
+		escape  strings.Builder
+		emEsc   bool
+	)
+	fechar := func() {
+		s := strings.TrimRight(linha.String(), " ")
+		if estilo.Len() > 0 {
+			s += resetANSI
+		}
+		pedacos = append(pedacos, s)
+		linha.Reset()
+		linha.WriteString(continuacao)
+		linha.WriteString(estilo.String())
+		usado = larguraVisivel(continuacao)
+	}
+	escrever := func(r rune) {
+		w := larguraDaRuna(r)
+		if usado+w > largura && usado > larguraVisivel(continuacao) {
+			fechar()
+		}
+		linha.WriteRune(r)
+		usado += w
+	}
+
+	// palavra acumula uma sequencia sem espaco, escapes inclusive, para decidir
+	// se ela cabe inteira antes de escrever.
+	var palavra []rune
+	despejar := func() {
+		if len(palavra) == 0 {
+			return
+		}
+		if usado+larguraVisivel(string(palavra)) > largura && usado > larguraVisivel(continuacao) {
+			fechar()
+		}
+		for _, r := range palavra {
+			switch {
+			case emEsc:
+				escape.WriteRune(r)
+				linha.WriteRune(r)
+				if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') {
+					emEsc = false
+					seq := escape.String()
+					if seq == resetANSI || seq == "\x1b[m" {
+						estilo.Reset()
+					} else {
+						estilo.WriteString(seq)
+					}
+				}
+			case r == 0x1b:
+				emEsc = true
+				escape.Reset()
+				escape.WriteRune(r)
+				linha.WriteRune(r)
+			default:
+				escrever(r)
+			}
+		}
+		palavra = palavra[:0]
+	}
+
+	for _, r := range conteudo {
+		if r == ' ' && !emEscDentro(palavra) {
+			despejar()
+			if usado+1 <= largura {
+				linha.WriteRune(' ')
+				usado++
+			}
+			continue
+		}
+		palavra = append(palavra, r)
+	}
+	despejar()
+	if s := strings.TrimRight(linha.String(), " "); larguraVisivel(s) > 0 || len(pedacos) == 0 {
+		pedacos = append(pedacos, s)
+	}
+	return pedacos
+}
+
+// emEscDentro diz se a palavra acumulada termina no meio de uma sequencia ANSI
+// -- um espaco ali e parte do escape, e nao separador. Sequencias SGR nao levam
+// espaco, mas a guarda e barata e evita partir um escape malformado.
+func emEscDentro(palavra []rune) bool {
+	for i := len(palavra) - 1; i >= 0; i-- {
+		r := palavra[i]
+		if r == 0x1b {
+			return true
+		}
+		if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') {
+			return false
+		}
+	}
+	return false
+}
+
 // cortar devolve as primeiras `largura` celulas visiveis, preservando as
 // sequencias ANSI que aparecerem no caminho -- cortar no meio de um escape
 // deixaria o resto da linha colorido.
