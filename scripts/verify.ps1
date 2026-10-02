@@ -137,7 +137,13 @@ Invoke-Step "go test -race" {
         # depois dele o relatorio da corrida sai do -Tail 80 e a tela mostra 80
         # linhas de --- PASS. O -race e a razao declarada de existir desta
         # etapa, entao o que ele imprime nao pode depender de onde parou.
-        $Marcas = @(Select-String -LiteralPath $LogTestes -Pattern '^(--- FAIL|WARNING: DATA RACE|FAIL\s)')
+        #
+        # `panic:` e `FAIL: ` entraram em 2026-10-02. Um pacote reprovou com so
+        # "FAIL internal/service 44873.892s" no resumo -- a maquina dormiu no meio
+        # do gate e o prazo do go test estourou --, e nada dizia por que: o
+        # "panic: test timed out" ficava fora do filtro, e o relato da trava de
+        # vazamento (vazamentotest, "FAIL: N goroutine(s) vazada(s)") tambem.
+        $Marcas = @(Select-String -LiteralPath $LogTestes -Pattern '^(--- FAIL|WARNING: DATA RACE|FAIL\s|FAIL: |panic: )')
         if ($Marcas) {
             Write-Output "     --- falhas e corridas no log inteiro ---"
             foreach ($m in $Marcas) { Write-Output ("     {0}:{1}" -f $m.LineNumber, $m.Line.Trim()) }
