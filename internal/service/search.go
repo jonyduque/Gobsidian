@@ -166,7 +166,7 @@ func (s *Service) Search(ctx context.Context, opts SearchOptions) (SearchResult,
 	// nada aqui.
 	if err := s.garanteIndiceDeBusca(ctx); err != nil {
 		return SearchResult{}, Wrap(CodeIndexBuilding, err,
-			"o indice de busca nao pode ser carregado; tente de novo em alguns segundos")
+			"o índice de busca não pôde ser carregado; tente de novo em alguns segundos")
 	}
 
 	// O índice invertido pode estar sendo construído em segundo plano: o
@@ -177,7 +177,7 @@ func (s *Service) Search(ctx context.Context, opts SearchOptions) (SearchResult,
 	// legítima.
 	if s.inverted != nil && s.inverted.Building() {
 		return SearchResult{}, Errorf(CodeIndexBuilding,
-			"o indice de busca ainda esta sendo construido; tente de novo em alguns segundos")
+			"o índice de busca ainda está sendo construído; tente de novo em alguns segundos")
 	}
 
 	if opts.Limit <= 0 {

@@ -60,7 +60,7 @@ func novo(ctx context.Context, svc *service.Service, cfg config.Config, log *slo
 }
 
 type statsInput struct {
-	IncludeHealth  *bool `json:"include_health,omitempty" jsonschema:"inclui contagem de orfas, links quebrados e ancoras quebradas (padrao: true)"`
+	IncludeHealth  *bool `json:"include_health,omitempty" jsonschema:"inclui contagem de órfãs, links quebrados e âncoras quebradas (padrão: true)"`
 	IncludeRuntime bool  `json:"include_runtime,omitempty" jsonschema:"inclui RSS, goroutines e contadores do watcher"`
 }
 

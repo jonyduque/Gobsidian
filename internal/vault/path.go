@@ -29,7 +29,7 @@ type CanonicalPath string
 // Colapsar as quatro em uma tornaria a mensagem a unica informacao util.
 var (
 	ErrOutsideVault = errors.New("caminho fora do cofre")
-	ErrAbsolutePath = errors.New("caminho absoluto nao aceito")
+	ErrAbsolutePath = errors.New("caminho absoluto não aceito")
 	ErrEmptyPath    = errors.New("caminho vazio")
 	ErrInvalidPath  = errors.New("caminho malformado")
 )
@@ -101,7 +101,7 @@ func validateLocal(cleaned string) error {
 	// escrita em porta serial; CON le o console, que em um servidor stdio e o
 	// proprio transporte.
 	if !filepath.IsLocal(native) {
-		return fmt.Errorf("%w: %q nao e um caminho local", ErrInvalidPath, cleaned)
+		return fmt.Errorf("%w: %q não é um caminho local", ErrInvalidPath, cleaned)
 	}
 
 	return validatePlatformPath(cleaned)
@@ -120,7 +120,7 @@ func Canonicalize(root, abs string) (CanonicalPath, error) {
 		return "", fmt.Errorf("%w: %q", ErrOutsideVault, abs)
 	}
 	if slashed == "." {
-		return "", fmt.Errorf("%w: %q e a propria raiz do cofre, nao uma nota", ErrInvalidPath, abs)
+		return "", fmt.Errorf("%w: %q é a própria raiz do cofre, não uma nota", ErrInvalidPath, abs)
 	}
 
 	// Invariante de saida. Canonicalize e exportada e alcancavel sem passar

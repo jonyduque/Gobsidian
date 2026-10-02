@@ -30,13 +30,13 @@ var reFlag = regexp.MustCompile(`^(\s*)(-\S+(?:,\s*--\S+)?|--\S+)(\s+)(.*)$`)
 const helpTemplate = `
 {{if .HasParent}}{{else if .Short}}{{tituloForte .Short}}
 
-{{end}}{{if .Runnable}}{{secao txtUso}}
+{{end}}{{if .Runnable}}{{subtitulo txtUso}}
   {{destaque .UseLine}}
 
-{{end}}{{if .HasAvailableSubCommands}}{{secao txtComandos}}
+{{end}}{{if .HasAvailableSubCommands}}{{subtitulo txtComandos}}
 {{range .Commands}}{{if (or .IsAvailableCommand (eq .Name "help"))}}  {{forte (rpad .Name .NamePadding)}}  {{leve .Short}}
 {{end}}{{end}}
-{{end}}{{if .HasAvailableLocalFlags}}{{secao txtFlags}}
+{{end}}{{if .HasAvailableLocalFlags}}{{subtitulo txtFlags}}
 {{.LocalFlags.FlagUsages | realcaFlags | trimTrailingWhitespaces}}
 {{end}}{{if .HasAvailableSubCommands}}
 {{detalhes .CommandPath}}
@@ -76,7 +76,7 @@ func registraFuncoes(root *cobra.Command) {
 	// conjunto: a ajuda e a instalacao aparecem na mesma tela, e duas paletas
 	// fariam "titulo" ter duas cores dependendo de qual comando imprimiu.
 	cobra.AddTemplateFunc("tituloForte", estilo(corTitulo))
-	cobra.AddTemplateFunc("secao", estilo(corDestaque))
+	cobra.AddTemplateFunc("subtitulo", estilo(corDestaque))
 	cobra.AddTemplateFunc("destaque", estilo(corPergunta))
 	cobra.AddTemplateFunc("forte", estilo([]string{codeBold}))
 	cobra.AddTemplateFunc("leve", estilo([]string{codeDim}))

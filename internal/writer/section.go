@@ -17,9 +17,9 @@ type HeadingNotFoundError struct {
 
 func (e *HeadingNotFoundError) Error() string {
 	if len(e.Alternatives) == 0 {
-		return fmt.Sprintf("heading %q nao encontrado na nota (nenhum heading disponivel)", e.Heading)
+		return fmt.Sprintf("heading %q não encontrado na nota (nenhum heading disponível)", e.Heading)
 	}
-	return fmt.Sprintf("heading %q nao encontrado na nota. Disponiveis: %s", e.Heading, strings.Join(e.Alternatives, ", "))
+	return fmt.Sprintf("heading %q não encontrado na nota. Disponíveis: %s", e.Heading, strings.Join(e.Alternatives, ", "))
 }
 
 // AmbiguousHeadingError indica colisao de slug: multiplos headings possuem o mesmo slug/titulo.

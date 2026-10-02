@@ -22,8 +22,8 @@ var instrucoesBase string
 // cofre pode estar em modo somente-leitura"), que valia para todo cofre e nao
 // dizia nada sobre este.
 const avisoSomenteLeitura = `SOMENTE LEITURA
-- Este cofre esta em modo somente-leitura nesta sessao: as tools de escrita
-  nao existem. Nao prometa editar, criar, mover ou apagar notas.
+- Este cofre está em modo somente-leitura nesta sessão: as tools de escrita
+  não existem. Não prometa editar, criar, mover ou apagar notas.
 
 `
 

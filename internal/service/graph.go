@@ -101,7 +101,7 @@ type GraphResult struct {
 // LinkGraph percorre o grafo a partir de uma nota, ate a profundidade pedida.
 func (s *Service) LinkGraph(_ context.Context, req GraphRequest) (GraphResult, error) {
 	if s.index == nil {
-		return GraphResult{}, Errorf(CodeVaultUnavailable, "indice indisponivel")
+		return GraphResult{}, Errorf(CodeVaultUnavailable, "índice indisponível")
 	}
 
 	depth := req.Depth
@@ -361,7 +361,7 @@ func ordenarTags(tags []TagNode, sortMode string) {
 // Nao recebe ctx util: le so o indice em memoria.
 func (s *Service) TagList(_ context.Context, req TagRequest) (TagResult, error) {
 	if s.index == nil {
-		return TagResult{}, Errorf(CodeVaultUnavailable, "indice indisponivel")
+		return TagResult{}, Errorf(CodeVaultUnavailable, "índice indisponível")
 	}
 	sortTags, err := ValidarEnum("sort", req.Sort, "name", "name", "count")
 	if err != nil {
@@ -540,7 +540,7 @@ type ListResult struct {
 // Nao recebe ctx util: le so o indice em memoria.
 func (s *Service) ListNotes(_ context.Context, req ListRequest) (ListResult, error) {
 	if s.index == nil {
-		return ListResult{}, Errorf(CodeVaultUnavailable, "indice indisponivel")
+		return ListResult{}, Errorf(CodeVaultUnavailable, "índice indisponível")
 	}
 
 	// O teto e os enums são conferidos AQUI, e não no boundary MCP, porque o
@@ -691,7 +691,7 @@ var incluidosPorPadrao = []string{"frontmatter", "tags", "headings", "links", "b
 // arquivo.
 func (s *Service) NoteMetadata(_ context.Context, req MetadataRequest) (MetadataResult, error) {
 	if s.index == nil {
-		return MetadataResult{}, Errorf(CodeVaultUnavailable, "indice indisponivel")
+		return MetadataResult{}, Errorf(CodeVaultUnavailable, "índice indisponível")
 	}
 	cp, err := s.index.ResolvePath(req.Path)
 	if err != nil {
@@ -715,7 +715,7 @@ func (s *Service) NoteMetadata(_ context.Context, req MetadataRequest) (Metadata
 			}
 			if v == "" {
 				return MetadataResult{}, Errorf(CodeInvalidArgument,
-					"include = \"\" invalido; aceitos: %s", strings.Join(CamposDeMetadata, ", "))
+					"include = \"\" inválido; aceitos: %s", strings.Join(CamposDeMetadata, ", "))
 			}
 			includeSet[v] = true
 		}

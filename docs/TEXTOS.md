@@ -943,6 +943,22 @@ Contagem: 107 literais, levantados de fmt.Errorf e errors.New em
 2026-09-27. Literais só de formato (alinhamento de colunas, "%s: %v"),
 nomes de flag e de comando, e mensagens de slog ficaram de fora.
 
+**O levantamento deixou oito pacotes de fora** — `service`, `mcpsrv`, `ipc`,
+`index`, `search`, `vault`, `writer` e `daemon` —, e é de `service` e `mcpsrv`
+que vem toda mensagem de erro das tools: a que aparece na CLI
+("❌ Nota ... não encontrada no índice (NOTE_NOT_FOUND)") e a que o modelo lê no
+host, além das descrições de parâmetro das tools de escrita. Em 2026-10-01 eram
+**120 literais sem acento**; o dono viu um deles na CLI. Corrigidos na mesma
+data, e desde então a regra não depende mais de esta tabela estar completa:
+`TestTextoDoProdutoTemAcento` (`internal/textos/acento_test.go`) lê todo
+literal de string do código de produção em `internal/` e `cmd/` e reprova
+palavra que só existe com acento escrita sem ele. Ficam de fora comentário,
+mensagem de slog (lida por script) e as exceções nomeadas no próprio teste —
+identificador, nome de arquivo, valor de entrada, dado —, cada uma com o
+motivo. As tabelas abaixo seguem valendo para saber **onde** editar cada texto
+dos seis pacotes levantados; os outros oito estão no código, achados pelo
+gate.
+
 ### internal/instalar
 
 | Local | Texto | Situação |

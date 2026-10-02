@@ -123,7 +123,7 @@ func ErroDeResolucao(entrada string, err error) error {
 	case strings.Contains(entrada, "../"):
 		return Errorf(CodePathOutsideVault, "caminho %q sai do cofre", entrada)
 	default:
-		return Errorf(CodeNoteNotFound, "nota %q nao encontrada no indice", entrada)
+		return Errorf(CodeNoteNotFound, "nota %q não encontrada no índice", entrada)
 	}
 }
 
@@ -169,6 +169,6 @@ func ValidarEnum(campo, valor, padrao string, aceitos ...string) (string, error)
 	if slices.Contains(aceitos, valor) {
 		return valor, nil
 	}
-	return "", Errorf(CodeInvalidArgument, "%s = %q invalido; aceitos: %s",
+	return "", Errorf(CodeInvalidArgument, "%s = %q inválido; aceitos: %s",
 		campo, valor, strings.Join(aceitos, ", "))
 }

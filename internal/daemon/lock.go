@@ -42,7 +42,7 @@ const dialProbeTimeout = 200 * time.Millisecond
 func EnsureStarted(ctx context.Context, cfg config.Config, prazo time.Duration, iniciar func() error) error {
 	adquiriu, liberar, err := adquirirLock(cfg.VaultPath)
 	if err != nil {
-		return fmt.Errorf("adquirindo lock de inicializacao do daemon: %w", err)
+		return fmt.Errorf("adquirindo lock de inicialização do daemon: %w", err)
 	}
 
 	if !adquiriu {
@@ -162,7 +162,7 @@ func esperarSocket(ctx context.Context, cfg config.Config, prazo time.Duration) 
 			// saber se o daemon morreu na montagem (log com uma linha) ou nem
 			// chegou a nascer (log ausente). Sao dois defeitos diferentes com
 			// o mesmo sintoma aqui.
-			return fmt.Errorf("socket do daemon nao respondeu em %s: %w (%s)",
+			return fmt.Errorf("socket do daemon não respondeu em %s: %w (%s)",
 				prazo, ultimoErr, pistaDoLog(cfg.VaultPath))
 		}
 		select {

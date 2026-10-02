@@ -9,29 +9,29 @@ import (
 
 type createInput struct {
 	Path          string         `json:"path" jsonschema:"caminho relativo da nota no cofre"`
-	Content       string         `json:"content" jsonschema:"conteudo textual da nota"`
+	Content       string         `json:"content" jsonschema:"conteúdo textual da nota"`
 	Frontmatter   map[string]any `json:"frontmatter,omitempty" jsonschema:"metadados frontmatter em mapa chave/valor"`
-	CreateFolders *bool          `json:"create_folders,omitempty" jsonschema:"cria diretorios intermediarios se nao existirem (padrao: true)"`
+	CreateFolders *bool          `json:"create_folders,omitempty" jsonschema:"cria diretórios intermediários se não existirem (padrão: true)"`
 	DryRun        bool           `json:"dry_run,omitempty" jsonschema:"se verdadeiro devolve apenas o diff sem alterar o disco"`
 }
 
 type appendInput struct {
 	Path            string `json:"path" jsonschema:"caminho relativo da nota"`
-	Content         string `json:"content" jsonschema:"conteudo a anexar"`
+	Content         string `json:"content" jsonschema:"conteúdo a anexar"`
 	Heading         string `json:"heading,omitempty" jsonschema:"heading onde anexar; ausente anexa ao fim da nota"`
 	HeadingLevel    int    `json:"heading_level,omitempty" jsonschema:"nivel do heading (1-6) para desambiguar"`
-	CreateIfMissing bool   `json:"create_if_missing,omitempty" jsonschema:"cria o heading se nao existir"`
-	EnsureBlankLine *bool  `json:"ensure_blank_line,omitempty" jsonschema:"garante linha em branco antes do conteudo anexado (padrao: true)"`
+	CreateIfMissing bool   `json:"create_if_missing,omitempty" jsonschema:"cria o heading se não existir"`
+	EnsureBlankLine *bool  `json:"ensure_blank_line,omitempty" jsonschema:"garante linha em branco antes do conteúdo anexado (padrão: true)"`
 	ExpectedHash    string `json:"expected_hash,omitempty" jsonschema:"hash xxhash para concorrencia otimista"`
 	DryRun          bool   `json:"dry_run,omitempty" jsonschema:"se verdadeiro devolve apenas o diff sem alterar o disco"`
 }
 
 type patchInput struct {
 	Path         string `json:"path" jsonschema:"caminho relativo da nota"`
-	Content      string `json:"content" jsonschema:"conteudo de substituicao"`
-	Heading      string `json:"heading,omitempty" jsonschema:"heading alvo da substituicao"`
+	Content      string `json:"content" jsonschema:"conteúdo de substituição"`
+	Heading      string `json:"heading,omitempty" jsonschema:"heading alvo da substituição"`
 	HeadingLevel int    `json:"heading_level,omitempty" jsonschema:"nivel do heading (1-6)"`
-	BlockID      string `json:"block_id,omitempty" jsonschema:"id de bloco (sem o ^) alvo da substituicao"`
+	BlockID      string `json:"block_id,omitempty" jsonschema:"id de bloco (sem o ^) alvo da substituição"`
 	Mode         string `json:"mode,omitempty" jsonschema:"replace_section (padrao), replace_heading_and_section ou replace_block (padrao quando block_id vem)"`
 	ExpectedHash string `json:"expected_hash,omitempty" jsonschema:"hash xxhash para concorrencia otimista"`
 	DryRun       bool   `json:"dry_run,omitempty" jsonschema:"se verdadeiro devolve apenas o diff sem alterar o disco"`
@@ -41,7 +41,7 @@ type moveInput struct {
 	From          string `json:"from" jsonschema:"caminho relativo da nota de origem"`
 	To            string `json:"to" jsonschema:"caminho relativo do destino"`
 	UpdateLinks   *bool  `json:"update_links,omitempty" jsonschema:"se verdadeiro reescreve links apontando para o antigo caminho (padrao: true)"`
-	CreateFolders *bool  `json:"create_folders,omitempty" jsonschema:"cria diretorios intermediarios se nao existirem (padrao: true)"`
+	CreateFolders *bool  `json:"create_folders,omitempty" jsonschema:"cria diretórios intermediários se não existirem (padrão: true)"`
 	DryRun        bool   `json:"dry_run,omitempty" jsonschema:"se verdadeiro devolve apenas os diffs sem alterar o disco"`
 }
 
@@ -56,7 +56,7 @@ func (s *Server) registerWriteTools() {
 	mcp.AddTool(s.mcp,
 		&mcp.Tool{
 			Name:        "note_create",
-			Description: "Cria uma nova nota no cofre. Falha se o caminho ja existir.",
+			Description: "Cria uma nova nota no cofre. Falha se o caminho já existir.",
 		},
 		guard(s.log, "note_create",
 			func(ctx context.Context, _ *mcp.CallToolRequest, in createInput) (*mcp.CallToolResult, service.CreateNoteResult, error) {
@@ -87,7 +87,7 @@ func (s *Server) registerWriteTools() {
 	mcp.AddTool(s.mcp,
 		&mcp.Tool{
 			Name:        "note_append",
-			Description: "Anexa conteudo ao final de uma nota ou ao final de uma secao especifica.",
+			Description: "Anexa conteúdo ao final de uma nota ou ao final de uma seção específica.",
 		},
 		guard(s.log, "note_append",
 			func(ctx context.Context, _ *mcp.CallToolRequest, in appendInput) (*mcp.CallToolResult, service.AppendNoteResult, error) {
@@ -118,7 +118,7 @@ func (s *Server) registerWriteTools() {
 	mcp.AddTool(s.mcp,
 		&mcp.Tool{
 			Name:        "note_patch",
-			Description: "Substitui uma secao, cabecalho ou bloco de uma nota.",
+			Description: "Substitui uma seção, cabeçalho ou bloco de uma nota.",
 		},
 		guard(s.log, "note_patch",
 			func(ctx context.Context, _ *mcp.CallToolRequest, in patchInput) (*mcp.CallToolResult, service.PatchNoteResult, error) {

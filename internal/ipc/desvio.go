@@ -77,7 +77,7 @@ type executorDeTestes interface{ Run() int }
 func RodarComRuntimeIsolado(m executorDeTestes) int {
 	dir, err := os.MkdirTemp("", "gobs-rt-")
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "criando diretorio de runtime isolado para os testes: %v\n", err)
+		fmt.Fprintf(os.Stderr, "criando diretório de runtime isolado para os testes: %v\n", err)
 		return 1
 	}
 	desvioDoRuntime = dir

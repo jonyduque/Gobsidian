@@ -260,7 +260,7 @@ func ReplaceFile(ctx context.Context, targetPath string, escrever func(*os.File)
 		}
 	}
 
-	return fmt.Errorf("falha ao renomear %q para %q apos %d tentativas: %w", tmpName, targetPath, maxRetries, renameErr)
+	return fmt.Errorf("falha ao renomear %q para %q após %d tentativas: %w", tmpName, targetPath, maxRetries, renameErr)
 }
 
 // WriteAtomic escreve os dados fornecidos no caminho de destino de forma

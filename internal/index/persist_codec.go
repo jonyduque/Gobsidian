@@ -321,7 +321,7 @@ func (e *escritor) value(v any) {
 		// parser.DecodeFrontmatter, que decodifica YAML em map[string]any e
 		// só produz os tipos acima. Falhar alto em vez de perder dado em
 		// silêncio se o parser algum dia mudar o que produz.
-		e.err = fmt.Errorf("valor de frontmatter com tipo nao suportado: %T", v)
+		e.err = fmt.Errorf("valor de frontmatter com tipo não suportado: %T", v)
 	}
 }
 
@@ -436,7 +436,7 @@ func (l *leitor) uvarintLivre(oque string) uint64 {
 	}
 	v, n := binary.Uvarint(l.b[l.i:])
 	if n <= 0 {
-		l.falha("%w: lendo %s: varint invalido em %d", ErrIndexCacheCorrupted, oque, l.i)
+		l.falha("%w: lendo %s: varint inválido em %d", ErrIndexCacheCorrupted, oque, l.i)
 		return 0
 	}
 	l.i += n
@@ -507,7 +507,7 @@ func (l *leitor) timeBlob(oque string) time.Time {
 	l.i += int(n)
 	var t time.Time
 	if err := t.UnmarshalBinary(b); err != nil {
-		l.falha("%w: %s invalido: %v", ErrIndexCacheCorrupted, oque, err)
+		l.falha("%w: %s inválido: %v", ErrIndexCacheCorrupted, oque, err)
 		return time.Time{}
 	}
 	return t
@@ -638,7 +638,7 @@ func (l *leitor) value(profundidade int) any {
 		return nil
 	}
 	if profundidade > limiteValorProfund {
-		l.falha("%w: frontmatter aninhado alem do limite de profundidade", ErrIndexCacheCorrupted)
+		l.falha("%w: frontmatter aninhado além do limite de profundidade", ErrIndexCacheCorrupted)
 		return nil
 	}
 	tag := l.uvarint(uint64(valMap), "tipo de valor")
@@ -706,7 +706,7 @@ func (l *leitor) note() *Note {
 	fmVal := l.value(0)
 	fm, ok := fmVal.(map[string]any)
 	if l.err == nil && !ok {
-		l.falha("%w: frontmatter da nota %q nao decodificou como mapa (tipo %T)",
+		l.falha("%w: frontmatter da nota %q não decodificou como mapa (tipo %T)",
 			ErrIndexCacheCorrupted, path, fmVal)
 	}
 	fmErr := l.str("note frontmatterErr")
@@ -772,7 +772,7 @@ func leIndexCache(dados []byte) (CacheHeader, []*Note, []*Asset, error) {
 	somaGravada := binary.BigEndian.Uint32(dados[len(dados)-4:])
 	somaCalculada := crc32.ChecksumIEEE(corpo)
 	if somaCalculada != somaGravada {
-		return CacheHeader{}, nil, nil, fmt.Errorf("%w: checksum nao bate (gravado %08x, calculado %08x)",
+		return CacheHeader{}, nil, nil, fmt.Errorf("%w: checksum não bate (gravado %08x, calculado %08x)",
 			ErrIndexCacheCorrupted, somaGravada, somaCalculada)
 	}
 

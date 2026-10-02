@@ -118,7 +118,7 @@ func SaveIndexCache(ctx context.Context, cacheDir, vaultPath string, ix *Index) 
 	if err := vault.ReplaceFile(ctx, finalPath, func(f *os.File) error {
 		return escreveIndexCache(f, header, notes, assets)
 	}); err != nil {
-		return fmt.Errorf("gravando cache de indice em %q: %w", finalPath, err)
+		return fmt.Errorf("gravando cache de índice em %q: %w", finalPath, err)
 	}
 	return nil
 }
@@ -147,7 +147,7 @@ func LoadIndexCache(ctx context.Context, cacheDir, vaultPath string) (*Index, *C
 		if errors.Is(err, os.ErrNotExist) {
 			return nil, nil, ErrIndexCacheNotFound
 		}
-		return nil, nil, fmt.Errorf("lendo cache de indice %q: %w", finalPath, err)
+		return nil, nil, fmt.Errorf("lendo cache de índice %q: %w", finalPath, err)
 	}
 
 	h, notes, assets, err := leIndexCache(dados)

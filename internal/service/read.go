@@ -237,7 +237,7 @@ func (s *Service) ReadNotes(ctx context.Context, req ReadBatchRequest) ReadBatch
 // uma secao de 2 KB numa nota de 500 KB custar 2 KB.
 func (s *Service) ReadNote(ctx context.Context, req ReadRequest) (ReadResult, error) {
 	if req.Heading != "" && req.BlockID != "" {
-		return ReadResult{}, Errorf(CodeInvalidArgument, "heading e block_id sao mutuamente exclusivos")
+		return ReadResult{}, Errorf(CodeInvalidArgument, "heading e block_id são mutuamente exclusivos")
 	}
 	if req.Offset != nil && (req.Heading != "" || req.BlockID != "") {
 		return ReadResult{}, Errorf(CodeInvalidArgument, "offset e mutuamente exclusivo com heading e block_id")
@@ -250,7 +250,7 @@ func (s *Service) ReadNote(ctx context.Context, req ReadRequest) (ReadResult, er
 
 	note, ok := s.index.Get(canonical)
 	if !ok {
-		return ReadResult{}, Errorf(CodeNoteNotFound, "nota %q nao encontrada", req.Path)
+		return ReadResult{}, Errorf(CodeNoteNotFound, "nota %q não encontrada", req.Path)
 	}
 
 	if note.CloudOnly {
@@ -318,7 +318,7 @@ func (s *Service) ReadNote(ctx context.Context, req ReadRequest) (ReadResult, er
 			}
 			if len(casaram) > 1 {
 				return ReadResult{}, Errorf(CodeAmbiguousHeading,
-					"candidato a titulo %q ambiguo (%d ocorrencias)", req.Heading, len(casaram))
+					"candidato a título %q ambíguo (%d ocorrências)", req.Heading, len(casaram))
 			}
 			if len(casaram) == 1 {
 				sintetico = &casaram[0]
@@ -341,10 +341,10 @@ func (s *Service) ReadNote(ctx context.Context, req ReadRequest) (ReadResult, er
 			// vazia sem explicar por que. E o incidente de campo de 2026-08-15.
 			if len(alternatives) == 0 {
 				return ReadResult{}, Errorf(CodeHeadingNotFound,
-					"nota %q nao tem heading Markdown nenhum. Se ela veio de PDF, DOCX ou EPUB, os titulos provavelmente sao paragrafo em negrito: chame note_outline para ver os candidatos e leia por offset.",
+					"nota %q não tem heading Markdown nenhum. Se ela veio de PDF, DOCX ou EPUB, os títulos provavelmente são parágrafo em negrito: chame note_outline para ver os candidatos e leia por offset.",
 					req.Path)
 			}
-			return ReadResult{}, Errorf(CodeHeadingNotFound, "heading %q nao encontrado. Disponiveis: %s", req.Heading, strings.Join(alternatives, ", "))
+			return ReadResult{}, Errorf(CodeHeadingNotFound, "heading %q não encontrado. Disponíveis: %s", req.Heading, strings.Join(alternatives, ", "))
 		}
 
 		if len(matches) > 1 {
@@ -367,7 +367,7 @@ func (s *Service) ReadNote(ctx context.Context, req ReadRequest) (ReadResult, er
 			}
 		}
 		if !found {
-			return ReadResult{}, Errorf(CodeBlockNotFound, "bloco %q nao encontrado", req.BlockID)
+			return ReadResult{}, Errorf(CodeBlockNotFound, "bloco %q não encontrado", req.BlockID)
 		}
 
 	case req.Offset != nil:

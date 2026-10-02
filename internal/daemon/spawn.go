@@ -30,7 +30,7 @@ const DefaultIdleSeconds = 15 * 60
 func SpawnDetached(cfg config.Config, idleSeconds int, logLevel string) error {
 	exe, err := os.Executable()
 	if err != nil {
-		return fmt.Errorf("resolvendo caminho do proprio executavel: %w", err)
+		return fmt.Errorf("resolvendo caminho do próprio executável: %w", err)
 	}
 
 	args := ArgsDoDaemon(cfg, idleSeconds, logLevel)

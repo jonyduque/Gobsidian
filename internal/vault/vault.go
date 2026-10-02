@@ -96,7 +96,7 @@ func New(root string, opcoes ...Opcao) (*Vault, error) {
 		return nil, fmt.Errorf("raiz do cofre inacessivel %q: %w", abs, err)
 	}
 	if !info.IsDir() {
-		return nil, fmt.Errorf("raiz do cofre nao e diretorio: %q", abs)
+		return nil, fmt.Errorf("raiz do cofre não é diretório: %q", abs)
 	}
 	v := &Vault{root: abs, walkRoot: LongPath(abs)}
 	for _, o := range opcoes {
@@ -149,7 +149,7 @@ func (v *Vault) recusaSymlink(p CanonicalPath) error {
 		return nil
 	}
 	if fi.Mode()&os.ModeSymlink != 0 {
-		return fmt.Errorf("%q e um symlink e o confinamento do cofre nao segue symlink "+
+		return fmt.Errorf("%q é um symlink e o confinamento do cofre não segue symlink "+
 			"(use --follow-symlinks para permitir)", p)
 	}
 	return nil
@@ -203,10 +203,10 @@ func (v *Vault) ReadRange(ctx context.Context, p CanonicalPath, start, end int64
 	// garantido aqui e end >= start garantido a seguir, end-start fica em
 	// [0, math.MaxInt64] sempre — nunca estoura.
 	if start < 0 {
-		return nil, fmt.Errorf("faixa invalida em %q: start negativo (%d)", p, start)
+		return nil, fmt.Errorf("faixa inválida em %q: start negativo (%d)", p, start)
 	}
 	if end < start {
-		return nil, fmt.Errorf("faixa invalida em %q: %d..%d", p, start, end)
+		return nil, fmt.Errorf("faixa inválida em %q: %d..%d", p, start, end)
 	}
 	if end-start > maxReadRangeBytes {
 		return nil, fmt.Errorf("faixa grande demais em %q: %d..%d excede o teto de %d bytes", p, start, end, int64(maxReadRangeBytes))

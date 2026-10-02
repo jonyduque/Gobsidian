@@ -81,7 +81,7 @@ func resourceURI(p vault.CanonicalPath) string {
 // corrigir so uma.
 func pathFromResourceURI(uri string) (string, error) {
 	if !strings.HasPrefix(uri, resourceScheme) {
-		return "", fmt.Errorf("esquema de URI invalido: %s", uri)
+		return "", fmt.Errorf("esquema de URI inválido: %s", uri)
 	}
 
 	rest := strings.TrimPrefix(uri, resourceScheme)

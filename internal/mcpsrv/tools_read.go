@@ -48,14 +48,14 @@ func (s *Server) registerReadToolsInternal() {
 				if in.ModifiedAfter != "" {
 					t, err := parseDateFilter(in.ModifiedAfter)
 					if err != nil {
-						return nil, service.SearchResult{}, toolErr(service.Errorf(service.CodeInvalidArgument, "modified_after invalido: %v", err))
+						return nil, service.SearchResult{}, toolErr(service.Errorf(service.CodeInvalidArgument, "modified_after inválido: %v", err))
 					}
 					modAfter = &t
 				}
 				if in.ModifiedBefore != "" {
 					t, err := parseDateFilter(in.ModifiedBefore)
 					if err != nil {
-						return nil, service.SearchResult{}, toolErr(service.Errorf(service.CodeInvalidArgument, "modified_before invalido: %v", err))
+						return nil, service.SearchResult{}, toolErr(service.Errorf(service.CodeInvalidArgument, "modified_before inválido: %v", err))
 					}
 					modBefore = &t
 				}
@@ -126,7 +126,7 @@ func (s *Server) registerReadToolsInternal() {
 				// brief: os dois preenchidos e erro de validacao, nao precedencia
 				// silenciosa que decidiria pelo cliente qual valer.
 				if req.Path != "" && len(req.Paths) > 0 {
-					return noteReadValidationError("path e paths sao mutuamente exclusivos; preencha apenas um dos dois")
+					return noteReadValidationError("path e paths são mutuamente exclusivos; preencha apenas um dos dois")
 				}
 				if len(req.Paths) > maxPathsPorLote {
 					return noteReadValidationError(fmt.Sprintf("paths tem %d itens; o maximo por chamada e %d", len(req.Paths), maxPathsPorLote))
@@ -289,7 +289,7 @@ func (s *Server) registerReadToolsInternal() {
 	mcp.AddTool(s.mcp,
 		&mcp.Tool{
 			Name:        "vault_broken_links",
-			Description: "Todos os links quebrados do cofre: alvo ausente ou ancora ausente, com origem e contexto.",
+			Description: "Todos os links quebrados do cofre: alvo ausente ou âncora ausente, com origem e contexto.",
 		},
 		guard(s.log, "vault_broken_links",
 			func(ctx context.Context, _ *mcp.CallToolRequest, in vaultBrokenLinksInput) (*mcp.CallToolResult, service.BrokenLinksResult, error) {
@@ -343,7 +343,7 @@ func parseDateFilter(s string) (time.Time, error) {
 	if t, err := time.Parse("2006-01-02", s); err == nil {
 		return t.UTC(), nil
 	}
-	return time.Time{}, fmt.Errorf("formato invalido: %q (esperado RFC3339 ou YYYY-MM-DD)", s)
+	return time.Time{}, fmt.Errorf("formato inválido: %q (esperado RFC3339 ou YYYY-MM-DD)", s)
 }
 
 type vaultSearchInput struct {

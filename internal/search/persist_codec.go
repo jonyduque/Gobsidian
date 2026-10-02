@@ -380,7 +380,7 @@ func (l *leitor) uvarint(limite uint64, oque string) uint64 {
 	if n <= 0 {
 		// n == 0: acabaram os bytes. n < 0: valor maior que 64 bits, o que só
 		// acontece com arquivo adulterado ou corrompido.
-		l.falha("%w: lendo %s: varint invalido em %d", ErrCacheCorrupted, oque, l.i)
+		l.falha("%w: lendo %s: varint inválido em %d", ErrCacheCorrupted, oque, l.i)
 		return 0
 	}
 	l.i += n
@@ -569,7 +569,7 @@ func decodificaCache(dados []byte, arena []TokenPosition) (CacheHeader, *baseSoA
 	b.postIni = make([]int32, totPost+1)
 	if arena != nil {
 		if uint64(len(arena)) != totPos {
-			return h, nil, fmt.Errorf("%w: arena mapeada tem %d posicoes, cabecalho declara %d",
+			return h, nil, fmt.Errorf("%w: arena mapeada tem %d posições, cabeçalho declara %d",
 				ErrCacheCorrupted, len(arena), totPos)
 		}
 		b.pos = arena
@@ -586,7 +586,7 @@ func decodificaCache(dados []byte, arena []TokenPosition) (CacheHeader, *baseSoA
 			return h, nil, l.err
 		}
 		if jPost+int64(nPost) > int64(totPost) {
-			return h, nil, fmt.Errorf("%w: postings alem do total declarado de %d", ErrCacheCorrupted, totPost)
+			return h, nil, fmt.Errorf("%w: postings além do total declarado de %d", ErrCacheCorrupted, totPost)
 		}
 
 		for j := uint64(0); j < nPost; j++ {
@@ -600,7 +600,7 @@ func decodificaCache(dados []byte, arena []TokenPosition) (CacheHeader, *baseSoA
 					ErrCacheCorrupted, pathID, nCaminhos)
 			}
 			if kPos+int64(nPos) > int64(totPos) {
-				return h, nil, fmt.Errorf("%w: posicoes alem do total declarado de %d", ErrCacheCorrupted, totPos)
+				return h, nil, fmt.Errorf("%w: posições além do total declarado de %d", ErrCacheCorrupted, totPos)
 			}
 
 			b.postPath[jPost] = int32(pathID)
@@ -634,7 +634,7 @@ func decodificaCache(dados []byte, arena []TokenPosition) (CacheHeader, *baseSoA
 	// postings do caminho 0 com zero posições — dado inventado com aparência
 	// legítima. É o mesmo motivo de o formato declarar os totais.
 	if jPost != int64(totPost) || kPos != int64(totPos) {
-		return h, nil, fmt.Errorf("%w: corpo trouxe %d postings e %d posicoes, cabecalho declarou %d e %d",
+		return h, nil, fmt.Errorf("%w: corpo trouxe %d postings e %d posições, cabeçalho declarou %d e %d",
 			ErrCacheCorrupted, jPost, kPos, totPost, totPos)
 	}
 

@@ -64,7 +64,7 @@ type TreeResult struct {
 // Nao recebe ctx util: le so o indice em memoria.
 func (s *Service) VaultTree(_ context.Context, req TreeRequest) (TreeResult, error) {
 	if s.index == nil {
-		return TreeResult{}, Errorf(CodeVaultUnavailable, "indice indisponivel")
+		return TreeResult{}, Errorf(CodeVaultUnavailable, "índice indisponível")
 	}
 
 	notes, _ := s.index.List(index.Query{Sort: "path"})
@@ -161,7 +161,7 @@ func acharPasta(pastas map[string]*FolderItem, pedido string) (string, error) {
 	case 1:
 		return casam[0], nil
 	case 0:
-		return "", Errorf(CodeFolderNotFound, "pasta %q nao tem nenhuma nota no cofre", pedido)
+		return "", Errorf(CodeFolderNotFound, "pasta %q não tem nenhuma nota no cofre", pedido)
 	}
 	slices.Sort(casam)
 	return "", Errorf(CodeAmbiguousPath, "pasta %q casa mais de uma pasta: %s", pedido, strings.Join(casam, ", "))

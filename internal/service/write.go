@@ -121,19 +121,19 @@ func (s *Service) CreateNote(ctx context.Context, req CreateNoteRequest) (Create
 	}
 
 	if _, ok := s.index.Get(canonical); ok {
-		return CreateNoteResult{}, Errorf(CodeNoteExists, "nota %q ja existe no cofre", req.Path)
+		return CreateNoteResult{}, Errorf(CodeNoteExists, "nota %q já existe no cofre", req.Path)
 	}
 	if _, err := os.Stat(absPath); err == nil {
-		return CreateNoteResult{}, Errorf(CodeNoteExists, "nota %q ja existe no cofre", req.Path)
+		return CreateNoteResult{}, Errorf(CodeNoteExists, "nota %q já existe no cofre", req.Path)
 	}
 
 	dir := filepath.Dir(absPath)
 	if _, err := os.Stat(dir); os.IsNotExist(err) {
 		if !req.CreateFolders {
-			return CreateNoteResult{}, Errorf(CodeFolderNotFound, "diretorio %q nao existe", filepath.Dir(req.Path))
+			return CreateNoteResult{}, Errorf(CodeFolderNotFound, "diretório %q não existe", filepath.Dir(req.Path))
 		}
 		if err := os.MkdirAll(dir, 0755); err != nil {
-			return CreateNoteResult{}, Errorf(CodeInternal, "criando diretorio %q: %v", dir, err)
+			return CreateNoteResult{}, Errorf(CodeInternal, "criando diretório %q: %v", dir, err)
 		}
 	}
 
@@ -178,7 +178,7 @@ func (s *Service) AppendNote(ctx context.Context, req AppendNoteRequest) (Append
 
 	note, ok := s.index.Get(canonical)
 	if !ok {
-		return AppendNoteResult{}, Errorf(CodeNoteNotFound, "nota %q nao encontrada", req.Path)
+		return AppendNoteResult{}, Errorf(CodeNoteNotFound, "nota %q não encontrada", req.Path)
 	}
 	if note.CloudOnly {
 		return AppendNoteResult{}, Errorf(CodeCloudOnlyFile, "nota %q e apenas online (CloudOnly)", req.Path)
@@ -195,7 +195,7 @@ func (s *Service) AppendNote(ctx context.Context, req AppendNoteRequest) (Append
 
 	currentHash := hashDoConteudo(raw)
 	if req.ExpectedHash != "" && currentHash != req.ExpectedHash {
-		return AppendNoteResult{}, Errorf(CodeHashMismatch, "hash esperado %q nao confere com hash atual %q", req.ExpectedHash, currentHash)
+		return AppendNoteResult{}, Errorf(CodeHashMismatch, "hash esperado %q não confere com hash atual %q", req.ExpectedHash, currentHash)
 	}
 
 	cleaned, hadBOM := vault.StripBOM(raw)
@@ -271,7 +271,7 @@ func (s *Service) PatchNote(ctx context.Context, req PatchNoteRequest) (PatchNot
 	}
 
 	if req.Heading != "" && req.BlockID != "" {
-		return PatchNoteResult{}, Errorf(CodeInvalidArgument, "heading e block_id sao mutuamente exclusivos em note_patch")
+		return PatchNoteResult{}, Errorf(CodeInvalidArgument, "heading e block_id são mutuamente exclusivos em note_patch")
 	}
 
 	canonical, err := s.index.ResolvePath(req.Path)
@@ -281,7 +281,7 @@ func (s *Service) PatchNote(ctx context.Context, req PatchNoteRequest) (PatchNot
 
 	note, ok := s.index.Get(canonical)
 	if !ok {
-		return PatchNoteResult{}, Errorf(CodeNoteNotFound, "nota %q nao encontrada", req.Path)
+		return PatchNoteResult{}, Errorf(CodeNoteNotFound, "nota %q não encontrada", req.Path)
 	}
 	if note.CloudOnly {
 		return PatchNoteResult{}, Errorf(CodeCloudOnlyFile, "nota %q e apenas online (CloudOnly)", req.Path)
@@ -298,7 +298,7 @@ func (s *Service) PatchNote(ctx context.Context, req PatchNoteRequest) (PatchNot
 
 	currentHash := hashDoConteudo(raw)
 	if req.ExpectedHash != "" && currentHash != req.ExpectedHash {
-		return PatchNoteResult{}, Errorf(CodeHashMismatch, "hash esperado %q nao confere com hash atual %q", req.ExpectedHash, currentHash)
+		return PatchNoteResult{}, Errorf(CodeHashMismatch, "hash esperado %q não confere com hash atual %q", req.ExpectedHash, currentHash)
 	}
 
 	cleaned, hadBOM := vault.StripBOM(raw)
@@ -331,7 +331,7 @@ func (s *Service) PatchNote(ctx context.Context, req PatchNoteRequest) (PatchNot
 			if errors.As(err, &bnf) {
 				return PatchNoteResult{}, Errorf(CodeBlockNotFound, "%v", err)
 			}
-			return PatchNoteResult{}, Errorf(CodeBlockNotFound, "bloco %q nao encontrado", req.BlockID)
+			return PatchNoteResult{}, Errorf(CodeBlockNotFound, "bloco %q não encontrado", req.BlockID)
 		}
 		proposed = writer.ReplaceBlockContent(raw, *b, req.Content)
 
@@ -346,7 +346,7 @@ func (s *Service) PatchNote(ctx context.Context, req PatchNoteRequest) (PatchNot
 			if errors.As(err, &hnf) {
 				return PatchNoteResult{}, Errorf(CodeHeadingNotFound, "%v", err)
 			}
-			return PatchNoteResult{}, Errorf(CodeHeadingNotFound, "heading %q nao encontrado", req.Heading)
+			return PatchNoteResult{}, Errorf(CodeHeadingNotFound, "heading %q não encontrado", req.Heading)
 		}
 		// Substitui a partir de h.Start (incluindo o titulo do heading) ate h.End
 		eol := writer.DetectEOL(raw)
@@ -371,7 +371,7 @@ func (s *Service) PatchNote(ctx context.Context, req PatchNoteRequest) (PatchNot
 			if errors.As(err, &hnf) {
 				return PatchNoteResult{}, Errorf(CodeHeadingNotFound, "%v", err)
 			}
-			return PatchNoteResult{}, Errorf(CodeHeadingNotFound, "heading %q nao encontrado", req.Heading)
+			return PatchNoteResult{}, Errorf(CodeHeadingNotFound, "heading %q não encontrado", req.Heading)
 		}
 		proposed = writer.PatchSectionContent(raw, *h, req.Content)
 
@@ -456,16 +456,16 @@ func (s *Service) MoveNote(ctx context.Context, req MoveNoteRequest) (MoveNoteRe
 	}
 
 	if _, ok := s.index.Get(canonicalTo); ok {
-		return MoveNoteResult{}, Errorf(CodeNoteExists, "destino %q ja existe no cofre", req.To)
+		return MoveNoteResult{}, Errorf(CodeNoteExists, "destino %q já existe no cofre", req.To)
 	}
 	if _, err := os.Stat(absTo); err == nil {
-		return MoveNoteResult{}, Errorf(CodeNoteExists, "destino %q ja existe no cofre", req.To)
+		return MoveNoteResult{}, Errorf(CodeNoteExists, "destino %q já existe no cofre", req.To)
 	}
 
 	dirTo := filepath.Dir(absTo)
 	if _, err := os.Stat(dirTo); os.IsNotExist(err) {
 		if !req.CreateFolders {
-			return MoveNoteResult{}, Errorf(CodeFolderNotFound, "diretorio %q nao existe", filepath.Dir(req.To))
+			return MoveNoteResult{}, Errorf(CodeFolderNotFound, "diretório %q não existe", filepath.Dir(req.To))
 		}
 	}
 
@@ -629,7 +629,7 @@ func (s *Service) MoveNote(ctx context.Context, req MoveNoteRequest) (MoveNoteRe
 	// specified" — pego pelos testes de move existentes, nao por leitura.
 	if _, err := os.Stat(dirTo); os.IsNotExist(err) {
 		if err := os.MkdirAll(dirTo, 0755); err != nil {
-			return moveNoteErro(Errorf(CodeInternal, "criando diretorio %q: %v", dirTo, err))
+			return moveNoteErro(Errorf(CodeInternal, "criando diretório %q: %v", dirTo, err))
 		}
 	}
 
@@ -784,7 +784,7 @@ func (s *Service) DeleteNote(ctx context.Context, req DeleteNoteRequest) (Delete
 
 	absPath := s.vault.Abs(canonical)
 	if _, err := os.Stat(absPath); os.IsNotExist(err) {
-		return DeleteNoteResult{}, Errorf(CodeNoteNotFound, "nota %q nao encontrada no disco", req.Path)
+		return DeleteNoteResult{}, Errorf(CodeNoteNotFound, "nota %q não encontrada no disco", req.Path)
 	}
 
 	if req.ToTrash {
@@ -799,7 +799,7 @@ func (s *Service) DeleteNote(ctx context.Context, req DeleteNoteRequest) (Delete
 			return DeleteNoteResult{}, err
 		}
 		if err := os.MkdirAll(filepath.Dir(absTrash), 0755); err != nil {
-			return DeleteNoteResult{}, Errorf(CodeInternal, "criando diretorio lixeira: %v", err)
+			return DeleteNoteResult{}, Errorf(CodeInternal, "criando diretório lixeira: %v", err)
 		}
 		if err := s.moverCorpo(ctx, canonical, trashRel, absTrash); err != nil {
 			return DeleteNoteResult{}, err
@@ -905,8 +905,8 @@ func (s *Service) moverCorpo(ctx context.Context, de, para vault.CanonicalPath, 
 	}
 	if err := os.Remove(absFrom); err != nil {
 		return Errorf(CodeFileLocked,
-			"a nota foi copiada para %q mas a origem %q nao pode ser removida (%v); "+
-				"a nota existe nos dois caminhos ate a origem ser liberada", para, de, err)
+			"a nota foi copiada para %q mas a origem %q não pôde ser removida (%v); "+
+				"a nota existe nos dois caminhos até a origem ser liberada", para, de, err)
 	}
 	return nil
 }

@@ -82,7 +82,7 @@ func (t *TravaDeArquivo) Gravar(conteudo []byte) error {
 // esperando.
 func TentarTravar(path string) (*TravaDeArquivo, bool, error) {
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
-		return nil, false, fmt.Errorf("criando diretorio do lock: %w", err)
+		return nil, false, fmt.Errorf("criando diretório do lock: %w", err)
 	}
 
 	// Sem O_EXCL, de proposito: o arquivo persistir entre execucoes e o

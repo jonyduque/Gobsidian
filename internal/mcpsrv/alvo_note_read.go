@@ -50,7 +50,7 @@ func (a *noteReadAlvo) UnmarshalJSON(data []byte) error {
 	type alvoCru noteReadAlvo
 	var cru alvoCru
 	if err := json.Unmarshal(data, &cru); err != nil {
-		return fmt.Errorf("item de paths nao e string nem objeto: %w", err)
+		return fmt.Errorf("item de paths não é string nem objeto: %w", err)
 	}
 	*a = noteReadAlvo(cru)
 	return nil

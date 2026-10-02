@@ -67,7 +67,7 @@ type achadoQuebrado struct {
 // Nao recebe ctx util: le so o indice em memoria.
 func (s *Service) BrokenLinks(_ context.Context, req BrokenLinksRequest) (BrokenLinksResult, error) {
 	if s.index == nil {
-		return BrokenLinksResult{}, Errorf(CodeVaultUnavailable, "indice indisponivel")
+		return BrokenLinksResult{}, Errorf(CodeVaultUnavailable, "índice indisponível")
 	}
 
 	// Mesma porta de enum das outras tools: um state fora da lista tem de

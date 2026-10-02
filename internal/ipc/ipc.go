@@ -51,7 +51,7 @@ const greetingMaxLen = 128
 // ErrVersionMismatch e a causa especifica de handshake recusado por versao.
 // Exportado para quem quiser distinguir esse caso (por exemplo, para
 // decidir se vale a pena reportar de outro jeito) via errors.Is.
-var ErrVersionMismatch = errors.New("versao do protocolo ipc incompativel")
+var ErrVersionMismatch = errors.New("versão do protocolo ipc incompatível")
 
 // ErrConfigMismatch e a causa especifica de handshake recusado por
 // configuracao divergente -- versao bate, mas ReadOnly ou VaultKey nao
@@ -61,7 +61,7 @@ var ErrVersionMismatch = errors.New("versao do protocolo ipc incompativel")
 // e quem a configurou nao teria como saber (Task 92, perigo 1). A resposta
 // certa nao e negociar -- e recusar o daemon e cair para o modo em
 // processo, que so pode servir a configuracao de quem o esta rodando.
-var ErrConfigMismatch = errors.New("configuracao do daemon diverge da ponte")
+var ErrConfigMismatch = errors.New("configuração do daemon diverge da ponte")
 
 // Conn e o subconjunto de *net.UnixConn que a ponte precisa: ler, escrever,
 // fechar dos dois lados, e meio-fechar so a metade de escrita quando o
@@ -84,7 +84,7 @@ type Conn interface {
 func SocketPath(vaultPath string) (string, error) {
 	dir, err := RuntimeDir()
 	if err != nil {
-		return "", fmt.Errorf("diretorio de runtime do usuario: %w", err)
+		return "", fmt.Errorf("diretório de runtime do usuário: %w", err)
 	}
 	return filepath.Join(dir, config.VaultKey(vaultPath)+".sock"), nil
 }
@@ -104,7 +104,7 @@ func Listen(vaultPath string) (net.Listener, string, error) {
 		return nil, "", err
 	}
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
-		return nil, "", fmt.Errorf("criando diretorio do socket: %w", err)
+		return nil, "", fmt.Errorf("criando diretório do socket: %w", err)
 	}
 	// Provar que o socket e ORFAO antes de remove-lo.
 	//
@@ -140,7 +140,7 @@ func Listen(vaultPath string) (net.Listener, string, error) {
 		return nil, "", err
 	}
 	if AlguemEscuta(path) {
-		return nil, "", fmt.Errorf("ja ha um daemon ativo em %s", path)
+		return nil, "", fmt.Errorf("já há um daemon ativo em %s", path)
 	}
 	if err := cleanupSocketFile(path); err != nil {
 		return nil, "", fmt.Errorf("limpando socket anterior: %w", err)
@@ -247,7 +247,7 @@ func DialAndHandshake(ctx context.Context, vaultPath string, readOnly bool, maxR
 	}
 	if err := raw.SetDeadline(time.Time{}); err != nil {
 		_ = raw.Close()
-		return nil, fmt.Errorf("limpando prazo apos handshake: %w", err)
+		return nil, fmt.Errorf("limpando prazo após handshake: %w", err)
 	}
 
 	conn, ok := raw.(Conn)
@@ -295,15 +295,15 @@ func dialUnix(ctx context.Context, path string) (net.Conn, error) {
 func readGreeting(r io.Reader, want HandshakeConfig) error {
 	line, err := readLine(r, greetingMaxLen)
 	if err != nil {
-		return fmt.Errorf("lendo saudacao do daemon: %w", err)
+		return fmt.Errorf("lendo saudação do daemon: %w", err)
 	}
 	if !strings.HasPrefix(line, greetingPrefix) {
-		return fmt.Errorf("saudacao do daemon invalida: %q", line)
+		return fmt.Errorf("saudação do daemon inválida: %q", line)
 	}
 
 	fields := strings.Fields(strings.TrimPrefix(line, greetingPrefix))
 	if len(fields) == 0 {
-		return fmt.Errorf("saudacao do daemon vazia")
+		return fmt.Errorf("saudação do daemon vazia")
 	}
 
 	version := fields[0]
@@ -313,7 +313,7 @@ func readGreeting(r io.Reader, want HandshakeConfig) error {
 
 	got, err := parseHandshakeFields(fields[1:])
 	if err != nil {
-		return fmt.Errorf("saudacao do daemon malformada: %w", err)
+		return fmt.Errorf("saudação do daemon malformada: %w", err)
 	}
 	if got != want {
 		return fmt.Errorf("%w: ponte quer %+v, daemon oferece %+v", ErrConfigMismatch, want, got)
@@ -340,14 +340,14 @@ func parseHandshakeFields(fields []string) (HandshakeConfig, error) {
 			case "0":
 				cfg.ReadOnly = false
 			default:
-				return HandshakeConfig{}, fmt.Errorf("valor invalido para ro: %q", value)
+				return HandshakeConfig{}, fmt.Errorf("valor inválido para ro: %q", value)
 			}
 		case "vault":
 			cfg.VaultKey = value
 		case "max_results":
 			n, err := strconv.Atoi(value)
 			if err != nil {
-				return HandshakeConfig{}, fmt.Errorf("valor invalido para max_results: %q", value)
+				return HandshakeConfig{}, fmt.Errorf("valor inválido para max_results: %q", value)
 			}
 			cfg.MaxResults = n
 		default:
@@ -378,7 +378,7 @@ func readLine(r io.Reader, maxLen int) (string, error) {
 			return "", err
 		}
 	}
-	return "", fmt.Errorf("linha de saudacao excede %d bytes", maxLen)
+	return "", fmt.Errorf("linha de saudação excede %d bytes", maxLen)
 }
 
 // removerArquivo e renomearArquivo sao os.Remove e os.Rename em variaveis,

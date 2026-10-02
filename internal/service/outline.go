@@ -54,7 +54,7 @@ func (s *Service) Outline(ctx context.Context, req OutlineRequest) (OutlineResul
 
 	note, ok := s.index.Get(canonical)
 	if !ok {
-		return OutlineResult{}, Errorf(CodeNoteNotFound, "nota %q nao encontrada", req.Path)
+		return OutlineResult{}, Errorf(CodeNoteNotFound, "nota %q não encontrada", req.Path)
 	}
 
 	// Somente-nuvem recusa ANTES de qualquer leitura: abrir dispara download

@@ -64,7 +64,7 @@ func UltimasLinhasDoLog(vaultPath string, n int) (linhas []string, existe bool) 
 func pistaDoLog(vaultPath string) string {
 	linhas, existe := UltimasLinhasDoLog(vaultPath, 1)
 	if !existe {
-		return "o log do daemon nao existe: o processo nao chegou a escrever nada (falha de spawn, nao do cofre)"
+		return "o log do daemon não existe: o processo não chegou a escrever nada (falha de spawn, não do cofre)"
 	}
 	if len(linhas) == 0 {
 		return "o log do daemon esta vazio"

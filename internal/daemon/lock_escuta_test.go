@@ -117,8 +117,8 @@ func TestEscutarComLockAbreOSocketEUmSoOuvinte(t *testing.T) {
 		t.Fatal("a segunda chamada abriu um ouvinte com o primeiro de pe: " +
 			"duas instancias serviriam o mesmo cofre, gravando no mesmo cache de busca")
 	}
-	if !strings.Contains(err.Error(), "ja ha um daemon ativo") {
-		t.Errorf("a recusa veio como %q; esperado a de ipc.Listen (\"ja ha um daemon ativo\"), "+
+	if !strings.Contains(err.Error(), "já há um daemon ativo") {
+		t.Errorf("a recusa veio como %q; esperado a de ipc.Listen (\"já há um daemon ativo\"), "+
 			"que e a que prova que o socket tem dono vivo", err)
 	}
 }

@@ -39,7 +39,7 @@ func TestPistaDoLogDistingueAusenteDeMorteNaMontagem(t *testing.T) {
 
 	t.Run("ausente", func(t *testing.T) {
 		pista := pistaDoLog(cofre)
-		if !strings.Contains(pista, "nao existe") {
+		if !strings.Contains(pista, "não existe") {
 			t.Errorf("pista = %q; queria dizer que o log nao existe", pista)
 		}
 		if !strings.Contains(pista, "spawn") {
@@ -53,7 +53,7 @@ func TestPistaDoLogDistingueAusenteDeMorteNaMontagem(t *testing.T) {
 			t.Fatalf("escrevendo log: %v", err)
 		}
 		pista := pistaDoLog(cofre)
-		if strings.Contains(pista, "nao existe") {
+		if strings.Contains(pista, "não existe") {
 			t.Errorf("pista = %q; o log EXISTE neste caso", pista)
 		}
 		if !strings.Contains(pista, "daemon iniciado") {

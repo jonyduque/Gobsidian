@@ -14,7 +14,7 @@ type BlockNotFoundError struct {
 }
 
 func (e *BlockNotFoundError) Error() string {
-	return fmt.Sprintf("bloco ^%s nao encontrado na nota", strings.TrimPrefix(e.BlockID, "^"))
+	return fmt.Sprintf("bloco ^%s não encontrado na nota", strings.TrimPrefix(e.BlockID, "^"))
 }
 
 // AmbiguousBlockError indica colisao de block id (mais de um marcador igual na mesma nota).

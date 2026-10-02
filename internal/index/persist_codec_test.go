@@ -130,8 +130,8 @@ func TestCodecValorTipoNaoSuportadoFalha(t *testing.T) {
 	bw := bufio.NewWriter(&buf)
 	e := &escritor{w: bw}
 	e.value(struct{}{})
-	if e.err == nil || !strings.Contains(e.err.Error(), "tipo nao suportado") {
-		t.Fatalf("struct{}{} devia falhar com \"tipo nao suportado\", tenho %v", e.err)
+	if e.err == nil || !strings.Contains(e.err.Error(), "tipo não suportado") {
+		t.Fatalf("struct{}{} devia falhar com \"tipo não suportado\", tenho %v", e.err)
 	}
 }
 

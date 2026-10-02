@@ -23,7 +23,7 @@ import (
 // 2026-08-24 nenhuma ponte aberta pelo Desktop alcancou o daemon: todas cairam
 // para o modo em processo, e cada uma subiu um daemon que morreu logando
 // `daemon nao pode abrir o socket`.
-var ErrDiretorioSemSocket = errors.New("diretorio de sockets nao aceita conexao neste processo")
+var ErrDiretorioSemSocket = errors.New("diretório de sockets não aceita conexão neste processo")
 
 // sondaDeDiretorio e SondarDiretorioDeSockets numa variavel, para o teste de
 // Listen simular o contexto do host sem precisar do host. Producao nunca a
@@ -42,7 +42,7 @@ var sondaDeDiretorio = SondarDiretorioDeSockets
 // o proprio socket conecta nao diz nada sobre o daemon que talvez esteja la.
 func SondarDiretorioDeSockets(dir string) error {
 	if err := os.MkdirAll(dir, 0o700); err != nil {
-		return fmt.Errorf("%w: %s: criando o diretorio: %w", ErrDiretorioSemSocket, dir, err)
+		return fmt.Errorf("%w: %s: criando o diretório: %w", ErrDiretorioSemSocket, dir, err)
 	}
 	// O nome tem o MESMO comprimento do socket de um cofre (16 caracteres +
 	// ".sock"). O caminho de um AF_UNIX tem pouco mais de 100 bytes, e uma sonda
@@ -66,7 +66,7 @@ func SondarDiretorioDeSockets(dir string) error {
 
 	c, err := net.Dial("unix", caminho)
 	if err != nil {
-		return fmt.Errorf("%w: %s: o socket recem-criado nao aceita conexao: %w", ErrDiretorioSemSocket, dir, err)
+		return fmt.Errorf("%w: %s: o socket recém-criado não aceita conexão: %w", ErrDiretorioSemSocket, dir, err)
 	}
 	_ = c.Close()
 	return nil

@@ -117,7 +117,7 @@ func (ix *Index) Build(ctx context.Context, v *vault.Vault) error {
 	})
 
 	if err := g.Wait(); err != nil {
-		return fmt.Errorf("construindo indice: %w", err)
+		return fmt.Errorf("construindo índice: %w", err)
 	}
 
 	// As tres passadas seguintes dependem do conjunto completo e por isso

@@ -111,7 +111,7 @@ func MigrarChaves(cacheRaiz string, aplicar bool) ([]MigracaoDeChave, error) {
 			continue
 		}
 		if !aplicar {
-			m.Motivo = "simulacao"
+			m.Motivo = "simulação"
 			saida = append(saida, m)
 			continue
 		}
