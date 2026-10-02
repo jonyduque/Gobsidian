@@ -37,18 +37,25 @@ func TestDaemonNoDiretorioAchaSoDaemonVivoDoMesmoCofre(t *testing.T) {
 		}
 	})
 
+	// Caminho NATIVO, com o separador final nativo. Ate 2026-10-01 este caso
+	// escrevia `C:\Cofre` e `c:\cofre\`: no Linux e no macOS a barra invertida
+	// nao e separador, filepath.Clean nao tira a do fim, e o teste reprovou em
+	// TODA execucao do CI desde pelo menos 2026-09-16 -- sem ninguem saber,
+	// porque o gate local so roda em Windows. A outra caixa, que so e a mesma
+	// pasta no Windows, mora em transicao_windows_test.go.
 	t.Run("daemon vivo do mesmo cofre conta, e morto deixa de contar", func(t *testing.T) {
 		dir := t.TempDir()
-		liberar, err := Registrar(dir, `C:\Cofre`, "daemon", ModoDaemon, "v1")
+		cofre := filepath.Join(t.TempDir(), "Cofre")
+		liberar, err := Registrar(dir, cofre, "daemon", ModoDaemon, "v1")
 		if err != nil {
 			t.Fatalf("Registrar(daemon) error = %v", err)
 		}
-		pid, ok := daemonNoDiretorio(dir, `c:\cofre\`)
+		pid, ok := daemonNoDiretorio(dir, cofre+string(filepath.Separator))
 		if !ok || pid != os.Getpid() {
-			t.Fatalf("daemonNoDiretorio() = (%d, %v), esperado (%d, true) -- mesma pasta com outra caixa e barra final", pid, ok, os.Getpid())
+			t.Fatalf("daemonNoDiretorio() = (%d, %v), esperado (%d, true) -- mesma pasta com separador final", pid, ok, os.Getpid())
 		}
 		liberar()
-		if _, ok := daemonNoDiretorio(dir, `C:\Cofre`); ok {
+		if _, ok := daemonNoDiretorio(dir, cofre); ok {
 			t.Fatal("daemon encerrado continuou contando")
 		}
 	})
