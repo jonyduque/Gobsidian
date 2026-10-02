@@ -1001,6 +1001,27 @@ o quarto, que é exatamente o defeito que ela existe para impedir.
   teste de concorrência do recorte passou a cobrar a razão mediana
   concorrente / mediana sequencial ≤ 0,6, medida sob a mesma carga (ver
   `OPERACAO.md`, "o teto de 22 ms virou razão"); os outros dois tetos seguem.
+- ~~**O CI de Linux e macOS estava vermelho desde pelo menos 2026-09-16.**~~
+  **Fechado em 2026-10-01.** `test (ubuntu-latest)` e `test (macos-latest)`
+  reprovaram nas 15 execuções medidas, em
+  `TestDaemonNoDiretorioAchaSoDaemonVivoDoMesmoCofre`: o caso escrevia
+  `C:\Cofre` e `c:\cofre\`, e fora do Windows a barra invertida não é separador,
+  então a barra final não saía no `filepath.Clean`. Nada registrava a falha,
+  porque o gate local (`verify.ps1`) só roda em Windows. O caso passou a usar
+  caminho nativo; a outra caixa, que só é a mesma pasta no Windows, foi para
+  `transicao_windows_test.go`.
+
+  **Observação que fica, não medida:** `instalar.mesmoDiretorio` compara com
+  `strings.EqualFold` em todo sistema, então no Linux e no macOS `/x/Cofre` e
+  `/x/cofre` contam como a mesma pasta, e lá são duas. Custo, se dois cofres
+  diferirem só pela caixa: o daemon de um ser tomado pelo do outro na
+  transição de diretório de runtime. Nenhum cofre real do dono é assim.
+- **O gate de órfãos reprovava 1 de 100 ciclos no cenário `signal`, em 4 de 15
+  execuções do CI desde 2026-09-16.** Causa e conserto em `ARMADILHAS.md`
+  ("O conserto de 2026-09-09 encolheu a janela"): `lifecycle.ArmarSinais` na
+  primeira linha de `main`. A metade do sinal real é provada por
+  `TestSinalRealAntesDoLifecycle`, que só roda fora do Windows; **fechado só
+  quando o CI de Linux confirmar** e o cenário `signal` passar.
 - **O cache de busca de Estudo tem 1,25 GB, e é o texto, não lixo.** Medido em
   2026-10-01 sobre uma cópia do `inverted_cache.gob` (gravado em 2026-09-20,
   4.770 notas): 179.322 termos, 8,45 milhões de postings e **63,6 milhões de

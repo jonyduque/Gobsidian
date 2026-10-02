@@ -64,6 +64,21 @@ função; e `runServe` não faz nada além do logger antes de `servePonte`. A
 segunda recusa até cálculo puro de propósito: "só uma leitura de env" foi como
 o I/O entrou.
 
+**O conserto de 2026-09-09 encolheu a janela, e não a fechou.** O tratador
+continuava nascendo dentro de `lifecycle.New`, e antes dele o processo ainda
+monta a árvore do cobra, carrega a config e, em `servePonte`, disca o daemon,
+sonda o diretório e às vezes sobe um daemon e o espera. Medido em 2026-10-01 no
+histórico do CI: o cenário `signal` reprovou em **4 de 15** execuções desde
+2026-09-16, sempre com "1 de 100 ciclos encerraram sem registrar reason=", e
+duas vezes no mesmo commit em que a outra execução passou. Fechado com
+`lifecycle.ArmarSinais`, chamada na **primeira linha** de `main` para `serve` e
+`daemon`: o sinal vai para um canal com buffer, e o primeiro `lifecycle.New` o
+adota — o que chegou antes dispara `reason=signal` assim que o lifecycle
+existe. `TestMainArmaSinaisAntesDeTudo` lê `main.go` e reprova se a chamada
+deixar de ser o começo de tudo. A lição: **armar o encerramento cedo não é
+"antes do I/O", é antes de tudo** — toda linha entre o começo do processo e o
+tratador é janela, inclusive as que não fazem I/O nenhum.
+
 ---
 
 ## Acesso a arquivo e confinamento

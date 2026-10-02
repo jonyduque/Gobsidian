@@ -17,6 +17,7 @@ import (
 
 	"github.com/jonyduque/Gobsidian/internal/console"
 	"github.com/jonyduque/Gobsidian/internal/instalar"
+	"github.com/jonyduque/Gobsidian/internal/lifecycle"
 	"github.com/jonyduque/Gobsidian/internal/mcpsrv"
 	"github.com/jonyduque/Gobsidian/internal/textos"
 	"github.com/spf13/cobra"
@@ -32,12 +33,22 @@ var (
 )
 
 func main() {
+	// PRIMEIRA coisa do processo, antes de qualquer outra: serve e daemon
+	// capturam os sinais de encerramento ja aqui, e o lifecycle os adota quando
+	// nascer. Ver lifecycle.ArmarSinais para o defeito -- 1 de 100 ciclos do
+	// gate de orfaos morrendo sem reason= -- e por que os outros comandos nao
+	// armam. TestMainArmaSinaisAntesDeTudo cobra que isto continue no topo.
+	servidor := len(os.Args) > 1 && (os.Args[1] == "serve" || os.Args[1] == "daemon")
+	if servidor {
+		lifecycle.ArmarSinais()
+	}
+
 	// Propaga a versao injetada pelo linker para o handshake MCP — sem isso
 	// o cliente ve sempre "dev", mesmo em build de release.
 	mcpsrv.Version = version
 
 	// serve e daemon nao montam os comandos das tools: ver montarFerramentas.
-	if len(os.Args) > 1 && (os.Args[1] == "serve" || os.Args[1] == "daemon") {
+	if servidor {
 		montarFerramentas = false
 	}
 	root := newRootCmd()
